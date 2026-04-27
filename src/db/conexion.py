@@ -1,0 +1,1225 @@
+import os
+import csv
+import json
+import re
+import time
+import logging
+from datetime import datetime
+from contextlib import contextmanager
+from typing import Tuple, Optional, List
+
+import pymysql
+import pymysql.cursors
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
+
+# --- Señales para la interfaz ---
+try:
+    from PyQt6.QtCore import QObject, pyqtSignal
+
+    class StockSignals(QObject):
+        stock_actualizado = pyqtSignal(str)
+
+    stock_signals = StockSignals()
+except Exception:
+
+    class StockSignals:
+        def __init__(self):
+            # Objeto dummy para evitar errores si no hay PyQt6
+            self.stock_actualizado = type("Dummy", (), {"emit": lambda *a: None})()
+
+    stock_signals = StockSignals()
+
+# Configuración de Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("conexion_db")
+
+# --- CONFIGURACIÓN DE MARIADB ---
+DB_CONFIG = {
+    "host": os.getenv("DB_HOST", "127.0.0.1"),
+    "user": os.getenv("DB_USER", "root"),
+    "password": os.getenv("DB_PASSWORD", "admin123"),
+    "database": os.getenv("DB_NAME", "smart_manager_db"),
+    "port": int(os.getenv("DB_PORT", 3306)),
+    "autocommit": True,
+    "charset": "utf8mb4",
+    "cursorclass": pymysql.cursors.Cursor,
+}
+
+# Configurar SSL si está disponible
+ssl_config = {}
+if os.getenv("DB_SSL_CA"):
+    ssl_config["ca"] = os.getenv("DB_SSL_CA")
+if os.getenv("DB_SSL_CERT"):
+    ssl_config["cert"] = os.getenv("DB_SSL_CERT")
+if os.getenv("DB_SSL_KEY"):
+    ssl_config["key"] = os.getenv("DB_SSL_KEY")
+if ssl_config:
+    DB_CONFIG["ssl"] = ssl_config
+
+BOOTSTRAP_SQL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "database", "bootstrap_mariadb.sql"
+)
+
+
+# ============================================================
+# BLOQUE CONEXIÓN Y ARRANQUE DE BASE DE DATOS
+# ============================================================
+
+def _ejecutar_script_sql(cursor, ruta_script: str):
+    """Ejecuta un script SQL simple separado por ';'."""
+    if not os.path.exists(ruta_script):
+        raise FileNotFoundError(f"No existe el script SQL: {ruta_script}")
+
+    with open(ruta_script, "r", encoding="utf-8") as f:
+        contenido = f.read()
+
+    for sentencia in contenido.split(";"):
+        sql = sentencia.strip()
+        if sql:
+            cursor.execute(sql)
+
+
+def asegurar_base_de_datos():
+    """Crea la base y sus tablas mínimas si aún no existen."""
+    conn = None
+    try:
+        config_base = DB_CONFIG.copy()
+        config_base.pop("database", None)
+        conn = pymysql.connect(**config_base)
+        with conn.cursor() as cur:
+            _ejecutar_script_sql(cur, BOOTSTRAP_SQL_PATH)
+        conn.commit()
+        logger.info("Base de datos inicializada automáticamente desde bootstrap.")
+    finally:
+        if conn:
+            conn.close()
+
+
+@contextmanager
+def obtener_conexion():
+    """Proporciona una conexión limpia a MariaDB con manejo de transacciones."""
+    conn = None
+    try:
+        try:
+            conn = pymysql.connect(**DB_CONFIG)
+        except pymysql.err.OperationalError as e:
+            codigo_error = e.args[0] if getattr(e, "args", None) else None
+            if codigo_error == 1049:
+                logger.warning(
+                    "La base de datos no existe todavía. Se intentará crear automáticamente."
+                )
+                asegurar_base_de_datos()
+                conn = pymysql.connect(**DB_CONFIG)
+            else:
+                raise
+        yield conn
+    except Exception as e:
+        logger.error(f"Error crítico de conexión a MariaDB: {e}")
+        raise ConnectionError(f"No se pudo conectar a MariaDB: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+def init_db():
+    """Inicialización centralizada al arranque."""
+    return ensure_schema()
+
+
+# ============================================================
+# BLOQUE ESQUEMA Y MANTENIMIENTO DE BASE DE DATOS
+# ============================================================
+
+def ensure_schema():
+    """Asegura el esquema mínimo global y el de logística."""
+    try:
+        asegurar_base_de_datos()
+        from src.db.logistica import ensure_schema_logistica
+
+        ensure_schema_logistica()
+        logger.info("Esquema global y logístico verificado.")
+        return True
+    except Exception as e:
+        logger.error(f"Error crítico en ensure_schema: {e}")
+        return False
+
+
+def _aplicar_parches(cur):
+    """Mantenimiento interno de columnas faltantes."""
+    parches = {
+        "articulos": [
+            ("estado", "VARCHAR(20) DEFAULT 'activo'"),
+            ("Stock_esperado", "INT DEFAULT 0"),
+        ],
+        "documentos_logisticos": [
+            ("fecha_recepcion", "DATETIME NULL"),
+            ("usuario_receptor", "VARCHAR(100)"),
+        ],
+    }
+    for tabla, cols in parches.items():
+        for col_nombre, definicion in cols:
+            cur.execute(
+                """
+                SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s
+            """,
+                (tabla, col_nombre),
+            )
+            if not cur.fetchone():
+                cur.execute(f"ALTER TABLE {tabla} ADD COLUMN {col_nombre} {definicion}")
+                logger.info(f"Columna {col_nombre} añadida a {tabla}.")
+
+
+def tabla_existe(nombre_tabla: str) -> bool:
+    """Comprueba si existe una tabla en la BD MariaDB."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                query = """
+                    SELECT TABLE_NAME 
+                    FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_SCHEMA = DATABASE() 
+                    AND TABLE_NAME = %s
+                """
+                cur.execute(query, (nombre_tabla,))
+                return bool(cur.fetchone())
+    except Exception:
+        logger.exception(f"Error comprobando si existe la tabla {nombre_tabla}")
+        return False
+
+
+# ============================================================
+# BLOQUE UTILIDADES Y CONFIGURACIÓN
+# ============================================================
+
+def _fila_a_dict(cursor, fila):
+    if fila is None:
+        return None
+    if isinstance(fila, dict):
+        return fila
+    columnas = [desc[0] for desc in (cursor.description or [])]
+    return dict(zip(columnas, fila))
+
+
+def _filas_a_dicts(cursor, filas):
+    if not filas:
+        return []
+    if isinstance(filas[0], dict):
+        return list(filas)
+    columnas = [desc[0] for desc in (cursor.description or [])]
+    return [dict(zip(columnas, fila)) for fila in filas]
+
+
+def formatear_nombre_centro(nombre: str) -> str:
+    """Normaliza nombres de centros a códigos de 4 caracteres (ej. 'Almacén Central' -> 'ALMC')."""
+    if not nombre:
+        return "DESC"
+    n = nombre.upper().strip()
+
+    if any(x in n for x in ["CENTRAL", "ALMC", "LOGÍSTICO", "WAREHOUSE"]):
+        return "ALMC"
+
+    nums = re.findall(r"\d+", n)
+    if nums:
+        prefix = "A" if "ALMACEN" in n or "ALM" in n else "T"
+        return f"{prefix}{nums[0].zfill(3)}"[:4]
+
+    return n.replace(" ", "")[:4]
+
+
+def obtener_configuracion():
+    """Recupera configuración global con aliases compatibles."""
+    defaults = {
+        "nombre_empresa": "SMART MANAGER AI",
+        "codigo_local": "ALMC",
+        "tienda_codigo": "ALMC",
+        "email": "info@smartmanagerai.local",
+    }
+
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, nombre_empresa, codigo_local, email
+                    FROM configuraciones
+                    ORDER BY id ASC
+                    LIMIT 1
+                    """
+                )
+                fila = _fila_a_dict(cur, cur.fetchone())
+                if not fila:
+                    return defaults.copy()
+
+                config = defaults.copy()
+                config.update(fila)
+                config["codigo_local"] = str(
+                    config.get("codigo_local") or defaults["codigo_local"]
+                ).strip()
+                config["tienda_codigo"] = config["codigo_local"]
+                config["nombre_empresa"] = str(
+                    config.get("nombre_empresa") or defaults["nombre_empresa"]
+                ).strip()
+                config["email"] = str(config.get("email") or defaults["email"]).strip()
+                return config
+    except Exception as e:
+        logger.error(f"Error en obtener_configuracion: {e}")
+        return defaults.copy()
+
+
+# ============================================================
+# BLOQUE GESTIÓN DE ARTÍCULOS Y STOCK
+# ============================================================
+
+def obtener_articulo(codigo: str):
+    """Recupera un artículo completo por su código."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM articulos WHERE codigo = %s", (codigo,))
+                return cur.fetchone()
+    except Exception as e:
+        logger.error(f"Error obtener_articulo ({codigo}): {e}")
+        return None
+
+
+def listar_stock() -> List[dict]:
+    """Lista artículos con sus diferentes stocks de MariaDB."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT a.codigo, a.nombre, 
+                           COALESCE(a.Stock_central, 0) AS Stock_central,
+                           COALESCE(a.Stock_total, 0) AS Stock_total,
+                           COALESCE(a.Stock_tienda, 0) AS Stock_tienda,
+                           COALESCE(a.Stock_esperado, 0) AS Stock_esperado
+                    FROM articulos a
+                """
+                )
+                return cur.fetchall()
+    except Exception:
+        logger.exception("Error en listar_stock")
+        return []
+
+
+def articulos_bajo_stock() -> List[dict]:
+    """Devuelve artículos con stock tienda < esperado."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT codigo, nombre, 
+                           COALESCE(Stock_total, 0) AS Stock_total, 
+                           COALESCE(Stock_tienda, 0) AS Stock_tienda, 
+                           COALESCE(Stock_esperado, 0) AS Stock_esperado
+                    FROM articulos
+                    WHERE COALESCE(Stock_tienda, 0) < COALESCE(Stock_esperado, 0)
+                    ORDER BY nombre ASC
+                """
+                )
+                return cur.fetchall()
+    except Exception:
+        logger.exception("Error en articulos_bajo_stock")
+        return []
+
+
+def modificar_stock_completo(
+    codigo: str, stock_central: int, stock_total: int, stock_tienda: int
+) -> bool:
+    """Actualiza los niveles de stock y notifica a la UI."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE articulos 
+                    SET Stock_central = %s, Stock_total = %s, Stock_tienda = %s 
+                    WHERE codigo = %s
+                    """,
+                    (stock_central, stock_total, stock_tienda, codigo),
+                )
+            conn.commit()
+        stock_signals.stock_actualizado.emit(str(codigo))
+        return True
+    except Exception as e:
+        logger.error(f"Error al modificar stock de {codigo}: {e}")
+        return False
+
+
+def descontar_stock(codigo: str, cantidad: int) -> Tuple[bool, int, int]:
+    """
+    Descuenta stock con bloqueo de fila (FOR UPDATE) para evitar condiciones de carrera.
+    Prioriza Stock_central/total y luego Tienda.
+    """
+    for intento in range(3):  # Reintentos en caso de Deadlock
+        try:
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT Stock_total, Stock_tienda FROM articulos WHERE codigo=%s FOR UPDATE",
+                        (codigo,),
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        return False, 0, 0
+
+                    s_total, s_tienda = (
+                        (row[0], row[1])
+                        if not isinstance(row, dict)
+                        else (row["Stock_total"], row["Stock_tienda"])
+                    )
+
+                    if (s_total + s_tienda) < cantidad:
+                        return False, 0, 0
+
+                    desc_tot = min(cantidad, s_total)
+                    desc_tie = cantidad - desc_tot
+
+                    cur.execute(
+                        "UPDATE articulos SET Stock_total = Stock_total - %s, Stock_tienda = Stock_tienda - %s WHERE codigo = %s",
+                        (desc_tot, desc_tie, codigo),
+                    )
+                conn.commit()
+
+            try:
+                stock_signals.stock_actualizado.emit(str(codigo))
+            except Exception:
+                pass
+
+            return True, desc_tot, desc_tie
+        except Exception:
+            time.sleep(0.1)
+            continue
+    return False, 0, 0
+
+
+def sumar_stock_recepcion(codigo: str, cantidad: int):
+    """Incrementa el stock total tras una recepción."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE articulos SET Stock_total = Stock_total + %s, Stock_tienda = Stock_tienda + %s WHERE codigo = %s",
+                    (cantidad, cantidad, codigo),
+                )
+            conn.commit()
+            try:
+                stock_signals.stock_actualizado.emit(str(codigo))
+            except Exception:
+                pass
+        return True
+    except Exception as e:
+        logger.error(f"Error al sumar stock: {e}")
+        return False
+
+
+def set_stock_esperado(codigo: str, nuevo_esperado: int) -> bool:
+    """Actualiza el stock esperado en MariaDB."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE articulos SET Stock_esperado = %s WHERE codigo = %s",
+                    (nuevo_esperado, codigo),
+                )
+        try:
+            from src.gui.mostrar_stock import stock_signals
+            stock_signals.stock_actualizado.emit(str(codigo))
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        logger.error(f"Error set_stock_esperado: {e}")
+        return False
+
+
+def set_ubicacion(codigo: str, pasillo: str, estanteria: str, balda: str):
+    """
+    Inserta o actualiza la ubicación.
+    Requiere UNIQUE KEY en (codigo_articulo, pasillo).
+    """
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                sql = """
+                    INSERT INTO ubicaciones (codigo_articulo, pasillo, estanteria, balda)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE 
+                        estanteria = VALUES(estanteria),
+                        balda = VALUES(balda)
+                """
+                cur.execute(sql, (codigo, pasillo, estanteria, balda))
+        return True
+    except Exception:
+        logger.exception("Error en set_ubicacion")
+        return False
+
+
+# ============================================================
+# BLOQUE VENTAS Y FACTURACIÓN
+# ============================================================
+
+def registrar_venta(
+    codigo: str,
+    cantidad: int,
+    fecha: Optional[str] = None,
+    forma_pago: str = "efectivo",
+    empleado_id: Optional[int] = None,
+    cliente_id: Optional[int] = None,
+    iva: float = 0.0,
+    descuentos: float = 0.0,
+    devoluciones: float = 0.0,
+) -> bool:
+    """Registra una venta simple en MariaDB y actualiza stock."""
+    try:
+        ensure_schema()
+        if fecha is None:
+            fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO ventas (
+                        codigo, cantidad, fecha, total, forma_pago, 
+                        empleado_id, cliente_id, iva, devoluciones, descuentos
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        codigo, cantidad, fecha, 0.0, forma_pago,
+                        empleado_id, cliente_id, iva, devoluciones, descuentos,
+                    ),
+                )
+                cur.execute(
+                    """
+                    UPDATE articulos 
+                    SET Stock_tienda = IF(COALESCE(Stock_tienda, 0) - %s < 0, 0, COALESCE(Stock_tienda, 0) - %s) 
+                    WHERE codigo = %s
+                    """,
+                    (cantidad, cantidad, codigo),
+                )
+        try:
+            stock_signals.stock_actualizado.emit(str(codigo))
+        except Exception:
+            pass
+        return True
+    except Exception:
+        logger.exception("Error en registrar_venta")
+        return False
+
+
+def registrar_venta_con_items(
+    items: List[dict],
+    fecha: Optional[str] = None,
+    forma_pago: str = "efectivo",
+    empleado_id: Optional[int] = None,
+    cliente_id: Optional[int] = None,
+    factura_id: Optional[int] = None,
+) -> Optional[int]:
+    """Registra una venta compleja (varios ítems) en MariaDB."""
+    try:
+        ensure_schema()
+        if fecha is None:
+            fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO ventas (codigo, cantidad, fecha, total, forma_pago, empleado_id, cliente_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    ("TICKET", 0, fecha, 0.0, forma_pago, empleado_id, cliente_id),
+                )
+                venta_id = cur.lastrowid
+                total_acumulado = 0.0
+
+                for it in items:
+                    codigo = it.get("codigo_articulo") or it.get("codigo") or ""
+                    cantidad = int(it.get("cantidad") or 0)
+                    precio = float(it.get("precio_unitario") or 0.0)
+                    subtotal = cantidad * precio
+                    total_acumulado += subtotal
+
+                    cur.execute(
+                        """
+                        INSERT INTO venta_items (venta_id, codigo_articulo, cantidad, precio_unitario, subtotal)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        (venta_id, str(codigo), cantidad, precio, subtotal),
+                    )
+                    cur.execute(
+                        """
+                        UPDATE articulos 
+                        SET Stock_tienda = IF(COALESCE(Stock_tienda, 0) - %s < 0, 0, COALESCE(Stock_tienda, 0) - %s) 
+                        WHERE codigo = %s
+                        """,
+                        (cantidad, cantidad, codigo),
+                    )
+
+                cur.execute(
+                    "UPDATE ventas SET total = %s WHERE id = %s",
+                    (total_acumulado, venta_id),
+                )
+
+        try:
+            for it in items:
+                cod = it.get("codigo_articulo") or it.get("codigo") or ""
+                stock_signals.stock_actualizado.emit(str(cod))
+        except Exception:
+            pass
+        return venta_id
+    except Exception:
+        logger.exception("Error en registrar_venta_con_items")
+        return None
+
+
+def registrar_factura(
+    concepto_items: List[dict],
+    responsable: Optional[str] = None,
+    fecha: Optional[str] = None,
+) -> Optional[int]:
+    """Registra una factura (cabecera + ventas_items) en MariaDB."""
+    try:
+        ensure_schema()
+        if fecha is None:
+            fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO facturas (fecha, total, responsable) VALUES (%s, %s, %s)",
+                    (fecha, 0.0, responsable),
+                )
+                factura_id = cur.lastrowid
+                total_factura = 0.0
+
+                for it in concepto_items:
+                    codigo = it.get("codigo_articulo") or it.get("codigo")
+                    nombre = it.get("nombre") or ""
+                    cantidad = int(it.get("cantidad") or 0)
+                    precio = float(it.get("precio_unitario") or 0.0)
+                    subtotal = cantidad * precio
+                    total_factura += subtotal
+
+                    cur.execute(
+                        """
+                        INSERT INTO ventas_items (factura_id, codigo_articulo, nombre, cantidad, precio_unitario, subtotal)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (factura_id, codigo, nombre, cantidad, precio, subtotal),
+                    )
+                    if codigo:
+                        cur.execute(
+                            """
+                            UPDATE articulos 
+                            SET Stock_tienda = IF(COALESCE(Stock_tienda, 0) - %s < 0, 0, COALESCE(Stock_tienda, 0) - %s) 
+                            WHERE codigo = %s
+                            """,
+                            (cantidad, cantidad, codigo),
+                        )
+
+                cur.execute(
+                    "UPDATE facturas SET total = %s WHERE id = %s",
+                    (total_factura, factura_id),
+                )
+                return factura_id
+    except Exception:
+        logger.exception("Error registrar_factura")
+        return None
+
+
+def ventas_semana(codigo_articulo: str) -> int:
+    """Devuelve el total de ventas del artículo en los últimos 7 días."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT SUM(cantidad)
+                    FROM ventas
+                    WHERE codigo = %s 
+                      AND fecha >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                """,
+                    (codigo_articulo,),
+                )
+                resultado = cur.fetchone()
+                if resultado:
+                    total = (
+                        resultado["SUM(cantidad)"]
+                        if isinstance(resultado, dict)
+                        else resultado[0]
+                    )
+                    return int(total) if total else 0
+                return 0
+    except Exception:
+        logger.exception("Error en ventas_semana")
+        return 0
+
+
+def obtener_ventas_por_hora(fecha=None):
+    """Devuelve un diccionario: {hora: total_ventas}."""
+    import datetime as dt_module
+
+    if fecha is None:
+        fecha = dt_module.datetime.now().strftime("%Y-%m-%d")
+
+    horas = {hora: 0 for hora in range(8, 23)}
+
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 
+                        HOUR(fecha) AS hora, 
+                        COUNT(*) AS total 
+                    FROM ventas 
+                    WHERE DATE(fecha) = %s
+                    GROUP BY hora
+                """,
+                    (fecha,),
+                )
+                for row in cur.fetchall():
+                    hora = row["hora"]
+                    total = row["total"]
+                    if 8 <= hora <= 22:
+                        horas[hora] = total
+    except Exception as e:
+        logger.error(f"Error en obtener_ventas_por_hora: {e}")
+
+    return horas
+
+
+def importar_ventas_desde_csv(ruta_csv: str) -> bool:
+    """Importa ventas desde CSV y registra cada una en MariaDB."""
+    try:
+        if not os.path.exists(ruta_csv):
+            logger.warning(f"Archivo CSV no encontrado: {ruta_csv}")
+            return False
+
+        with open(ruta_csv, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader, None)  # Saltar cabecera
+            for row in reader:
+                if len(row) < 2 or not row[0]:
+                    continue
+                try:
+                    codigo = row[0].strip()
+                    cantidad = int(row[1])
+                    registrar_venta(codigo, cantidad)
+                except ValueError:
+                    continue
+
+        logger.info(f"Ventas importadas exitosamente desde: {ruta_csv}")
+        return True
+    except Exception:
+        logger.exception("Error importar_ventas_desde_csv")
+        return False
+
+
+def obtener_ventas_ia():
+    """Función especial para la IA Prophet."""
+    try:
+        with obtener_conexion() as conn:
+            import pandas as pd
+            query = "SELECT fecha, codigo, cantidad FROM ventas"
+            df = pd.read_sql_query(query, conn)
+            return df
+    except Exception as e:
+        logger.error(f"Error en obtener_ventas_ia: {e}")
+        return None
+
+
+# ============================================================
+# BLOQUE FACTURACIÓN DIARIA (LOG DE EXPORTES)
+# ============================================================
+
+def log_facturacion_export(
+    fecha_iso: str,
+    empresa: str,
+    tienda: str,
+    responsable: str,
+    total_efectivo: float,
+    total_tarjeta: float,
+    total: float,
+    ruta_pdf: str,
+) -> Optional[int]:
+    """Inserta un registro en facturacion_diaria_log y devuelve el ID insertado."""
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO facturacion_diaria_log (
+                        fecha, empresa, tienda, responsable, 
+                        total_efectivo, total_tarjeta, total, ruta_pdf
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                    (fecha_iso, empresa, tienda, responsable, total_efectivo, total_tarjeta, total, ruta_pdf),
+                )
+                return cur.lastrowid
+    except Exception:
+        logger.exception("Error en log_facturacion_export")
+        return None
+
+
+def listar_facturacion_diaria_logs(limit: int = 200) -> List[dict]:
+    """Devuelve los registros de facturacion_diaria_log (más recientes primero)."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 
+                        id, fecha, empresa, tienda, responsable, 
+                        total_efectivo, total_tarjeta, total, 
+                        ruta_pdf, fecha_exportacion
+                    FROM facturacion_diaria_log
+                    ORDER BY fecha_exportacion DESC
+                    LIMIT %s
+                """,
+                    (limit,),
+                )
+                return cur.fetchall()
+    except Exception:
+        logger.exception("Error en listar_facturacion_diaria_logs")
+        return []
+
+
+def eliminar_facturacion_log_por_ruta(ruta_pdf: str) -> bool:
+    """
+    Elimina el registro de facturacion_diaria_log asociado a la ruta
+    y borra el archivo físico del disco si existe.
+    """
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM facturacion_diaria_log WHERE ruta_pdf = %s",
+                    (ruta_pdf,),
+                )
+        try:
+            if ruta_pdf and os.path.exists(ruta_pdf):
+                os.remove(ruta_pdf)
+                logger.info(f"Archivo físico eliminado: {ruta_pdf}")
+        except Exception as e:
+            logger.warning(f"Registro en DB borrado, pero no se pudo borrar el PDF: {e}")
+        return True
+    except Exception:
+        logger.exception("Error crítico en eliminar_facturacion_log_por_ruta")
+        return False
+
+
+# ============================================================
+# BLOQUE GESTIÓN DE TRASPASOS LOGÍSTICOS
+# ============================================================
+
+def registrar_traspaso(*args, **kwargs):
+    """
+    Compatibilidad con la firma antigua, delegando en la nueva capa logística.
+    Devuelve un dict con metadata útil en éxito o False en error.
+    """
+    try:
+        from src.db.logistica import guardar_traspaso_logistico
+
+        if kwargs.get("pales"):
+            return guardar_traspaso_logistico(
+                origen=kwargs.get("origen"),
+                destino=kwargs.get("destino"),
+                usuario=kwargs.get("usuario"),
+                agencia=kwargs.get("agencia"),
+                observaciones=kwargs.get("observaciones"),
+                pales=kwargs.get("pales"),
+                id_documento=kwargs.get("id_documento"),
+                fecha_envio=kwargs.get("fecha_envio"),
+            )
+
+        if args and len(args) >= 9:
+            (
+                id_traspaso, origen, destino, usuario, articulos,
+                agencia, observaciones, fecha_envio, pesos_pales,
+            ) = args[:9]
+        else:
+            id_traspaso = kwargs.get("id_traspaso") or kwargs.get("id_documento")
+            origen = kwargs.get("origen")
+            destino = kwargs.get("destino")
+            usuario = kwargs.get("usuario")
+            articulos = kwargs.get("articulos", [])
+            agencia = kwargs.get("agencia")
+            observaciones = kwargs.get("observaciones")
+            fecha_envio = kwargs.get("fecha_envio") or kwargs.get("fecha")
+            pesos_pales = kwargs.get("pesos_pales", {})
+
+        pales = _normalizar_pales_desde_articulos(articulos, pesos_pales)
+        return guardar_traspaso_logistico(
+            origen=origen, destino=destino, usuario=usuario, agencia=agencia,
+            observaciones=observaciones, pales=pales,
+            id_documento=id_traspaso, fecha_envio=fecha_envio,
+        )
+    except Exception as e:
+        logger.error(f"Error en registrar_traspaso: {e}")
+        return False
+
+
+def cancelar_traspaso_seguro(id_documento: str) -> bool:
+    """Cancela un traspaso solo si el usuario activo es ADMINISTRADOR."""
+    from src.db.usuario import sesion_global
+
+    if not sesion_global.es_admin():
+        logger.warning(
+            f"Intento de cancelación no autorizado por: {sesion_global.obtener_nombre()}"
+        )
+        return False
+    return cancelar_traspaso(id_documento)
+
+
+def cancelar_traspaso(id_documento: str) -> bool:
+    """Cancela un traspaso 'PENDIENTE' y devuelve el stock a los artículos."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT estado FROM documentos_logisticos WHERE id_documento = %s",
+                    (id_documento,),
+                )
+                res = cur.fetchone()
+                if not res or res["estado"] != "PENDIENTE":
+                    logger.warning(f"No se puede cancelar {id_documento}: No encontrado o ya procesado.")
+                    return False
+
+                cur.execute(
+                    "SELECT codigo_articulo AS codigo, cantidad_enviada AS cantidad FROM documentos_logisticos_lineas WHERE id_documento = %s",
+                    (id_documento,),
+                )
+                items = cur.fetchall()
+
+                for item in items:
+                    cur.execute(
+                        "UPDATE articulos SET Stock_total = Stock_total + %s WHERE codigo = %s",
+                        (item["cantidad"], item["codigo"]),
+                    )
+                    stock_signals.stock_actualizado.emit(item["codigo"])
+
+                cur.execute(
+                    "UPDATE documentos_logisticos SET estado = 'CANCELADO', observaciones = CONCAT(COALESCE(observaciones,''), ' | Cancelado el ', NOW()) WHERE id_documento = %s",
+                    (id_documento,),
+                )
+            conn.commit()
+            logger.info(f"Traspaso {id_documento} cancelado con éxito.")
+            return True
+    except Exception as e:
+        logger.error(f"Error al cancelar traspaso {id_documento}: {e}")
+        return False
+
+
+def registrar_recepcion_completa(id_traspaso, proveedor, usuario, items):
+    """Compatibilidad para recepciones antiguas sobre el nuevo esquema."""
+    try:
+        return procesar_recepcion_logistica(
+            id_pale_escaneado=id_traspaso,
+            centro_receptor=proveedor,
+            usuario_receptor=usuario,
+            items_a_recibir=items,
+        )
+    except Exception as e:
+        logger.error(f"Error en registrar_recepcion_completa: {e}")
+        return False
+
+
+def registrar_pale(pale_codigo, proveedor, fecha, items, id_traspaso=None, observaciones=""):
+    """Compatibilidad ligera para la API antigua de palés."""
+    try:
+        resultado = registrar_traspaso(
+            id_documento=id_traspaso,
+            origen=proveedor,
+            destino=proveedor,
+            usuario="SISTEMA",
+            articulos=items,
+            agencia="PROPIA",
+            observaciones=observaciones,
+            fecha_envio=fecha,
+            pesos_pales={str(pale_codigo): None},
+        )
+        return bool(resultado)
+    except Exception as e:
+        logger.error(f"Error en registrar_pale: {e}")
+        return False
+
+
+def registrar_pale_entrada(id_pale, codigo_articulo, cantidad):
+    """Registra la entrada de un palé."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO pale_items (id_pale, codigo, cantidad) VALUES (%s, %s, %s)",
+                    (id_pale, codigo_articulo, cantidad),
+                )
+            return True
+    except Exception as e:
+        logger.error(f"Error registrando palé: {e}")
+        return False
+
+
+# ============================================================
+# BLOQUE GENERACIÓN DE IDENTIFICADORES LOGÍSTICOS
+# ============================================================
+
+def generar_id_documento(tipo_doc="TRA"):
+    """Genera un ID correlativo: TRA-2026-00001."""
+    anio_actual = datetime.now().year
+    prefix = f"{tipo_doc}-{anio_actual}-"
+
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id_documento FROM documentos_logisticos WHERE id_documento LIKE %s ORDER BY id_documento DESC LIMIT 1",
+                    (f"{prefix}%",),
+                )
+                row = cur.fetchone()
+
+                if row:
+                    try:
+                        ultimo_num = int(row["id_documento"].split("-")[-1])
+                        nuevo_num = ultimo_num + 1
+                    except Exception:
+                        nuevo_num = 1
+                else:
+                    nuevo_num = 1
+
+                return f"{prefix}{nuevo_num:05d}"
+    except Exception as e:
+        logger.error(f"Error generando ID: {e}")
+        return f"{prefix}{int(time.time()) % 10000:05d}"
+
+
+def generar_id_logistico(origen: str, destino: str, flujo: str) -> Tuple[str, int]:
+    """Genera ID robusto: [ORIGEN]-[Flujo+Secuencial]-[DESTINO]-[YYYY]."""
+    hoy = datetime.now()
+    anio = hoy.year
+    orig_code = formatear_nombre_centro(origen)
+    dest_code = formatear_nombre_centro(destino)
+
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                patron = f"{orig_code}-{flujo}%-{dest_code}-{anio}"
+                cur.execute(
+                    "SELECT id_documento FROM documentos_logisticos WHERE id_documento LIKE %s ORDER BY id_documento DESC LIMIT 1",
+                    (patron,),
+                )
+                res = cur.fetchone()
+
+                ultimo_val = 0
+                if res:
+                    val_id = res[0]
+                    match = re.search(rf"-{flujo}(\d+)-", val_id)
+                    if match:
+                        ultimo_val = int(match.group(1))
+
+                nueva_seq = ultimo_val + 1
+                id_final = f"{orig_code}-{flujo}{nueva_seq:03d}-{dest_code}-{anio}"
+                return id_final, nueva_seq
+    except Exception as e:
+        logger.error(f"Error generando ID: {e}")
+        return f"{orig_code}-ERR-000", 0
+
+
+def generar_id_traspaso(origen: str, destino: str):
+    from src.db.logistica import generar_id_traspaso as _generar_id_traspaso_nuevo
+    return _generar_id_traspaso_nuevo(origen, destino)
+
+
+def registrar_linea_detalle(cursor, id_traspaso, id_pale, codigo, descripcion, cantidad, peso_bulto=0.0):
+    """Registra una línea individual de producto en documentos_logisticos_lineas."""
+    try:
+        id_visual = str(id_pale).split("-")[-1] if "-" in str(id_pale) else str(id_pale)
+        cursor.execute(
+            """
+            INSERT INTO documentos_logisticos_lineas (
+                id_documento, id_pale, id_visual, codigo_articulo, nombre_articulo, cantidad_enviada, peso_bulto
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (str(id_traspaso), str(id_pale), id_visual, str(codigo), str(descripcion), int(cantidad), float(peso_bulto)),
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error en registrar_linea_detalle: {e}")
+        raise e
+
+
+# ============================================================
+# BLOQUE CONSULTAS LOGÍSTICAS (HISTORIAL, PALES, TRAZABILIDAD)
+# ============================================================
+
+def obtener_historial_traspasos(estado_filtro="PENDIENTE", texto_filtro=""):
+    from src.db.logistica import (
+        obtener_historial_traspasos as _obtener_historial_traspasos_nuevo,
+    )
+    return _obtener_historial_traspasos_nuevo(estado_filtro, texto_filtro)
+
+
+def obtener_trazabilidad_logistica(
+    origen: Optional[str] = None,
+    destino: Optional[str] = None,
+    busqueda: str = "",
+):
+    from src.db.logistica import (
+        obtener_trazabilidad_logistica as _obtener_trazabilidad_logistica_nueva,
+    )
+    return _obtener_trazabilidad_logistica_nueva(origen, destino, busqueda)
+
+
+def obtener_pales_por_documento_logistico(id_documento: str, busqueda: str = ""):
+    from src.db.logistica import (
+        obtener_pales_por_documento_logistico as _obtener_pales_por_documento_nuevo,
+    )
+    return _obtener_pales_por_documento_nuevo(id_documento, busqueda)
+
+
+def obtener_items_por_pale_logistico(id_pale: str, busqueda: str = ""):
+    from src.db.logistica import (
+        obtener_items_por_pale_logistico as _obtener_items_por_pale_nuevo,
+    )
+    return _obtener_items_por_pale_nuevo(id_pale, busqueda)
+
+
+def obtener_items_pale_traspaso(id_pale_buscado):
+    from src.db.logistica import (
+        obtener_items_pale_traspaso as _obtener_items_pale_traspaso_nuevo,
+    )
+    return _obtener_items_pale_traspaso_nuevo(id_pale_buscado)
+
+
+def obtener_items_pale(id_pale):
+    return obtener_items_por_pale_logistico(id_pale)
+
+
+def obtener_documento_logistico_completo(id_documento: str):
+    from src.db.logistica import (
+        obtener_documento_logistico_completo as _obtener_documento_logistico_completo_nuevo,
+    )
+    return _obtener_documento_logistico_completo_nuevo(id_documento)
+
+
+def procesar_recepcion_logistica(
+    id_pale_escaneado: str,
+    centro_receptor: str,
+    usuario_receptor: str,
+    items_a_recibir: list,
+):
+    from src.db.logistica import (
+        procesar_recepcion_logistica as _procesar_recepcion_logistica_nueva,
+    )
+    return _procesar_recepcion_logistica_nueva(
+        id_pale_escaneado=id_pale_escaneado,
+        centro_receptor=centro_receptor,
+        usuario_receptor=usuario_receptor,
+        items_a_recibir=items_a_recibir,
+    )
+
+
+def obtener_destinos_traspaso():
+    """Devuelve destinos disponibles desde tablas maestras."""
+    destinos = []
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                for tabla in ("almacen", "tiendas"):
+                    if not tabla_existe(tabla):
+                        continue
+                    cur.execute(
+                        f"SELECT nombre FROM {tabla} WHERE COALESCE(activo, 1) = 1 ORDER BY nombre ASC"
+                    )
+                    for fila in cur.fetchall():
+                        nombre = str(
+                            fila[0] if not isinstance(fila, dict) else fila["nombre"]
+                        ).strip()
+                        if nombre and nombre not in destinos:
+                            destinos.append(nombre)
+    except Exception as e:
+        logger.error(f"Error en obtener_destinos_traspaso: {e}")
+
+    return destinos or ["ALMACEN CENTRAL", "TIENDA 01", "TIENDA 02", "TIENDA 03"]
+
+
+# ============================================================
+# BLOQUE AUDITORÍA
+# ============================================================
+
+def log_auditoria(
+    usuario: str,
+    accion: str,
+    tabla_afectada: str = None,
+    detalles: str = None,
+    ip_origen: str = None,
+):
+    """Registra una acción en la tabla de auditoría."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO auditoria_logs (usuario, accion, tabla_afectada, detalles, ip_origen) VALUES (%s, %s, %s, %s, %s)",
+                    (usuario, accion, tabla_afectada, detalles, ip_origen),
+                )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Error al registrar auditoría: {e}")
+
+
+# ============================================================
+# BLOQUE UTILIDADES INTERNAS (NORMALIZACIÓN DE PALÉS)
+# ============================================================
+
+def _normalizar_pales_desde_articulos(articulos, pesos_pales=None):
+    pesos_pales = pesos_pales or {}
+    pales = {}
+
+    for articulo in articulos or []:
+        if isinstance(articulo, dict):
+            codigo = str(articulo.get("codigo") or "").strip().upper()
+            nombre = str(articulo.get("nombre") or codigo).strip()
+            cantidad = int(articulo.get("cantidad") or 0)
+            id_visual = (
+                str(
+                    articulo.get("pale")
+                    or articulo.get("id_visual_pale")
+                    or articulo.get("id_visual")
+                    or "PALE1"
+                )
+                .upper()
+                .replace(" ", "")
+            )
+        else:
+            codigo = str(articulo[0] or "").strip().upper()
+            nombre = str(articulo[1] or codigo).strip()
+            cantidad = int(articulo[2] or 0)
+            id_visual = "PALE1"
+
+        if not codigo or cantidad <= 0:
+            continue
+
+        pale = pales.setdefault(
+            id_visual,
+            {
+                "id_visual": id_visual,
+                "peso": pesos_pales.get(id_visual),
+                "articulos": [],
+            },
+        )
+        pale["articulos"].append(
+            {"codigo": codigo, "nombre": nombre, "cantidad": cantidad}
+        )
+
+    return pales

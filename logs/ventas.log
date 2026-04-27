@@ -1,0 +1,1599 @@
+2025-11-01 18:14:08,547 [ERROR] No se pudo exportar la predicción
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1177, in exportar_prediccion_ventas
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT date(fecha) as d, COALESCE(SUM(total),0) as total
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        ORDER BY d
+        ^^^^^^^^^^
+    """, (fecha_inicio,))
+    ^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: total
+2025-11-01 18:14:13,418 [ERROR] Error poblando dropdowns buscador
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 869, in _populate_dropdowns
+    cur.execute("SELECT DISTINCT empleado FROM ventas WHERE empleado IS NOT NULL AND empleado <> ''")
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: empleado
+2025-11-01 18:15:19,254 [ERROR] No se pudo exportar la predicción
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1177, in exportar_prediccion_ventas
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT date(fecha) as d, COALESCE(SUM(total),0) as total
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        ORDER BY d
+        ^^^^^^^^^^
+    """, (fecha_inicio,))
+    ^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: total
+2025-11-01 18:15:40,296 [ERROR] No se pudo exportar la predicción
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1177, in exportar_prediccion_ventas
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT date(fecha) as d, COALESCE(SUM(total),0) as total
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        ORDER BY d
+        ^^^^^^^^^^
+    """, (fecha_inicio,))
+    ^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: total
+2025-11-01 18:15:50,120 [ERROR] No se pudo exportar la predicción
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1177, in exportar_prediccion_ventas
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT date(fecha) as d, COALESCE(SUM(total),0) as total
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        ORDER BY d
+        ^^^^^^^^^^
+    """, (fecha_inicio,))
+    ^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: total
+2025-11-01 18:16:00,541 [ERROR] Error poblando dropdowns buscador
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 869, in _populate_dropdowns
+    cur.execute("SELECT DISTINCT empleado FROM ventas WHERE empleado IS NOT NULL AND empleado <> ''")
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: empleado
+2025-11-01 18:31:59,475 [ERROR] No se pudo exportar la predicción
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1177, in exportar_prediccion_ventas
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT date(fecha) as d, COALESCE(SUM(total),0) as total
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        ORDER BY d
+        ^^^^^^^^^^
+    """, (fecha_inicio,))
+    ^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: total
+2025-11-01 20:18:57,150 [INFO] Se añadió columna faltante a ventas: numero_caja
+2025-11-01 20:18:57,155 [INFO] Se añadió columna faltante a ventas: total_efectivo
+2025-11-01 20:18:57,161 [INFO] Se añadió columna faltante a ventas: total_tarjeta
+2025-11-01 20:18:57,166 [INFO] Se añadió columna faltante a ventas: empresa
+2025-11-01 20:18:57,171 [INFO] Se añadió columna faltante a ventas: tienda
+2025-11-01 20:18:57,171 [INFO] Esquema DB asegurado correctamente.
+2025-11-01 20:19:07,821 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-01 20:19:07,948 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-01 20:19:08,036 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-01 20:19:08,069 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-01 20:32:15,169 [INFO] Esquema DB asegurado correctamente.
+2025-11-01 20:32:29,695 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-01 20:32:29,817 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-01 20:32:29,882 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-01 20:32:29,898 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-01 20:32:57,883 [INFO] Esquema DB asegurado correctamente.
+2025-11-01 20:57:31,453 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-01 20:57:31,572 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-01 20:57:31,580 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-01 20:57:31,595 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-01 20:59:26,968 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-01 20:59:27,080 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-01 20:59:27,087 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-01 21:00:29,191 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-01 21:00:29,303 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-01 21:00:29,312 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-01 21:02:14,701 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-01 21:02:14,823 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-01 21:02:14,832 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-01 21:02:42,969 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-01 21:02:43,089 [DEBUG] TBB already found in load path
+2025-11-01 21:02:43,094 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-01 21:02:43,104 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-01 21:02:43,150 [INFO] Exportado PDF de facturación diaria: C:\Users\moass\Desktop\360-stock\documentos\facturacion_diaria_2025-11-01_210242.pdf
+2025-11-01 22:05:36,587 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-01 22:05:36,709 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-01 22:05:36,717 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-01 22:05:36,732 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-01 22:09:59,305 [INFO] Busqueda avanzada - filtros: {'codigo_ticket': None, 'codigo_articulo': None, 'fecha_from': '2025-11-01', 'fecha_to': '2025-11-01', 'hora_from': None, 'hora_to': None, 'empleado': 'Todos', 'numero_caja': 'Todas', 'forma_pago': 'Todos', 'min_total': None, 'max_total': None}
+2025-11-01 22:10:00,357 [INFO] Busqueda avanzada - filtros: {'codigo_ticket': None, 'codigo_articulo': None, 'fecha_from': '2025-11-01', 'fecha_to': '2025-11-01', 'hora_from': None, 'hora_to': None, 'empleado': 'Todos', 'numero_caja': 'Todas', 'forma_pago': 'Todos', 'min_total': None, 'max_total': None}
+2025-11-01 22:10:00,620 [INFO] Busqueda avanzada - filtros: {'codigo_ticket': None, 'codigo_articulo': None, 'fecha_from': '2025-11-01', 'fecha_to': '2025-11-01', 'hora_from': None, 'hora_to': None, 'empleado': 'Todos', 'numero_caja': 'Todas', 'forma_pago': 'Todos', 'min_total': None, 'max_total': None}
+2025-11-01 22:10:02,526 [INFO] Busqueda avanzada - filtros: {'codigo_ticket': None, 'codigo_articulo': None, 'fecha_from': '2025-11-01', 'fecha_to': '2025-11-01', 'hora_from': None, 'hora_to': None, 'empleado': 'Todos', 'numero_caja': 'Todas', 'forma_pago': 'Todos', 'min_total': None, 'max_total': None}
+2025-11-01 22:37:30,035 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-01 22:37:30,153 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-01 22:37:30,161 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-01 22:37:30,176 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-02 18:30:49,963 [ERROR] Watcher poll error
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 433, in _poll_loop
+    if p.exists() and p.is_dir():
+       ~~~~~~~~^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\pathlib\_abc.py", line 450, in exists
+    self.stat(follow_symlinks=follow_symlinks)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\pathlib\_local.py", line 515, in stat
+    return os.stat(self, follow_symlinks=follow_symlinks)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [WinError 64] El nombre de red especificado ya no está disponible: '\\\\SERVIDOR\\Central\\Visuales_Tienda'
+2025-11-02 20:44:12,066 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1275, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 20:44:29,963 [ERROR] Error exportar_prediccion_ventas_drive
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1286, in exportar_prediccion_ventas_drive
+    ruta, url = self._generar_prediccion_y_subir()
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1353, in _generar_prediccion_y_subir
+    file_id = find_file_in_folder(folder_drive, nombre_excel)
+TypeError: find_file_in_folder() missing 1 required positional argument: 'file_name'
+2025-11-02 20:45:30,305 [ERROR] Error exportar_prediccion_ventas_drive
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1286, in exportar_prediccion_ventas_drive
+    ruta, url = self._generar_prediccion_y_subir()
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1353, in _generar_prediccion_y_subir
+    file_id = find_file_in_folder(folder_drive, nombre_excel)
+TypeError: find_file_in_folder() missing 1 required positional argument: 'file_name'
+2025-11-02 20:50:04,809 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1281, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 20:52:23,585 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1283, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 21:33:42,061 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1318, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 21:41:19,579 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1318, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:15:59,018 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1318, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:16:02,109 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1318, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:19:31,047 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:22:08,719 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:22:16,575 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:22:18,622 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:23:07,520 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:23:21,123 [INFO] Received token response with no refresh_token. Consider reauthenticating with prompt='consent'.
+2025-11-02 22:23:21,124 [INFO] Successfully retrieved access token
+2025-11-02 22:26:44,601 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:31:57,573 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:36:36,942 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:42:03,607 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 22:50:40,953 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 23:22:18,419 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 23:22:20,164 [ERROR] Error exportar_prediccion_ventas_drive
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1373, in exportar_prediccion_ventas_drive
+    creds = get_credentials(parent_widget=parent_widget)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 164, in get_credentials
+    mostrar_alerta_automatica(parent_widget,
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+                              "No se encontró 'client_secrets.json' junto a ventas.py.\n"
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                              "Coloca el archivo descargado desde Google Cloud en la misma carpeta", "error")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 223, in mostrar_alerta_automatica
+    msg = QMessageBox(parent)
+TypeError: arguments did not match any overloaded call:
+  QMessageBox(parent: Optional[QWidget] = None): argument 1 has unexpected type 'bool'
+  QMessageBox(icon: QMessageBox.Icon, title: Optional[str], text: Optional[str], buttons: QMessageBox.StandardButton = QMessageBox.NoButton, parent: Optional[QWidget] = None, flags: Qt.WindowType = Qt.Dialog|Qt.MSWindowsFixedSizeDialogHint): argument 1 has unexpected type 'bool'
+2025-11-02 23:25:15,549 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 23:25:22,529 [ERROR] Error exportar_prediccion_ventas_drive
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1373, in exportar_prediccion_ventas_drive
+    creds = get_credentials(parent_widget=parent_widget)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 167, in get_credentials
+    raise FileNotFoundError("client_secrets.json no encontrado")
+FileNotFoundError: client_secrets.json no encontrado
+2025-11-02 23:26:12,519 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 23:26:22,732 [INFO] "GET /?state=wE0ROFEszSGKoyma7tNFam9zbswpXG&code=4/0Ab32j939TUxeytOER1S7ABbpMAKSOBlXaekH5fa1lXD_2a5s5Se-SJN64OW4v8nBC9BaTw&scope=https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/drive HTTP/1.1" 200 65
+2025-11-02 23:26:25,647 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-02 23:26:25,778 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-02 23:26:25,804 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-02 23:26:25,853 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-02 23:27:05,524 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-02 23:27:09,143 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-02 23:27:09,261 [DEBUG] TBB already found in load path
+2025-11-02 23:27:09,266 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-02 23:27:09,278 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-02 23:27:09,280 [DEBUG] input tempfile: C:\Users\moass\AppData\Local\Temp\tmptox9hzno\89poi8oy.json
+2025-11-02 23:27:09,283 [DEBUG] input tempfile: C:\Users\moass\AppData\Local\Temp\tmptox9hzno\d5r9p1ad.json
+2025-11-02 23:27:09,291 [DEBUG] idx 0
+2025-11-02 23:27:09,291 [DEBUG] running CmdStan, num_threads: None
+2025-11-02 23:27:09,291 [DEBUG] CmdStan args: ['C:\\Users\\moass\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\prophet\\stan_model\\prophet_model.bin', 'random', 'seed=70549', 'data', 'file=C:\\Users\\moass\\AppData\\Local\\Temp\\tmptox9hzno\\89poi8oy.json', 'init=C:\\Users\\moass\\AppData\\Local\\Temp\\tmptox9hzno\\d5r9p1ad.json', 'output', 'file=C:\\Users\\moass\\AppData\\Local\\Temp\\tmptox9hzno\\prophet_modelk9oq8sav\\prophet_model-20251102232709.csv', 'method=optimize', 'algorithm=newton', 'iter=10000']
+2025-11-02 23:27:09,291 [INFO] Chain [1] start processing
+2025-11-02 23:27:10,020 [INFO] Chain [1] done processing
+2025-11-03 21:42:57,850 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 21:43:51,944 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 21:44:39,954 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 21:44:46,410 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-03 21:44:46,545 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-03 21:44:46,569 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-03 21:44:46,605 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-03 21:44:46,610 [DEBUG] input tempfile: C:\Users\moass\AppData\Local\Temp\tmplvh7zp1y\z_stsimi.json
+2025-11-03 21:44:46,613 [DEBUG] input tempfile: C:\Users\moass\AppData\Local\Temp\tmplvh7zp1y\ecse_52t.json
+2025-11-03 21:44:46,616 [DEBUG] idx 0
+2025-11-03 21:44:46,616 [DEBUG] running CmdStan, num_threads: None
+2025-11-03 21:44:46,617 [DEBUG] CmdStan args: ['C:\\Users\\moass\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\prophet\\stan_model\\prophet_model.bin', 'random', 'seed=69635', 'data', 'file=C:\\Users\\moass\\AppData\\Local\\Temp\\tmplvh7zp1y\\z_stsimi.json', 'init=C:\\Users\\moass\\AppData\\Local\\Temp\\tmplvh7zp1y\\ecse_52t.json', 'output', 'file=C:\\Users\\moass\\AppData\\Local\\Temp\\tmplvh7zp1y\\prophet_modelv0zabetx\\prophet_model-20251103214446.csv', 'method=optimize', 'algorithm=newton', 'iter=10000']
+2025-11-03 21:44:46,617 [INFO] Chain [1] start processing
+2025-11-03 21:44:47,356 [INFO] Chain [1] done processing
+2025-11-03 21:45:20,602 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:07:15,747 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:09:49,931 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1348, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:16:47,282 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1358, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:20:01,685 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1358, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:34:42,873 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1382, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:35:39,849 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1382, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:36:01,777 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1382, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:36:55,268 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1382, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:37:48,081 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1382, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-03 22:58:35,986 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1388, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-04 10:25:56,216 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1398, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-04 10:41:59,772 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1393, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-04 10:59:00,060 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1393, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-04 10:59:02,918 [INFO] PDF de facturación diaria generado correctamente: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-04_105902.pdf
+2025-11-04 10:59:04,517 [INFO] PDF generado correctamente: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-04_105902.pdf
+2025-11-04 11:00:03,881 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1393, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-04 11:00:11,050 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-04 11:00:11,192 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-04 11:00:11,213 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-04 11:00:11,249 [INFO] n_changepoints greater than number of observations. Using 23.
+2025-11-04 11:00:11,254 [DEBUG] input tempfile: C:\Users\moass\AppData\Local\Temp\tmpo3hvun_l\33coy3ki.json
+2025-11-04 11:00:11,258 [DEBUG] input tempfile: C:\Users\moass\AppData\Local\Temp\tmpo3hvun_l\q5g74uue.json
+2025-11-04 11:00:11,261 [DEBUG] idx 0
+2025-11-04 11:00:11,261 [DEBUG] running CmdStan, num_threads: None
+2025-11-04 11:00:11,261 [DEBUG] CmdStan args: ['C:\\Users\\moass\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\prophet\\stan_model\\prophet_model.bin', 'random', 'seed=83021', 'data', 'file=C:\\Users\\moass\\AppData\\Local\\Temp\\tmpo3hvun_l\\33coy3ki.json', 'init=C:\\Users\\moass\\AppData\\Local\\Temp\\tmpo3hvun_l\\q5g74uue.json', 'output', 'file=C:\\Users\\moass\\AppData\\Local\\Temp\\tmpo3hvun_l\\prophet_modelyvnpu4ej\\prophet_model-20251104110011.csv', 'method=optimize', 'algorithm=newton', 'iter=10000']
+2025-11-04 11:00:11,262 [INFO] Chain [1] start processing
+2025-11-04 11:00:12,288 [INFO] Chain [1] done processing
+2025-11-04 11:00:36,151 [INFO] PDF de facturación diaria generado correctamente: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-04_110036.pdf
+2025-11-04 11:00:39,667 [INFO] PDF generado correctamente: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-04_110036.pdf
+2025-11-04 11:11:31,345 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1393, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-04 11:11:35,079 [INFO] PDF de facturación diaria generado correctamente: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-04_111135.pdf
+2025-11-04 11:11:35,921 [INFO] PDF generado correctamente: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-04_111135.pdf
+2025-11-04 22:46:38,154 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1629, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-04 22:46:41,787 [ERROR] Error en resumen ventas
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2046, in _abrir_resumen_ventas
+    datos = resumen_ventas(from_date, to_date)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1126, in resumen_ventas
+    cur.execute(query, params)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: v.online
+2025-11-04 22:46:52,846 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1629, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-04 22:46:56,188 [ERROR] Error en resumen ventas
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2046, in _abrir_resumen_ventas
+    datos = resumen_ventas(from_date, to_date)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1126, in resumen_ventas
+    cur.execute(query, params)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: v.online
+2025-11-05 21:56:34,547 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1629, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-05 21:56:52,037 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1629, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-05 21:56:58,050 [DEBUG] cmd: where.exe tbb.dll
+cwd: None
+2025-11-05 21:56:58,171 [DEBUG] Adding TBB (C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\prophet\stan_model\cmdstan-2.33.1\stan\lib\stan_math\lib\tbb) to PATH
+2025-11-05 21:56:58,197 [INFO] Disabling yearly seasonality. Run prophet with yearly_seasonality=True to override this.
+2025-11-05 21:56:58,251 [DEBUG] input tempfile: C:\Users\moass\AppData\Local\Temp\tmp0s4eq5n3\n8l7ue4a.json
+2025-11-05 21:56:58,254 [DEBUG] input tempfile: C:\Users\moass\AppData\Local\Temp\tmp0s4eq5n3\tvptn732.json
+2025-11-05 21:56:58,260 [DEBUG] idx 0
+2025-11-05 21:56:58,260 [DEBUG] running CmdStan, num_threads: None
+2025-11-05 21:56:58,260 [DEBUG] CmdStan args: ['C:\\Users\\moass\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\prophet\\stan_model\\prophet_model.bin', 'random', 'seed=2172', 'data', 'file=C:\\Users\\moass\\AppData\\Local\\Temp\\tmp0s4eq5n3\\n8l7ue4a.json', 'init=C:\\Users\\moass\\AppData\\Local\\Temp\\tmp0s4eq5n3\\tvptn732.json', 'output', 'file=C:\\Users\\moass\\AppData\\Local\\Temp\\tmp0s4eq5n3\\prophet_modelly6fij06\\prophet_model-20251105215658.csv', 'method=optimize', 'algorithm=newton', 'iter=10000']
+2025-11-05 21:56:58,260 [INFO] Chain [1] start processing
+2025-11-05 21:56:59,199 [INFO] Chain [1] done processing
+2025-11-05 23:33:13,047 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1703, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-05 23:34:05,019 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x000002036670C5E0>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 567, in exportar_facturacion_diaria_pdf
+    logo = ImageReader(logo_path)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 655, in __init__
+    annotateException('\nfileName=%r identity=%s'%(fileName,self.identity()))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 1176, in annotateException
+    rl_reraise(t,t(sep.join((_ for _ in (msg,str(v),postMsg) if _))),b)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 138, in rl_reraise
+    raise v.with_traceback(b)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: 
+fileName='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png' identity=[ImageReader@0x20366682060 filename='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png'] cannot identify image file <_io.BytesIO object at 0x000002036670C5E0>
+2025-11-05 23:34:12,469 [WARNING] El PDF de facturación diaria no se generó correctamente.
+2025-11-07 09:14:01,956 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1703, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 09:14:10,014 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x000002594B2E3880>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 567, in exportar_facturacion_diaria_pdf
+    logo = ImageReader(logo_path)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 655, in __init__
+    annotateException('\nfileName=%r identity=%s'%(fileName,self.identity()))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 1176, in annotateException
+    rl_reraise(t,t(sep.join((_ for _ in (msg,str(v),postMsg) if _))),b)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 138, in rl_reraise
+    raise v.with_traceback(b)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: 
+fileName='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png' identity=[ImageReader@0x2594b25f4d0 filename='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png'] cannot identify image file <_io.BytesIO object at 0x000002594B2E3880>
+2025-11-07 09:15:08,905 [WARNING] El PDF de facturación diaria no se generó correctamente.
+2025-11-07 09:56:01,385 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 09:57:39,808 [WARNING] El PDF de facturación diaria no se generó correctamente.
+2025-11-07 10:00:31,738 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 10:00:40,298 [WARNING] El PDF de facturación diaria no se generó correctamente.
+2025-11-07 10:02:25,160 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 10:05:54,810 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 10:08:11,433 [WARNING] El PDF de facturación diaria no se generó correctamente.
+2025-11-07 10:09:02,327 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 10:09:12,026 [WARNING] El PDF de facturación diaria no se generó correctamente.
+2025-11-07 10:09:52,713 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 10:10:04,377 [WARNING] El PDF de facturación diaria no se generó correctamente.
+2025-11-07 10:11:29,995 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 10:13:04,807 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 10:16:48,058 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 10:17:09,060 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 10:21:49,386 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1819, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 11:08:27,605 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1704, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 12:22:06,654 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1770, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 12:22:41,205 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1770, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 12:22:48,183 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x0000020AEAD2BD30>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 584, in exportar_facturacion_diaria_pdf
+    logo = ImageReader(logo_path)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 655, in __init__
+    annotateException('\nfileName=%r identity=%s'%(fileName,self.identity()))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 1176, in annotateException
+    rl_reraise(t,t(sep.join((_ for _ in (msg,str(v),postMsg) if _))),b)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 138, in rl_reraise
+    raise v.with_traceback(b)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: 
+fileName='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png' identity=[ImageReader@0x20aeac86e40 filename='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png'] cannot identify image file <_io.BytesIO object at 0x0000020AEAD2BD30>
+2025-11-07 12:23:07,669 [WARNING] El PDF de facturación diaria no se generó correctamente.
+2025-11-07 12:32:39,298 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1770, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 12:51:50,916 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1854, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 12:52:05,262 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1854, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 13:00:00,256 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1853, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-07 13:00:02,187 [ERROR] Error al abrir historial de facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2300, in abrir_historial_facturacion
+    ventana_historial = VentanaHistorialFacturacion(self)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 710, in __init__
+    self.cargar_datos()
+    ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 733, in cargar_datos
+    cur.execute(query, params)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: facturacion_diaria_log
+2025-11-08 19:40:45,932 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1853, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 19:42:02,916 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x0000018E10017150>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 595, in exportar_facturacion_diaria_pdf
+    logo = ImageReader(logo_path)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 655, in __init__
+    annotateException('\nfileName=%r identity=%s'%(fileName,self.identity()))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 1176, in annotateException
+    rl_reraise(t,t(sep.join((_ for _ in (msg,str(v),postMsg) if _))),b)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 138, in rl_reraise
+    raise v.with_traceback(b)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: 
+fileName='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png' identity=[ImageReader@0x18e0ff37380 filename='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png'] cannot identify image file <_io.BytesIO object at 0x0000018E10017150>
+2025-11-08 20:55:46,220 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2005, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 20:55:48,557 [ERROR] Error al abrir historial de facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2454, in abrir_historial_facturacion
+    ventana_historial = HistorialFacturacionDiaria(self)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 797, in __init__
+    self.cargar_historial()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 847, in cargar_historial
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT fecha, empresa, tienda, responsable, efectivo, tarjeta, total, ruta_pdf
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        FROM facturacion_diaria_log
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ORDER BY fecha DESC
+        ^^^^^^^^^^^^^^^^^^^
+    """)
+    ^^^^
+sqlite3.OperationalError: no such column: efectivo
+2025-11-08 20:56:27,752 [ERROR] Error al abrir historial de facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2454, in abrir_historial_facturacion
+    ventana_historial = HistorialFacturacionDiaria(self)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 797, in __init__
+    self.cargar_historial()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 847, in cargar_historial
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT fecha, empresa, tienda, responsable, efectivo, tarjeta, total, ruta_pdf
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        FROM facturacion_diaria_log
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ORDER BY fecha DESC
+        ^^^^^^^^^^^^^^^^^^^
+    """)
+    ^^^^
+sqlite3.OperationalError: no such column: efectivo
+2025-11-08 21:01:37,084 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2005, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 21:01:51,511 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x000002A67BFB8400>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 595, in exportar_facturacion_diaria_pdf
+    logo = ImageReader(logo_path)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 655, in __init__
+    annotateException('\nfileName=%r identity=%s'%(fileName,self.identity()))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 1176, in annotateException
+    rl_reraise(t,t(sep.join((_ for _ in (msg,str(v),postMsg) if _))),b)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 138, in rl_reraise
+    raise v.with_traceback(b)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: 
+fileName='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png' identity=[ImageReader@0x2a67beff0e0 filename='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png'] cannot identify image file <_io.BytesIO object at 0x000002A67BFB8400>
+2025-11-08 21:11:38,536 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2048, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 21:13:29,643 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2005, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 21:23:55,261 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2042, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 21:29:25,435 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2044, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 21:30:06,508 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2044, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 21:44:57,859 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2097, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 21:51:49,761 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2077, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 21:59:37,554 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2077, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 21:59:38,689 [ERROR] Error al abrir historial de facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2526, in abrir_historial_facturacion
+    ventana_historial = HistorialFacturacionDiaria(self)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 760, in __init__
+    self.estilo_boton(self.btn_filtrar)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 824, in estilo_boton
+    self.cargar_historial()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 881, in cargar_historial
+    self.mostrar_registros(registros)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 885, in mostrar_registros
+    self.tabla.setRowCount(0)
+    ^^^^^^^^^^
+AttributeError: 'HistorialFacturacionDiaria' object has no attribute 'tabla'
+2025-11-08 22:01:19,457 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2077, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:01:20,611 [ERROR] Error al abrir historial de facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2526, in abrir_historial_facturacion
+    ventana_historial = HistorialFacturacionDiaria(self)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 760, in __init__
+    self.estilo_boton(self.btn_filtrar)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 824, in estilo_boton
+    self.cargar_historial()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 881, in cargar_historial
+    self.mostrar_registros(registros)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 885, in mostrar_registros
+    self.tabla.setRowCount(0)
+    ^^^^^^^^^^
+AttributeError: 'HistorialFacturacionDiaria' object has no attribute 'tabla'
+2025-11-08 22:05:13,078 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2078, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:05:14,122 [ERROR] Error al abrir historial de facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2527, in abrir_historial_facturacion
+    ventana_historial = HistorialFacturacionDiaria(self)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 760, in __init__
+    self.estilo_boton(self.btn_filtrar)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 949, in estilo_boton
+    self.cargar_historial()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 851, in cargar_historial
+    self.mostrar_registros(registros)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 855, in mostrar_registros
+    self.tabla.setRowCount(0)
+    ^^^^^^^^^^
+AttributeError: 'HistorialFacturacionDiaria' object has no attribute 'tabla'
+2025-11-08 22:09:47,052 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2078, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:11:00,359 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2078, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:11:13,498 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x000002D4214E89A0>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 595, in exportar_facturacion_diaria_pdf
+    logo = ImageReader(logo_path)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 655, in __init__
+    annotateException('\nfileName=%r identity=%s'%(fileName,self.identity()))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 1176, in annotateException
+    rl_reraise(t,t(sep.join((_ for _ in (msg,str(v),postMsg) if _))),b)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 138, in rl_reraise
+    raise v.with_traceback(b)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: 
+fileName='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png' identity=[ImageReader@0x2d4214330e0 filename='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png'] cannot identify image file <_io.BytesIO object at 0x000002D4214E89A0>
+2025-11-08 22:26:15,896 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2140, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:44:16,716 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2159, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:46:53,858 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2107, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:51:16,150 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2106, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:54:15,684 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2117, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:56:15,758 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2137, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 22:56:16,646 [ERROR] Error poblando dropdowns buscador
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 1139, in _populate_dropdowns
+    if e not in [self.combo_empleado.itemText(i) for i in range(self.combo_empleado.count())]:
+                                                                ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'VentanaResumenVentas' object has no attribute 'combo_empleado'
+2025-11-08 23:19:45,338 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2189, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 23:32:43,355 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2107, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 23:33:53,366 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2107, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 23:35:09,804 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2107, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 23:38:08,404 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2106, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-08 23:47:29,396 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2103, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 17:03:35,655 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2103, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 17:13:27,985 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2063, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 17:13:53,836 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2063, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 17:23:42,924 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2065, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 17:25:19,407 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2067, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 17:31:20,168 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2111, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 17:32:16,872 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x0000029DEA632480>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 595, in exportar_facturacion_diaria_pdf
+    logo = ImageReader(logo_path)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 655, in __init__
+    annotateException('\nfileName=%r identity=%s'%(fileName,self.identity()))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 1176, in annotateException
+    rl_reraise(t,t(sep.join((_ for _ in (msg,str(v),postMsg) if _))),b)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 138, in rl_reraise
+    raise v.with_traceback(b)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: 
+fileName='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png' identity=[ImageReader@0x29dea608690 filename='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png'] cannot identify image file <_io.BytesIO object at 0x0000029DEA632480>
+2025-11-09 18:01:53,533 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2143, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 18:04:45,435 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2143, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 18:07:04,886 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2143, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 18:07:16,435 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x000002B6C1899440>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 595, in exportar_facturacion_diaria_pdf
+    logo = ImageReader(logo_path)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 655, in __init__
+    annotateException('\nfileName=%r identity=%s'%(fileName,self.identity()))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 1176, in annotateException
+    rl_reraise(t,t(sep.join((_ for _ in (msg,str(v),postMsg) if _))),b)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 138, in rl_reraise
+    raise v.with_traceback(b)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: 
+fileName='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png' identity=[ImageReader@0x2b6c17a74d0 filename='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png'] cannot identify image file <_io.BytesIO object at 0x000002B6C1899440>
+2025-11-09 18:27:34,837 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2204, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 18:34:42,781 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 18:42:11,729 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 18:44:12,807 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 18:51:00,124 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 18:56:15,166 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:00:52,222 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:01:32,392 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:02:10,911 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:02:56,827 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:04:49,120 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:06:32,722 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:12:09,887 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:13:56,068 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2227, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:14:16,385 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x000001EBB7249350>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 595, in exportar_facturacion_diaria_pdf
+    logo = ImageReader(logo_path)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 655, in __init__
+    annotateException('\nfileName=%r identity=%s'%(fileName,self.identity()))
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 1176, in annotateException
+    rl_reraise(t,t(sep.join((_ for _ in (msg,str(v),postMsg) if _))),b)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 138, in rl_reraise
+    raise v.with_traceback(b)
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 649, in __init__
+    self._image = self._read_image(self.fp)
+                  ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\reportlab\lib\utils.py", line 666, in _read_image
+    return Image.open(fp)
+           ~~~~~~~~~~^^^^
+  File "C:\Users\moass\AppData\Local\Programs\Python\Python313\Lib\site-packages\PIL\Image.py", line 3580, in open
+    raise UnidentifiedImageError(msg)
+PIL.UnidentifiedImageError: 
+fileName='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png' identity=[ImageReader@0x1ebb7261a90 filename='C:\\Users\\moass\\Desktop\\360-stock\\assets\\logo_360stock.png'] cannot identify image file <_io.BytesIO object at 0x000001EBB7249350>
+2025-11-09 19:21:23,767 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2234, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:41:53,177 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2234, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 19:41:58,966 [INFO] \u2705 Facturación diaria registrada y PDF generado: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-09_194157.pdf
+2025-11-09 19:44:53,861 [INFO] \u2705 Facturación diaria registrada y PDF generado: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-09_194452.pdf
+2025-11-09 20:04:54,800 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2234, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 20:24:18,124 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2185, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 20:24:26,863 [INFO] \u2705 Facturación diaria registrada y PDF generado: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-09_202425.pdf
+2025-11-09 20:25:59,087 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2185, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 20:30:14,296 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2185, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 20:34:46,586 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2183, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 20:34:48,016 [ERROR] Error al abrir historial de facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2632, in abrir_historial_facturacion
+    ventana_historial = HistorialFacturacionDiaria(self)
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 779, in __init__
+    self.btn_exportar.clicked.connect(self.exportar_facturacion_actual)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'HistorialFacturacionDiaria' object has no attribute 'exportar_facturacion_actual'
+2025-11-09 20:45:19,158 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2184, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 20:45:28,233 [INFO] \u2705 Facturación diaria registrada y PDF generado: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-09_204526.pdf
+2025-11-09 21:01:34,073 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2144, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 21:01:42,061 [INFO] \u2705 Facturación diaria registrada y PDF generado: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-09_210140.pdf
+2025-11-09 21:09:37,089 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2131, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 21:09:43,115 [INFO] \u2705 Facturación diaria registrada y PDF generado: C:\Users\moass\Desktop\360-stock\documentos\facturacion\facturacion_diaria_2025-11-09_210941.pdf
+2025-11-09 21:38:42,888 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2108, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 21:39:01,469 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 637, in exportar_facturacion_actual
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT
+        ^^^^^^
+    ...<9 lines>...
+        AND (? IS NULL OR tienda = ?)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    """, (empresa, empresa, tienda, tienda))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: iva
+2025-11-09 21:43:23,287 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2119, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 21:43:27,546 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 637, in exportar_facturacion_actual
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT
+        ^^^^^^
+    ...<9 lines>...
+        AND (? IS NULL OR tienda = ?)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    """, (empresa, empresa, tienda, tienda))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: iva
+2025-11-09 21:50:10,626 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2119, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 21:50:13,683 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 637, in exportar_facturacion_actual
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT
+        ^^^^^^
+    ...<9 lines>...
+        AND (? IS NULL OR tienda = ?)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    """, (empresa, empresa, tienda, tienda))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: iva
+2025-11-09 21:53:01,982 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2119, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 21:53:04,898 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 637, in exportar_facturacion_actual
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT
+        ^^^^^^
+    ...<9 lines>...
+        AND (? IS NULL OR tienda = ?)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    """, (empresa, empresa, tienda, tienda))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: iva
+2025-11-09 21:59:19,284 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2119, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 21:59:21,385 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 637, in exportar_facturacion_actual
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT
+        ^^^^^^
+    ...<9 lines>...
+        AND (? IS NULL OR tienda = ?)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    """, (empresa, empresa, tienda, tienda))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: iva
+2025-11-09 22:08:02,848 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2154, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-09 22:08:05,672 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 672, in exportar_facturacion_actual
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT
+        ^^^^^^
+    ...<9 lines>...
+        AND (? IS NULL OR tienda = ?)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    """, (empresa, empresa, tienda, tienda))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: iva
+2025-11-12 21:05:34,682 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2154, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-12 21:06:04,446 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 672, in exportar_facturacion_actual
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT
+        ^^^^^^
+    ...<9 lines>...
+        AND (? IS NULL OR tienda = ?)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    """, (empresa, empresa, tienda, tienda))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: iva
+2025-11-12 21:10:24,604 [ERROR] Error iniciando watchers
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 2154, in _init_watchers
+    self.watcher_docs = FolderWatcher(os.path.join(os.getcwd(), "documentos"), callback=lambda c, f, p: handle_new_file(c, f, p, parent_window=self))
+                        ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: FolderWatcher.__init__() missing 1 required positional argument: 'carpeta_name'
+2025-11-12 21:10:27,160 [ERROR] \u274c Error al generar facturación diaria
+Traceback (most recent call last):
+  File "C:\Users\moass\Desktop\360-stock\src\gui\ventas.py", line 672, in exportar_facturacion_actual
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+        SELECT
+        ^^^^^^
+    ...<9 lines>...
+        AND (? IS NULL OR tienda = ?)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    """, (empresa, empresa, tienda, tienda))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: iva
