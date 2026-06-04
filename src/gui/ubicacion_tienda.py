@@ -1,79 +1,102 @@
-import qrcode
+import heapq
+import json
 import math
+import os
 import shutil
-from reportlab.pdfgen import canvas
-from reportlab.lib.units import cm
-from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QLabel,
-    QPushButton,
-    QMenu,
-    QLineEdit,
-    QMessageBox,
-    QListWidgetItem,
-    QCompleter,
-    QGraphicsLineItem,
-    QListWidget,
-    QGraphicsItem,
-    QGraphicsScene,
-    QTextEdit,
-    QMainWindow,
-    QTabWidget,
-    QGridLayout,
-    QHBoxLayout,
-    QGraphicsView,
-    QGraphicsPixmapItem,
-    QGraphicsScene,
-    QStackedWidget,
-    QFrame,
-    QDialog,
-    QApplication,
-    QFileDialog,
-    QComboBox,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QInputDialog,
-)
+import zlib
+from datetime import datetime
+
+import cv2
+import numpy as np
+import qrcode
+from PyQt6.QtCore import QDateTime, QEvent, QLineF, QPointF, Qt, QTimer
 from PyQt6.QtGui import (
-    QFont,
-    QColor,
-    QIcon,
     QAction,
-    QShortcut,
+    QBrush,
+    QColor,
+    QCursor,
+    QFont,
+    QImage,
     QKeySequence,
     QPainter,
     QPen,
-    QBrush,
-    QWheelEvent,
-    QCursor,
+    QPixmap,
+    QShortcut,
 )
-from PyQt6.QtCore import Qt, QSize, QPointF, QLineF, QDateTime, QEvent
-import heapq
-import os
-import numpy as np
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-import json
-from datetime import datetime
-import zlib
-import base64
-from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QImage, QPixmap
-import cv2
+from PyQt6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QCompleter,
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QGraphicsItem,
+    QGraphicsLineItem,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QStackedWidget,
+    QTextEdit,
+    QTreeWidget,
+    QVBoxLayout,
+    QWidget,
+)
 from pyzbar import pyzbar
-
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
+from reportlab.pdfgen import canvas
 
 # Busca tus imports y añade este:
 from src.db.conexion import obtener_conexion
+from src.utils import i18n
+from src.utils.i18n import tr
+
 try:
     from assets.estilo_global import aplicar_estilo_widget, construir_plantilla_camara
 except Exception:
     aplicar_estilo_widget = None
     construir_plantilla_camara = None
 
+
+class _NeonZoomBtn(QPushButton):
+    """Zoom button that paints — or + with neon cyan strokes, like _NeonSymbolButton."""
+
+    def __init__(self, symbol, parent=None):
+        super().__init__("", parent)
+        self._symbol = symbol
+        self.setFixedSize(55, 38)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(
+            "QPushButton { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 8px; }"
+            " QPushButton:hover { background-color: #00FFC6; }"
+        )
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        clr = QColor("#0D1117") if self.underMouse() else QColor("#00FFC6")
+        p.setPen(QPen(clr, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        cx, cy = self.width() // 2, self.height() // 2
+        arm = 8
+        p.drawLine(cx - arm, cy, cx + arm, cy)
+        if self._symbol == "+":
+            p.drawLine(cx, cy - arm, cx, cy + arm)
+        p.end()
+
+
+# ============================================================
+# BLOQUE VENTANA PRINCIPAL DE UBICACIÓN
+# ============================================================
 
 class UbicacionTiendaWindow(QMainWindow):
 
@@ -93,6 +116,7 @@ class UbicacionTiendaWindow(QMainWindow):
         self.destino_gps_activo = None
         self.planta_actual = 0
         self.cambios_sin_guardar = False
+        self._startup_complete = False
         self._bloqueo_navegacion = False
         self._historial_por_planta = {}
         self._snapshot_pre_calibracion = None
@@ -111,9 +135,8 @@ class UbicacionTiendaWindow(QMainWindow):
         self.ratio_px_m_v = 1.0
         self.pixmap_item = None  # Referencia única del fondo para ambos visores
 
-        from PyQt6.QtWidgets import QGraphicsScene
         from PyQt6.QtCore import Qt, QTimer
-        from PyQt6.QtGui import QKeySequence, QShortcut
+        from PyQt6.QtWidgets import QGraphicsScene
 
         # 3. ESCENA ÚNICA (Sincronización Total)
         self.escena_compartida = QGraphicsScene()
@@ -167,6 +190,14 @@ class UbicacionTiendaWindow(QMainWindow):
         # 8. ESTADO DE CALIBRACIÓN
         self.calibracion_completada = False
 
+        # 9. CARGA AUTOMÁTICA DEL PLANO GUARDADO (Arranque)
+        # Delay amplio para que los visores tengan tamaño real antes del primer fitInView
+        QTimer.singleShot(500, self._cargar_primera_planta_disponible)
+
+    # ============================================================
+    # BLOQUE UTILIDADES INTERNAS Y HELPERS
+    # ============================================================
+
     def _estado_planta(self, planta_idx=None):
         planta_idx = self.planta_actual if planta_idx is None else planta_idx
         return self._historial_por_planta.setdefault(
@@ -184,12 +215,272 @@ class UbicacionTiendaWindow(QMainWindow):
             self._labels_planta.append(label)
         self._actualizar_labels_planta()
 
+    def _cargar_primera_planta_disponible(self):
+        """On startup, always reset to plant 0 so the calibration button state is clean."""
+        self._startup_complete = False
+        self.planta_actual = 0
+        self._actualizar_labels_planta()
+        self.cargar_infraestructura_registrada()
+        # Mark startup window closed after 2 s so the debug trace stops firing
+        from PyQt6.QtCore import QTimer as _QT3
+        _QT3.singleShot(2000, lambda: setattr(self, "_startup_complete", True))
+
     def _actualizar_labels_planta(self):
+        p_idx = getattr(self, "planta_actual", 0)
+        display = tr("ubic.no_plan", default="SIN PLANO")
+        try:
+            from src.db.conexion import obtener_conexion
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT COALESCE(tipo,'LOCAL'), titulo_plano "
+                        "FROM configuracion_mapa WHERE planta_index=%s",
+                        (p_idx,),
+                    )
+                    row = cur.fetchone()
+            if row:
+                tipo = (row[0] or "LOCAL").upper()
+                titulo = (row[1] or "").strip()
+                display = f"{tipo}: {titulo}" if titulo else tipo
+        except Exception:
+            pass
+
+        texto = f"📍 {display}"
         for label in list(self._labels_planta):
             try:
-                label.setText(f"📍 PLANTA {self.planta_actual}")
+                label.setText(texto)
             except RuntimeError:
                 self._labels_planta.remove(label)
+
+        for attr in ("lbl_planta_actual", "lbl_planta_actual_gps"):
+            lbl = getattr(self, attr, None)
+            if lbl:
+                try:
+                    lbl.setText(texto)
+                except RuntimeError:
+                    pass
+
+    def _pedir_tipo_plano(self):
+        """Dialog to choose LOCAL or ALMACÉN for a new plan. Returns 'LOCAL', 'ALMACÉN', or None."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (
+            QDialog,
+            QFrame,
+            QHBoxLayout,
+            QLabel,
+            QPushButton,
+            QVBoxLayout,
+        )
+
+        diag = QDialog(self)
+        diag.setFixedSize(420, 210)
+        diag.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        diag.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        ml = QVBoxLayout(diag)
+        ml.setContentsMargins(0, 0, 0, 0)
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            "QFrame { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 18px; }"
+            " QLabel { color: #E6EDF3; border: none; background: transparent; }"
+        )
+        il = QVBoxLayout(frame)
+        il.setContentsMargins(28, 22, 28, 22)
+        il.setSpacing(14)
+
+        lbl_t = QLabel(tr("ubic.floor_type_q", default="¿QUÉ TIPO DE PLANTA ES?"))
+        lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_t.setStyleSheet(
+            "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+            " font-size: 16px; letter-spacing: 1px; border: none; background: transparent;"
+        )
+
+        lbl_m = QLabel(tr("ubic.floor_type_msg", default="Seleccione si el plano corresponde a\nel LOCAL (tienda) o al ALMACÉN."))
+        lbl_m.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_m.setWordWrap(True)
+        lbl_m.setStyleSheet(
+            "color: #C9D1D9; font-family: 'Segoe UI'; font-weight: 700;"
+            " font-size: 13px; border: none; background: transparent;"
+        )
+
+        br = QHBoxLayout()
+        br.setSpacing(12)
+
+        self._tipo_elegido = None
+
+        def elegir(tipo):
+            self._tipo_elegido = tipo
+            diag.accept()
+
+        btn_local = QPushButton(tr("ubic.btn_local", default="LOCAL"))
+        btn_local.setFixedHeight(42)
+        btn_local.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_local.setStyleSheet(
+            "QPushButton { background-color: #0D1117; color: #00FFC6; border: 2px solid #00FFC6;"
+            " border-radius: 10px; font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+            " QPushButton:hover { background-color: #00FFC6; color: #0D1117; border: 2px solid #00FFC6; }"
+        )
+        btn_local.clicked.connect(lambda: elegir("LOCAL"))
+
+        btn_alm = QPushButton(tr("ubic.btn_warehouse", default="ALMACÉN"))
+        btn_alm.setFixedHeight(42)
+        btn_alm.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_alm.setStyleSheet(
+            "QPushButton { background-color: #1F6FEB; color: #FFFFFF; border: none;"
+            " border-radius: 10px; font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #1F6FEB; }"
+        )
+        btn_alm.clicked.connect(lambda: elegir("ALMACÉN"))
+
+        br.addWidget(btn_local)
+        br.addWidget(btn_alm)
+        il.addWidget(lbl_t)
+        il.addWidget(lbl_m)
+        il.addStretch()
+        il.addLayout(br)
+        ml.addWidget(frame)
+
+        if diag.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return self._tipo_elegido
+
+    def _pedir_altura_planta(self):
+        """
+        Neon dialog asking for the floor's real height in metres.
+        Called after X/Y calibration is saved. Stores the value in configuracion_mapa.
+        Returns the entered value (float) or None if skipped.
+        """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QDoubleValidator
+        from PyQt6.QtWidgets import (
+            QDialog,
+            QFrame,
+            QHBoxLayout,
+            QLabel,
+            QLineEdit,
+            QPushButton,
+            QVBoxLayout,
+        )
+
+        from src.db.conexion import obtener_conexion
+
+        p_idx = getattr(self, "planta_actual", 0)
+
+        diag = QDialog(self)
+        diag.setFixedSize(440, 255)
+        diag.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        diag.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        ml = QVBoxLayout(diag)
+        ml.setContentsMargins(0, 0, 0, 0)
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            "QFrame { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 18px; }"
+            " QLabel { color: #E6EDF3; border: none; background: transparent; }"
+        )
+        il = QVBoxLayout(frame)
+        il.setContentsMargins(28, 22, 28, 22)
+        il.setSpacing(14)
+
+        lbl_t = QLabel("📐  " + tr("ubic.height_title", default="ALTURA DE LA PLANTA"))
+        lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_t.setStyleSheet(
+            "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+            " font-size: 16px; letter-spacing: 1px; border: none; background: transparent;"
+        )
+
+        lbl_m = QLabel(tr("ubic.height_q", default="¿Cuántos metros de altura mide esta planta?"))
+        lbl_m.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_m.setStyleSheet(
+            "color: #C9D1D9; font-family: 'Segoe UI'; font-weight: 700;"
+            " font-size: 13px; border: none; background: transparent;"
+        )
+
+        inp = QLineEdit()
+        inp.setPlaceholderText(tr("ubic.height_ph", default="Ej: 3.5"))
+        inp.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inp.setValidator(QDoubleValidator(0.1, 99.0, 2, inp))
+        inp.setFixedHeight(44)
+        inp.setStyleSheet(
+            "QLineEdit {"
+            "  background-color: #161B22;"
+            "  color: #E6EDF3;"
+            "  border: 2px solid #00FFC6;"
+            "  border-radius: 10px;"
+            "  font-family: 'Segoe UI'; font-weight: 700; font-size: 17px;"
+            "  padding: 0 12px;"
+            "}"
+            "QLineEdit:focus { border-color: #FFFFFF; }"
+        )
+
+        br = QHBoxLayout()
+        br.setSpacing(12)
+
+        btn_skip = QPushButton(tr("ubic.btn_skip", default="Ahora no"))
+        btn_skip.setFixedHeight(40)
+        btn_skip.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_skip.setStyleSheet(
+            "QPushButton { background-color: #21262D; color: #8B949E;"
+            " border: 1px solid #30363D; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }"
+        )
+        btn_skip.clicked.connect(diag.reject)
+
+        btn_ok = QPushButton(tr("ubic.save", default="GUARDAR"))
+        btn_ok.setFixedHeight(40)
+        btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_ok.setStyleSheet(
+            "QPushButton { background-color: #0D1117; color: #00FFC6; border: 2px solid #00FFC6;"
+            " border-radius: 10px; font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; }"
+            " QPushButton:hover { background-color: #00FFC6; color: #0D1117; border: 2px solid #00FFC6; }"
+        )
+        btn_ok.clicked.connect(diag.accept)
+        inp.returnPressed.connect(diag.accept)
+
+        br.addWidget(btn_skip)
+        br.addWidget(btn_ok)
+        il.addWidget(lbl_t)
+        il.addWidget(lbl_m)
+        il.addWidget(inp)
+        il.addStretch()
+        il.addLayout(br)
+        ml.addWidget(frame)
+
+        inp.setFocus()
+
+        if diag.exec() != QDialog.DialogCode.Accepted:
+            return None
+
+        texto = inp.text().strip().replace(",", ".")
+        try:
+            metros = float(texto)
+            if metros <= 0:
+                return None
+        except ValueError:
+            return None
+
+        try:
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    try:
+                        cur.execute(
+                            "ALTER TABLE configuracion_mapa "
+                            "ADD COLUMN IF NOT EXISTS altura_metros DOUBLE DEFAULT NULL"
+                        )
+                    except Exception:
+                        pass
+                    cur.execute(
+                        "UPDATE configuracion_mapa SET altura_metros=%s WHERE planta_index=%s",
+                        (metros, p_idx),
+                    )
+                conn.commit()
+        except Exception as e:
+            print(f"⚠️ Error guardando altura: {e}")
+
+        return metros
 
     def _crear_fuente_segoe(self, size=10):
         return QFont("Segoe UI", size, QFont.Weight.Bold)
@@ -221,8 +512,14 @@ class UbicacionTiendaWindow(QMainWindow):
                 hijo.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def _forzar_reencuadre_diferido(self, force=True):
-        for delay in (0, 80, 180):
+        # Cuatro pasadas con delays crecientes para garantizar que el widget
+        # ya tiene su tamaño final cuando se ejecuta fitInView
+        for delay in (0, 150, 350, 650):
             QTimer.singleShot(delay, lambda f=force: self.reencuadrar_plano(force=f))
+
+    # ============================================================
+    # BLOQUE ESTILOS Y TEMAS VISUALES
+    # ============================================================
 
     def _estilo_boton_neon(
         self,
@@ -335,6 +632,10 @@ class UbicacionTiendaWindow(QMainWindow):
             "brillo": brillo,
         }
 
+    # ============================================================
+    # BLOQUE GPS Y NAVEGACIÓN
+    # ============================================================
+
     def _actualizar_piloto_rastreo(self, activo, texto_extra=None):
         estilos = self._estilo_piloto_rastreo(activo)
         panel = getattr(self, "panel_rastreo_gps", None)
@@ -347,12 +648,12 @@ class UbicacionTiendaWindow(QMainWindow):
         if led:
             led.setText("●")
             led.setStyleSheet(estilos["led"])
-            led.setToolTip(f"Rastreo en vivo: {estilos['texto']}")
+            led.setToolTip("")
         if titulo:
             titulo.setStyleSheet(estilos["titulo"])
         if estado:
             sufijo = f" · {texto_extra}" if texto_extra else ""
-            estado.setText(f"RASTREO {estilos['texto']}{sufijo}")
+            estado.setText(f"{tr('ubic.tracking', default='RASTREO')} {estilos['texto']}{sufijo}")
             estado.setStyleSheet(estilos["estado"])
 
         visor = getattr(self, "visor_mapa", None)
@@ -373,7 +674,7 @@ class UbicacionTiendaWindow(QMainWindow):
             visor.limpiar_ruta()
 
         if limpiar_operario:
-            escena = visor.scene() if callable(visor.scene) else visor.scene
+            escena = QGraphicsView.scene(visor)
             if escena and getattr(visor, "icono_operario", None):
                 try:
                     if visor.icono_operario.scene() == escena:
@@ -636,14 +937,15 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.setContentsMargins(26, 26, 26, 26)
         layout.setSpacing(14)
 
-        titulo = QLabel("SELECCIONE EL DESTINO DE RUTA")
+        titulo = QLabel(tr("ubic.route_dest_title", default="SELECCIONE EL DESTINO DE RUTA"))
         titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         titulo.setFont(self._crear_fuente_segoe(12))
         titulo.setStyleSheet("color: #00FFC6; border: none;")
         layout.addWidget(titulo)
 
         subtitulo = QLabel(
-            "El sistema muestra las ubicaciones disponibles del articulo para que el operario elija la ruta."
+            tr("ubic.route_dest_subtitle",
+               default="El sistema muestra las ubicaciones disponibles del artículo para que el operario elija la ruta.")
         )
         subtitulo.setWordWrap(True)
         subtitulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -658,10 +960,10 @@ class UbicacionTiendaWindow(QMainWindow):
             distancia_txt = (
                 f"{distancia:.2f} m"
                 if distancia is not None
-                else "Distancia disponible tras localizar al operario"
+                else tr("ubic.dist_after_locate", default="Distancia disponible tras localizar al operario")
             )
             estado_txt = (
-                "" if opcion.get("disponible") else " · SIN COORDENADAS DISPONIBLES"
+                "" if opcion.get("disponible") else tr("ubic.no_coords", default=" · SIN COORDENADAS DISPONIBLES")
             )
             boton = QPushButton(
                 f"{opcion['tipo']} · {opcion['ubicacion']}\n{distancia_txt}{estado_txt}"
@@ -690,7 +992,7 @@ class UbicacionTiendaWindow(QMainWindow):
             )
             layout.addWidget(boton)
 
-        btn_cancelar = QPushButton("CANCELAR")
+        btn_cancelar = QPushButton(tr("ubic.cancel", default="CANCELAR"))
         btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cancelar.setFont(self._crear_fuente_segoe(10))
         btn_cancelar.setStyleSheet(
@@ -750,7 +1052,7 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(14)
 
-        titulo = QLabel("SELECCIONE LA PLANTA A ELIMINAR")
+        titulo = QLabel(tr("ubic.select_floor_delete", default="SELECCIONE LA PLANTA A ELIMINAR"))
         titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         titulo.setFont(self._crear_fuente_segoe(12))
         titulo.setStyleSheet("color: #00F5FF; border: none;")
@@ -759,7 +1061,7 @@ class UbicacionTiendaWindow(QMainWindow):
         combo = QComboBox()
         combo.setFont(self._crear_fuente_segoe(10))
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        combo.addItems([f"PLANTA {planta}" for planta in plantas])
+        combo.addItems([tr("ubic.floor_label", default="PLANTA {n}", n=planta) for planta in plantas])
         combo.setStyleSheet(
             """
             QComboBox {
@@ -785,8 +1087,8 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.addWidget(combo)
 
         fila = QHBoxLayout()
-        btn_cancelar = QPushButton("CANCELAR")
-        btn_confirmar = QPushButton("CONTINUAR")
+        btn_cancelar = QPushButton(tr("ubic.cancel", default="CANCELAR"))
+        btn_confirmar = QPushButton(tr("ubic.continue", default="CONTINUAR"))
         for boton, color in [(btn_cancelar, "#8B949E"), (btn_confirmar, "#00F5FF")]:
             boton.setCursor(Qt.CursorShape.PointingHandCursor)
             boton.setFont(self._crear_fuente_segoe(10))
@@ -885,6 +1187,10 @@ class UbicacionTiendaWindow(QMainWindow):
             pass
         return super().eventFilter(obj, event)
 
+    # ============================================================
+    # BLOQUE SERIALIZACIÓN Y SNAPSHOTS DEL MAPA
+    # ============================================================
+
     def _serializar_punto(self, punto):
         if punto is None:
             return None
@@ -900,7 +1206,7 @@ class UbicacionTiendaWindow(QMainWindow):
         if not visor:
             return []
         muros = []
-        escena = visor.scene() if callable(visor.scene) else visor.scene
+        escena = QGraphicsView.scene(visor)
         for item in getattr(visor, "historial_muros", []):
             try:
                 if item and item.scene() == escena and hasattr(item, "line"):
@@ -957,11 +1263,6 @@ class UbicacionTiendaWindow(QMainWindow):
         if btn_undo:
             btn_undo.setEnabled(True)
             btn_undo.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_undo.setToolTip(
-                "Deshacer ultima accion"
-                if estado["undo"]
-                else "No hay acciones para deshacer"
-            )
             btn_undo.setStyleSheet(
                 self._estilo_boton_neon(
                     bg="#21262D" if estado["undo"] else "#161B22",
@@ -974,11 +1275,6 @@ class UbicacionTiendaWindow(QMainWindow):
         if btn_redo:
             btn_redo.setEnabled(True)
             btn_redo.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_redo.setToolTip(
-                "Rehacer ultima accion"
-                if estado["redo"]
-                else "No hay acciones para rehacer"
-            )
             btn_redo.setStyleSheet(
                 self._estilo_boton_neon(
                     bg="#21262D" if estado["redo"] else "#161B22",
@@ -993,7 +1289,7 @@ class UbicacionTiendaWindow(QMainWindow):
         visor = getattr(self, "visor_admin", None)
         if not visor:
             return
-        escena = visor.scene() if callable(visor.scene) else visor.scene
+        escena = QGraphicsView.scene(visor)
         if not escena:
             return
 
@@ -1027,7 +1323,7 @@ class UbicacionTiendaWindow(QMainWindow):
         visor = getattr(self, "visor_admin", None)
         if not visor or not calibracion:
             return
-        escena = visor.scene() if callable(visor.scene) else visor.scene
+        escena = QGraphicsView.scene(visor)
         if not escena:
             return
 
@@ -1091,7 +1387,7 @@ class UbicacionTiendaWindow(QMainWindow):
         visor = getattr(self, "visor_admin", None)
         if not visor:
             return
-        escena = visor.scene() if callable(visor.scene) else visor.scene
+        escena = QGraphicsView.scene(visor)
         if not escena:
             return
         pen = QPen(QColor("#FF4B4B"), 3, Qt.PenStyle.DashLine)
@@ -1139,6 +1435,10 @@ class UbicacionTiendaWindow(QMainWindow):
                 else visor.matriz_obstaculos.copy()
             )
 
+    # ============================================================
+    # BLOQUE RECONSTRUCCIÓN Y SINCRONIZACIÓN DEL MAPA
+    # ============================================================
+
     def reconstruir_estado_mapa_actual(self, estado=None, recuadrar=False):
         visor = getattr(self, "visor_admin", None)
         if not visor:
@@ -1167,25 +1467,43 @@ class UbicacionTiendaWindow(QMainWindow):
         MÉTODO DE VENTANA (Director):
         Delega la responsabilidad del encuadre a los visores internos.
         """
-        # 1. Creamos una lista con los visores que existan en esta ventana
         visores_activos = [
             getattr(self, "visor_admin", None),
             getattr(self, "visor_mapa", None),
         ]
 
-        # 2. Recorremos cada visor y le ordenamos reencuadrar
         for visor in visores_activos:
-            if visor is not None:
-                # Verificamos que el visor tenga su propio método reencuadrar_plano
-                if hasattr(visor, "reencuadrar_plano"):
-                    try:
-                        visor.reencuadrar_plano(force=force)
-                    except Exception as e:
-                        print(f"⚠️ Error al reencuadrar un visor: {e}")
+            if visor is None:
+                continue
+            if hasattr(visor, "reencuadrar_plano"):
+                try:
+                    visor.reencuadrar_plano(force=force)
+                except Exception as e:
+                    print(f"⚠️ Error al reencuadrar un visor: {e}")
+            else:
+                # Fallback directo si el visor no tiene su propio método
+                try:
+                    escena = QGraphicsView.scene(visor)
+                    if not escena:
+                        continue
+                    rect = escena.itemsBoundingRect()
+                    if rect.isNull() or rect.isEmpty():
+                        continue
+                    visor.setSceneRect(rect)
+                    visor.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                    visor.centerOn(rect.center())
+                    if visor.viewport():
+                        visor.viewport().update()
+                except Exception as e:
+                    print(f"⚠️ Error en fallback reencuadre: {e}")
+
+    # ============================================================
+    # BLOQUE CONSTRUCCIÓN DE INTERFAZ
+    # ============================================================
 
     def setup_ui(self):
         """Configuración de interfaz: Premium Dark y Navegación Sincronizada."""
-        self.setWindowTitle("SISTEMA DE UBICACIÓN Y GPS INTERNO - Smart Manager")
+        self.setWindowTitle(tr("ubic.window_title", default="SISTEMA DE UBICACIÓN Y GPS INTERNO - Smart Manager"))
         self.setMinimumSize(1280, 850)
         self.setFont(self._crear_fuente_segoe(10))
 
@@ -1244,16 +1562,16 @@ class UbicacionTiendaWindow(QMainWindow):
         lbl_modulo = QLabel("Smart LOGISTICS")
         lbl_modulo.setStyleSheet(
             "color: #ffffff; font-size: 16px; font-weight: 900; margin-left: 30px; "
-            "margin-bottom: 35px; letter-spacing: 2px; border:none;"
+            "margin-bottom: 35px; letter-spacing: 2px; border:none; background: transparent;"
         )
         lyt_sidebar.addWidget(lbl_modulo)
 
         # Botones de navegación
-        self.btn_nav_lineal = QPushButton("ASIGNAR UBICACIÓN LINEAL")
-        self.btn_nav_almacen = QPushButton("ASIGNAR UBICACIÓN ALMACÉN")
-        self.btn_nav_busqueda = QPushButton("BUSCAR PRODUCTO")
-        self.btn_nav_gps = QPushButton("GPS INTERNO")
-        self.btn_nav_admin = QPushButton("GESTIÓN ESTRUCTURA")
+        self.btn_nav_lineal = QPushButton(tr("ubic.nav_lineal", default="ASIGNAR UBICACIÓN LINEAL"))
+        self.btn_nav_almacen = QPushButton(tr("ubic.nav_almacen", default="ASIGNAR UBICACIÓN ALMACÉN"))
+        self.btn_nav_busqueda = QPushButton(tr("ubic.nav_busqueda", default="BUSCAR PRODUCTO"))
+        self.btn_nav_gps = QPushButton(tr("ubic.nav_gps", default="GPS INTERNO"))
+        self.btn_nav_admin = QPushButton(tr("ubic.nav_admin", default="GESTIÓN ESTRUCTURA"))
 
         self.menu_botones = [
             self.btn_nav_lineal,
@@ -1283,7 +1601,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         lyt_sidebar.addStretch()
 
-        self.btn_volver = QPushButton("SALIR AL MENÚ")
+        self.btn_volver = QPushButton(tr("ubic.exit", default="SALIR AL MENÚ"))
         self.btn_volver.setObjectName("btn_sidebar_exit")
         self.btn_volver.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_volver.setFixedHeight(55)
@@ -1309,6 +1627,439 @@ class UbicacionTiendaWindow(QMainWindow):
         self.btn_nav_lineal.setChecked(True)
         self._aplicar_fuente_segoe(container)
         self._actualizar_labels_planta()
+        i18n.conectar_retraduccion(self, self._retraducir_ubic)
+
+    def _retraducir_ubic(self):
+        """Re-traduce el chrome de ventana y la navegación al cambiar de idioma.
+        (Las vistas internas se irán añadiendo por fases.)"""
+        self.setWindowTitle(tr("ubic.window_title", default="SISTEMA DE UBICACIÓN Y GPS INTERNO - Smart Manager"))
+        self.btn_nav_lineal.setText(tr("ubic.nav_lineal", default="ASIGNAR UBICACIÓN LINEAL"))
+        self.btn_nav_almacen.setText(tr("ubic.nav_almacen", default="ASIGNAR UBICACIÓN ALMACÉN"))
+        self.btn_nav_busqueda.setText(tr("ubic.nav_busqueda", default="BUSCAR PRODUCTO"))
+        self.btn_nav_gps.setText(tr("ubic.nav_gps", default="GPS INTERNO"))
+        self.btn_nav_admin.setText(tr("ubic.nav_admin", default="GESTIÓN ESTRUCTURA"))
+        self.btn_volver.setText(tr("ubic.exit", default="SALIR AL MENÚ"))
+
+        # --- Panel GPS ---
+        if hasattr(self, "lbl_gps_title"):
+            self.lbl_gps_title.setText(tr("ubic.gps_title", default="SISTEMA DE POSICIONAMIENTO"))
+        if hasattr(self, "btn_borrar_plano_gps"):
+            self.btn_borrar_plano_gps.setText("🗑️ " + tr("ubic.btn_delete", default="BORRAR"))
+        if hasattr(self, "btn_cargar_plano_gps"):
+            self.btn_cargar_plano_gps.setText("📁 " + tr("ubic.btn_load", default="CARGAR"))
+        if hasattr(self, "lbl_titulo_rastreo_gps"):
+            self.lbl_titulo_rastreo_gps.setText(tr("ubic.pilot", default="PILOTO DE NAVEGACION"))
+        if hasattr(self, "btn_iniciar_ruta"):
+            self.btn_iniciar_ruta.setText("🚀 " + tr("ubic.start_route", default="INICIAR RUTA"))
+
+        # --- Panel UBICAR ACTIVOS ---
+        if hasattr(self, "lbl_repo"):
+            self.lbl_repo.setText(tr("ubic.locate_assets", default="UBICAR ACTIVOS"))
+        if hasattr(self, "btn_ubicar_activo"):
+            self.btn_ubicar_activo.setText("📍 " + tr("ubic.btn_locate_shelf", default="UBICAR\nESTANTERÍA"))
+        if hasattr(self, "btn_crear_satelite"):
+            self.btn_crear_satelite.setText("🛰️ " + tr("ubic.btn_install_sat", default="INSTALAR\nSATÉLITE"))
+        if hasattr(self, "btn_ver_qrs"):
+            self.btn_ver_qrs.setText("📂 " + tr("ubic.btn_view_qr", default="VER\nCÓDIGOS QR"))
+        if hasattr(self, "btn_guardar"):
+            self.btn_guardar.setText("✅ " + tr("ubic.save_finish", default="FINALIZAR Y GUARDAR"))
+
+        # Refrescar textos dinámicos (planta actual / estado de rastreo)
+        try:
+            self._actualizar_labels_planta()
+        except Exception:
+            pass
+        try:
+            self._actualizar_piloto_rastreo(getattr(self.visor_mapa, "rastreo_en_vivo_activo", False)
+                                            if hasattr(self, "visor_mapa") and self.visor_mapa else False)
+        except Exception:
+            pass
+
+    # ============================================================
+    # BLOQUE CARGA Y GESTIÓN DE PLANOS
+    # ============================================================
+
+    def _pedir_titulo_plano(self):
+        """Neon-styled dialog for entering a plan title. Returns the string or None if cancelled."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (
+            QDialog,
+            QFrame,
+            QHBoxLayout,
+            QLabel,
+            QLineEdit,
+            QPushButton,
+            QVBoxLayout,
+        )
+
+        diag = QDialog(self)
+        diag.setFixedSize(480, 230)
+        diag.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        diag.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        ml = QVBoxLayout(diag)
+        ml.setContentsMargins(0, 0, 0, 0)
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            "QFrame { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 18px; }"
+            " QLabel { color: #E6EDF3; border: none; background: transparent; }"
+        )
+        il = QVBoxLayout(frame)
+        il.setContentsMargins(30, 24, 30, 24)
+        il.setSpacing(14)
+
+        lbl_t = QLabel(tr("ubic.plan_title_q", default="Por favor, introduzca un título para el plano"))
+        lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_t.setWordWrap(True)
+        lbl_t.setStyleSheet(
+            "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+            " font-size: 17px; letter-spacing: 1px; border: none; background: transparent;"
+        )
+
+        inp = QLineEdit()
+        inp.setPlaceholderText(tr("ubic.plan_title_ph", default="Ej: Planta 1, Almacén Central..."))
+        inp.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inp.setFixedHeight(44)
+        inp.setStyleSheet(
+            "QLineEdit { background-color: #161B22; color: #E6EDF3;"
+            " border: 2px solid #00FFC6; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 700; font-size: 17px; padding: 0 12px; }"
+            " QLineEdit:focus { border: 2px solid #00FFE0; background-color: #1C2128; }"
+        )
+
+        br = QHBoxLayout()
+        br.setSpacing(12)
+
+        btn_c = QPushButton(tr("common.cancel", default="Cancelar"))
+        btn_c.setFixedHeight(40)
+        btn_c.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_c.setStyleSheet(
+            "QPushButton { background-color: #21262D; color: #8B949E;"
+            " border: 1px solid #30363D; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 16px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }"
+        )
+        btn_c.clicked.connect(diag.reject)
+
+        btn_ok = QPushButton(tr("common.accept", default="Aceptar"))
+        btn_ok.setFixedHeight(40)
+        btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_ok.setStyleSheet(
+            "QPushButton { background-color: #0D1117; color: #00FFC6;"
+            " border: 2px solid #00FFC6; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 16px; }"
+            " QPushButton:hover { background-color: #00FFC6; color: #0D1117; border: 2px solid #00FFC6; }"
+        )
+        btn_ok.clicked.connect(diag.accept)
+        inp.returnPressed.connect(diag.accept)
+
+        br.addWidget(btn_c)
+        br.addWidget(btn_ok)
+        il.addWidget(lbl_t)
+        il.addWidget(inp)
+        il.addStretch()
+        il.addLayout(br)
+        ml.addWidget(frame)
+
+        if diag.exec() == QDialog.DialogCode.Accepted:
+            titulo = inp.text().strip()
+            return titulo if titulo else tr("ubic.untitled", default="Sin título")
+        return None
+
+    def _esta_calibrado_planta(self, planta_idx):
+        """Returns True if the given planta_index has a calibration (escala_px_metro > 0) in DB."""
+        try:
+            from src.db.conexion import obtener_conexion
+            with obtener_conexion() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT escala_px_metro FROM configuracion_mapa WHERE planta_index = %s",
+                        (planta_idx,),
+                    )
+                    row = cursor.fetchone()
+                    return row is not None and float(row[0] or 0) > 0
+        except Exception:
+            return False
+
+    def _clic_boton_escala(self):
+        """Stateless calibration button handler — delegates based on current plan's DB state."""
+        if self._esta_calibrado_planta(getattr(self, "planta_actual", 0)):
+            self._mostrar_dialogo_reset_calibracion()
+        else:
+            self.iniciar_calibracion_escala()
+
+    def _mostrar_dialogo_reset_calibracion(self):
+        """Window-level reset dialog (replaces the VistaMapa closure)."""
+        from PyQt6 import sip
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import (
+            QDialog,
+            QFrame,
+            QHBoxLayout,
+            QLabel,
+            QPushButton,
+            QVBoxLayout,
+        )
+
+        from src.db.conexion import obtener_conexion
+
+        diag = QDialog(self)
+        diag.setFixedSize(460, 220)
+        diag.setWindowFlags(_Qt.WindowType.FramelessWindowHint | _Qt.WindowType.Dialog)
+        diag.setAttribute(_Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        ml = QVBoxLayout(diag)
+        ml.setContentsMargins(0, 0, 0, 0)
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            "QFrame { background-color: #0D1117; border: 2px solid #FF7B72; border-radius: 18px; }"
+            " QLabel { color: #E6EDF3; border: none; background: transparent; }"
+        )
+        il = QVBoxLayout(frame)
+        il.setContentsMargins(30, 24, 30, 24)
+        il.setSpacing(12)
+
+        lbl_t = QLabel("⚠️  " + tr("ubic.undo_calib_title", default="DESHACER CALIBRACIÓN"))
+        lbl_t.setAlignment(_Qt.AlignmentFlag.AlignCenter)
+        lbl_t.setStyleSheet(
+            "color: #FF7B72; font-family: 'Segoe UI'; font-weight: 900;"
+            " font-size: 16px; letter-spacing: 1px; border: none; background: transparent;"
+        )
+
+        lbl_m = QLabel(
+            tr("ubic.undo_calib_msg",
+               default="¿Desea deshacer la calibración de este plano?\nSe borrarán: escala, origen y muros.")
+        )
+        lbl_m.setAlignment(_Qt.AlignmentFlag.AlignCenter)
+        lbl_m.setWordWrap(True)
+        lbl_m.setStyleSheet(
+            "color: #C9D1D9; font-family: 'Segoe UI'; font-weight: 700;"
+            " font-size: 14px; border: none; background: transparent;"
+        )
+
+        br = QHBoxLayout()
+        br.setSpacing(12)
+
+        btn_no = QPushButton(tr("common.cancel", default="Cancelar"))
+        btn_no.setFixedHeight(40)
+        btn_no.setCursor(_Qt.CursorShape.PointingHandCursor)
+        btn_no.setStyleSheet(
+            "QPushButton { background-color: #21262D; color: #8B949E;"
+            " border: 1px solid #30363D; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }"
+        )
+        btn_no.clicked.connect(diag.reject)
+
+        btn_si = QPushButton(tr("common.accept", default="Aceptar"))
+        btn_si.setFixedHeight(40)
+        btn_si.setCursor(_Qt.CursorShape.PointingHandCursor)
+        btn_si.setStyleSheet(
+            "QPushButton { background-color: #FF7B72; color: #0D1117;"
+            " border: none; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }"
+        )
+        btn_si.clicked.connect(diag.accept)
+
+        br.addWidget(btn_no)
+        br.addWidget(btn_si)
+        il.addWidget(lbl_t)
+        il.addWidget(lbl_m)
+        il.addStretch()
+        il.addLayout(br)
+        ml.addWidget(frame)
+
+        if diag.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            p_idx = getattr(self, "planta_actual", 0)
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE configuracion_mapa "
+                        "SET escala_px_metro=0, ancla_x=0, ancla_y=0, "
+                        "    matriz_binaria=NULL, muros_vectoriales='[]' "
+                        "WHERE planta_index=%s",
+                        (p_idx,),
+                    )
+                    conn.commit()
+
+            self.paso_calibracion = 1
+            for v in [getattr(self, "visor_admin", None), getattr(self, "visor_mapa", None)]:
+                if v:
+                    v.ratio_px_m_h = v.ratio_px_m_v = 1.0
+                    v.punto_ancla = None
+
+            escena = getattr(self, "escena_compartida", None)
+            if escena:
+                for item in list(escena.items()):
+                    try:
+                        if not sip.isdeleted(item) and str(item.data(0)) in ["MURO_TECNICO", "PIN_ORIGEN"]:
+                            escena.removeItem(item)
+                    except Exception:
+                        pass
+
+            btn = getattr(self, "btn_escala", None)
+            if btn:
+                btn.setText("📏 " + tr("ubic.calib_scale", default="CALIBRAR ESCALA"))
+                btn.setStyleSheet(
+                    "QPushButton { background-color: #2EA043; color: white;"
+                    " font-weight: 900; border-radius: 8px; border: 1px solid #3FB950;"
+                    " padding: 8px; font-family: 'Segoe UI'; font-size: 12px; }"
+                    " QPushButton:hover { background-color: #3FB950; }"
+                )
+
+            if self.statusBar():
+                self.statusBar().showMessage("🔄 " + tr("ubic.calib_reset_status", default="Calibración reseteada."), 3000)
+
+        except Exception as e:
+            print(f"❌ Error en reset calibración: {e}")
+
+    def _dialogo_neon_info(self, titulo, mensaje, color="#00FFC6", ancho=460, alto=200):
+        """Simple neon info dialog with a single ACEPTAR button."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (
+            QDialog,
+            QFrame,
+            QLabel,
+            QPushButton,
+            QVBoxLayout,
+        )
+
+        diag = QDialog(self)
+        diag.setFixedSize(ancho, alto)
+        diag.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        diag.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        ml = QVBoxLayout(diag)
+        ml.setContentsMargins(0, 0, 0, 0)
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"QFrame {{ background-color: #0D1117; border: 2px solid {color}; border-radius: 18px; }}"
+            " QLabel { color: #E6EDF3; border: none; background: transparent; }"
+        )
+        il = QVBoxLayout(frame)
+        il.setContentsMargins(30, 24, 30, 24)
+        il.setSpacing(12)
+
+        lbl_t = QLabel(titulo)
+        lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_t.setStyleSheet(
+            f"color: {color}; font-family: 'Segoe UI'; font-weight: 900;"
+            " font-size: 16px; letter-spacing: 1px; border: none; background: transparent;"
+        )
+
+        lbl_m = QLabel(mensaje)
+        lbl_m.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_m.setWordWrap(True)
+        lbl_m.setTextFormat(Qt.TextFormat.RichText)
+        lbl_m.setStyleSheet(
+            "color: #C9D1D9; font-family: 'Segoe UI'; font-weight: 700;"
+            " font-size: 14px; border: none; background: transparent;"
+        )
+
+        btn_ok = QPushButton(tr("common.accept", default="Aceptar"))
+        btn_ok.setFixedHeight(40)
+        btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_ok.setStyleSheet(
+            f"QPushButton {{ background-color: {color}; color: #0D1117;"
+            " border: none; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }"
+        )
+        btn_ok.clicked.connect(diag.accept)
+
+        il.addWidget(lbl_t)
+        il.addWidget(lbl_m)
+        il.addStretch()
+        il.addWidget(btn_ok, alignment=Qt.AlignmentFlag.AlignCenter)
+        ml.addWidget(frame)
+
+        diag.exec()
+
+    def _dialogo_neon_pregunta(self, titulo, mensaje, btn_ok_txt="Añadir", btn_cancel_txt="Cancelar", color="#00FFC6", ancho=480, alto=210):
+        """Neon two-button confirmation dialog. Returns True if confirmed."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (
+            QDialog,
+            QFrame,
+            QHBoxLayout,
+            QLabel,
+            QPushButton,
+            QVBoxLayout,
+        )
+
+        diag = QDialog(self)
+        diag.setFixedSize(ancho, alto)
+        diag.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        diag.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        ml = QVBoxLayout(diag)
+        ml.setContentsMargins(0, 0, 0, 0)
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"QFrame {{ background-color: #0D1117; border: 2px solid {color}; border-radius: 18px; }}"
+            " QLabel { color: #E6EDF3; border: none; background: transparent; }"
+        )
+        il = QVBoxLayout(frame)
+        il.setContentsMargins(30, 24, 30, 24)
+        il.setSpacing(12)
+
+        lbl_t = QLabel(titulo)
+        lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_t.setStyleSheet(
+            f"color: {color}; font-family: 'Segoe UI'; font-weight: 900;"
+            " font-size: 16px; letter-spacing: 1px; border: none; background: transparent;"
+        )
+
+        lbl_m = QLabel(mensaje)
+        lbl_m.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_m.setWordWrap(True)
+        lbl_m.setStyleSheet(
+            "color: #C9D1D9; font-family: 'Segoe UI'; font-weight: 700;"
+            " font-size: 14px; border: none; background: transparent;"
+        )
+
+        br = QHBoxLayout()
+        br.setSpacing(12)
+
+        btn_c = QPushButton(btn_cancel_txt)
+        btn_c.setFixedHeight(40)
+        btn_c.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_c.setStyleSheet(
+            "QPushButton { background-color: #21262D; color: #8B949E;"
+            " border: 1px solid #30363D; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }"
+        )
+        btn_c.clicked.connect(diag.reject)
+
+        btn_ok = QPushButton(btn_ok_txt)
+        btn_ok.setFixedHeight(40)
+        btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_ok.setStyleSheet(
+            f"QPushButton {{ background-color: {color}; color: #0D1117;"
+            " border: none; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }"
+        )
+        btn_ok.clicked.connect(diag.accept)
+
+        br.addWidget(btn_c)
+        br.addWidget(btn_ok)
+        il.addWidget(lbl_t)
+        il.addWidget(lbl_m)
+        il.addStretch()
+        il.addLayout(br)
+        ml.addWidget(frame)
+
+        return diag.exec() == QDialog.DialogCode.Accepted
 
     def cargar_plano(self, ruta_directa=None):
         """
@@ -1316,19 +2067,58 @@ class UbicacionTiendaWindow(QMainWindow):
         Corrige: Apertura de carpeta raíz y encuadre total del visor.
         """
         import os
-        import shutil
         import tempfile
+
+        from PyQt6.QtCore import Qt, QTimer
         from PyQt6.QtWidgets import (
-            QFileDialog,
-            QMessageBox,
-            QPushButton,
             QApplication,
+            QGraphicsPixmapItem,
             QGraphicsView,
         )
-        from PyQt6.QtCore import Qt, QTimer, QRectF
-        from PyQt6.QtGui import QPixmap
-        from PyQt6.QtWidgets import QGraphicsPixmapItem
+
         from src.db.conexion import obtener_conexion
+
+        # --- 0. PRE-CHECKS before opening the OS file picker ---
+        titulo_plano = None
+        planta_idx_destino = getattr(self, "planta_actual", 0)
+
+        if not ruta_directa:
+            # Find the last loaded plan index
+            _max_cargado = None
+            try:
+                with obtener_conexion() as _conn:
+                    with _conn.cursor() as _cur:
+                        _cur.execute(
+                            "SELECT MAX(planta_index) FROM configuracion_mapa "
+                            "WHERE ruta_imagen IS NOT NULL AND ruta_imagen != ''"
+                        )
+                        _row = _cur.fetchone()
+                        _max_cargado = _row[0] if _row and _row[0] is not None else None
+            except Exception:
+                pass
+
+            if _max_cargado is not None:
+                # Block immediately if the last loaded plan is not yet calibrated
+                if not self._esta_calibrado_planta(_max_cargado):
+                    self._dialogo_neon_info(
+                        "ℹ️  CALIBRACIÓN PENDIENTE",
+                        "Antes debe calibrar las dimensiones del último plano cargado.",
+                        color="#00B4D8",
+                        alto=190,
+                    )
+                    return
+
+                # Ask whether to add another floor
+                if not self._dialogo_neon_pregunta(
+                    "PLANO YA CARGADO",
+                    "Ya hay un plano cargado.\n¿Desea añadir otra planta o los planos del almacén?",
+                    btn_ok_txt="Añadir",
+                    btn_cancel_txt="Cancelar",
+                    color="#00FFC6",
+                ):
+                    return
+
+                planta_idx_destino = _max_cargado + 1
 
         # --- 1. SELECCIÓN DE ARCHIVO (Corrección de Carpeta) ---
         ruta_seleccionada = ruta_directa
@@ -1339,7 +2129,7 @@ class UbicacionTiendaWindow(QMainWindow):
             os.makedirs(directorio_planos, exist_ok=True)
 
             file_dialog = QFileDialog(self)
-            file_dialog.setWindowTitle("SELECCIONAR INFRAESTRUCTURA")
+            file_dialog.setWindowTitle(tr("ubic.select_infra", default="SELECCIONAR INFRAESTRUCTURA"))
             # Forzamos a QFileDialog a abrir la carpeta específica
             file_dialog.setDirectory(directorio_planos)
             file_dialog.setNameFilters(["Planos (*.png *.jpg *.jpeg *.pdf)"])
@@ -1352,6 +2142,16 @@ class UbicacionTiendaWindow(QMainWindow):
 
         if not ruta_seleccionada or not os.path.exists(ruta_seleccionada):
             return
+
+        # --- TITLE + TYPE (after file selection, before loading) ---
+        tipo_plano = "LOCAL"
+        if not ruta_directa:
+            titulo_plano = self._pedir_titulo_plano()
+            if titulo_plano is None:
+                return
+            tipo_plano = self._pedir_tipo_plano()
+            if tipo_plano is None:
+                return
 
         self._resetear_navegacion_gps(limpiar_operario=True)
 
@@ -1382,7 +2182,8 @@ class UbicacionTiendaWindow(QMainWindow):
         escena = getattr(self, "escena_compartida", None)
         if not escena:
             return
-        p_idx = getattr(self, "planta_actual", 0)
+        p_idx = planta_idx_destino
+        self.planta_actual = p_idx
 
         escena.clear()
         escena.invalidate(escena.sceneRect(), QGraphicsScene.SceneLayer.AllLayers)
@@ -1435,13 +2236,27 @@ class UbicacionTiendaWindow(QMainWindow):
         try:
             with obtener_conexion() as conn:
                 with conn.cursor() as cursor:
+                    # Ensure titulo_plano and tipo columns exist (idempotent for existing DBs)
+                    for _alter in (
+                        "ALTER TABLE configuracion_mapa ADD COLUMN IF NOT EXISTS titulo_plano VARCHAR(255) DEFAULT NULL",
+                        "ALTER TABLE configuracion_mapa ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) DEFAULT 'LOCAL'",
+                    ):
+                        try:
+                            cursor.execute(_alter)
+                        except Exception:
+                            pass
                     cursor.execute(
                         """
-                        INSERT INTO configuracion_mapa (planta_index, ruta_imagen, fecha_actualizacion)
-                        VALUES (%s, %s, NOW())
-                        ON DUPLICATE KEY UPDATE ruta_imagen = VALUES(ruta_imagen)
+                        INSERT INTO configuracion_mapa
+                            (planta_index, ruta_imagen, titulo_plano, tipo, escala_px_metro, fecha_actualizacion)
+                        VALUES (%s, %s, %s, %s, 0, NOW())
+                        ON DUPLICATE KEY UPDATE
+                            ruta_imagen = VALUES(ruta_imagen),
+                            titulo_plano = COALESCE(VALUES(titulo_plano), titulo_plano),
+                            tipo = COALESCE(VALUES(tipo), tipo),
+                            escala_px_metro = 0
                     """,
-                        (p_idx, nombre_archivo),
+                        (p_idx, nombre_archivo, titulo_plano, tipo_plano),
                     )
                 conn.commit()
         except Exception as e:
@@ -1451,17 +2266,29 @@ class UbicacionTiendaWindow(QMainWindow):
         def aplicar_encuadre_perfecto():
             self.reencuadrar_plano(force=True)
 
-        # Aumentamos ligeramente el delay para que los widgets hayan procesado su tamaño final
-        QTimer.singleShot(100, aplicar_encuadre_perfecto)
+        # Múltiples pasadas con delays crecientes para cubrir layouts tardíos
         self._forzar_reencuadre_diferido(force=True)
+        for _d in (100, 400, 800, 1200, 2000):
+            QTimer.singleShot(_d, aplicar_encuadre_perfecto)
 
         # Feedback HUD
         if hasattr(self, "lbl_planta_actual"):
-            self.lbl_planta_actual.setText(f"📍 PLANTA {p_idx}")
             self.lbl_planta_actual.raise_()
 
         self._actualizar_labels_planta()
-        self.mostrar_mensaje_temporal(f"MAPA AJUSTADO AL 100%: {nombre_archivo}")
+        self.mostrar_mensaje_temporal(tr("ubic.map_adjusted", default="MAPA AJUSTADO AL 100%: {archivo}", archivo=nombre_archivo))
+
+        # Success message only for user-initiated loads
+        if not ruta_directa:
+            self._dialogo_neon_info(
+                "✅  PLANO CARGADO",
+                "El plano ha sido cargado correctamente.<br><br>"
+                "Ahora calibre las dimensiones del plano en la pestaña "
+                "<b>Gestión Estructura</b>.",
+                color="#2EA043",
+                ancho=480,
+                alto=215,
+            )
 
     def ajustar_zoom(self, factor):
         """
@@ -1472,11 +2299,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         if hasattr(self, "visor_admin") and self.visor_admin:
             # 1. Verificamos que haya contenido que escalar
-            escena = (
-                self.visor_admin.scene()
-                if callable(self.visor_admin.scene)
-                else self.visor_admin.scene
-            )
+            escena = QGraphicsView.scene(self.visor_admin)
             if not escena or escena.itemsBoundingRect().isNull():
                 return
 
@@ -1537,7 +2360,7 @@ class UbicacionTiendaWindow(QMainWindow):
         ]:
             if not visor:
                 continue
-            escena = visor.scene() if callable(visor.scene) else visor.scene
+            escena = QGraphicsView.scene(visor)
             if not escena or escena.itemsBoundingRect().isNull():
                 continue
             visor.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
@@ -1551,9 +2374,9 @@ class UbicacionTiendaWindow(QMainWindow):
         Limpia la escena, elimina el registro en MariaDB y resetea la persistencia.
         AJUSTE FINAL: Limpieza total de visor, esquinas redondeadas y SQL planta_index.
         """
-        from PyQt6.QtWidgets import QMessageBox
-        from PyQt6.QtGui import QCursor, QFont
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QMessageBox
+
         from src.db.conexion import obtener_conexion
 
         # 1. IDENTIFICAR PLANTA ACTUAL
@@ -1601,8 +2424,8 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         )
 
-        btn_si = msg.addButton("SÍ, ELIMINAR", QMessageBox.ButtonRole.YesRole)
-        btn_no = msg.addButton("CANCELAR", QMessageBox.ButtonRole.NoRole)
+        btn_si = msg.addButton(tr("ubic.yes_delete", default="SÍ, ELIMINAR"), QMessageBox.ButtonRole.YesRole)
+        btn_no = msg.addButton(tr("ubic.cancel", default="CANCELAR"), QMessageBox.ButtonRole.NoRole)
         btn_si.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_no.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -1620,7 +2443,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 # 4. LIMPIEZA RADICAL DE ESCENA (Lo que ves en pantalla)
                 # Buscamos el visor ya sea en self o en self.visor_admin
                 visor = getattr(self, "visor_admin", self)
-                escena = visor.scene() if callable(visor.scene) else visor.scene
+                escena = QGraphicsView.scene(visor)
 
                 if escena:
                     escena.clear()  # Borra todos los items (plano, muros, etc)
@@ -1649,17 +2472,14 @@ class UbicacionTiendaWindow(QMainWindow):
                 if planta_idx != 0:
                     self.planta_actual = 0
                     self._actualizar_labels_planta()
-                    if hasattr(self, "lbl_planta_actual"):
-                        self.lbl_planta_actual.setText(f"📍 PLANTA 0")
                     self.mostrar_mensaje_temporal(
-                        f"☢️ PURGA COMPLETA. REGRESANDO A PLANTA 0."
+                        "☢️ " + tr("ubic.purge_complete", default="PURGA COMPLETA — VISOR LIMPIO")
                     )
-                    # Recargamos la planta 0 para no dejar el visor muerto
                     if hasattr(self, "cargar_infraestructura_registrada"):
                         self.cargar_infraestructura_registrada()
                 else:
                     self.mostrar_mensaje_temporal(
-                        "✅ MAPA BASE ELIMINADO Y VISOR LIMPIO"
+                        "✅ " + tr("ubic.base_map_deleted", default="MAPA BASE ELIMINADO Y VISOR LIMPIO")
                     )
 
             except Exception as e:
@@ -1670,16 +2490,15 @@ class UbicacionTiendaWindow(QMainWindow):
         Vista GPS Operario: Sistema de navegación de alto rendimiento.
         AJUSTE: Estética neón unificada, cursores de mano y navegación multi-planta.
         """
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import (
-            QWidget,
-            QVBoxLayout,
+            QFrame,
             QHBoxLayout,
             QLabel,
             QPushButton,
-            QFrame,
+            QVBoxLayout,
+            QWidget,
         )
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QFont
 
         vista = QWidget()
         layout = QVBoxLayout(vista)
@@ -1693,7 +2512,7 @@ class UbicacionTiendaWindow(QMainWindow):
         header_lyt.setContentsMargins(0, 0, 0, 0)
 
         # Título Principal
-        header_title = QLabel("SISTEMA DE POSICIONAMIENTO")
+        self.lbl_gps_title = header_title = QLabel(tr("ubic.gps_title", default="SISTEMA DE POSICIONAMIENTO"))
         header_title.setStyleSheet(
             """
             color: #FFFFFF; 
@@ -1706,7 +2525,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # Label de Planta (El "GPS" del operario)
         idx_p = getattr(self, "planta_actual", 0)
-        self.lbl_planta_actual_gps = QLabel(f"📍 PLANTA {idx_p}")
+        self.lbl_planta_actual_gps = QLabel("📍 " + tr("ubic.no_plan", default="SIN PLANO"))
         self.lbl_planta_actual_gps.setStyleSheet(
             """
             color: #00F5FF; 
@@ -1734,7 +2553,7 @@ class UbicacionTiendaWindow(QMainWindow):
             QPushButton:hover { background-color: #21262D; color: #FFFFFF; border-color: #00F5FF; }
         """
 
-        self.btn_borrar_plano_gps = QPushButton("🗑️ BORRAR")
+        self.btn_borrar_plano_gps = QPushButton("🗑️ " + tr("ubic.btn_delete", default="BORRAR"))
         self.btn_borrar_plano_gps.setFixedSize(110, 35)
         self.btn_borrar_plano_gps.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_borrar_plano_gps.setFont(self._crear_fuente_segoe(9))
@@ -1752,7 +2571,7 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         self.btn_borrar_plano_gps.clicked.connect(self.borrar_plano_actual)
 
-        self.btn_cargar_plano_gps = QPushButton("📁 CARGAR")
+        self.btn_cargar_plano_gps = QPushButton("📁 " + tr("ubic.btn_load", default="CARGAR"))
         self.btn_cargar_plano_gps.setFixedSize(110, 35)
         self.btn_cargar_plano_gps.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cargar_plano_gps.setFont(self._crear_fuente_segoe(9))
@@ -1809,11 +2628,14 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         map_layout = QVBoxLayout(self.map_container)
         map_layout.setContentsMargins(0, 0, 0, 0)
+        map_layout.setSpacing(0)
 
         if hasattr(self, "visor_mapa") and self.visor_mapa:
             self.visor_mapa.setStyleSheet(
-                "border-radius: 16px; background: #050505; border: none;"
+                "QGraphicsView { border: 2px solid #00FFC6; background: #050505; border-radius: 18px; }"
             )
+            self.visor_mapa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.visor_mapa.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             map_layout.addWidget(self.visor_mapa)
 
         self.btn_planta_next_gps = QPushButton(">")
@@ -1846,8 +2668,8 @@ class UbicacionTiendaWindow(QMainWindow):
         bloque_texto_rastreo = QVBoxLayout()
         bloque_texto_rastreo.setContentsMargins(0, 0, 0, 0)
         bloque_texto_rastreo.setSpacing(0)
-        self.lbl_titulo_rastreo_gps = QLabel("PILOTO DE NAVEGACION")
-        self.lbl_estado_rastreo_gps = QLabel("RASTREO OFF")
+        self.lbl_titulo_rastreo_gps = QLabel(tr("ubic.pilot", default="PILOTO DE NAVEGACION"))
+        self.lbl_estado_rastreo_gps = QLabel(tr("ubic.tracking", default="RASTREO") + " OFF")
         self.lbl_titulo_rastreo_gps.setFont(self._crear_fuente_segoe(8))
         self.lbl_estado_rastreo_gps.setFont(self._crear_fuente_segoe(10))
         bloque_texto_rastreo.addWidget(self.lbl_titulo_rastreo_gps)
@@ -1858,16 +2680,16 @@ class UbicacionTiendaWindow(QMainWindow):
         piloto_layout.addStretch()
 
         # Botón Iniciar Ruta (Call to Action)
-        self.btn_iniciar_ruta = QPushButton("🚀 INICIAR RUTA")
+        self.btn_iniciar_ruta = QPushButton("🚀 " + tr("ubic.start_route", default="INICIAR RUTA"))
         self.btn_iniciar_ruta.setFixedSize(240, 55)
         self.btn_iniciar_ruta.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_iniciar_ruta.setFont(self._crear_fuente_segoe(10))
         self.btn_iniciar_ruta.setStyleSheet(
             self._estilo_boton_neon(
-                bg="#00F5FF",
-                fg="#0D1117",
-                border="#00F5FF",
-                hover_bg="#FFFFFF",
+                bg="#0D1117",
+                fg="#00FFC6",
+                border="#00FFC6",
+                hover_bg="#00FFC6",
                 hover_fg="#0D1117",
                 radius=14,
                 padding="12px 18px",
@@ -1886,6 +2708,10 @@ class UbicacionTiendaWindow(QMainWindow):
         self._aplicar_fuente_segoe(vista)
 
         return vista
+
+    # ============================================================
+    # BLOQUE ESCANEO DE CÓDIGOS DE BARRAS
+    # ============================================================
 
     def procesar_escaneo_barcode(self, codigo):
         """
@@ -2045,12 +2871,15 @@ class UbicacionTiendaWindow(QMainWindow):
             except Exception as e:
                 print(f"Error en búsqueda logística de producto: {e}")
 
+    # ============================================================
+    # BLOQUE NAVEGACIÓN ENTRE SECCIONES
+    # ============================================================
+
     def cambiar_seccion(self):
         """
         Maneja la navegación entre pestañas solicitando guardado si hay cambios.
         Sincroniza visores y evita errores de renderizado en mapas.
         """
-        from PyQt6.QtCore import Qt
 
         # 1. BLOQUEO DE SEGURIDAD
         if getattr(self, "_bloqueo_navegacion", False):
@@ -2090,7 +2919,15 @@ class UbicacionTiendaWindow(QMainWindow):
                     if hasattr(self, "alternar_modo_pintado"):
                         self.alternar_modo_pintado()
 
-            # --- C. EJECUCIÓN DEL CAMBIO ---
+            # --- C. PRE-CARGA DE PLANTA 0 ANTES DE MOSTRAR LA PESTAÑA ---
+            # Si vamos a Gestión Estructura (4) y el plano actual no es el 0, lo
+            # cargamos ANTES de que setCurrentIndex lo haga visible. Así el usuario
+            # nunca llega a ver el plano anterior parpadear.
+            if target_index == 4 and getattr(self, "planta_actual", 0) != 0:
+                self.planta_actual = 0
+                self.cargar_infraestructura_registrada()
+
+            # --- D. EJECUCIÓN DEL CAMBIO ---
             # Sincronizamos visualmente el Sidebar
             for b in self.menu_botones:
                 b.blockSignals(True)
@@ -2099,40 +2936,32 @@ class UbicacionTiendaWindow(QMainWindow):
 
             self.stack.setCurrentIndex(target_index)
 
-            # --- D. SINCRONIZACIÓN VISUAL (Evitar Pantalla Negra) ---
+            # --- E. SINCRONIZACIÓN VISUAL (Evitar Pantalla Negra) ---
             if target_index in [3, 4]:
                 visor = getattr(
                     self, "visor_mapa" if target_index == 3 else "visor_admin", None
                 )
 
                 if visor:
-                    # Actualizar label de planta
-                    lbl_p = getattr(self, "lbl_planta_actual", None)
-                    if lbl_p:
-                        p_idx = getattr(self, "planta_actual", 0)
-                        lbl_p.setText(f"📍 PLANTA {p_idx}")
+                    # Actualizar label de planta (delegado a _actualizar_labels_planta)
+                    self._actualizar_labels_planta()
 
-                    # --- FIX: DETECCIÓN ATÓMICA DE ESCENA ---
-                    # Verificamos si .scene es un método o ya es el objeto
-                    if callable(getattr(visor, "scene", None)):
-                        escena = visor.scene()
-                    else:
-                        escena = getattr(visor, "scene", None)
+                    from PyQt6.QtWidgets import QGraphicsView as _GV
+                    escena = _GV.scene(visor)
 
                     if escena:
                         rect = escena.itemsBoundingRect()
                         if not rect.isEmpty():
                             visor.setSceneRect(rect)
-                            visor.resetTransform()
-                            visor.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
-                            visor.centerOn(rect.center())
-
-                        # Refresco del viewport de Qt
+                            # No llamar fitInView aquí directamente: el widget
+                            # aún no tiene su tamaño final. Se delega al diferido.
                         if visor.viewport():
                             visor.viewport().update()
 
             if target_index in [3, 4]:
                 self._actualizar_labels_planta()
+                # Reencuadre diferido con delays suficientes para que el
+                # QStackedWidget haya completado el resize del widget visible
                 self._forzar_reencuadre_diferido(force=True)
 
         finally:
@@ -2158,6 +2987,10 @@ class UbicacionTiendaWindow(QMainWindow):
             getattr(self, "btn_nav_admin", None): 4,
         }
 
+    # ============================================================
+    # BLOQUE GESTIÓN DE UBICACIONES Y ACTIVOS
+    # ============================================================
+
     def gestionar_ubicacion_epc(
         self, nombre_ref, epc_generado, pos_clic, real_x=None, real_y=None
     ):
@@ -2168,9 +3001,9 @@ class UbicacionTiendaWindow(QMainWindow):
         3. Renderizado de marcador persistente en el mapa.
         4. Generación de QR físico con coordenadas exactas.
         """
-        from PyQt6.QtWidgets import QMessageBox
+
         from PyQt6.QtCore import QPointF
-        import os
+        from PyQt6.QtWidgets import QMessageBox
 
         try:
             # --- 1. PREPARACIÓN DE DATOS ---
@@ -2194,39 +3027,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 m_x = round(real_x, 3) if real_x is not None else 0.0
                 m_y = round(real_y, 3) if real_y is not None else 0.0
 
-            # --- 3. ACTUALIZACIÓN DE BASE DE DATOS (MariaDB) ---
-            # Vinculamos el EPC único a la posición física
-            with obtener_conexion() as conn:
-                if not conn:
-                    raise Exception("Error de conexión con el servidor MariaDB")
-
-                cursor = conn.cursor()
-                query = """
-                    INSERT INTO ubicaciones 
-                    (epc, pasillo, estanteria, mapa_x, mapa_y, real_x, real_y, verificado, fecha_actualizacion) 
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, 1, NOW())
-                    ON DUPLICATE KEY UPDATE 
-                        mapa_x = VALUES(mapa_x), 
-                        mapa_y = VALUES(mapa_y),
-                        real_x = VALUES(real_x),
-                        real_y = VALUES(real_y),
-                        estanteria = VALUES(estanteria),
-                        fecha_actualizacion = NOW()
-                """
-                valores = (
-                    epc_final,
-                    "ZONA_ADMIN",
-                    nombre_limpio,
-                    int(pos_clic.x()),
-                    int(pos_clic.y()),
-                    m_x,
-                    m_y,
-                )
-                cursor.execute(query, valores)
-                conn.commit()
-
-            # --- 4. CLASIFICACIÓN Y RENDERIZADO VISUAL ---
-            # Detectamos si es satélite o estantería para el color del marcador
+            # --- 3. CLASIFICACIÓN Y RENDERIZADO VISUAL ---
             es_satelite = any(
                 x in nombre_limpio for x in ["SAT", "SATELLITE", "SBT", "ANTENNA"]
             )
@@ -2241,6 +3042,27 @@ class UbicacionTiendaWindow(QMainWindow):
                     color=color_marcador,
                     epc=epc_final,
                 )
+
+            # --- 4. COLA DE GUARDADO DIFERIDO ---
+            # La escritura a DB (ubicaciones + configuracion_mapa) se realiza únicamente
+            # al pulsar "FINALIZAR Y GUARDAR", para que el aviso de cambios pendientes
+            # funcione correctamente y el usuario controle cuándo se persiste el estado.
+            if not hasattr(self, "_iconos_pendientes"):
+                self._iconos_pendientes = []
+            # Remove any prior entry for the same EPC so repeated moves don't duplicate
+            self._iconos_pendientes = [
+                p for p in self._iconos_pendientes if p.get("epc") != epc_final
+            ]
+            self._iconos_pendientes.append({
+                "epc": epc_final,
+                "pasillo": "ZONA_ADMIN",
+                "estanteria": nombre_limpio,
+                "mapa_x": int(pos_clic.x()),
+                "mapa_y": int(pos_clic.y()),
+                "real_x": m_x,
+                "real_y": m_y,
+            })
+            self.cambios_sin_guardar = True
 
             # --- 5. GENERACIÓN DE QR FÍSICO (Exportación a carpeta) ---
             # Pasamos nombre, x e y directamente
@@ -2272,18 +3094,19 @@ class UbicacionTiendaWindow(QMainWindow):
     def abrir_formulario_ubicacion_estanteria(
         self, epc_existente=None, nombre_existente=None, permiso_clic=False
     ):
+        import hashlib
+        import time
+
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
+            QFrame,
+            QHBoxLayout,
             QLabel,
             QLineEdit,
             QPushButton,
-            QFrame,
-            QHBoxLayout,
+            QVBoxLayout,
         )
-        from PyQt6.QtCore import Qt
-        import time
-        import hashlib
 
         is_edit = epc_existente is not None
 
@@ -2293,8 +3116,8 @@ class UbicacionTiendaWindow(QMainWindow):
                 border-radius: 8px; font-family: 'Segoe UI'; font-weight: 900; 
                 font-size: 11px; padding: 10px 20px; border: none; 
             }
-            QPushButton#btnOk { background-color: #238636; color: white; }
-            QPushButton#btnOk:hover { background-color: #31AF50; } 
+            QPushButton#btnOk { background-color: #238636; color: #0E1117; }
+            QPushButton#btnOk:hover { background-color: #FFFFFF; color: #0E1117; }
             QPushButton#btnCan { background-color: #30363D; color: #8B949E; }
             QPushButton#btnCan:hover { background-color: #4B535D; color: white; }
             QPushButton#btnSave { background-color: #0047AB; color: white; } 
@@ -2308,49 +3131,66 @@ class UbicacionTiendaWindow(QMainWindow):
             self.visor_admin.ultimo_click_escena = None  # Limpieza preventiva
 
             aviso = QDialog(self)
-            aviso.setFixedSize(380, 220)
+            aviso.setFixedSize(480, 290)
             aviso.setWindowFlags(
                 Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog
             )
             aviso.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
             lyt_base = QVBoxLayout(aviso)
+            lyt_base.setContentsMargins(0, 0, 0, 0)
             frm = QFrame()
             frm.setStyleSheet(
-                f"QFrame {{ background-color: #0D1117; border: 2px solid #00F0FF; border-radius: 15px; }} {estilo_botones}"
+                "QFrame { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 18px; }"
+                " QLabel { color: #E6EDF3; border: none; background: transparent; }"
             )
 
             fl = QVBoxLayout(frm)
-            fl.setContentsMargins(25, 20, 25, 20)
+            fl.setContentsMargins(30, 26, 30, 26)
+            fl.setSpacing(14)
 
-            tit = QLabel("MODO UBICACIÓN")
+            tit = QLabel("📍  " + tr("ubic.mode_locate_title", default="MODO UBICACIÓN"))
             tit.setStyleSheet(
-                "color: #00F0FF; font-family: 'Segoe UI'; font-size: 14px; font-weight: 900; border: none;"
+                "color: #00FFC6; font-family: 'Segoe UI'; font-size: 16px; font-weight: 900;"
+                " letter-spacing: 1px; border: none; background: transparent;"
             )
             tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             msg = QLabel(
-                "Para vincular un activo, primero debe marcar una ubicación exacta en el mapa plano.<br><br>¿Desea activar el puntero de ubicación?"
+                tr("ubic.mode_locate_msg",
+                   default="Para vincular un activo, primero debe marcar una ubicación exacta en el mapa plano.<br><br>¿Desea activar el puntero de ubicación?")
             )
             msg.setStyleSheet(
-                "color: white; font-family: 'Segoe UI'; font-size: 12px; font-weight: 900; border: none;"
+                "color: #C9D1D9; font-family: 'Segoe UI'; font-size: 13px; font-weight: 700;"
+                " border: none; background: transparent;"
             )
             msg.setWordWrap(True)
             msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             btn_h = QHBoxLayout()
-            btn_cancel = QPushButton("CANCELAR")
-            btn_cancel.setObjectName("btnCan")
-            btn_cancel.setCursor(
-                Qt.CursorShape.PointingHandCursor
-            )  # <--- Añadido hover manita
+            btn_h.setSpacing(12)
+
+            btn_cancel = QPushButton(tr("ubic.cancel", default="CANCELAR"))
+            btn_cancel.setFixedHeight(42)
+            btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_cancel.setStyleSheet(
+                "QPushButton { background-color: #21262D; color: #8B949E;"
+                " border: 1px solid #30363D; border-radius: 10px;"
+                " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+                " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }"
+            )
             btn_cancel.clicked.connect(aviso.reject)
 
-            btn_cont = QPushButton("CONTINUAR")
-            btn_cont.setObjectName("btnOk")
-            btn_cont.setCursor(
-                Qt.CursorShape.PointingHandCursor
-            )  # <--- Añadido hover manita
+            btn_cont = QPushButton(tr("ubic.continue", default="CONTINUAR"))
+            btn_cont.setFixedHeight(42)
+            btn_cont.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_cont.setStyleSheet(
+                "QPushButton { background-color: #1ED760; color: #0D1117;"
+                " border: 2px solid #1ED760; border-radius: 10px;"
+                " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+                " QPushButton:hover { background-color: transparent; color: #1ED760;"
+                " border: 2px solid #1ED760; }"
+            )
             btn_cont.clicked.connect(aviso.accept)
 
             btn_h.addWidget(btn_cancel)
@@ -2367,7 +3207,7 @@ class UbicacionTiendaWindow(QMainWindow):
                     self.visor_admin.configurar_modo("UBICAR_ESTANTERIA")
                 if hasattr(self, "mostrar_mensaje_temporal"):
                     self.mostrar_mensaje_temporal(
-                        "Haga clic en el mapa para situar la estantería"
+                        tr("ubic.click_to_place", default="Haga clic en el mapa para situar la estantería")
                     )
             return
 
@@ -2399,13 +3239,13 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.setContentsMargins(35, 30, 35, 30)
         layout.setSpacing(15)
 
-        lbl_head = QLabel("EDICIÓN DE ACTIVO" if is_edit else "VINCULACIÓN DE ACTIVO")
+        lbl_head = QLabel(tr("ubic.asset_edit_head", default="EDICIÓN DE ACTIVO") if is_edit else tr("ubic.asset_link_head", default="VINCULACIÓN DE ACTIVO"))
         lbl_head.setStyleSheet(
             "color: white; font-family: 'Segoe UI'; font-size: 15px; font-weight: 900;"
         )
         layout.addWidget(lbl_head)
 
-        layout.addWidget(QLabel("NOMBRE / REFERENCIA:"))
+        layout.addWidget(QLabel(tr("ubic.name_ref", default="NOMBRE / REFERENCIA:")))
         input_ref = QLineEdit()
         nombre_def = (
             nombre_existente
@@ -2422,7 +3262,7 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.addStretch()
 
         # Botones de Acción
-        btn_vincular = QPushButton("ACTUALIZAR" if is_edit else "UBICAR Y FINALIZAR")
+        btn_vincular = QPushButton(tr("ubic.btn_update", default="ACTUALIZAR") if is_edit else tr("ubic.btn_locate_finish", default="UBICAR Y FINALIZAR"))
         btn_vincular.setObjectName("btnSave")
         btn_vincular.setCursor(
             Qt.CursorShape.PointingHandCursor
@@ -2431,14 +3271,14 @@ class UbicacionTiendaWindow(QMainWindow):
 
         btn_seguir = None
         if not is_edit:
-            btn_seguir = QPushButton("SEGUIR UBICANDO")
+            btn_seguir = QPushButton(tr("ubic.btn_keep_locating", default="SEGUIR UBICANDO"))
             btn_seguir.setObjectName("btnContinue")
             btn_seguir.setCursor(
                 Qt.CursorShape.PointingHandCursor
             )  # <--- Añadido hover manita
             layout.addWidget(btn_seguir)
 
-        btn_cancel_form = QPushButton("CANCELAR")
+        btn_cancel_form = QPushButton(tr("ubic.cancel", default="CANCELAR"))
         btn_cancel_form.setObjectName("btnCan")
         btn_cancel_form.setCursor(
             Qt.CursorShape.PointingHandCursor
@@ -2475,7 +3315,7 @@ class UbicacionTiendaWindow(QMainWindow):
             ):
                 if hasattr(self, "mostrar_mensaje_temporal"):
                     self.mostrar_mensaje_temporal(
-                        "FALLO DE HARDWARE: Acerque el tag", 5000
+                        tr("ubic.hw_fail", default="FALLO DE HARDWARE: Acerque el tag"), 5000
                     )
                 return
 
@@ -2527,16 +3367,16 @@ class UbicacionTiendaWindow(QMainWindow):
         2. Abre diálogo para pedir NOMBRE (Opaco y Segoe UI Bold).
         3. Guarda en DB y genera QR.
         """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QFont
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
+            QFrame,
             QLabel,
             QLineEdit,
             QPushButton,
-            QFrame,
+            QVBoxLayout,
         )
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QFont
 
         if not permiso_clic or pos is None:
             return
@@ -2596,13 +3436,13 @@ class UbicacionTiendaWindow(QMainWindow):
             )
 
             layout = QVBoxLayout(container)
-            lbl = QLabel("IDENTIFICADOR DEL SATÉLITE:")
+            lbl = QLabel(tr("ubic.sat_id", default="IDENTIFICADOR DEL SATÉLITE:"))
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             input_nom = QLineEdit()
-            input_nom.setPlaceholderText("Ej: SAT-NORTE-01")
+            input_nom.setPlaceholderText(tr("ubic.sat_id_ph", default="Ej: SAT-NORTE-01"))
 
-            btn_guardar = QPushButton("CONFIRMAR E INSTALAR")
+            btn_guardar = QPushButton(tr("ubic.sat_confirm", default="CONFIRMAR E INSTALAR"))
             # Forzamos la fuente bold también vía objeto por si el CSS tiene herencia débil
             btn_guardar.setFont(fuente_segoe)
             btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)  # Cursor Manita
@@ -2675,21 +3515,63 @@ class UbicacionTiendaWindow(QMainWindow):
                     es_satelite=True,
                 )
 
-            # --- 5. FEEDBACK VISUAL (CORREGIDO: Solo enviamos el nombre limpio) ---
+            # --- 5. FEEDBACK VISUAL ---
             if hasattr(self.visor_admin, "colocar_marcador_3d"):
                 self.visor_admin.colocar_marcador_3d(
                     pos,
                     "SATÉLITE",
-                    nombre_sat,  # <--- ELIMINADAS LAS COORDENADAS MANUALES
+                    nombre_sat,
                     color="#00FFC6",
+                    epc=sat_id,
                 )
+
+            # --- 6. PERSISTENCIA EN configuracion_mapa (puntos_infraestructura) ---
+            # Needed so the satellite survives plan navigation and session restarts.
+            try:
+                import json as _json_mod
+                _planta_idx = getattr(self, "planta_actual", 0)
+                with obtener_conexion() as _conn2:
+                    _cur2 = _conn2.cursor()
+                    _cur2.execute(
+                        "SELECT puntos_infraestructura FROM configuracion_mapa WHERE planta_index = %s",
+                        (_planta_idx,),
+                    )
+                    _row2 = _cur2.fetchone()
+                    _lista_infra = []
+                    if _row2 and _row2[0]:
+                        try:
+                            _lista_infra = _json_mod.loads(_row2[0])
+                        except Exception:
+                            _lista_infra = []
+                    _lista_infra = [p for p in _lista_infra if p.get("epc") != sat_id]
+                    _lista_infra.append({
+                        "tipo": "SATÉLITE",
+                        "x": pos.x(),
+                        "y": pos.y(),
+                        "nombre": nombre_sat,
+                        "epc": sat_id,
+                    })
+                    _infra_json_new = _json_mod.dumps(_lista_infra)
+                    if _row2:
+                        _cur2.execute(
+                            "UPDATE configuracion_mapa SET puntos_infraestructura = %s WHERE planta_index = %s",
+                            (_infra_json_new, _planta_idx),
+                        )
+                    else:
+                        _cur2.execute(
+                            "INSERT INTO configuracion_mapa (planta_index, puntos_infraestructura) VALUES (%s, %s)",
+                            (_planta_idx, _infra_json_new),
+                        )
+                    _conn2.commit()
+            except Exception as _e2:
+                print(f"⚠️ Error al persistir satélite en configuracion_mapa: {_e2}")
 
             if self.window() and hasattr(self.window(), "statusBar"):
                 sb = self.window().statusBar()
                 sb.setStyleSheet(
                     "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
                 )
-                sb.showMessage(f"SATÉLITE '{nombre_sat}' INSTALADO CORRECTAMENTE", 4000)
+                sb.showMessage(tr("ubic.sat_installed", default="SATÉLITE '{nombre}' INSTALADO CORRECTAMENTE", nombre=nombre_sat), 4000)
 
         except Exception as e:
             print(f"Error crítico en registro de satélite: {e}")
@@ -2699,91 +3581,78 @@ class UbicacionTiendaWindow(QMainWindow):
         FASE 1: Inicia el flujo de instalación de satélites.
         Muestra el aviso legal/instrucciones y activa la cruceta en el visor.
         """
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
+            QFrame,
+            QHBoxLayout,
             QLabel,
             QPushButton,
-            QHBoxLayout,
-            QFrame,
+            QVBoxLayout,
         )
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QFont
 
         if not self.visor_admin:
             return
 
-        # 1. CONFIGURACIÓN DEL DIÁLOGO
         diag = QDialog(self)
-        diag.setFixedSize(480, 280)
+        diag.setFixedSize(500, 310)
         diag.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         diag.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        # FUENTES FORZADAS (Blindaje Segoe UI)
-        fuente_titulo = QFont("Segoe UI", 14, QFont.Weight.Bold)
-        fuente_cuerpo = QFont("Segoe UI", 10, QFont.Weight.Bold)
-        fuente_btn = QFont("Segoe UI", 11, QFont.Weight.Bold)
-
-        # 2. CONTENEDOR PRINCIPAL (Diseño Turquesa)
         container = QFrame()
         container.setStyleSheet(
-            """
-            QFrame { 
-                background-color: #121212; 
-                border: 2px solid #00FFFF; 
-                border-radius: 15px; 
-            }
-            QLabel { 
-                color: #E0E0E0; 
-                padding: 10px; 
-                border: none;
-            }
-            QPushButton { 
-                background-color: #1E1E1E; 
-                color: #00FFFF; 
-                border: 1px solid #00FFFF;
-                border-radius: 6px; 
-                padding: 10px; 
-                min-width: 120px;
-            }
-            QPushButton:hover { 
-                background-color: #00FFFF; 
-                color: #121212; 
-            }
-        """
+            "QFrame { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 18px; }"
+            " QLabel { color: #E6EDF3; border: none; background: transparent; }"
         )
 
         lyt = QVBoxLayout(container)
-        lyt.setContentsMargins(20, 20, 20, 20)
+        lyt.setContentsMargins(30, 26, 30, 26)
+        lyt.setSpacing(14)
 
-        titulo_label = QLabel("MODO INSTALACIÓN DE SATÉLITES")
-        titulo_label.setFont(fuente_titulo)
-        titulo_label.setStyleSheet("color: #00FFFF; border: none;")
+        titulo_label = QLabel("📡  " + tr("ubic.sat_install_title", default="MODO INSTALACIÓN DE SATÉLITES"))
+        titulo_label.setStyleSheet(
+            "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+            " font-size: 16px; letter-spacing: 1px; border: none; background: transparent;"
+        )
         titulo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lyt.addWidget(titulo_label)
 
         texto_guia = QLabel(
-            "Para generar los códigos QR vinculados a coordenadas exactas, "
-            "debe seleccionar el punto de instalación sobre el mapa.<br><br>"
-            "1. Pulse <b>Continuar</b> para activar la cruceta.<br>"
-            "2. Haga clic en el mapa para marcar la ubicación.<br>"
-            "3. Se le pedirá un <b>Nombre</b> para el satélite tras el clic."
+            tr("ubic.sat_install_guide",
+               default="Para generar los códigos QR vinculados a coordenadas exactas, debe seleccionar el punto de instalación sobre el mapa.<br><br>1. Pulse <b>Continuar</b> para activar la cruceta.<br>2. Haga clic en el mapa para marcar la ubicación.<br>3. Se le pedirá un <b>Nombre</b> para el satélite tras el clic.")
         )
-        texto_guia.setFont(fuente_cuerpo)
+        texto_guia.setStyleSheet(
+            "color: #C9D1D9; font-family: 'Segoe UI'; font-weight: 700;"
+            " font-size: 13px; border: none; background: transparent;"
+        )
         texto_guia.setTextFormat(Qt.TextFormat.RichText)
         texto_guia.setAlignment(Qt.AlignmentFlag.AlignCenter)
         texto_guia.setWordWrap(True)
         lyt.addWidget(texto_guia)
 
-        # 3. BOTONES CON CURSOR DE MANITA
         btn_lyt = QHBoxLayout()
-        btn_cancelar = QPushButton("CANCELAR")
-        btn_continuar = QPushButton("CONTINUAR")
+        btn_lyt.setSpacing(12)
 
-        for b in [btn_cancelar, btn_continuar]:
-            b.setFont(fuente_btn)
-            # --- CURSOR MANITA (SOLICITADO) ---
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cancelar = QPushButton(tr("ubic.cancel", default="CANCELAR"))
+        btn_cancelar.setFixedHeight(42)
+        btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cancelar.setStyleSheet(
+            "QPushButton { background-color: #21262D; color: #8B949E;"
+            " border: 1px solid #30363D; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }"
+        )
+
+        btn_continuar = QPushButton(tr("ubic.continue", default="CONTINUAR"))
+        btn_continuar.setFixedHeight(42)
+        btn_continuar.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_continuar.setStyleSheet(
+            "QPushButton { background-color: #1ED760; color: #0D1117;"
+            " border: 2px solid #1ED760; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+            " QPushButton:hover { background-color: transparent; color: #1ED760;"
+            " border: 2px solid #1ED760; }"
+        )
 
         btn_lyt.addWidget(btn_cancelar)
         btn_lyt.addWidget(btn_continuar)
@@ -2817,14 +3686,9 @@ class UbicacionTiendaWindow(QMainWindow):
                 self.visor_admin.viewport().setCursor(Qt.CursorShape.CrossCursor)
                 self.visor_admin.viewport().update()
 
-            # Feedback visual en la barra de estado
             sb = self.window().statusBar()
             if sb:
-                sb.setFont(fuente_cuerpo)
-                sb.setStyleSheet(
-                    "color: #00FFFF; background-color: #121212; border-top: 1px solid #00FFFF;"
-                )
-                sb.showMessage("MODO SATÉLITE: Seleccione ubicación en el mapa", 0)
+                sb.showMessage("📡 MODO SATÉLITE — Seleccione ubicación en el mapa", 0)
 
             if hasattr(self, "btn_modo_pintar"):
                 self.btn_modo_pintar.setChecked(False)
@@ -2843,8 +3707,8 @@ class UbicacionTiendaWindow(QMainWindow):
         3. Sincronización visual y guardado automático del mapa.
         """
         from datetime import datetime
+
         from PyQt6.QtWidgets import QMessageBox
-        from PyQt6.QtCore import Qt
 
         # Estilo unificado para los mensajes (Dark Tech / Bold)
         estilo_base_msg = """
@@ -2879,7 +3743,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         if pos_clic is None:
             msg = QMessageBox(self)
-            msg.setWindowTitle("⚠️ ERROR DE COORDENADAS")
+            msg.setWindowTitle("⚠️ " + tr("ubic.err_coords_title", default="ERROR DE COORDENADAS"))
             msg.setText(
                 "No se detectó un punto de anclaje válido en el mapa.\nPor favor, marque la ubicación primero."
             )
@@ -2950,7 +3814,7 @@ class UbicacionTiendaWindow(QMainWindow):
         except Exception as e:
             print(f"Error en finalizar_grabacion_logistica: {e}")
             msg = QMessageBox(self)
-            msg.setWindowTitle("🛑 ERROR CRÍTICO")
+            msg.setWindowTitle("🛑 " + tr("ubic.err_critical_title", default="ERROR CRÍTICO"))
             msg.setText(f"Fallo en la cadena de registro SQL/JSON:\n{str(e)}")
             msg.setIcon(QMessageBox.Icon.Critical)
             msg.setStyleSheet(
@@ -2958,19 +3822,22 @@ class UbicacionTiendaWindow(QMainWindow):
             )
             msg.exec()
 
+    # ============================================================
+    # BLOQUE GENERACIÓN DE CÓDIGOS QR
+    # ============================================================
+
     def generar_qr_estanteria(self, epc, nombre, pos_x, pos_y, es_satelite=False):
         """
         Generador Universal de Etiquetas QR con Pie de Foto.
         MANTIENE: Lógica de limpieza, rutas y JSON original.
         AÑADE: Nombre visual debajo del QR (Primera letra mayúscula).
         """
-        import qrcode
-        import os
         import glob
         import json
+        import os
         import re
         from datetime import datetime
-        from PyQt6.QtWidgets import QMessageBox
+
         from PIL import Image, ImageDraw, ImageFont  # Necesario para el pie de foto
 
         try:
@@ -3069,7 +3936,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 sb.setStyleSheet(
                     f"background-color: {color_feedback}; color: #0D1117; font-weight: 900; font-family: 'Segoe UI';"
                 )
-                sb.showMessage(f"QR {tipo_entidad} EXPORTADO: {nombre_archivo}", 5000)
+                sb.showMessage(tr("ubic.qr_exported", default="QR {tipo} EXPORTADO: {archivo}", tipo=tipo_entidad, archivo=nombre_archivo), 5000)
 
             return ruta_completa
 
@@ -3077,7 +3944,7 @@ class UbicacionTiendaWindow(QMainWindow):
             print(f"[ERROR] Generando QR: {e}")
             if hasattr(self, "mostrar_mensaje_error"):
                 self.mostrar_mensaje_error(
-                    f"Error al generar QR {tipo_entidad}", str(e)
+                    tr("ubic.err_qr_gen", default="Error al generar QR {tipo}", tipo=tipo_entidad), str(e)
                 )
             return None
 
@@ -3091,6 +3958,10 @@ class UbicacionTiendaWindow(QMainWindow):
             "QMessageBox { background-color: #0D1117; } QLabel { color: white; }"
         )
         msg.exec()
+
+    # ============================================================
+    # BLOQUE GUARDADO DE DATOS DE UBICACIÓN
+    # ============================================================
 
     def finalizar_ubicacion(self, contexto):
         """
@@ -3248,7 +4119,7 @@ class UbicacionTiendaWindow(QMainWindow):
             )
 
         # 3. Resetear etiquetas de estado
-        self.info_art.setText("Icono ESPERANDO ESCANEO O CÓDIGO...")
+        self.info_art.setText(tr("ubic.waiting_scan", default="Icono ESPERANDO ESCANEO O CÓDIGO..."))
         self.info_art.setStyleSheet(
             "color: #8B949E; font-family: 'Segoe UI'; font-size: 12px; font-weight: 900;"
         )
@@ -3272,7 +4143,7 @@ class UbicacionTiendaWindow(QMainWindow):
         # Opcional: Si tienes una imagen del artículo anterior, límpiala aquí también
         if hasattr(self, "lbl_foto_articulo"):
             self.lbl_foto_articulo.clear()
-            self.lbl_foto_articulo.setText("Icono SIN IMAGEN")
+            self.lbl_foto_articulo.setText(tr("ubic.no_image_icon", default="Icono SIN IMAGEN"))
 
     def actualizar_incidencia_gps(self, codigo_art):
         """
@@ -3338,17 +4209,17 @@ class UbicacionTiendaWindow(QMainWindow):
         - ESTÉTICA: Título "UBICAR ACTIVOS" en Segoe UI 900.
         - VISOR: Sincronización de calidad visual con GPS Interno y Botones de Zoom.
         """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QPainter
         from PyQt6.QtWidgets import (
-            QWidget,
-            QHBoxLayout,
-            QVBoxLayout,
             QFrame,
+            QHBoxLayout,
             QLabel,
             QPushButton,
             QSizePolicy,
+            QVBoxLayout,
+            QWidget,
         )
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QPainter
 
         vista = QWidget()
         layout = QHBoxLayout(vista)
@@ -3366,7 +4237,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt_izq.setSpacing(15)
 
         # AJUSTE QUIRÚRGICO: Título estilizado sin recuadro
-        self.lbl_repo = QLabel("UBICAR ACTIVOS")
+        self.lbl_repo = QLabel(tr("ubic.locate_assets", default="UBICAR ACTIVOS"))
         self.lbl_repo.setStyleSheet(
             """
             color: #00F0FF; 
@@ -3407,7 +4278,7 @@ class UbicacionTiendaWindow(QMainWindow):
         def _iniciar_proceso_ubicacion():
             self.abrir_formulario_ubicacion_estanteria(permiso_clic=False)
 
-        self.btn_ubicar_activo = QPushButton("📍 UBICAR\nESTANTERÍA")
+        self.btn_ubicar_activo = QPushButton("📍 " + tr("ubic.btn_locate_shelf", default="UBICAR\nESTANTERÍA"))
         self.btn_ubicar_activo.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -3417,7 +4288,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt_izq.addWidget(self.btn_ubicar_activo, stretch=1)
 
         # Botón 2: Satélite
-        self.btn_crear_satelite = QPushButton("🛰️ INSTALAR\nSATÉLITE")
+        self.btn_crear_satelite = QPushButton("🛰️ " + tr("ubic.btn_install_sat", default="INSTALAR\nSATÉLITE"))
         self.btn_crear_satelite.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -3427,7 +4298,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt_izq.addWidget(self.btn_crear_satelite, stretch=1)
 
         # Botón 3: QRs
-        self.btn_ver_qrs = QPushButton("📂 VER\nCÓDIGOS QR")
+        self.btn_ver_qrs = QPushButton("📂 " + tr("ubic.btn_view_qr", default="VER\nCÓDIGOS QR"))
         self.btn_ver_qrs.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -3450,7 +4321,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt_n1 = QHBoxLayout(n1_frame)
         lyt_n1.setContentsMargins(0, 0, 0, 5)
 
-        self.btn_modo_pintar = QPushButton("🖌️ MODO PINTADO: OFF")
+        self.btn_modo_pintar = QPushButton("🖌️ " + tr("ubic.paint_off", default="MODO PINTADO: OFF"))
         self.btn_modo_pintar.setCheckable(True)
         self.btn_modo_pintar.setFixedSize(190, 42)
         self.btn_modo_pintar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3466,16 +4337,16 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         self.btn_modo_pintar.clicked.connect(self.alternar_modo_pintado)
 
-        self.btn_guardar = QPushButton("✅ FINALIZAR Y GUARDAR")
+        self.btn_guardar = QPushButton("✅ " + tr("ubic.save_finish", default="FINALIZAR Y GUARDAR"))
         self.btn_guardar.setFixedSize(220, 42)
         self.btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_guardar.setStyleSheet(
             self._estilo_boton_neon(
                 bg="#238636",
-                fg="#FFFFFF",
+                fg="#0E1117",
                 border="#00FFC6",
                 hover_bg="#FFFFFF",
-                hover_fg="#238636",
+                hover_fg="#0E1117",
             )
         )
         self.btn_guardar.setFont(self._crear_fuente_segoe(9))
@@ -3486,7 +4357,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # LABEL DE PLANTA ACTUAL
         planta_idx = getattr(self, "planta_actual", 0)
-        self.lbl_planta_actual = QLabel(f"📍 PLANTA {planta_idx}")
+        self.lbl_planta_actual = QLabel("📍 " + tr("ubic.no_plan", default="SIN PLANO"))
         self.lbl_planta_actual.setStyleSheet(
             "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; letter-spacing: 2px;"
         )
@@ -3503,27 +4374,27 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt_n2 = QHBoxLayout(n2_frame)
         lyt_n2.setContentsMargins(10, 8, 10, 8)
 
-        self.btn_escala = QPushButton("📏 INICIAR CALIBRACIÓN")
+        self.btn_escala = QPushButton("📏 " + tr("ubic.start_calib", default="INICIAR CALIBRACIÓN"))
         self.btn_escala.setFixedSize(200, 38)
         self.btn_escala.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_escala.setFont(self._crear_fuente_segoe(9))
+        self.btn_escala.setFont(self._crear_fuente_segoe(12))
         self.btn_escala.setStyleSheet(
             self._estilo_boton_neon(
-                bg="#FF5C57",
+                bg="#2EA043",
                 fg="#FFFFFF",
-                border="#FF7B72",
+                border="#3FB950",
                 hover_bg="#FFFFFF",
-                hover_fg="#FF5C57",
+                hover_fg="#2EA043",
                 radius=8,
                 padding="8px 12px",
-                font_size=11,
+                font_size=12,
             )
         )
-        self.btn_escala.clicked.connect(self.iniciar_calibracion_escala)
+        self.btn_escala.clicked.connect(self._clic_boton_escala)
 
-        self.btn_deshacer_muro = QPushButton("↩️ DESHACER")
+        self.btn_deshacer_muro = QPushButton("↩️ " + tr("ubic.undo", default="DESHACER"))
         self.btn_deshacer_muro.setEnabled(False)
-        self.btn_deshacer_muro.setFixedSize(110, 38)
+        self.btn_deshacer_muro.setFixedSize(125, 38)
         self.btn_deshacer_muro.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_deshacer_muro.setStyleSheet(
             self._estilo_boton_neon(
@@ -3537,7 +4408,7 @@ class UbicacionTiendaWindow(QMainWindow):
         self.btn_deshacer_muro.clicked.connect(self.gestionar_deshacer_muro)
         self.btn_deshacer_muro.setFont(self._crear_fuente_segoe(9))
 
-        self.btn_rehacer_muro = QPushButton("REHACER")
+        self.btn_rehacer_muro = QPushButton("↪️ " + tr("ubic.redo", default="REHACER"))
         self.btn_rehacer_muro.setEnabled(False)
         self.btn_rehacer_muro.setFixedSize(110, 38)
         self.btn_rehacer_muro.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3553,28 +4424,29 @@ class UbicacionTiendaWindow(QMainWindow):
         self.btn_rehacer_muro.clicked.connect(self.gestionar_rehacer_muro)
         self.btn_rehacer_muro.setFont(self._crear_fuente_segoe(9))
 
-        self.btn_ver_matriz = QPushButton("👁️ MATRIZ: OFF")
+        self.btn_ver_matriz = QPushButton("👁️ " + tr("ubic.matrix_off", default="MATRIZ: OFF"))
         self.btn_ver_matriz.setCheckable(True)
-        self.btn_ver_matriz.setFixedSize(120, 38)
+        self.btn_ver_matriz.setFixedSize(130, 38)
         self.btn_ver_matriz.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_ver_matriz.setFont(self._crear_fuente_segoe(9))
+        self.btn_ver_matriz.setFixedSize(130, 38)
+        self.btn_ver_matriz.setFont(self._crear_fuente_segoe(11))
+        self.btn_ver_matriz.setStyleSheet(
+            self._estilo_boton_neon(
+                bg="#21262D",
+                fg="#C9D1D9",
+                border="#30363D",
+                hover_bg="#C9D1D9",
+                hover_fg="#21262D",
+                font_size=11,
+            )
+        )
         self.btn_ver_matriz.clicked.connect(self.alternar_visibilidad_matriz)
 
-        # NUEVO: Controles de Zoom para el mapa
-        estilo_zoom = "QPushButton { background-color: #161B22; color: #E6EDF3; border: 1px solid #30363D; border-radius: 8px; font-weight: 900; font-size: 14px; font-family: 'Segoe UI'; } QPushButton:hover { background-color: #FFFFFF; color: #161B22; border-color: #FFFFFF; }"
-
-        self.btn_zoom_out = QPushButton("➖")
-        self.btn_zoom_out.setFixedSize(40, 38)
-        self.btn_zoom_out.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_zoom_out.setFont(self._crear_fuente_segoe(11))
-        self.btn_zoom_out.setStyleSheet(estilo_zoom)
+        # Controles de Zoom para el mapa
+        self.btn_zoom_out = _NeonZoomBtn("—")
         self.btn_zoom_out.clicked.connect(lambda: self.ajustar_zoom(0.8))
 
-        self.btn_zoom_in = QPushButton("➕")
-        self.btn_zoom_in.setFixedSize(40, 38)
-        self.btn_zoom_in.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_zoom_in.setFont(self._crear_fuente_segoe(11))
-        self.btn_zoom_in.setStyleSheet(estilo_zoom)
+        self.btn_zoom_in = _NeonZoomBtn("+")
         self.btn_zoom_in.clicked.connect(lambda: self.ajustar_zoom(1.25))
 
         lyt_n2.addWidget(self.btn_escala)
@@ -3590,7 +4462,7 @@ class UbicacionTiendaWindow(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self.visor_admin.setStyleSheet(
-            "QGraphicsView { border: 2px solid #1C2128; background-color: #050505; border-radius: 20px; }"
+            "QGraphicsView { border: 2px solid #00FFC6; background-color: #050505; border-radius: 20px; }"
         )
         self.visor_admin.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.visor_admin.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -3611,13 +4483,13 @@ class UbicacionTiendaWindow(QMainWindow):
         """
 
         self.btn_planta_prev = QPushButton("<")
-        self.btn_planta_prev.setFixedSize(35, 120)
+        self.btn_planta_prev.setFixedSize(50, 120)
         self.btn_planta_prev.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_planta_prev.setStyleSheet(estilo_flecha)
         self.btn_planta_prev.clicked.connect(lambda: self.navegar_planta(-1))
 
         self.btn_planta_next = QPushButton(">")
-        self.btn_planta_next.setFixedSize(35, 120)
+        self.btn_planta_next.setFixedSize(50, 120)
         self.btn_planta_next.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_planta_next.setStyleSheet(estilo_flecha)
         self.btn_planta_next.clicked.connect(lambda: self.navegar_planta(1))
@@ -3643,8 +4515,8 @@ class UbicacionTiendaWindow(QMainWindow):
         Alterna la visibilidad de la matriz A* con feedback visual dinámico.
         Estilo unificado con el resto de la aplicación y cursor interactivo.
         """
-        from PyQt6.QtWidgets import QApplication
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
 
         if not hasattr(self, "visor_admin") or not self.visor_admin:
             return
@@ -3671,7 +4543,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         if estado:
             # --- ESTADO: ON ---
-            self.btn_ver_matriz.setText("👁️ MATRIZ: ON")
+            self.btn_ver_matriz.setText("👁️ " + tr("ubic.matrix_on", default="MATRIZ: ON"))
             self.btn_ver_matriz.setStyleSheet(
                 base_style
                 + """
@@ -3681,7 +4553,7 @@ class UbicacionTiendaWindow(QMainWindow):
             )
         else:
             # --- ESTADO: OFF ---
-            self.btn_ver_matriz.setText("🙈 MATRIZ: OFF")
+            self.btn_ver_matriz.setText("🙈 " + tr("ubic.matrix_off", default="MATRIZ: OFF"))
             self.btn_ver_matriz.setStyleSheet(
                 base_style
                 + """
@@ -3708,7 +4580,7 @@ class UbicacionTiendaWindow(QMainWindow):
             self.visor_admin.modo_pintar = False
             if hasattr(self, "btn_modo_pintar"):
                 self.btn_modo_pintar.setChecked(False)
-                self.btn_modo_pintar.setText("PINTAR MUROS")
+                self.btn_modo_pintar.setText(tr("ubic.paint_walls", default="PINTAR MUROS"))
 
         QApplication.processEvents()
 
@@ -3719,9 +4591,9 @@ class UbicacionTiendaWindow(QMainWindow):
         2. Muros: Se activan tras calibrar Escala.
         3. Herramientas: Se activan tras detectar Muros o Matriz.
         """
-        from PyQt6.QtWidgets import QGraphicsOpacityEffect
-        from PyQt6.QtCore import Qt
         import numpy as np
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QGraphicsOpacityEffect
 
         # --- 1. DETECCIÓN DE ESTADOS (Banderas de progreso) ---
         # Fase 1: ¿Tenemos escala?
@@ -3731,11 +4603,8 @@ class UbicacionTiendaWindow(QMainWindow):
         )
 
         # Fase 2: ¿Hay muros dibujados o cargados?
-        escena = (
-            self.visor_admin.scene()
-            if callable(self.visor_admin.scene)
-            else self.visor_admin.scene
-        )
+        from PyQt6.QtWidgets import QGraphicsView as _QGV
+        escena = _QGV.scene(self.visor_admin)
 
         muros_en_escena = (
             any(item.data(0) == "MURO_TECNICO" for item in escena.items())
@@ -3792,42 +4661,35 @@ class UbicacionTiendaWindow(QMainWindow):
                 btn.setGraphicsEffect(eff)
             eff.setOpacity(1.0 if esta_desbloqueado else 0.3)
 
-            # Tooltips de guía al usuario
-            if not escala_ok:
-                msg = "BLOQUEADO: Primero calibre la escala (Fase 1)"
-            elif not muros_ok and nombre_btn in botones_fase_3:
-                msg = "BLOQUEADO: Dibuje y guarde los muros (Fase 2)"
-            else:
-                msg = "Herramienta disponible"
-            btn.setToolTip(msg)
-
         # --- 4. GESTIÓN DEL BOTÓN ESCALA (INMUNE Y DINÁMICO) ---
         if hasattr(self, "btn_escala") and self.btn_escala:
             self.btn_escala.setEnabled(True)
             self.btn_escala.setCursor(Qt.CursorShape.PointingHandCursor)
 
             if not escala_ok:
-                # Estilo Alerta (Rojo Industrial)
-                self.btn_escala.setText("1. CALIBRAR ESCALA")
+                # Estilo Éxito Inicial (Verde — calibración pendiente pero disponible)
+                self.btn_escala.setText("📏 " + tr("ubic.calib_scale", default="CALIBRAR ESCALA"))
                 self.btn_escala.setStyleSheet(
                     """
-                    QPushButton { 
-                        background-color: #F85149; color: white; font-weight: 900; 
-                        border-radius: 8px; border: 2px solid #30363D; padding: 8px;
+                    QPushButton {
+                        background-color: #2EA043; color: white; font-weight: 900;
+                        border-radius: 8px; border: 1px solid #3FB950; padding: 8px;
+                        font-family: 'Segoe UI'; font-size: 12px;
                     }
-                    QPushButton:hover { background-color: #FF6666; }
+                    QPushButton:hover { background-color: #3FB950; }
                 """
                 )
             else:
-                # Estilo Activo (Cian Neón)
-                self.btn_escala.setText("📐 RECALIBRAR ESCALA")
+                # Estilo Éxito Calibrado (Verde — escala establecida)
+                self.btn_escala.setText("📐 " + tr("ubic.recalib_scale", default="RECALIBRAR ESCALA"))
                 self.btn_escala.setStyleSheet(
                     """
-                    QPushButton { 
-                        background-color: #00F5FF; color: #0D1117; font-weight: 900; 
-                        border-radius: 8px; border: 1px solid #30363D; padding: 8px;
+                    QPushButton {
+                        background-color: #2EA043; color: #FFFFFF; font-weight: 900;
+                        border-radius: 8px; border: 1px solid #3FB950; padding: 8px;
+                        font-family: 'Segoe UI'; font-size: 12px;
                     }
-                    QPushButton:hover { background-color: #FFFFFF; }
+                    QPushButton:hover { background-color: #3FB950; }
                 """
                 )
 
@@ -3863,6 +4725,10 @@ class UbicacionTiendaWindow(QMainWindow):
                 )
                 sb.showMessage("SISTEMA TOTALMENTE OPERATIVO")
 
+    # ============================================================
+    # BLOQUE MODO PINTADO DE MUROS
+    # ============================================================
+
     def alternar_modo_pintado(self):
         """
         Activa/Desactiva la brocha de muros.
@@ -3872,7 +4738,6 @@ class UbicacionTiendaWindow(QMainWindow):
             return
 
         from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QCursor
 
         # 1. Sincronización con el botón (Toggle)
         activo = self.btn_modo_pintar.isChecked()
@@ -3883,15 +4748,15 @@ class UbicacionTiendaWindow(QMainWindow):
 
         if activo:
             # --- MODO ACTIVADO: EL BOTÓN SE CONVIERTE EN "GUARDAR" ---
-            self.btn_modo_pintar.setText("✔ GUARDAR CAMBIOS")
+            self.btn_modo_pintar.setText("✔ " + tr("ubic.paint_save", default="GUARDAR CAMBIOS"))
             self.btn_modo_pintar.setFont(self._crear_fuente_segoe(9))
             self.btn_modo_pintar.setStyleSheet(
                 self._estilo_boton_neon(
                     bg="#238636",
-                    fg="#FFFFFF",
+                    fg="#0E1117",
                     border="#31AF50",
                     hover_bg="#FFFFFF",
-                    hover_fg="#238636",
+                    hover_fg="#0E1117",
                     radius=8,
                     padding="8px 12px",
                     font_size=11,
@@ -3942,17 +4807,13 @@ class UbicacionTiendaWindow(QMainWindow):
                     "color: #F85149; font-weight: 900; background: #161B22; font-family: 'Segoe UI';"
                 )
                 win.statusBar().showMessage(
-                    "MODO PINTADO: Traza las paredes y pulsa GUARDAR al terminar", 0
+                    tr("ubic.paint_status", default="MODO PINTADO: Traza las paredes y pulsa GUARDAR al terminar"), 0
                 )
 
         else:
             # --- MODO DESACTIVADO (GATILLO DE GUARDADO Y OCULTACIÓN) ---
             # 1. OCULTACIÓN INMEDIATA DE LÍNEAS ROJAS (Safe Scene)
-            escena = (
-                self.visor_admin.scene()
-                if callable(self.visor_admin.scene)
-                else self.visor_admin.scene
-            )
+            escena = QGraphicsView.scene(self.visor_admin)
 
             if escena:
                 # Obtenemos lista estática para evitar errores de mutación durante el borrado
@@ -3986,7 +4847,7 @@ class UbicacionTiendaWindow(QMainWindow):
                     break
 
             # 3. RESTAURAR ASPECTO DEL BOTÓN
-            self.btn_modo_pintar.setText("PINTAR MUROS")
+            self.btn_modo_pintar.setText(tr("ubic.paint_walls", default="PINTAR MUROS"))
             self.btn_modo_pintar.setFont(self._crear_fuente_segoe(9))
             self.btn_modo_pintar.setStyleSheet(
                 self._estilo_boton_neon(
@@ -4034,6 +4895,10 @@ class UbicacionTiendaWindow(QMainWindow):
         if v_port:
             v_port.update()
 
+    # ============================================================
+    # BLOQUE MENSAJES Y FEEDBACK VISUAL
+    # ============================================================
+
     def mostrar_mensaje_temporal(self, mensaje, duracion=3000):
         """
         Muestra un mensaje en la barra de estado con estilo turquesa.
@@ -4044,6 +4909,10 @@ class UbicacionTiendaWindow(QMainWindow):
                 "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
             )
             win.statusBar().showMessage(mensaje, duracion)
+
+    # ============================================================
+    # BLOQUE NAVEGACIÓN Y CIERRE
+    # ============================================================
 
     def volver_menu_principal(self):
         """Cierra la vista actual y regresa al menú de inicio."""
@@ -4133,16 +5002,16 @@ class UbicacionTiendaWindow(QMainWindow):
         if not pendientes:
             return True
 
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QFont
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
             QFrame,
-            QLabel,
             QHBoxLayout,
+            QLabel,
             QPushButton,
+            QVBoxLayout,
         )
-        from PyQt6.QtGui import QFont
-        from PyQt6.QtCore import Qt
 
         diag = QDialog(self)
         diag.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
@@ -4166,9 +5035,9 @@ class UbicacionTiendaWindow(QMainWindow):
         layout_interno.setContentsMargins(30, 25, 30, 25)
         layout_interno.setSpacing(15)
 
-        fuente_segoe_bold = QFont("Segoe UI", 10, QFont.Weight.Bold)
+        fuente_segoe_bold = QFont("Segoe UI", 8, QFont.Weight.Bold)
 
-        lbl_titulo = QLabel("ℹ️ ATENCIÓN: CAMBIOS SIN GUARDAR")
+        lbl_titulo = QLabel("ℹ️ " + tr("ubic.unsaved_title", default="ATENCIÓN: CAMBIOS SIN GUARDAR"))
         lbl_titulo.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         lbl_titulo.setStyleSheet(
             "color: #00FFC6; border: none; background: transparent;"
@@ -4187,30 +5056,28 @@ class UbicacionTiendaWindow(QMainWindow):
         layout_btns = QHBoxLayout()
         layout_btns.setSpacing(10)
 
-        estilo_boton = """
-            QPushButton {
-                background-color: #1C2128;
-                color: #C9D1D9;
-                border: 1px solid #30363D;
-                padding: 10px 18px;
-                border-radius: 8px;
-                font-family: 'Segoe UI';
-                font-weight: 900;
-                min-width: 85px;
-            }
-            QPushButton:hover {
-                background-color: #FFFFFF;
-                color: #0D1117;
-                border: 1px solid #FFFFFF;
-            }
-        """
+        estilo_neutral = (
+            "QPushButton { background-color: #21262D; color: #8B949E;"
+            " border: 1px solid #30363D; padding: 10px 14px; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; min-width: 115px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }"
+        )
+        estilo_success = (
+            "QPushButton { background-color: #1ED760; color: #0D1117;"
+            " border: 2px solid #1ED760; padding: 10px 14px; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; min-width: 115px; }"
+            " QPushButton:hover { background-color: transparent; color: #1ED760; border: 2px solid #1ED760; }"
+        )
 
-        btn_no = QPushButton("NO GUARDAR")
-        btn_si = QPushButton("SÍ, GUARDAR")
-        btn_cancelar = QPushButton("CANCELAR")
+        btn_no = QPushButton(tr("ubic.dont_save", default="NO GUARDAR"))
+        btn_si = QPushButton(tr("ubic.do_save", default="SÍ, GUARDAR"))
+        btn_cancelar = QPushButton(tr("ubic.cancel", default="CANCELAR"))
+
+        btn_no.setStyleSheet(estilo_neutral)
+        btn_si.setStyleSheet(estilo_success)
+        btn_cancelar.setStyleSheet(estilo_neutral)
 
         for btn in [btn_no, btn_si, btn_cancelar]:
-            btn.setStyleSheet(estilo_boton)
             btn.setFont(fuente_segoe_bold)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -4230,7 +5097,7 @@ class UbicacionTiendaWindow(QMainWindow):
             # RESETEO PREVENTIVO: Apagamos las alarmas ANTES de cualquier otra acción
             self.cambios_sin_guardar = False
             if self.window():
-                setattr(self.window(), "cambios_sin_guardar", False)
+                self.window().cambios_sin_guardar = False
             self._reiniciar_historial_planta()
 
             # Limpieza de historiales para evitar que un 'deshacer' fantasma reactive la bandera
@@ -4244,7 +5111,9 @@ class UbicacionTiendaWindow(QMainWindow):
                 # Tras guardar, aseguramos que la bandera siga en False (re-confirmación)
                 self.cambios_sin_guardar = False
                 if self.window():
-                    setattr(self.window(), "cambios_sin_guardar", False)
+                    self.window().cambios_sin_guardar = False
+            else:  # resultado == 2: SALIR SIN GUARDAR — descartar iconos pendientes
+                self._iconos_pendientes = []
 
             return True
 
@@ -4297,12 +5166,12 @@ class UbicacionTiendaWindow(QMainWindow):
                 texto_lineal = (
                     lineal_opt.get("ubicacion")
                     if lineal_opt and lineal_opt.get("ubicacion")
-                    else (u_lin if u_lin else "NO ASIGNADO")
+                    else (u_lin if u_lin else tr("ubic.not_assigned", default="NO ASIGNADO"))
                 )
                 texto_almacen = (
                     almacen_opt.get("ubicacion")
                     if almacen_opt and almacen_opt.get("ubicacion")
-                    else (u_alm if u_alm else "SIN RESERVA")
+                    else (u_alm if u_alm else tr("ubic.no_reserve", default="SIN RESERVA"))
                 )
 
                 # 1. ACTUALIZACIÓN DE IDENTIDAD VISUAL
@@ -4315,11 +5184,11 @@ class UbicacionTiendaWindow(QMainWindow):
                     ]
                 )
                 sufijo_destinos = (
-                    f" · {destinos_disponibles} DESTINOS GPS"
+                    " · " + tr("ubic.gps_dest_suffix", default="{n} DESTINOS GPS", n=destinos_disponibles)
                     if destinos_disponibles
-                    else " · SIN DESTINO GPS"
+                    else " · " + tr("ubic.gps_no_dest", default="SIN DESTINO GPS")
                 )
-                self.res_codigo.setText(f"IDENTIFICADOR SKU: {codigo}{sufijo_destinos}")
+                self.res_codigo.setText(tr("ubic.sku_id", default="IDENTIFICADOR SKU: {codigo}", codigo=codigo) + sufijo_destinos)
 
                 # 2. SINCRONIZACIÓN DE COORDENADAS GPS
                 # Si el artículo tiene coordenadas, el motor de rutas A* podrá trazar el camino
@@ -4332,8 +5201,9 @@ class UbicacionTiendaWindow(QMainWindow):
                 # Actualizamos las 3 tarjetas que definimos en la vista de búsqueda
                 self.actualizar_tarjeta_kpi(self.card_lineal, texto_lineal)
                 self.actualizar_tarjeta_kpi(self.card_almacen, texto_almacen)
+                _uds = tr("ubic.unit_uds", default="UDS")
                 self.actualizar_tarjeta_kpi(
-                    self.card_stock, f"{stock} UDS" if stock is not None else "0 UDS"
+                    self.card_stock, f"{stock} {_uds}" if stock is not None else f"0 {_uds}"
                 )
 
                 # Revelamos el panel con una transición visual (si se manejan animaciones)
@@ -4345,19 +5215,19 @@ class UbicacionTiendaWindow(QMainWindow):
                         op.get("tipo") for op in opciones if op.get("disponible")
                     }
                     detalle = (
-                        " · LINEAL Y ALMACEN DISPONIBLES"
+                        " · " + tr("ubic.both_available", default="LINEAL Y ALMACÉN DISPONIBLES")
                         if {"LINEAL", "ALMACEN"}.issubset(tipos_disponibles)
                         else (
-                            " · DESTINO GPS DISPONIBLE"
+                            " · " + tr("ubic.gps_dest_available", default="DESTINO GPS DISPONIBLE")
                             if tipos_disponibles
-                            else " · SIN COORDENADAS DE MAPA"
+                            else " · " + tr("ubic.no_map_coords", default="SIN COORDENADAS DE MAPA")
                         )
                     )
                     self.window().statusBar().setStyleSheet(
                         "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
                     )
                     self.window().statusBar().showMessage(
-                        f"🎯 PRODUCTO LOCALIZADO: {nombre.upper()}", 5000
+                        "🎯 " + tr("ubic.product_located", default="PRODUCTO LOCALIZADO: {nombre}", nombre=nombre.upper()), 5000
                     )
 
             else:
@@ -4371,7 +5241,7 @@ class UbicacionTiendaWindow(QMainWindow):
                     "color: #F85149; font-family: 'Segoe UI'; font-weight: 900;"
                 )
                 self.window().statusBar().showMessage(
-                    f"⚠️ FALLO DE RASTREO: '{termino}' NO EXISTE", 4000
+                    "⚠️ " + tr("ubic.track_fail", default="FALLO DE RASTREO: '{termino}' NO EXISTE", termino=termino), 4000
                 )
 
                 # Feedback sonoro o visual más agresivo opcional:
@@ -4384,21 +5254,27 @@ class UbicacionTiendaWindow(QMainWindow):
                     "❌ ERROR DE CONEXIÓN CON LA MATRIZ DE DATOS", 5000
                 )
 
+    def _tipo_label(self, tipo_texto):
+        """Etiqueta visible (traducida) para el valor lógico de tipo de ubicación."""
+        if str(tipo_texto).upper() == "LINEAL":
+            return tr("ubic.tipo_lineal", default="LINEAL")
+        return tr("ubic.tipo_almacen", default="ALMACÉN")
+
     def crear_vista_asignacion(self, tipo_texto):
         """
         Interfaz de asignación con flujo jerárquico.
         El diseño se mantiene fiel a la estructura de habilitación por pasos.
         """
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import (
-            QWidget,
-            QVBoxLayout,
+            QFrame,
             QHBoxLayout,
             QLabel,
-            QFrame,
             QLineEdit,
             QPushButton,
+            QVBoxLayout,
+            QWidget,
         )
-        from PyQt6.QtCore import Qt
 
         vista = QWidget()
         layout = QVBoxLayout(vista)
@@ -4406,7 +5282,7 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.setSpacing(25)
 
         # --- HEADER DE SECCIÓN ---
-        header = QLabel(f"SISTEMA DE UBICACIÓN > {tipo_texto.upper()}")
+        header = QLabel(tr("ubic.assign_header", default="SISTEMA DE UBICACIÓN > {tipo}", tipo=self._tipo_label(tipo_texto)))
         header.setStyleSheet(
             """
             color: #00FFC6; 
@@ -4438,7 +5314,9 @@ class UbicacionTiendaWindow(QMainWindow):
 
         self.input_scan = QLineEdit()
         self.input_scan.setPlaceholderText(
-            f"ESCANEÉ O INGRESE CÓDIGO PARA {tipo_texto.upper()}..."
+            tr("ubic.assign_search_ph",
+               default="INGRESE EL CÓDIGO O NOMBRE DE UN ARTÍCULO PARA ASIGNARLO AL {tipo}",
+               tipo=self._tipo_label(tipo_texto))
         )
         self.input_scan.setStyleSheet(
             """
@@ -4477,23 +5355,26 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         )
         btn_cam.clicked.connect(
-            lambda: self.abrir_escaner_camara(f"VISIÓN - {tipo_texto}", modo="BUSQUEDA")
+            lambda: self.abrir_escaner_camara(
+                tr("ubic.cam_vision_title", default="VISIÓN - {tipo}", tipo=self._tipo_label(tipo_texto)),
+                modo="BUSQUEDA")
         )
 
-        self.btn_validar = QPushButton("VALIDAR")
+        self.btn_validar = QPushButton(tr("ubic.btn_search", default="BUSCAR"))
         self.btn_validar.setFixedSize(130, 50)
         self.btn_validar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_validar.setStyleSheet(
             """
-            QPushButton { 
-                background-color: #00FFC6; 
-                color: #0D1117; 
+            QPushButton {
+                background-color: #0D1117;
+                color: #00FFC6;
+                border: 2px solid #00FFC6;
                 font-family: 'Segoe UI';
-                font-weight: 900; 
-                border-radius: 10px; 
+                font-weight: 900;
+                border-radius: 10px;
             }
-            QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }
-            QPushButton:disabled { background-color: #21262d; color: #484F58; }
+            QPushButton:hover { background-color: #00FFC6; color: #0D1117; border: 2px solid #00FFC6; }
+            QPushButton:disabled { background-color: #21262d; color: #484F58; border: 1px solid #484F58; }
         """
         )
         self.btn_validar.clicked.connect(lambda: self.validar_articulo(tipo_texto))
@@ -4503,7 +5384,7 @@ class UbicacionTiendaWindow(QMainWindow):
         search_lyt.addWidget(self.btn_validar)
         layout.addWidget(self.panel_search)
 
-        self.info_art = QLabel("ℹ️ ESPERANDO IDENTIFICACIÓN DE ARTÍCULO...")
+        self.info_art = QLabel("ℹ️ " + tr("ubic.waiting_id", default="ESPERANDO IDENTIFICACIÓN DE ARTÍCULO..."))
         self.info_art.setStyleSheet(
             """
             color: #8B949E; 
@@ -4549,16 +5430,16 @@ class UbicacionTiendaWindow(QMainWindow):
         """
 
         self.input_pasillo = QLineEdit()
-        self.input_pasillo.setPlaceholderText("PASO 2: DEFINIR PASILLO (EJ: P01)")
+        self.input_pasillo.setPlaceholderText(tr("ubic.step2_ph", default="PASO 2: DEFINIR PASILLO (EJ: P01)"))
         self.input_pasillo.setStyleSheet(style_step)
 
         self.input_estanteria = QLineEdit()
-        self.input_estanteria.setPlaceholderText("PASO 3: DEFINIR ESTANTERÍA (EJ: E05)")
+        self.input_estanteria.setPlaceholderText(tr("ubic.step3_ph", default="PASO 3: DEFINIR ESTANTERÍA (EJ: E05)"))
         self.input_estanteria.setStyleSheet(style_step)
         self.input_estanteria.setEnabled(False)
 
         self.input_nivel = QLineEdit()
-        self.input_nivel.setPlaceholderText("PASO 4: DEFINIR NIVEL / ALTURA (EJ: N1)")
+        self.input_nivel.setPlaceholderText(tr("ubic.step4_ph", default="PASO 4: DEFINIR NIVEL / ALTURA (EJ: N1)"))
         self.input_nivel.setStyleSheet(style_step)
         self.input_nivel.setEnabled(False)
 
@@ -4568,7 +5449,7 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.addWidget(self.container_ubicacion)
 
         # --- SECCIÓN 3: CONFIRMACIÓN FINAL ---
-        self.btn_guardar_final = QPushButton("CONFIRMAR Y REGISTRAR EN MATRIZ")
+        self.btn_guardar_final = QPushButton(tr("ubic.btn_confirm_matrix", default="CONFIRMAR Y REGISTRAR EN MATRIZ"))
         self.btn_guardar_final.setFixedHeight(65)
         self.btn_guardar_final.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_guardar_final.setEnabled(False)
@@ -4619,7 +5500,6 @@ class UbicacionTiendaWindow(QMainWindow):
         Busca el artículo en DB y desbloquea el flujo de entrada de datos.
         Aplica feedback visual inmediato (Verde = Éxito / Rojo = Error).
         """
-        from PyQt6.QtCore import Qt
 
         busqueda = self.input_scan.text().strip()
         if not busqueda:
@@ -4628,10 +5508,18 @@ class UbicacionTiendaWindow(QMainWindow):
         try:
             with obtener_conexion() as conn:
                 cursor = conn.cursor()
-                # Búsqueda optimizada por código de barras o ID interno
-                query = "SELECT codigo, nombre FROM articulos WHERE codigo = %s"
-                cursor.execute(query, (busqueda,))
+                # Búsqueda por código exacto primero; si no, por nombre parcial
+                cursor.execute(
+                    "SELECT codigo, nombre FROM articulos WHERE codigo = %s",
+                    (busqueda,),
+                )
                 res = cursor.fetchone()
+                if not res:
+                    cursor.execute(
+                        "SELECT codigo, nombre FROM articulos WHERE nombre LIKE %s LIMIT 1",
+                        (f"%{busqueda}%",),
+                    )
+                    res = cursor.fetchone()
 
                 if res:
                     # --- ESTADO: ARTÍCULO ENCONTRADO ---
@@ -4650,7 +5538,7 @@ class UbicacionTiendaWindow(QMainWindow):
                     """
                     )
 
-                    self.info_art.setText(f"✅ IDENTIFICADO: {res[1].upper()}")
+                    self.info_art.setText("✅ " + tr("ubic.identified", default="IDENTIFICADO: {nombre}", nombre=res[1].upper()))
                     self.info_art.setStyleSheet(
                         """
                         color: #00FFC6; 
@@ -4667,7 +5555,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
                 else:
                     # --- ESTADO: ERROR DE IDENTIFICACIÓN ---
-                    self.info_art.setText("❌ ERROR: CÓDIGO NO REGISTRADO EN MAESTRO")
+                    self.info_art.setText("❌ " + tr("ubic.not_found_master", default="ERROR: ARTÍCULO NO ENCONTRADO EN MAESTRO"))
                     self.info_art.setStyleSheet(
                         """
                         color: #F85149; 
@@ -4706,7 +5594,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 conn.commit()
 
             # Feedback Visual: Alerta Naranja (Precaución)
-            self.info_art.setText("⚠️ DISCREPANCIA REPORTADA A LOGÍSTICA")
+            self.info_art.setText("⚠️ " + tr("ubic.discrepancy_reported", default="DISCREPANCIA REPORTADA A LOGÍSTICA"))
             self.info_art.setStyleSheet(
                 """
                 color: #FFA500; 
@@ -4734,13 +5622,17 @@ class UbicacionTiendaWindow(QMainWindow):
     # --- 2. ACTUALIZACIÓN DE KPI POR IDENTIFICADOR ---
     # --- 1. COMPONENTES DE TELEMETRÍA (KPIs) ---
 
+    # ============================================================
+    # BLOQUE COMPONENTES KPI Y TELEMETRÍA
+    # ============================================================
+
     def crear_tarjeta_info(self, titulo, valor, color_neon="#00FFC6"):
         """
         Genera un componente KPI con diseño industrial, hover reactivo y
         capacidad de actualización dinámica mediante ID de objeto.
         """
-        from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout
 
         card = QFrame()
         card.setObjectName("tarjeta_kpi")
@@ -4829,19 +5721,21 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtWidgets import QMessageBox
 
         msg = QMessageBox(self)
-        msg.setWindowTitle("SISTEMA CALIBRADO")
+        msg.setWindowTitle(tr("ubic.calib_title", default="SISTEMA CALIBRADO"))
 
         # Formateo del mensaje con el color corporativo turquesa
         msg.setText(
             "<b style='color: #00FFC6; font-family: 'Segoe UI'; font-size: 15px;'>"
-            "CALIBRACIÓN EXITOSA</b>"
+            + tr("ubic.calib_success", default="CALIBRACIÓN EXITOSA")
+            + "</b>"
         )
 
         msg.setInformativeText(
-            f"<p style='color: #C9D1D9; font-family: 'Segoe UI'; font-size: 12px; font-weight: 900;'>"
-            f"Factor de conversión establecido: <b style='color: white;'>{ratio:.2f} px/m</b>.<br><br>"
-            "El sistema de navegación A* ha recalculado las dimensiones reales para la optimización de rutas."
-            "</p>"
+            "<p style='color: #C9D1D9; font-family: 'Segoe UI'; font-size: 12px; font-weight: 900;'>"
+            + tr("ubic.calib_info",
+                 default="Factor de conversión establecido: <b style=\"color: white;\">{ratio} px/m</b>.<br><br>El sistema de navegación A* ha recalculado las dimensiones reales para la optimización de rutas.",
+                 ratio=f"{ratio:.2f}")
+            + "</p>"
         )
 
         msg.setIcon(QMessageBox.Icon.Information)
@@ -4872,18 +5766,23 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         msg.exec()
 
+    # ============================================================
+    # BLOQUE PERSISTENCIA DE CONFIGURACIÓN GPS
+    # ============================================================
+
     def guardar_configuracion_gps(self):
         """
         Vuelca el estado del visor admin a la Base de Datos con persistencia robusta.
         CORRECCIÓN: Reactivación forzosa del motor de navegación post-guardado.
         """
-        from PyQt6.QtWidgets import QApplication, QMessageBox
-        from PyQt6.QtCore import Qt
-        from src.db.conexion import obtener_conexion
         import json
-        import pickle
-        import zlib
         import os
+        import pickle
+
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication, QGraphicsView
+
+        from src.db.conexion import obtener_conexion
 
         if not getattr(self, "visor_admin", None):
             return
@@ -4904,28 +5803,28 @@ class UbicacionTiendaWindow(QMainWindow):
             )
 
             # 3. EXTRACCIÓN DE ELEMENTOS (Muros e Infraestructura)
-            escena = (
-                self.visor_admin.scene()
-                if callable(self.visor_admin.scene)
-                else self.visor_admin.scene
-            )
+            escena = QGraphicsView.scene(self.visor_admin)
             if not escena:
                 raise ValueError("No se detectó la escena activa.")
 
             lista_muros = []
             lista_infra = []
-            # Intentar rescatar ancla existente por si no se mueve el PIN_ORIGEN
-            ancla_x = getattr(self.visor_admin, "coord_ancla_x", 0.0)
-            ancla_y = getattr(self.visor_admin, "coord_ancla_y", 0.0)
+            # Use punto_ancla (set by dibujar_marca_origen) as authoritative source.
+            # Do NOT use item.scenePos() for PIN_ORIGEN — addEllipse items have scenePos()=(0,0)
+            # because they encode position in the rect geometry, not in item.pos().
+            _pa = getattr(self.visor_admin, "punto_ancla", None)
+            if _pa is not None:
+                ancla_x, ancla_y = _pa.x(), _pa.y()
+            else:
+                ancla_x = getattr(self.visor_admin, "coord_ancla_x", 0.0)
+                ancla_y = getattr(self.visor_admin, "coord_ancla_y", 0.0)
 
             for item in escena.items():
                 tag = str(item.data(0)) if item.data(0) is not None else ""
                 tipo_meta = str(item.data(1)) if item.data(1) is not None else ""
 
                 if tag == "PIN_ORIGEN":
-                    pos_o = item.scenePos()
-                    ancla_x, ancla_y = pos_o.x(), pos_o.y()
-                    continue
+                    continue  # Anchor already captured from punto_ancla attribute above
 
                 if tag == "MURO_TECNICO" and hasattr(item, "line"):
                     linea = item.line()
@@ -5037,14 +5936,41 @@ class UbicacionTiendaWindow(QMainWindow):
 
                 conn.commit()
 
+            # 5b. FLUSH DE ICONOS PENDIENTES → ubicaciones
+            iconos_pendientes = getattr(self, "_iconos_pendientes", [])
+            if iconos_pendientes:
+                with obtener_conexion() as conn_ubi:
+                    with conn_ubi.cursor() as cur_ubi:
+                        for icono in iconos_pendientes:
+                            cur_ubi.execute(
+                                """
+                                INSERT INTO ubicaciones
+                                    (epc, pasillo, estanteria, mapa_x, mapa_y, real_x, real_y,
+                                     verificado, fecha_actualizacion)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, NOW())
+                                ON DUPLICATE KEY UPDATE
+                                    mapa_x = VALUES(mapa_x),
+                                    mapa_y = VALUES(mapa_y),
+                                    real_x = VALUES(real_x),
+                                    real_y = VALUES(real_y),
+                                    estanteria = VALUES(estanteria),
+                                    fecha_actualizacion = NOW()
+                                """,
+                                (
+                                    icono["epc"], icono["pasillo"], icono["estanteria"],
+                                    icono["mapa_x"], icono["mapa_y"],
+                                    icono["real_x"], icono["real_y"],
+                                ),
+                            )
+                    conn_ubi.commit()
+                self._iconos_pendientes = []
+
             # 6. SINCRONIZACIÓN Y REBLOQUEO DE SEGURIDAD
             self.cambios_sin_guardar = False
 
             # --- INYECCIÓN DE REACTIVIDAD (Soluciona el congelamiento) ---
             self.visor_admin.setInteractive(True)
             if hasattr(self.visor_admin, "setDragMode"):
-                from PyQt6.QtWidgets import QGraphicsView
-
                 self.visor_admin.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
 
             # Forzar actualización de las "líneas invisibles" (Foreground)
@@ -5055,21 +5981,13 @@ class UbicacionTiendaWindow(QMainWindow):
             # 7. FEEDBACK PREMIUM
             QApplication.restoreOverrideCursor()
 
-            msg = QMessageBox(self)
-            msg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-            msg.setText(
-                f"SISTEMA SINCRONIZADO\n\n✓ Planta: {planta_idx}\n✓ Muros: {len(lista_muros)}\n✓ Infraestructura: {len(lista_infra)}"
+            self._dialogo_neon_info(
+                "✅  MUROS PINTADOS",
+                "Los muros pintados se han guardado correctamente<br>como obstáculos para el GPS.",
+                color="#00FFC6",
+                ancho=460,
+                alto=195,
             )
-            msg.setStyleSheet(
-                """
-                QMessageBox { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 12px; }
-                QLabel { color: #C9D1D9; font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; padding: 15px; }
-                QPushButton { background-color: #1C2128; color: #00FFC6; border: 1px solid #00FFC6; border-radius: 6px; padding: 8px 25px; font-family: 'Segoe UI'; font-weight: 900; }
-                QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }
-            """
-            )
-            msg.addButton("ENTENDIDO", QMessageBox.ButtonRole.AcceptRole)
-            msg.exec()
 
         except Exception as e:
             print(f"❌ Error crítico en guardado: {e}")
@@ -5085,15 +6003,21 @@ class UbicacionTiendaWindow(QMainWindow):
 
         print(f"🛰️ Sincronización de Planta {planta_idx} finalizada.")
 
+    # ============================================================
+    # BLOQUE EDITOR DE MAPA
+    # ============================================================
+
     def guardar_escala_db(self, ratio_x, ratio_y):
         """
         Guarda la escala y el Origen (0,0) en la BD y sincroniza ambos visores.
         CORRECCIÓN: Asegura la reactivación del ratón y el repintado del Foreground.
         """
-        from PyQt6.QtWidgets import QApplication
-        from PyQt6.QtCore import QPointF, Qt
-        from src.db.conexion import obtener_conexion
         import os
+
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtWidgets import QApplication
+
+        from src.db.conexion import obtener_conexion
 
         if not self.visor_admin:
             return
@@ -5208,8 +6132,8 @@ class UbicacionTiendaWindow(QMainWindow):
         Transición al Modo Arquitecto: Sincroniza la navegación lateral
         y recalcula el encuadre del lienzo.
         """
+        from PyQt6.QtCore import Qt, QTimer
         from PyQt6.QtWidgets import QMessageBox
-        from PyQt6.QtCore import QTimer, Qt
 
         try:
             # 1. CAMBIO DE PANEL (Index 4: Editor de Infraestructura)
@@ -5248,23 +6172,25 @@ class UbicacionTiendaWindow(QMainWindow):
                 self, "Error de Interfaz", f"No se pudo abrir el editor: {e}"
             )
 
-    # --- 2. GESTIÓN DE LISTADO DE ARTÍCULOS ---
+    # ============================================================
+    # BLOQUE VISTA DE BÚSQUEDA
+    # ============================================================
 
     def crear_vista_busqueda(self):
         """
         Consulta de producto con diseño HUD premium y barra de búsqueda
         tipo cápsula optimizada para escaneo rápido.
         """
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import (
-            QWidget,
-            QVBoxLayout,
+            QFrame,
             QHBoxLayout,
             QLabel,
-            QFrame,
             QLineEdit,
             QPushButton,
+            QVBoxLayout,
+            QWidget,
         )
-        from PyQt6.QtCore import Qt
 
         vista = QWidget()
         layout = QVBoxLayout(vista)
@@ -5273,7 +6199,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # 1. ENCABEZADO TÉCNICO
         header_lyt = QHBoxLayout()
-        self.lbl_titulo_busqueda = QLabel("INTELIGENCIA DE PRODUCTO")
+        self.lbl_titulo_busqueda = QLabel(tr("ubic.search_title", default="INTELIGENCIA DE PRODUCTO"))
         self.lbl_titulo_busqueda.setStyleSheet(
             """
             color: #00FFC6; 
@@ -5287,16 +6213,20 @@ class UbicacionTiendaWindow(QMainWindow):
         header_lyt.addStretch()
         layout.addLayout(header_lyt)
 
-        # 2. BARRA DE BÚSQUEDA "CÁPSULA" (Diseño Refinado)
+        # 2. BARRA DE BÚSQUEDA + BOTONES (Fila horizontal)
+        search_row = QHBoxLayout()
+        search_row.setSpacing(10)
+
+        # Cápsula de búsqueda (solo icono + input)
         search_box = QFrame()
         search_box.setObjectName("search_capsule")
-        search_box.setFixedHeight(75)
+        search_box.setFixedHeight(52)
         search_box.setStyleSheet(
             """
-            QFrame#search_capsule { 
+            QFrame#search_capsule {
                 background-color: #0D1117;
-                border: 2px solid #30363D; 
-                border-radius: 15px; 
+                border: 2px solid #00FFC6;
+                border-radius: 15px;
             }
             QFrame#search_capsule:focus-within {
                 border: 2px solid #00FFC6;
@@ -5306,8 +6236,8 @@ class UbicacionTiendaWindow(QMainWindow):
         )
 
         search_layout = QHBoxLayout(search_box)
-        search_layout.setContentsMargins(20, 0, 15, 0)
-        search_layout.setSpacing(15)
+        search_layout.setContentsMargins(20, 6, 15, 6)
+        search_layout.setSpacing(10)
 
         # Icono de búsqueda visual
         lbl_icon = QLabel("🔍")
@@ -5317,40 +6247,43 @@ class UbicacionTiendaWindow(QMainWindow):
 
         self.input_search = QLineEdit()
         self.input_search.setPlaceholderText(
-            "Escanee código o introduzca referencia..."
+            tr("ubic.search_ph2", default="Escanee código o introduzca referencia...")
         )
         self.input_search.setStyleSheet(
             """
             QLineEdit {
-                border: none; 
-                background: transparent; 
+                border: none;
+                background: transparent;
                 font-family: 'Segoe UI';
-                font-size: 16px; 
-                color: white; 
+                font-size: 16px;
+                color: white;
                 font-weight: 900;
             }
         """
         )
         self.input_search.returnPressed.connect(self.ejecutar_busqueda)
 
-        # Botón Cámara (Visión Computacional)
+        search_layout.addWidget(lbl_icon)
+        search_layout.addWidget(self.input_search)
+
+        # Botón Cámara — fuera de la cápsula, estilo app estándar
         btn_cam = QPushButton("📷")
-        btn_cam.setFixedSize(45, 45)
+        btn_cam.setFixedSize(70, 52)
         btn_cam.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cam.setStyleSheet(
             """
-            QPushButton { 
-                background-color: #1C2128; 
-                color: #8B949E; 
+            QPushButton {
+                background-color: #1C2128;
+                color: #8B949E;
                 font-family: 'Segoe UI';
                 font-weight: 900;
-                border-radius: 10px; 
-                font-size: 20px; 
-                border: 1px solid #30363D;
+                border-radius: 12px;
+                font-size: 20px;
+                border: 2px solid #30363D;
             }
-            QPushButton:hover { 
+            QPushButton:hover {
                 background-color: #FFFFFF;
-                border: 1px solid #FFFFFF; 
+                border: 2px solid #FFFFFF;
                 color: #0D1117;
             }
         """
@@ -5359,32 +6292,31 @@ class UbicacionTiendaWindow(QMainWindow):
             lambda: self.abrir_escaner_camara("BUSQUEDA", modo="LECTURA")
         )
 
-        # Botón Ejecutar (Call to Action)
-        btn_go = QPushButton("EJECUTAR")
-        btn_go.setFixedWidth(140)
-        btn_go.setFixedHeight(48)
+        # Botón BUSCAR — fuera de la cápsula, estilo app estándar
+        btn_go = QPushButton(tr("ubic.btn_search", default="BUSCAR"))
+        btn_go.setFixedSize(120, 52)
         btn_go.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_go.setStyleSheet(
             """
-            QPushButton { 
-                background-color: #00FFC6; 
-                color: #0D1117; 
-                border-radius: 10px; 
+            QPushButton {
+                background-color: #0D1117;
+                color: #00FFC6;
+                border-radius: 12px;
                 font-family: 'Segoe UI';
-                font-weight: 900; 
+                font-weight: 900;
                 font-size: 13px;
                 letter-spacing: 1.5px;
+                border: 2px solid #00FFC6;
             }
-            QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }
+            QPushButton:hover { background-color: #00FFC6; color: #0D1117; border: 2px solid #00FFC6; }
         """
         )
         btn_go.clicked.connect(self.ejecutar_busqueda)
 
-        search_layout.addWidget(lbl_icon)
-        search_layout.addWidget(self.input_search)
-        search_layout.addWidget(btn_cam)
-        search_layout.addWidget(btn_go)
-        layout.addWidget(search_box)
+        search_row.addWidget(search_box)
+        search_row.addWidget(btn_cam)
+        search_row.addWidget(btn_go)
+        layout.addLayout(search_row)
 
         # 3. PANEL DE RESULTADOS DINÁMICO
         self.result_panel = QFrame()
@@ -5408,7 +6340,7 @@ class UbicacionTiendaWindow(QMainWindow):
         prod_info_lyt = QHBoxLayout()
         detalles_v = QVBoxLayout()
 
-        self.res_nombre = QLabel("NOMBRE DEL PRODUCTO")
+        self.res_nombre = QLabel(tr("ubic.product_name_ph", default="NOMBRE DEL PRODUCTO"))
         self.res_nombre.setStyleSheet(
             """
             font-family: 'Segoe UI';
@@ -5419,7 +6351,7 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         )
 
-        self.res_codigo = QLabel("SKU: 000000000000")
+        self.res_codigo = QLabel(tr("ubic.sku_ph", default="SKU: 000000000000"))
         self.res_codigo.setStyleSheet(
             """
             color: #8B949E; 
@@ -5436,7 +6368,7 @@ class UbicacionTiendaWindow(QMainWindow):
         prod_info_lyt.addLayout(detalles_v)
         prod_info_lyt.addStretch()
 
-        self.btn_ir_gps = QPushButton("🚀 RUTA GPS")
+        self.btn_ir_gps = QPushButton("🚀 " + tr("ubic.gps_route", default="RUTA GPS"))
         self.btn_ir_gps.setFixedSize(180, 50)
         self.btn_ir_gps.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_ir_gps.setStyleSheet(
@@ -5466,9 +6398,9 @@ class UbicacionTiendaWindow(QMainWindow):
         grid_ubi.setSpacing(20)
 
         # Usamos el método crear_tarjeta_info actualizado anteriormente
-        self.card_lineal = self.crear_tarjeta_info("UBICACIÓN LINEAL", "---", "#00FFC6")
-        self.card_almacen = self.crear_tarjeta_info("BODEGA / STOCK", "---", "#58A6FF")
-        self.card_stock = self.crear_tarjeta_info("UNIDADES TOTALES", "0", "#FFA657")
+        self.card_lineal = self.crear_tarjeta_info(tr("ubic.card_lineal", default="UBICACIÓN LINEAL"), "---", "#00FFC6")
+        self.card_almacen = self.crear_tarjeta_info(tr("ubic.card_almacen", default="BODEGA / STOCK"), "---", "#58A6FF")
+        self.card_stock = self.crear_tarjeta_info(tr("ubic.card_stock", default="UNIDADES TOTALES"), "0", "#FFA657")
 
         grid_ubi.addWidget(self.card_lineal)
         grid_ubi.addWidget(self.card_almacen)
@@ -5481,6 +6413,10 @@ class UbicacionTiendaWindow(QMainWindow):
 
         return vista
 
+    # ============================================================
+    # BLOQUE ESCÁNER DE CÁMARA
+    # ============================================================
+
     def abrir_escaner_camara(
         self,
         titulo_contexto="BUSQUEDA",
@@ -5491,10 +6427,8 @@ class UbicacionTiendaWindow(QMainWindow):
         Visor HUD con fondo ultra-oscuro y contorno azul neón.
         Se utiliza un Frame interno para asegurar que el diseño no se pierda al quitar la barra blanca.
         """
-        import cv2
-        from pyzbar import pyzbar
-        from PyQt6.QtGui import QImage, QPixmap
-        from PyQt6.QtCore import QTimer, Qt
+        from PyQt6.QtCore import Qt, QTimer
+        from PyQt6.QtGui import QPixmap
         from PyQt6.QtWidgets import QDialog
 
         self.dlg_scan = QDialog(self)
@@ -5507,9 +6441,9 @@ class UbicacionTiendaWindow(QMainWindow):
                 self.dlg_scan,
                 titulo=titulo_ui,
                 texto_video="",
-                estado_inicial="ALINEE EL CÓDIGO CON EL SENSOR",
-                texto_boton_primario="INICIAR ESCANEO",
-                texto_boton_cancelar="ABORTAR OPERACIÓN",
+                estado_inicial=tr("ubic.cam_status", default="ALINEE EL CÓDIGO CON EL SENSOR"),
+                texto_boton_primario=tr("ubic.cam_start", default="INICIAR ESCANEO"),
+                texto_boton_cancelar=tr("ubic.cam_abort", default="ABORTAR OPERACIÓN"),
                 ancho=500,
                 alto=600,
                 ancho_video=420,
@@ -5523,7 +6457,7 @@ class UbicacionTiendaWindow(QMainWindow):
             self.lbl_video.setText("")
             self.lbl_status = plantilla["lbl_status"]
             self.lbl_status.setObjectName("lbl_info_scan")
-            self.lbl_status.setText("ALINEE EL CÓDIGO CON EL SENSOR")
+            self.lbl_status.setText(tr("ubic.cam_status", default="ALINEE EL CÓDIGO CON EL SENSOR"))
             btn_cerrar = plantilla["btn_cancelar"]
             btn_cerrar.clicked.connect(self.abortar_escaneo)
             if aplicar_estilo_widget is not None:
@@ -5538,7 +6472,10 @@ class UbicacionTiendaWindow(QMainWindow):
             self.dlg_scan.setFixedSize(500, 600)
 
         # --- Lógica de Hardware ---
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.timer_camara = QTimer(self)
 
         def update_frame():
@@ -5562,13 +6499,38 @@ class UbicacionTiendaWindow(QMainWindow):
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w, ch = rgb.shape
                 img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
-                self.lbl_video.setPixmap(
-                    QPixmap.fromImage(img).scaled(
-                        self.lbl_video.size(),
+                from PyQt6.QtCore import QRectF
+                from PyQt6.QtGui import QPainter, QPainterPath
+                tw = self.lbl_video.width()
+                th = self.lbl_video.height()
+                if tw > 0 and th > 0:
+                    B = 4  # border inset
+                    iw, ih = tw - 2 * B, th - 2 * B
+                    src = QPixmap.fromImage(img)
+                    scaled = src.scaled(
+                        iw, ih,
                         Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                         Qt.TransformationMode.SmoothTransformation,
                     )
-                )
+                    ox = (scaled.width() - iw) // 2
+                    oy = (scaled.height() - ih) // 2
+                    cropped = scaled.copy(ox, oy, iw, ih)
+                    result = QPixmap(tw, th)
+                    result.fill(QColor("#05070A"))
+                    painter = QPainter(result)
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    clip = QPainterPath()
+                    clip.addRoundedRect(QRectF(B, B, iw, ih), 12, 12)
+                    painter.setClipPath(clip)
+                    painter.drawPixmap(B, B, cropped)
+                    painter.setClipping(False)
+                    _pen = QPen(QColor(0, 255, 198, 255), B * 2)
+                    _pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                    painter.setPen(_pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRoundedRect(QRectF(B, B, iw, ih), 12, 12)
+                    painter.end()
+                    self.lbl_video.setPixmap(result)
 
         self.timer_camara.timeout.connect(update_frame)
         self.timer_camara.start(30)
@@ -5589,16 +6551,23 @@ class UbicacionTiendaWindow(QMainWindow):
             self.cap.release()
         print("DEBUG: Hardware de visión liberado.")
 
+    # ============================================================
+    # BLOQUE FLUJO DE RUTA GPS
+    # ============================================================
+
     def saltar_al_gps(self):
         """
         MOTOR DE TRANSICIÓN: Activa el modo navegación con 'Target Lock'.
         Sincroniza el destino, ajusta el HUD y centra la cámara en el objetivo.
         """
-        from PyQt6.QtWidgets import QMessageBox
         from PyQt6.QtCore import Qt, QTimer
+        from PyQt6.QtWidgets import QMessageBox
 
         # --- 1. VALIDACIÓN DE COORDENADAS DE DESTINO ---
         coord_dest = getattr(self, "coordenadas_destino", None)
+        # Destino activo (dict con coords/nombre/tipo/ubicacion) fijado por
+        # _preparar_destino_gps. Se recupera aquí para reconfigurar la navegación.
+        seleccion = getattr(self, "destino_gps_activo", None) or {}
 
         # Verificamos si las coordenadas son nulas o están en el origen (0,0)
         if not coord_dest or (coord_dest.x() == 0 and coord_dest.y() == 0):
@@ -5606,8 +6575,8 @@ class UbicacionTiendaWindow(QMainWindow):
             # Estética Cyberpunk para el diálogo de error
             msg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
             msg.setIcon(QMessageBox.Icon.Critical)
-            msg.setWindowTitle("ERROR GPS")
-            msg.setText("EL ACTIVO NO TIENE COORDENADAS VÁLIDAS EN EL MAPA.")
+            msg.setWindowTitle(tr("ubic.gps_err_title", default="ERROR GPS"))
+            msg.setText(tr("ubic.gps_err_msg", default="EL ACTIVO NO TIENE COORDENADAS VÁLIDAS EN EL MAPA."))
             msg.setStyleSheet(
                 """
                 QMessageBox { 
@@ -5702,7 +6671,7 @@ class UbicacionTiendaWindow(QMainWindow):
             self.statusBar().setStyleSheet(
                 "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
             )
-            self.statusBar().showMessage(f"DESTINO GPS PREPARADO: {nombre_prod}", 6000)
+            self.statusBar().showMessage(tr("ubic.gps_dest_ready", default="DESTINO GPS PREPARADO: {nombre}", nombre=nombre_prod), 6000)
 
     def finalizar_flujo_gps(self, punto_a, punto_b, nombre_art):
         """
@@ -5772,6 +6741,7 @@ class UbicacionTiendaWindow(QMainWindow):
         Garantiza el retorno de QPointF para compatibilidad con el motor A*.
         """
         from PyQt6.QtCore import QPointF
+
         from src.db.conexion import obtener_conexion
 
         try:
@@ -5867,7 +6837,6 @@ class UbicacionTiendaWindow(QMainWindow):
                 # 4. FEEDBACK VISUAL (Segoe UI Bold)
                 self._actualizar_labels_planta()
                 if hasattr(self, "lbl_planta_actual"):
-                    self.lbl_planta_actual.setText(f"📍 PLANTA {self.planta_actual}")
                     self.lbl_planta_actual.setStyleSheet(
                         "color: #00FFC6; font-weight: 900; font-family: 'Segoe UI';"
                     )
@@ -5891,15 +6860,22 @@ class UbicacionTiendaWindow(QMainWindow):
                     "❌ ERROR DE SINCRONIZACIÓN CON MARIADB", "#FF5555"
                 )
 
+    # ============================================================
+    # BLOQUE INFRAESTRUCTURA Y MATRIZ
+    # ============================================================
+
     def cargar_infraestructura_registrada(self):
         """
         RECONSTRUCTOR MAESTRO: Carga el entorno desde DB y ajusta el visor.
         Soluciona: Planos cortados, desincronización de matriz y visibilidad de iconos.
         """
-        import os, json, traceback
-        from PyQt6.QtCore import QPointF, Qt, QRectF, QTimer
-        from PyQt6.QtGui import QPixmap
-        from PyQt6.QtWidgets import QGraphicsPixmapItem, QGraphicsView
+        import json
+        import os
+        import traceback
+
+        from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
+        from PyQt6.QtWidgets import QGraphicsView
+
         from src.db.conexion import obtener_conexion
 
         # 1. VALIDACIÓN DE COMPONENTES
@@ -5911,6 +6887,25 @@ class UbicacionTiendaWindow(QMainWindow):
         if not escena or not visor_admin:
             return
 
+        # No recargar mientras haya una calibración activa — evita borrar la escena y crashear
+        if getattr(visor_admin, "modo_calibrar", False):
+            return
+
+        # Reset per-plan calibration state so flags don't bleed from one plan to another.
+        # This allows the guide dialog to appear again when a new plan is calibrated,
+        # and prevents a stale "calibration active" flag from the previous plan persisting.
+        self.calibracion_en_curso_activa = False
+        self.onboarding_muros_visto = False
+
+        # Eagerly clear punto_ancla on all visores so the calibration button shows
+        # "CALIBRAR ESCALA" immediately, even if cargar_infraestructura_registrada exits
+        # early (image not found, no DB row, etc.).  The re-assert below will restore it
+        # for plans that ARE calibrated once the DB row is read.
+        for v in visores:
+            v.punto_ancla = None
+        if hasattr(self, "actualizar_estado_bloqueo"):
+            self.actualizar_estado_bloqueo()
+
         # Congelar UI para evitar parpadeos durante el renderizado masivo
         for v in visores:
             v.setUpdatesEnabled(False)
@@ -5918,6 +6913,14 @@ class UbicacionTiendaWindow(QMainWindow):
 
         try:
             p_idx = getattr(self, "planta_actual", 0)
+
+            # Temporary debug: trace unexpected non-zero plant loads so we can
+            # identify and eliminate the root cause.
+            if p_idx > 0 and not getattr(self, "_startup_complete", True):
+                import traceback as _tb
+                print(f"\n⚠️ [DEBUG] Carga inesperada de Planta {p_idx} durante arranque:")
+                _tb.print_stack(limit=8)
+                print()
 
             # --- 2. EXTRACCIÓN DE DATOS ---
             with obtener_conexion() as conn:
@@ -5939,13 +6942,22 @@ class UbicacionTiendaWindow(QMainWindow):
             muros_data = {}
             if muros_json:
                 try:
-                    muros_data = json.loads(muros_json)
+                    _parsed = json.loads(muros_json)
+                    if isinstance(_parsed, dict):
+                        muros_data = _parsed
+                    elif isinstance(_parsed, list):
+                        muros_data = {"muros_vectores": _parsed}
                 except Exception:
                     muros_data = {}
 
             # --- 3. CARGA DEL FONDO (Cimiento visual y lógico) ---
             self._resetear_navegacion_gps(limpiar_operario=True)
             escena.clear()
+            # historial_muros references are now dangling (escena.clear removes all items).
+            # Wipe the lists so downstream code doesn't try to removeItem them again.
+            for v in visores:
+                if hasattr(v, "historial_muros"):
+                    v.historial_muros = []
             escena.invalidate(escena.sceneRect(), QGraphicsScene.SceneLayer.AllLayers)
             # Ruta absoluta para evitar fallos de carga
             ruta_planos = os.path.join(os.getcwd(), "documentos", "planos")
@@ -5988,6 +7000,10 @@ class UbicacionTiendaWindow(QMainWindow):
             if muros_json:
                 # Este método ya gestiona la visualización Neón y la lógica A*
                 self.cargar_matriz_serializada(muros_json)
+                # Ensure the unlock flag is set when muros are restored from DB so
+                # actualizar_estado_bloqueo() doesn't keep buttons locked after restart.
+                if muros_data.get("muros_vectores"):
+                    self.muros_completados = True
 
             # --- 5. RECONSTRUCCIÓN DE ICONOS ---
             if infra_json:
@@ -6005,29 +7021,57 @@ class UbicacionTiendaWindow(QMainWindow):
                     print(f"⚠️ Error cargando iconos: {e}")
 
             # --- 6. ESCALA Y ANCLA ---
-            escala_f = float(escala_val) if escala_val else 1.0
+            # If escala_val is 0 (plan loaded but not yet calibrated), fall back to 1.0
+            # to avoid division-by-zero in navigation calculations.
+            _ev = float(escala_val) if escala_val is not None else 0.0
+            escala_f = _ev if _ev > 0 else 1.0
+            _plan_calibrado = _ev > 0
             self.ratio_px_m_h = self.ratio_px_m_v = escala_f
+
+            # Determine authoritative anchor from DB columns (more reliable than JSON).
+            _ax_f = float(a_x) if a_x is not None else None
+            _ay_f = float(a_y) if a_y is not None else None
+            _ancla_db = {"x": _ax_f, "y": _ay_f} if (_plan_calibrado and _ax_f is not None) else None
 
             for v in visores:
                 v.ratio_px_m_h = v.ratio_px_m_v = escala_f
-                if a_x is not None:
-                    v.punto_ancla = QPointF(float(a_x), float(a_y))
+                if _plan_calibrado and _ax_f is not None:
+                    v.punto_ancla = QPointF(_ax_f, _ay_f)
+                    v.coord_ancla_x = _ax_f
+                    v.coord_ancla_y = _ay_f
+                else:
+                    # Clear anchor so the calibration button shows "CALIBRAR" not "RECALIBRAR"
+                    v.punto_ancla = None
 
+            # btn_escala is permanently connected to _clic_boton_escala (stateless handler)
+
+            # Prefer DB-column anchor (always correct); use JSON as calibracion visual only.
             snapshot_cargado = {
                 "muros_vectores": muros_data.get(
                     "muros_vectores", muros_data if isinstance(muros_data, list) else []
                 ),
                 "calibracion": muros_data.get("calibracion"),
-                "ancla": muros_data.get("ancla")
-                or (
-                    {"x": float(a_x), "y": float(a_y)}
-                    if a_x is not None and a_y is not None
-                    else None
-                ),
+                "ancla": _ancla_db,
             }
             self.reconstruir_estado_mapa_actual(snapshot_cargado, recuadrar=False)
+
+            # reconstruir calls _limpiar_capas_editables which wipes punto_ancla.
+            # Re-assert from DB values to guarantee escala_ok after restart.
+            if _plan_calibrado and _ax_f is not None:
+                for v in visores:
+                    if v.punto_ancla is None:
+                        v.punto_ancla = QPointF(_ax_f, _ay_f)
+                        v.coord_ancla_x = _ax_f
+                        v.coord_ancla_y = _ay_f
+                if muros_data.get("muros_vectores"):
+                    self.muros_completados = True
+
             self._actualizar_labels_planta()
             self._reiniciar_historial_planta(p_idx)
+
+            # Refresh calibration button text (CALIBRAR vs RECALIBRAR) from DB state
+            if hasattr(self, "actualizar_estado_bloqueo"):
+                self.actualizar_estado_bloqueo()
 
             # --- 7. AJUSTE DE ENCUADRE (Auto-Zoom) ---
             QTimer.singleShot(150, lambda: self.reencuadrar_plano(force=True))
@@ -6100,6 +7144,10 @@ class UbicacionTiendaWindow(QMainWindow):
 
         except Exception as e:
             print(f"❌ Error matriz: {e}")
+
+    # ============================================================
+    # BLOQUE VERIFICACIÓN Y EXPORTACIÓN
+    # ============================================================
 
     def confirmar_verificacion_fisica_db(self, qr_id):
         """
@@ -6187,17 +7235,18 @@ class UbicacionTiendaWindow(QMainWindow):
         ordenada por ubicación física para auditorías.
         """
         try:
+            import os
+
             from reportlab.lib import colors
             from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import getSampleStyleSheet
             from reportlab.platypus import (
+                Paragraph,
                 SimpleDocTemplate,
+                Spacer,
                 Table,
                 TableStyle,
-                Paragraph,
-                Spacer,
             )
-            from reportlab.lib.styles import getSampleStyleSheet
-            import os
 
             # 1. Configuración de Archivo
             ruta_docs = self.obtener_ruta_documentos()  # Helper que definimos antes
@@ -6212,7 +7261,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
             # 2. Encabezado del Reporte
             titulo = Paragraph(
-                f"<b>REPORTE DE AUDITORÍA DE STOCK</b>", estilos["Title"]
+                "<b>REPORTE DE AUDITORÍA DE STOCK</b>", estilos["Title"]
             )
             fecha = Paragraph(
                 f"Fecha de generación: {datetime.now().strftime('%d/%m/%Y %H:%M')}",
@@ -6325,8 +7374,9 @@ class UbicacionTiendaWindow(QMainWindow):
         Versión de ALTA COMPATIBILIDAD.
         Fuerza la apertura del explorador mediante comando de sistema 'start'.
         """
-        import platform
         import os
+        import platform
+
         from PyQt6.QtWidgets import QMessageBox
 
         # 1. OBTENCIÓN DE RUTA ABSOLUTA REAL (Sincronizada con el terminal)
@@ -6338,7 +7388,7 @@ class UbicacionTiendaWindow(QMainWindow):
             )
             ruta = os.path.abspath(ruta_sin_normalizar)
             ruta_relativa = os.path.join("documentos", "qr_ubicaciones")
-        except Exception as e:
+        except Exception:
             ruta_relativa = os.path.join("documentos", "qr_ubicaciones")
             ruta = os.path.abspath(ruta_relativa)
 
@@ -6379,8 +7429,8 @@ class UbicacionTiendaWindow(QMainWindow):
         except Exception as e:
             print(f"[ERROR] Fallo crítico al abrir explorador: {e}")
             msg_err = QMessageBox(self)
-            msg_err.setWindowTitle("ERROR DE SISTEMA")
-            msg_err.setText(f"Error al invocar el explorador nativo:<br>{e}")
+            msg_err.setWindowTitle(tr("ubic.sys_err_title", default="ERROR DE SISTEMA"))
+            msg_err.setText(tr("ubic.explorer_err", default="Error al invocar el explorador nativo:<br>{e}", e=e))
             msg_err.setStyleSheet(
                 """
                 QMessageBox { background-color: #0D1117; border: 1px solid #F85149; }
@@ -6395,12 +7445,10 @@ class UbicacionTiendaWindow(QMainWindow):
         Genera el PDF con las etiquetas PENDIENTES (impreso = 0).
         Incluye el código EPC en el QR y marca los registros como procesados en DB.
         """
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import cm
-        import qrcode
         import os
         from datetime import datetime
+
+        import qrcode
 
         # 1. OBTENER DATOS DE INFRAESTRUCTURA PENDIENTE
         try:
@@ -6517,14 +7565,18 @@ class UbicacionTiendaWindow(QMainWindow):
                 self, "Error PDF", f"Fallo en la generación de pliegos: {e}"
             )
 
+    # ============================================================
+    # BLOQUE ADMINISTRACIÓN DE ARTÍCULOS
+    # ============================================================
+
     def cargar_lista_articulos_admin(self, filtro=""):
         """
         Popula el panel lateral de búsqueda y conecta la lógica de radar/enfoque.
         ESTÉTICA: Segoe UI Bold y colores de estado.
         """
-        from PyQt6.QtGui import QColor, QFont
-        from PyQt6.QtWidgets import QListWidgetItem
         from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QColor, QFont
+
         from src.db.conexion import obtener_conexion
 
         if not hasattr(self, "lista_articulos_admin"):
@@ -6593,7 +7645,8 @@ class UbicacionTiendaWindow(QMainWindow):
         Busca la ubicación espacial, centra cámara e inicia rastreo RTLS.
         FIX: Blindaje contra argumentos booleanos (AttributeError).
         """
-        from PyQt6.QtCore import Qt, QPointF
+        from PyQt6.QtCore import QPointF, Qt
+
         from src.db.conexion import obtener_conexion
 
         # --- VALIDACIÓN QUIRÚRGICA ANTI-CRASH ---
@@ -6651,22 +7704,26 @@ class UbicacionTiendaWindow(QMainWindow):
         except Exception as e:
             print(f"❌ Error en enfoque/rastreo: {e}")
 
+    # ============================================================
+    # BLOQUE RUTA GPS AVANZADA
+    # ============================================================
+
     def flujo_inicio_ruta_gps(self):
         """
         Orquestador de navegación inteligente con integración de RASTREO EN VIVO.
         ESTÉTICA: Segoe UI Bold, Neón y cursors de manita.
         """
+        from PyQt6.QtCore import QPointF, Qt
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
+            QFrame,
             QLabel,
             QLineEdit,
-            QPushButton,
-            QFrame,
-            QCompleter,
             QMessageBox,
+            QPushButton,
+            QVBoxLayout,
         )
-        from PyQt6.QtCore import Qt, QPointF
+
         from src.db.conexion import obtener_conexion
 
         dialogo = QDialog(self)
@@ -6688,7 +7745,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt.setContentsMargins(40, 40, 40, 40)
         lyt.setSpacing(15)
 
-        lbl_head = QLabel("¿A QUÉ ARTÍCULO DESEA IR?")
+        lbl_head = QLabel(tr("ubic.goto_item_q", default="¿A QUÉ ARTÍCULO DESEA IR?"))
         lbl_head.setStyleSheet(
             "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; font-size: 15px; border: none; background: transparent;"
         )
@@ -6696,7 +7753,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt.addWidget(lbl_head)
 
         search_input = QLineEdit()
-        search_input.setPlaceholderText("Escriba el código de artículo...")
+        search_input.setPlaceholderText(tr("ubic.goto_item_ph", default="Escriba el código de artículo..."))
         search_input.setStyleSheet(
             """
             QLineEdit { 
@@ -6723,7 +7780,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         lyt.addWidget(search_input)
 
-        btn_cam = QPushButton("ESCANEAR CÓDIGO DE PRODUCTO")
+        btn_cam = QPushButton(tr("ubic.scan_product", default="ESCANEAR CÓDIGO DE PRODUCTO"))
         btn_cam.setFixedHeight(45)
         btn_cam.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cam.setStyleSheet(
@@ -6752,8 +7809,8 @@ class UbicacionTiendaWindow(QMainWindow):
         btn_confirmar.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_confirmar.setStyleSheet(
             """
-            QPushButton { background-color: #238636; color: white; font-family: 'Segoe UI'; font-weight: 900; border-radius: 12px; font-size: 13px; }
-            QPushButton:hover { background-color: #2ea043; border: 1px solid #FFFFFF; }
+            QPushButton { background-color: #238636; color: #0E1117; font-family: 'Segoe UI'; font-weight: 900; border-radius: 12px; font-size: 13px; }
+            QPushButton:hover { background-color: #FFFFFF; color: #0E1117; }
         """
         )
 
@@ -6797,8 +7854,8 @@ class UbicacionTiendaWindow(QMainWindow):
                 # Diálogo de error estilo neón para coherencia
                 msg = QMessageBox(dialogo)
                 msg.setIcon(QMessageBox.Icon.Critical)
-                msg.setWindowTitle("ERROR")
-                msg.setText("El artículo no tiene coordenadas registradas.")
+                msg.setWindowTitle(tr("ubic.error_title", default="ERROR"))
+                msg.setText(tr("ubic.no_coords_registered", default="El artículo no tiene coordenadas registradas."))
                 msg.setStyleSheet(
                     "QMessageBox { background-color: #0A0A0A; border: 1px solid #FF5555; } QLabel { color: white; font-family: 'Segoe UI'; }"
                 )
@@ -6807,7 +7864,7 @@ class UbicacionTiendaWindow(QMainWindow):
         btn_confirmar.clicked.connect(validar_destino)
         lyt.addWidget(btn_confirmar)
 
-        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel = QPushButton(tr("ubic.cancel", default="CANCELAR"))
         btn_cancel.setFixedHeight(50)
         btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cancel.setStyleSheet(
@@ -6825,26 +7882,77 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         Override estable: elimina planos por planta y limpia la interfaz al momento.
         """
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
+            QFrame,
             QHBoxLayout,
             QLabel,
             QPushButton,
-            QFrame,
+            QVBoxLayout,
         )
-        from PyQt6.QtCore import Qt
 
-        planta_actual = getattr(self, "planta_actual", 0)
-        planta_idx = self._seleccionar_planta_borrado()
-        if planta_idx is None:
+        planta_idx = getattr(self, "planta_actual", 0)
+
+        # Fetch plan name and check whether a plan actually exists for this index
+        nombre_plano = f"PLANTA {planta_idx}"
+        row = None
+        try:
+            with obtener_conexion() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT COALESCE(tipo,'LOCAL'), titulo_plano, ruta_imagen "
+                        "FROM configuracion_mapa WHERE planta_index=%s",
+                        (planta_idx,),
+                    )
+                    row = cursor.fetchone()
+        except Exception:
+            pass
+
+        # If no plan is loaded, show an informative message instead of the delete dialog
+        plano_existe = row is not None and bool(row[2])  # ruta_imagen must be non-empty
+        if not plano_existe:
+            info = QDialog(self)
+            info.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+            info.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            info.setModal(True)
+            marco_i = QFrame(info)
+            marco_i.setStyleSheet(self._estilo_dialogo_neon("#00FFC6"))
+            base_i = QVBoxLayout(info)
+            base_i.setContentsMargins(0, 0, 0, 0)
+            base_i.addWidget(marco_i)
+            lyt_i = QVBoxLayout(marco_i)
+            lyt_i.setContentsMargins(28, 24, 28, 24)
+            lyt_i.setSpacing(16)
+            lbl_t = QLabel("ℹ️  " + tr("ubic.no_plan_loaded", default="SIN PLANO CARGADO"))
+            lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_t.setFont(self._crear_fuente_segoe(13))
+            lbl_t.setStyleSheet("color: #00FFC6; border: none;")
+            lyt_i.addWidget(lbl_t)
+            lbl_m = QLabel(
+                tr("ubic.no_plan_loaded_msg",
+                   default="No hay ningún plano cargado en este momento.\nCarga un plano con el botón CARGAR antes de intentar borrarlo.")
+            )
+            lbl_m.setWordWrap(True)
+            lbl_m.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_m.setFont(self._crear_fuente_segoe(10))
+            lbl_m.setStyleSheet("color: #E6EDF3; border: none;")
+            lyt_i.addWidget(lbl_m)
+            btn_ok = QPushButton(tr("ubic.understood", default="ENTENDIDO"))
+            btn_ok.setFont(self._crear_fuente_segoe(10))
+            btn_ok.setStyleSheet(
+                self._estilo_boton_neon(bg="#00FFC6", fg="#0D1117", border="#00FFC6",
+                                        hover_bg="#FFFFFF", hover_fg="#0D1117")
+            )
+            btn_ok.clicked.connect(info.accept)
+            lyt_i.addWidget(btn_ok)
+            info.exec()
             return
 
-        texto = (
-            f'Se va a eliminar el plano de la planta "{planta_idx}".'
-            if planta_idx != planta_actual
-            else f'Se va a eliminar el plano. ¿Está seguro de que quiere eliminar el plano de la planta "{planta_actual}"?'
-        )
+        if row:
+            tipo = (row[0] or "LOCAL").upper()
+            titulo = (row[1] or "").strip()
+            nombre_plano = f"{tipo}: {titulo}" if titulo else tipo
 
         dialogo = QDialog(self)
         dialogo.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
@@ -6852,7 +7960,7 @@ class UbicacionTiendaWindow(QMainWindow):
         dialogo.setModal(True)
 
         marco = QFrame(dialogo)
-        marco.setStyleSheet(self._estilo_dialogo_neon("#00F5FF"))
+        marco.setStyleSheet(self._estilo_dialogo_neon("#FF7B72"))
         base = QVBoxLayout(dialogo)
         base.setContentsMargins(0, 0, 0, 0)
         base.addWidget(marco)
@@ -6861,15 +7969,16 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
-        lbl_titulo = QLabel(f"ELIMINAR PLANTA {planta_idx:02d}")
+        lbl_titulo = QLabel("🗑️  ELIMINAR PLANO")
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_titulo.setFont(self._crear_fuente_segoe(12))
-        lbl_titulo.setStyleSheet("color: #00F5FF; border: none;")
+        lbl_titulo.setFont(self._crear_fuente_segoe(13))
+        lbl_titulo.setStyleSheet("color: #FF7B72; border: none;")
         layout.addWidget(lbl_titulo)
 
         lbl_msg = QLabel(
-            texto
-            + "\n\nEsta accion borrara el plano, los muros tecnicos y las matrices de navegacion asociados a esa planta."
+            f'¿Eliminar el plano "{nombre_plano}"?\n\n'
+            "Esta acción borrará el plano, los muros técnicos\n"
+            "y las matrices de navegación asociados."
         )
         lbl_msg.setWordWrap(True)
         lbl_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -6878,15 +7987,15 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.addWidget(lbl_msg)
 
         fila = QHBoxLayout()
-        btn_eliminar = QPushButton("SI, ELIMINAR")
-        btn_cancelar = QPushButton("CANCELAR")
+        btn_eliminar = QPushButton(tr("ubic.yes_delete", default="SÍ, ELIMINAR"))
+        btn_cancelar = QPushButton(tr("ubic.cancel", default="CANCELAR"))
         for boton, estilo in [
             (
                 btn_eliminar,
                 self._estilo_boton_neon(
-                    bg="#00F5FF",
+                    bg="#FF7B72",
                     fg="#0D1117",
-                    border="#00F5FF",
+                    border="#FF7B72",
                     hover_bg="#FFFFFF",
                     hover_fg="#0D1117",
                 ),
@@ -6911,7 +8020,7 @@ class UbicacionTiendaWindow(QMainWindow):
         btn_cancelar.clicked.connect(dialogo.reject)
         btn_eliminar.clicked.connect(dialogo.accept)
         self._aplicar_fuente_segoe(dialogo)
-        dialogo.resize(520, 250)
+        dialogo.resize(520, 260)
 
         if dialogo.exec() != QDialog.DialogCode.Accepted:
             return
@@ -6925,19 +8034,36 @@ class UbicacionTiendaWindow(QMainWindow):
                     )
                 conn.commit()
 
-            if planta_idx == planta_actual:
-                self._vaciar_plano_en_visores()
-                self._reiniciar_historial_planta(planta_idx)
+            # Navigate to another available plan after deletion
+            siguiente_idx = None
+            try:
+                with obtener_conexion() as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT planta_index FROM configuracion_mapa "
+                            "WHERE ruta_imagen IS NOT NULL AND ruta_imagen != '' "
+                            "ORDER BY planta_index ASC LIMIT 1"
+                        )
+                        row2 = cursor.fetchone()
+                siguiente_idx = int(row2[0]) if row2 else None
+            except Exception:
+                pass
+
+            self._vaciar_plano_en_visores()
+            self._reiniciar_historial_planta(planta_idx)
+
+            if siguiente_idx is not None:
+                self.planta_actual = siguiente_idx
                 if hasattr(self, "cargar_infraestructura_registrada"):
                     self.cargar_infraestructura_registrada()
-                self.mostrar_mensaje_temporal(
-                    f"PLANTA {planta_idx} ELIMINADA Y VISOR LIMPIO"
-                )
+                self._actualizar_labels_planta()
+                self.mostrar_mensaje_temporal(f'"{nombre_plano}" ELIMINADO')
                 self._forzar_reencuadre_diferido(force=True)
             else:
-                self.mostrar_mensaje_temporal(
-                    f"PLANTA {planta_idx} ELIMINADA CORRECTAMENTE"
-                )
+                self.planta_actual = 0
+                self._actualizar_labels_planta()
+                self.mostrar_mensaje_temporal(tr("ubic.plan_deleted_none", default="PLANO ELIMINADO — NO HAY MÁS PLANOS"))
+
         except Exception as e:
             print(f"Error al eliminar plano: {e}")
 
@@ -6975,16 +8101,15 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         Override estable: permite buscar por articulo o ubicacion y elegir la ruta de lineal/almacen.
         """
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
+            QFrame,
             QLabel,
             QLineEdit,
             QPushButton,
-            QFrame,
-            QCompleter,
+            QVBoxLayout,
         )
-        from PyQt6.QtCore import Qt
 
         dialogo = QDialog(self)
         self._dialogo_ruta_gps_activo = dialogo
@@ -7003,7 +8128,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt.setContentsMargins(34, 34, 34, 34)
         lyt.setSpacing(14)
 
-        lbl_head = QLabel("¿A QUE ARTICULO O UBICACION DESEA IR?")
+        lbl_head = QLabel(tr("ubic.goto_item_loc_q", default="¿A QUÉ ARTÍCULO O UBICACIÓN DESEA IR?"))
         lbl_head.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_head.setFont(self._crear_fuente_segoe(12))
         lbl_head.setStyleSheet("color: #00FFC6; border: none;")
@@ -7067,21 +8192,10 @@ class UbicacionTiendaWindow(QMainWindow):
         except Exception:
             pass
 
-        btn_scan = QPushButton("ESCANEAR CODIGO DE PRODUCTO")
-        btn_scan.setFixedHeight(46)
+        btn_scan = QPushButton("📷 " + tr("ubic.scan_btn", default="SCAN"))
+        btn_scan.setObjectName("btn_secundario")
+        btn_scan.setFixedSize(110, 50)
         btn_scan.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_scan.setFont(self._crear_fuente_segoe(10))
-        btn_scan.setStyleSheet(
-            self._estilo_boton_neon(
-                bg="#161B22",
-                fg="#8B949E",
-                border="#30363D",
-                hover_bg="#FFFFFF",
-                hover_fg="#161B22",
-                radius=10,
-                padding="10px 16px",
-            )
-        )
         self._input_gps_dialog_activo = search_input
         btn_scan.clicked.connect(
             lambda: self.abrir_escaner_camara("BUSCAR ARTICULO", "BUSQUEDA")
@@ -7103,7 +8217,7 @@ class UbicacionTiendaWindow(QMainWindow):
             opciones = self._obtener_opciones_destino_gps(termino)
             disponibles = [op for op in opciones if op.get("disponible")]
             if not disponibles:
-                self.mostrar_mensaje_temporal("DESTINO SIN COORDENADAS O NO ENCONTRADO")
+                self.mostrar_mensaje_temporal(tr("ubic.dest_no_coords", default="DESTINO SIN COORDENADAS O NO ENCONTRADO"))
                 return
 
             seleccion = self._mostrar_selector_destino_gps(disponibles)
@@ -7147,10 +8261,10 @@ class UbicacionTiendaWindow(QMainWindow):
         btn_confirmar.setStyleSheet(
             self._estilo_boton_neon(
                 bg="#238636",
-                fg="#FFFFFF",
+                fg="#0E1117",
                 border="#238636",
                 hover_bg="#FFFFFF",
-                hover_fg="#238636",
+                hover_fg="#0E1117",
                 radius=12,
                 padding="12px 18px",
                 font_size=13,
@@ -7160,7 +8274,7 @@ class UbicacionTiendaWindow(QMainWindow):
         search_input.returnPressed.connect(validar_destino)
         lyt.addWidget(btn_confirmar)
 
-        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel = QPushButton(tr("ubic.cancel", default="CANCELAR"))
         btn_cancel.setFixedHeight(50)
         btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cancel.setFont(self._crear_fuente_segoe(10))
@@ -7188,6 +8302,10 @@ class UbicacionTiendaWindow(QMainWindow):
                 self._input_gps_dialog_activo = None
             if getattr(self, "_dialogo_ruta_gps_activo", None) is dialogo:
                 self._dialogo_ruta_gps_activo = None
+
+    # ============================================================
+    # BLOQUE MENÚ Y ESTADO
+    # ============================================================
 
     def actualizar_estado_menu(self, boton_activo):
         """
@@ -7226,6 +8344,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 padding-left: 15px;
                 font-family: 'Segoe UI';
                 font-weight: 900;
+                font-size: 12px;
             }
             QPushButton:hover { 
                 background-color: #161B22; 
@@ -7249,6 +8368,10 @@ class UbicacionTiendaWindow(QMainWindow):
                     btn.setChecked(False)
                     btn.blockSignals(False)
 
+    # ============================================================
+    # BLOQUE EXPORTACIONES PDF
+    # ============================================================
+
     def exportar_maestro_ubicaciones_pdf(self):
         """
         Genera un reporte PDF técnico con la auditoría completa de coordenadas.
@@ -7256,20 +8379,22 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         import os
         from datetime import datetime
+
         from PyQt6.QtWidgets import QMessageBox
+
         from src.db.conexion import obtener_conexion
 
         try:
+            from reportlab.lib import colors
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
             from reportlab.platypus import (
+                Paragraph,
                 SimpleDocTemplate,
+                Spacer,
                 Table,
                 TableStyle,
-                Paragraph,
-                Spacer,
             )
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib import colors
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
             # 1. GESTIÓN DE RUTAS Y ARCHIVO
             ruta_base = os.path.join(
@@ -7412,7 +8537,7 @@ class UbicacionTiendaWindow(QMainWindow):
         )
 
         l = QVBoxLayout(msg)
-        t1 = QLabel("NODO VINCULADO")
+        t1 = QLabel(tr("ubic.node_linked", default="NODO VINCULADO"))
         t1.setStyleSheet("color: #238636; font-weight: 900; font-size: 14px;")
         t1.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -7420,7 +8545,7 @@ class UbicacionTiendaWindow(QMainWindow):
         t2.setStyleSheet("color: white; font-size: 11px;")
         t2.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        b = QPushButton("CERRAR")
+        b = QPushButton(tr("common.close", default="CERRAR"))
         b.setStyleSheet(
             "background: #161B22; color: white; border: 1px solid #30363D; padding: 8px; border-radius: 5px;"
         )
@@ -7434,18 +8559,18 @@ class UbicacionTiendaWindow(QMainWindow):
     def _mostrar_feedback_pdf(self, archivo, ruta, cantidad):
         """Ventana modal personalizada con estética Dark."""
         msg = QMessageBox(self)
-        msg.setWindowTitle("SISTEMA DE ETIQUETADO")
+        msg.setWindowTitle(tr("ubic.labeling_system", default="SISTEMA DE ETIQUETADO"))
         msg.setIcon(QMessageBox.Icon.Information)
-        msg.setText(f"<b>PDF GENERADO CON ÉXITO</b>")
+        msg.setText("<b>" + tr("ubic.pdf_ok", default="PDF GENERADO CON ÉXITO") + "</b>")
         msg.setInformativeText(
-            f"Se han procesado {cantidad} etiquetas.<br><br>"
-            f"icono <b>Archivo:</b> {archivo}<br>"
-            f"icono <b>Carpeta:</b> {ruta}"
+            tr("ubic.labels_processed",
+               default="Se han procesado {cantidad} etiquetas.<br><br>icono <b>Archivo:</b> {archivo}<br>icono <b>Carpeta:</b> {ruta}",
+               cantidad=cantidad, archivo=archivo, ruta=ruta)
         )
         btn_abrir = msg.addButton(
-            "icono Abrir Carpeta", QMessageBox.ButtonRole.AcceptRole
+            "icono " + tr("ubic.open_folder", default="Abrir Carpeta"), QMessageBox.ButtonRole.AcceptRole
         )
-        msg.addButton("Cerrar", QMessageBox.ButtonRole.RejectRole)
+        msg.addButton(tr("common.close", default="Cerrar"), QMessageBox.ButtonRole.RejectRole)
 
         msg.setStyleSheet(
             """
@@ -7462,6 +8587,10 @@ class UbicacionTiendaWindow(QMainWindow):
         if msg.clickedButton() == btn_abrir:
             os.startfile(ruta)
 
+    # ============================================================
+    # BLOQUE CALIBRACIÓN DE ESCALA
+    # ============================================================
+
     def iniciar_calibracion_escala(self):
         """
         Inicia el flujo guiado de telemetría dual.
@@ -7471,16 +8600,16 @@ class UbicacionTiendaWindow(QMainWindow):
         if not hasattr(self, "visor_admin") or not self.visor_admin:
             return
 
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QFont  # <--- Para blindar la fuente
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
+            QFrame,
             QHBoxLayout,
             QLabel,
             QPushButton,
-            QFrame,
+            QVBoxLayout,
         )
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QFont  # <--- Para blindar la fuente
 
         # --- CONFIGURACIÓN DE LA VENTANA ---
         diag_init = QDialog(self)
@@ -7504,15 +8633,15 @@ class UbicacionTiendaWindow(QMainWindow):
             QLabel { color: #E6EDF3; border: none; }
             
             /* Botón Principal (Verde) */
-            QPushButton#btnIniciar { 
-                background-color: #238636; 
-                color: white; 
-                border-radius: 10px; 
-                padding: 10px; 
-                border: none; 
+            QPushButton#btnIniciar {
+                background-color: #238636;
+                color: #0E1117;
+                border-radius: 10px;
+                padding: 10px;
+                border: none;
                 min-width: 120px;
             }
-            QPushButton#btnIniciar:hover { background-color: #2EA043; }
+            QPushButton#btnIniciar:hover { background-color: #FFFFFF; color: #0E1117; }
             
             /* Botón Cancelar (Gris Claro) */
             QPushButton#btnCancelar { 
@@ -7535,16 +8664,15 @@ class UbicacionTiendaWindow(QMainWindow):
         inner_lyt.setContentsMargins(35, 30, 35, 30)
         inner_lyt.setSpacing(15)
 
-        titulo = QLabel("📐 MODO CALIBRACIÓN")
+        titulo = QLabel("📐 " + tr("ubic.calib_mode_title", default="MODO CALIBRACIÓN"))
         titulo.setFont(f_tit)  # Inyección directa
         titulo.setStyleSheet("color: #00F0FF; letter-spacing: 1.2px;")
         titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Actualización de estilo: color azul turquesa para "pared VERTICAL"
         msg = QLabel(
-            "Se va a iniciar el sistema de telemetría.<br><br>"
-            "<b style='color: white;'>PASO 1:</b> Seleccione una <b style='color: #00F0FF;'>pared VERTICAL</b> "
-            "del mapa haciendo clic en sus extremos (Inicio y Fin)."
+            tr("ubic.calib_mode_msg",
+               default="Se va a iniciar el sistema de telemetría.<br><br><b style='color: white;'>PASO 1:</b> Seleccione una <b style='color: #00F0FF;'>pared VERTICAL</b> del mapa haciendo clic en sus extremos (Inicio y Fin).")
         )
         msg.setFont(f_msg)  # Inyección directa
         msg.setStyleSheet("color: #BDC6CF;")
@@ -7555,13 +8683,13 @@ class UbicacionTiendaWindow(QMainWindow):
         btn_lyt = QHBoxLayout()
         btn_lyt.setSpacing(10)
 
-        btn_cancelar = QPushButton("CANCELAR")
+        btn_cancelar = QPushButton(tr("ubic.cancel", default="CANCELAR"))
         btn_cancelar.setObjectName("btnCancelar")
         btn_cancelar.setFont(f_btn)
         btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cancelar.clicked.connect(diag_init.reject)
 
-        btn_cont = QPushButton("INICIAR PROTOCOLO")
+        btn_cont = QPushButton(tr("ubic.start_protocol", default="INICIAR PROTOCOLO"))
         btn_cont.setObjectName("btnIniciar")
         btn_cont.setFont(f_btn)  # Inyección directa
         btn_cont.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -7611,18 +8739,10 @@ class UbicacionTiendaWindow(QMainWindow):
         ):
             try:
                 # Extraemos la escena de forma segura
-                escena = (
-                    self.visor_admin.scene()
-                    if callable(self.visor_admin.scene)
-                    else self.visor_admin.scene
-                )
+                escena = QGraphicsView.scene(self.visor_admin)
 
                 # Verificamos que la línea pertenece a una escena antes de removerla
-                item_escena = (
-                    self.visor_admin.linea_temporal_muro.scene()
-                    if callable(self.visor_admin.linea_temporal_muro.scene)
-                    else self.visor_admin.linea_temporal_muro.scene
-                )
+                item_escena = self.visor_admin.linea_temporal_muro.scene()
 
                 if escena and item_escena == escena:
                     escena.removeItem(self.visor_admin.linea_temporal_muro)
@@ -7633,13 +8753,13 @@ class UbicacionTiendaWindow(QMainWindow):
 
         if hasattr(self, "btn_modo_pintar"):
             self.btn_modo_pintar.setChecked(False)
-            self.btn_modo_pintar.setText("🖌️ MODO PINTADO: OFF")
+            self.btn_modo_pintar.setText("🖌️ " + tr("ubic.paint_off", default="MODO PINTADO: OFF"))
 
         if hasattr(self, "btn_escala"):
-            self.btn_escala.setText("⚠️ CALIBRANDO...")
+            self.btn_escala.setText("⚠️ " + tr("ubic.calibrating", default="CALIBRANDO..."))
             self.btn_escala.setStyleSheet(
-                "QPushButton { background-color: #F85149; color: white; border-radius: 8px; "
-                "font-family: 'Segoe UI'; font-weight: 900; font-size: 11px; padding: 8px; }"
+                "QPushButton { background-color: #FF7700; color: white; border-radius: 8px; "
+                "font-family: 'Segoe UI'; font-weight: 900; font-size: 12px; padding: 8px; }"
             )
 
         status_bar = self.window().statusBar()
@@ -7665,6 +8785,10 @@ class UbicacionTiendaWindow(QMainWindow):
         except Exception:
             pass
 
+    # ============================================================
+    # BLOQUE GESTIÓN DE MUROS
+    # ============================================================
+
     def gestionar_deshacer_muro(self):
         """
         Elimina la ÚLTIMA acción (LIFO) con reconstrucción de matriz en caliente.
@@ -7674,13 +8798,13 @@ class UbicacionTiendaWindow(QMainWindow):
         if not hasattr(self, "visor_admin") or not self.visor_admin:
             return
 
+        from PyQt6.QtCore import QPointF
         from PyQt6.QtWidgets import QGraphicsLineItem, QGraphicsPathItem
-        from PyQt6.QtCore import Qt, QPointF
 
         visor = self.visor_admin
 
         # --- INCISIÓN QUIRÚRGICA: Acceso seguro a la escena (Fix TypeError) ---
-        escena = visor.scene() if callable(visor.scene) else visor.scene
+        escena = QGraphicsView.scene(visor)
         if not escena:
             return
 
@@ -7703,8 +8827,6 @@ class UbicacionTiendaWindow(QMainWindow):
                 # Verificación de escena del item de forma segura
                 item_scene = (
                     visor.linea_temporal_muro.scene()
-                    if callable(visor.linea_temporal_muro.scene)
-                    else visor.linea_temporal_muro.scene
                 )
                 if item_scene == escena:
                     escena.removeItem(visor.linea_temporal_muro)
@@ -7713,7 +8835,7 @@ class UbicacionTiendaWindow(QMainWindow):
             visor.linea_temporal_muro = None
             visor.punto_inicio_muro = None
             if hasattr(self, "mostrar_mensaje_temporal"):
-                self.mostrar_mensaje_temporal("TRAZO CANCELADO")
+                self.mostrar_mensaje_temporal(tr("ubic.stroke_cancelled", default="TRAZO CANCELADO"))
             return
 
         # --- PRIORIDAD 2: DESHACER MURO CONFIRMADO (LIFO) ---
@@ -7722,11 +8844,7 @@ class UbicacionTiendaWindow(QMainWindow):
             muro_eliminado = False
 
             try:
-                item_scene = (
-                    ultimo_muro.scene()
-                    if callable(ultimo_muro.scene)
-                    else ultimo_muro.scene
-                )
+                item_scene = ultimo_muro.scene()
                 if ultimo_muro and item_scene == escena:
                     escena.removeItem(ultimo_muro)
                     muro_eliminado = True
@@ -7742,9 +8860,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 # Re-rasterizar los muros persistentes
                 for item in visor.historial_muros:
                     try:
-                        item_scene = (
-                            item.scene() if callable(item.scene) else item.scene
-                        )
+                        item_scene = item.scene()
                         if not item or item_scene != escena:
                             continue
 
@@ -7770,7 +8886,7 @@ class UbicacionTiendaWindow(QMainWindow):
                     visor.actualizar_mapa_calor()
 
             if hasattr(self, "mostrar_mensaje_temporal"):
-                self.mostrar_mensaje_temporal("DESHECHO: MURO ELIMINADO")
+                self.mostrar_mensaje_temporal(tr("ubic.undone_wall", default="DESHECHO: MURO ELIMINADO"))
 
             # Refresco de los viewports
             for v in [visor, getattr(self, "visor_mapa", None)]:
@@ -7783,7 +8899,7 @@ class UbicacionTiendaWindow(QMainWindow):
             for attr in ["item_texto_ancla", "item_ancla"]:
                 item = getattr(visor, attr, None)
                 if item:
-                    item_scene = item.scene() if callable(item.scene) else item.scene
+                    item_scene = item.scene()
                     if item_scene == escena:
                         escena.removeItem(item)
                     setattr(visor, attr, None)
@@ -7794,7 +8910,7 @@ class UbicacionTiendaWindow(QMainWindow):
             return
 
         if hasattr(self, "mostrar_mensaje_temporal"):
-            self.mostrar_mensaje_temporal("HISTORIAL VACÍO")
+            self.mostrar_mensaje_temporal(tr("ubic.history_empty", default="HISTORIAL VACÍO"))
 
     def finalizar_calibracion_escala(self, pixeles_x, pixeles_y):
         """
@@ -7802,17 +8918,15 @@ class UbicacionTiendaWindow(QMainWindow):
         Calcula ratios px/m y deja el sistema en estado de ESPERA
         para la ubicación del punto de origen (0,0).
         """
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
+            QFrame,
             QLabel,
             QLineEdit,
             QPushButton,
-            QFrame,
-            QHBoxLayout,
+            QVBoxLayout,
         )
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QFont
 
         # Estilo base actualizado: Segoe UI Bold (700) y Black (900)
         estilo_base = """
@@ -7856,9 +8970,9 @@ class UbicacionTiendaWindow(QMainWindow):
             }}
         """
 
-        def crear_dialogo(titulo, cuerpo, color_borde="#30363D", es_input=False):
+        def crear_dialogo(titulo, cuerpo, color_borde="#30363D", es_input=False, texto_btn="✅ CONFIRMAR Y SEGUIR", alto=300):
             diag = QDialog(self)
-            diag.setFixedSize(440, 300)
+            diag.setFixedSize(440, alto)
             diag.setWindowFlags(
                 Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog
             )
@@ -7912,7 +9026,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
             lyt.addStretch()
 
-            btn = QPushButton("✅ CONFIRMAR Y SEGUIR")
+            btn = QPushButton(texto_btn)
             btn.setObjectName("btnConfirmar")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(diag.accept)
@@ -7962,19 +9076,30 @@ class UbicacionTiendaWindow(QMainWindow):
         r_v = round(self.visor_admin.ratio_px_m_v, 2)
 
         cuerpo_final = (
-            f"<div style='line-height: 150%;'>"
+            f"<div style='line-height: 160%;'>"
             f"<b style='color: #00FFC6;'>MÉTRICAS CALCULADAS:</b><br>"
             f"<span style='color: #8B949E;'>Horizontal:</span> <b style='color: #FFEA00;'>{r_h} px/m</b><br>"
-            f"<span style='color: #8B949E;'>Vertical:</span> <b style='color: #00F0FF;'>{r_v} px/m</b><br><br>"
-            f"Ahora debe establecer el <b style='color: #FFB86C;'>PUNTO DE ORIGEN (0,0)</b>.<br>"
-            f"Haga clic en la esquina de referencia del plano."
+            f"<span style='color: #8B949E;'>Vertical:</span> <b style='color: #00F0FF;'>{r_v} px/m</b>"
             f"</div>"
         )
 
-        d_final, _ = crear_dialogo("📏 CALIBRACIÓN CALCULADA", cuerpo_final, "#FFB86C")
-
-        # Simplemente mostramos el resumen. La lógica del gatillo ha sido delegada al ancla final.
+        d_final, _ = crear_dialogo(
+            "📏 CALIBRACIÓN CALCULADA", cuerpo_final, "#FFB86C",
+            texto_btn="ENTENDIDO", alto=220,
+        )
         d_final.exec()
+
+        # Instrucción de origen: diálogo aparte tras cerrar el resumen
+        cuerpo_origen = (
+            "Ahora debe establecer el <b style='color: #FFB86C;'>PUNTO DE ORIGEN (0,0)</b>.<br><br>"
+            "Para establecer el punto de origen, haga clic en la "
+            "<b style='color: white;'>puerta de entrada</b> del plano."
+        )
+        d_origen, _ = crear_dialogo(
+            "📍 PUNTO DE ORIGEN", cuerpo_origen, "#FFB86C",
+            texto_btn="ENTENDIDO", alto=220,
+        )
+        d_origen.exec()
 
         # --- FASE 4: ESTADO DE ESPERA (ANCLAJE) ---
         self.visor_admin.esperando_ancla_0 = True
@@ -8013,9 +9138,7 @@ class UbicacionTiendaWindow(QMainWindow):
                             # Blindaje contra objetos eliminados en C++ tras cambio de pestaña
                             # AJUSTE QUIRÚRGICO: Acceso seguro a la escena del item
                             if hasattr(item, "scene"):
-                                escena_item = (
-                                    item.scene() if callable(item.scene) else item.scene
-                                )
+                                escena_item = item.scene()
                                 if escena_item:
                                     item.setVisible(False)
                         except (RuntimeError, AttributeError):
@@ -8042,9 +9165,9 @@ class UbicacionTiendaWindow(QMainWindow):
         Solo se muestra una vez por sesión tras completar la calibración con éxito
         y de forma manual (no durante la carga de base de datos).
         """
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QFrame, QLabel, QPushButton
-        from PyQt6.QtGui import QFont, QColor
         from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QFont
+        from PyQt6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
 
         # Determinamos la ventana padre de forma segura
         target_win = main_window if main_window else self
@@ -8094,7 +9217,7 @@ class UbicacionTiendaWindow(QMainWindow):
         interno.setSpacing(20)
 
         # --- 3. CONTENIDO (Título y Cuerpo) ---
-        titulo = QLabel("🛡️ CONFIGURACIÓN DE ENTORNO")
+        titulo = QLabel("🖌️ " + tr("ubic.env_config_title", default="CONFIGURACIÓN DE ENTORNO"))
         font_tit = QFont("Segoe UI", 13)
         font_tit.setWeight(QFont.Weight.Black)  # Peso 900
         titulo.setFont(font_tit)
@@ -8106,12 +9229,8 @@ class UbicacionTiendaWindow(QMainWindow):
         msg_cuerpo = QLabel()
         msg_cuerpo.setTextFormat(Qt.TextFormat.RichText)
         msg_cuerpo.setText(
-            "<div style='line-height: 150%; text-align: center;'>"
-            "La escala y el origen (0,0) se han establecido correctamente.<br><br>"
-            "El sistema ha entrado en <b style='color: #00FFC6;'>MODO EDICIÓN</b>.<br>"
-            "Utilice la herramienta de muros para delimitar las paredes y obstáculos. "
-            "Esto es vital para que el motor de rutas evite colisiones."
-            "</div>"
+            tr("ubic.env_config_msg",
+               default="<div style='line-height: 150%; text-align: center;'>La escala y el origen (0,0) se han establecido correctamente.<br><br>Pulse el botón <b style='color: #00FFC6;'>🖌️ MODO PINTADO</b> para activar el modo de dibujo de muros.<br>Delimite las paredes y obstáculos del local: esto es vital para que el motor de rutas evite colisiones.</div>")
         )
         msg_cuerpo.setStyleSheet(
             """
@@ -8126,24 +9245,24 @@ class UbicacionTiendaWindow(QMainWindow):
         msg_cuerpo.setWordWrap(True)
 
         # --- 4. BOTÓN DE ACCIÓN ---
-        btn_entendido = QPushButton("ENTENDIDO, EMPEZAR")
+        btn_entendido = QPushButton(tr("ubic.understood_start", default="ENTENDIDO, EMPEZAR"))
         btn_entendido.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_entendido.setFixedWidth(220)
         btn_entendido.setStyleSheet(
             """
-            QPushButton { 
-                background-color: #161B22; 
-                color: #00FFC6; 
-                border: 1px solid #30363D; 
-                padding: 12px; 
-                border-radius: 10px; 
-                font-family: 'Segoe UI'; 
-                font-weight: 900; 
+            QPushButton {
+                background-color: #161B22;
+                color: #00FFC6;
+                border: 1px solid #00FFC6;
+                padding: 12px;
+                border-radius: 10px;
+                font-family: 'Segoe UI';
+                font-weight: 900;
                 font-size: 12px;
             }
-            QPushButton:hover { 
-                background-color: #00FFC6; 
-                color: #0D1117; 
+            QPushButton:hover {
+                background-color: #00FFC6;
+                color: #0D1117;
                 border: 1px solid #00FFC6;
             }
             """
@@ -8200,7 +9319,7 @@ class UbicacionTiendaWindow(QMainWindow):
             return
 
         if getattr(visor, "linea_temporal_muro", None):
-            escena = visor.scene() if callable(visor.scene) else visor.scene
+            escena = QGraphicsView.scene(visor)
             try:
                 if escena and visor.linea_temporal_muro.scene() == escena:
                     escena.removeItem(visor.linea_temporal_muro)
@@ -8208,12 +9327,12 @@ class UbicacionTiendaWindow(QMainWindow):
                 pass
             visor.linea_temporal_muro = None
             visor.punto_inicio_muro = None
-            self.mostrar_mensaje_temporal("TRAZO CANCELADO")
+            self.mostrar_mensaje_temporal(tr("ubic.stroke_cancelled", default="TRAZO CANCELADO"))
             return
 
         estado = self._estado_planta()
         if not estado["undo"]:
-            self.mostrar_mensaje_temporal("HISTORIAL VACÍO")
+            self.mostrar_mensaje_temporal(tr("ubic.history_empty", default="HISTORIAL VACÍO"))
             self._actualizar_botones_historial()
             return
 
@@ -8222,12 +9341,12 @@ class UbicacionTiendaWindow(QMainWindow):
         self.reconstruir_estado_mapa_actual(accion["before"], recuadrar=False)
         self.cambios_sin_guardar = True
         self._actualizar_botones_historial()
-        self.mostrar_mensaje_temporal("DESHECHO")
+        self.mostrar_mensaje_temporal(tr("ubic.undone", default="DESHECHO"))
 
     def gestionar_rehacer_muro(self):
         estado = self._estado_planta()
         if not estado["redo"]:
-            self.mostrar_mensaje_temporal("NO HAY ACCIONES PARA REHACER")
+            self.mostrar_mensaje_temporal(tr("ubic.nothing_redo", default="NO HAY ACCIONES PARA REHACER"))
             self._actualizar_botones_historial()
             return
 
@@ -8236,7 +9355,7 @@ class UbicacionTiendaWindow(QMainWindow):
         self.reconstruir_estado_mapa_actual(accion["after"], recuadrar=False)
         self.cambios_sin_guardar = True
         self._actualizar_botones_historial()
-        self.mostrar_mensaje_temporal("REHECHO")
+        self.mostrar_mensaje_temporal(tr("ubic.redone", default="REHECHO"))
 
     def cargar_matriz_serializada(self, datos_muros):
         """
@@ -8244,10 +9363,10 @@ class UbicacionTiendaWindow(QMainWindow):
         en un solo paso atómico.
         """
         import json
+
         import numpy as np
-        from PyQt6.QtWidgets import QGraphicsLineItem
-        from PyQt6.QtGui import QPen, QColor
         from PyQt6.QtCore import QLineF, Qt
+        from PyQt6.QtGui import QColor, QPen
 
         visor = getattr(self, "visor_admin", None)
         if not visor:
@@ -8267,16 +9386,17 @@ class UbicacionTiendaWindow(QMainWindow):
             lista_vectores = (
                 datos.get("muros_vectores", datos) if isinstance(datos, dict) else datos
             )
-            escena = visor.scene() if callable(visor.scene) else visor.scene
+            escena = QGraphicsView.scene(visor)
             if not escena:
                 return
 
-            # Limpieza visual (Elimina muros viejos de la escena)
+            # Limpieza visual — only remove items still belonging to this scene
             if hasattr(visor, "historial_muros"):
                 for item in visor.historial_muros[:]:
                     try:
-                        escena.removeItem(item)
-                    except:
+                        if item and item.scene() == escena:
+                            escena.removeItem(item)
+                    except (RuntimeError, AttributeError):
                         pass
                 visor.historial_muros.clear()
             else:
@@ -8359,17 +9479,13 @@ class UbicacionTiendaWindow(QMainWindow):
         Elimina de la escena todos los elementos visuales de la calibración.
         AJUSTE QUIRÚRGICO: Protección avanzada SIP y restauración de UI Neón.
         """
-        from PyQt6.QtCore import Qt
         from PyQt6 import sip  # Vital para manejar recolección de basura de Qt
+        from PyQt6.QtCore import Qt
 
         if not hasattr(self, "visor_admin") or not self.visor_admin:
             return
 
-        scene = (
-            self.visor_admin.scene()
-            if callable(self.visor_admin.scene)
-            else self.visor_admin.scene
-        )
+        scene = QGraphicsView.scene(self.visor_admin)
         if not scene:
             return
 
@@ -8404,7 +9520,7 @@ class UbicacionTiendaWindow(QMainWindow):
         # 2. GESTIÓN DE BOTONES (Estética Neón)
         btn = getattr(self, "btn_escala", getattr(self, "btn_calibrar_escala", None))
         if btn:
-            btn.setText("📏 RECALIBRAR")
+            btn.setText("📏 " + tr("ubic.recalib", default="RECALIBRAR"))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(
                 """
@@ -8439,6 +9555,7 @@ class UbicacionTiendaWindow(QMainWindow):
         AJUSTE QUIRÚRGICO: Throttling de alta frecuencia y feedback visual en UI.
         """
         import time
+
         from src.db.conexion import obtener_conexion
 
         # 1. ESCUDO ANTI-SPAM (Throttling)
@@ -8507,10 +9624,12 @@ class UbicacionTiendaWindow(QMainWindow):
                 )
 
 
-from PyQt6.QtCore import QPropertyAnimation, QRectF, pyqtProperty, Qt, QPointF
+from PyQt6.QtCore import QPropertyAnimation, QRectF, pyqtProperty
 from PyQt6.QtWidgets import QGraphicsEllipseItem
-from PyQt6.QtGui import QColor, QPen
 
+# ============================================================
+# BLOQUE RADAR DE PROXIMIDAD
+# ============================================================
 
 class AroRadar(QGraphicsEllipseItem):
     def __init__(self, pos, color_hex):
@@ -8534,12 +9653,16 @@ class AroRadar(QGraphicsEllipseItem):
         self.setOpacity(opacidad)
 
 
+# ============================================================
+# BLOQUE VISTA DE MAPA INTERACTIVO
+# ============================================================
+
 class VistaMapa(QGraphicsView):
     def __init__(self, main, modo_admin=False, parent=None):
         super().__init__(parent)
-        from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
-        from PyQt6.QtGui import QPainter, QColor
         from PyQt6.QtCore import QPointF, Qt
+        from PyQt6.QtGui import QColor, QPainter
+        from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
 
         # 1. ESCENA Y RENDERIZADO (Blindaje Visual)
         self.scene = QGraphicsScene(self)
@@ -8547,9 +9670,8 @@ class VistaMapa(QGraphicsView):
 
         # AJUSTES QUIRÚRGICOS DE RENDERIZADO:
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.setRenderHint(
-            QPainter.RenderHint.SmoothPixmapTransform
-        )  # Crucial para que el plano no se pixele al hacer zoom
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        self.setRenderHint(QPainter.RenderHint.LosslessImageRendering)
 
         # Evita que el movimiento del ratón deje "estelas" o borre el fondo accidentalmente
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
@@ -8561,7 +9683,7 @@ class VistaMapa(QGraphicsView):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setBackgroundBrush(QColor("#050505"))
         self.setStyleSheet(
-            "border: 2px solid #30363D; border-radius: 12px; background: #0D1117;"
+            "border: 2px solid #00FFC6; border-radius: 12px; background: #0D1117;"
         )
         if self.viewport():
             self.viewport().setStyleSheet("background: #050505; border-radius: 12px;")
@@ -8627,8 +9749,8 @@ class VistaMapa(QGraphicsView):
         Muestra un resumen final de la sesión de trabajo.
         Se ejecuta tras hacer clic en 'CONFIRMAR Y FINALIZAR'.
         """
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QFrame
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
 
         diag = QDialog(self)
         diag.setFixedSize(350, 180)
@@ -8662,16 +9784,16 @@ class VistaMapa(QGraphicsView):
 
         lyt = QVBoxLayout(container)
         lyt.addWidget(
-            QLabel("¡OPERACIÓN COMPLETADA!", alignment=Qt.AlignmentFlag.AlignCenter)
+            QLabel(tr("ubic.operation_complete", default="¡OPERACIÓN COMPLETADA!"), alignment=Qt.AlignmentFlag.AlignCenter)
         )
         lyt.addWidget(
             QLabel(
-                f"Se han registrado {total} satélites.",
+                tr("ubic.sats_registered", default="Se han registrado {total} satélites.", total=total),
                 alignment=Qt.AlignmentFlag.AlignCenter,
             )
         )
 
-        btn_ok = QPushButton("CERRAR")
+        btn_ok = QPushButton(tr("common.close", default="CERRAR"))
         btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_ok.clicked.connect(diag.accept)
         lyt.addWidget(btn_ok, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -8695,19 +9817,30 @@ class VistaMapa(QGraphicsView):
 
         # 2. Configuración del Cursor
         if modo == "NAVEGACION":
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            cursor = Qt.CursorShape.OpenHandCursor
         elif modo in ["UBICAR_ESTANTERIA", "UBICAR_SATELITE", "CALIBRAR"]:
-            # Todos los modos de precisión usan la cruceta
-            self.setCursor(Qt.CursorShape.CrossCursor)
+            cursor = Qt.CursorShape.CrossCursor
         else:
-            # Fallback por seguridad
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            cursor = Qt.CursorShape.ArrowCursor
+        self.setCursor(cursor)
+        vp = self.viewport() if hasattr(self, "viewport") else None
+        if vp:
+            vp.setCursor(cursor)
+            vp.update()
 
     def reencuadrar_plano(self, force=False):
-        escena = self.scene() if callable(self.scene) else self.scene
+        escena = QGraphicsView.scene(self)
         pixmap_item = getattr(self, "pixmap_item", None)
 
         if not escena:
+            return
+        # Skip fitInView when the widget is hidden — viewport size is 0 and would corrupt the
+        # transform. showEvent already re-triggers reencuadrar_plano when the tab becomes visible.
+        vp = self.viewport()
+        if not self.isVisible() or (vp and vp.width() <= 1):
+            return
+        # Skip fitInView during active calibration — avoids shifting the view while the user draws.
+        if getattr(self, "modo_calibrar", False):
             return
         if self._zoom_manual_activo and not force:
             return
@@ -8722,7 +9855,7 @@ class VistaMapa(QGraphicsView):
         if rect.isNull() or rect.width() < 5:  # Evitar cálculos sobre escenas vacías
             return
 
-        margen = 20  # Margen estético neón
+        margen = 8  # Margen mínimo para maximizar calidad visible
 
         # Bloqueamos actualizaciones para evitar parpadeo
         self.setUpdatesEnabled(False)
@@ -8732,6 +9865,7 @@ class VistaMapa(QGraphicsView):
 
         # 2. Ajustar la escena al rectángulo del plano exactamente
         escena.setSceneRect(rect)
+        self.setSceneRect(rect)  # también en el visor para coherencia
 
         # 3. EL TRUCO: fitInView ya centra la imagen si se usa con KeepAspectRatio
         self.fitInView(
@@ -8750,15 +9884,26 @@ class VistaMapa(QGraphicsView):
         if self.viewport():
             self.viewport().update()
 
+    def _aplicar_mascara_viewport(self, radius=16):
+        vp = self.viewport()
+        if vp and vp.width() > 0 and vp.height() > 0:
+            from PyQt6.QtCore import QRectF
+            from PyQt6.QtGui import QPainterPath, QRegion
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(vp.rect()), radius, radius)
+            region = QRegion(path.toFillPolygon().toPolygon())
+            vp.setMask(region)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         QTimer.singleShot(0, lambda: self.reencuadrar_plano(force=False))
         QTimer.singleShot(80, lambda: self.reencuadrar_plano(force=False))
+        QTimer.singleShot(100, self._aplicar_mascara_viewport)
 
     def showEvent(self, event):
         super().showEvent(event)
-        QTimer.singleShot(0, lambda: self.reencuadrar_plano(force=False))
-        QTimer.singleShot(120, lambda: self.reencuadrar_plano(force=False))
+        QTimer.singleShot(0, lambda: self.reencuadrar_plano(force=True))
+        QTimer.singleShot(120, lambda: self.reencuadrar_plano(force=True))
 
     def enterEvent(self, event):
         if (
@@ -8789,6 +9934,7 @@ class VistaMapa(QGraphicsView):
         2. Discriminación de Escáner de Código de Barras vs Humano.
         """
         from datetime import datetime
+
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QLineEdit
 
@@ -8896,7 +10042,7 @@ class VistaMapa(QGraphicsView):
         # 3. PROPAGACIÓN ESTÁNDAR
         super().mouseReleaseEvent(event)
 
-        escena = self.scene() if callable(self.scene) else self.scene
+        escena = QGraphicsView.scene(self)
         if not escena:
             return
 
@@ -8944,9 +10090,10 @@ class VistaMapa(QGraphicsView):
         Distancia > 10m: Silencio total.
         """
         import math
-        import winsound
         import time
+        import winsound
         from threading import Thread
+
         from PyQt6.QtGui import QColor
 
         # 1. Cálculo de distancia real basado en escala horizontal
@@ -9005,12 +10152,12 @@ class VistaMapa(QGraphicsView):
         Crea una onda expansiva de sonar en la posición indicada.
         Mantiene duración de 1.2s y expansión hasta 120.0 unidades.
         """
-        from PyQt6.QtCore import QPropertyAnimation, QAbstractAnimation
+        from PyQt6.QtCore import QAbstractAnimation
 
         # 1. Instanciación del objeto visual (AroRadar)
         try:
             # Asumimos que la clase AroRadar está disponible en el espacio de nombres
-            escena = self.scene() if callable(self.scene) else self.scene
+            escena = QGraphicsView.scene(self)
             aro = AroRadar(pos, color)
             escena.addItem(aro)
         except (NameError, AttributeError) as e:
@@ -9066,7 +10213,7 @@ class VistaMapa(QGraphicsView):
                 return
 
         import math
-        import numpy as np
+
 
         # 2. CÁLCULO DE MAGNITUDES Y ESCALA
         celda_sz = getattr(self, "celda_size", 20)
@@ -9118,7 +10265,7 @@ class VistaMapa(QGraphicsView):
         Unifica la búsqueda de coordenadas con el trazado de polilíneas neón.
         """
         import math
-        from PyQt6.QtCore import QPointF
+
 
         # IMPORTANTE: Descomenta o ajusta esta ruta según la estructura real de tu proyecto
         try:
@@ -9145,7 +10292,7 @@ class VistaMapa(QGraphicsView):
             else:
                 # Usamos el sistema de mensajes HUD unificado en lugar de tocar el statusBar directamente
                 if hasattr(self, "mostrar_mensaje_temporal"):
-                    self.mostrar_mensaje_temporal(f"❌ NO ENCONTRADO: {termino}")
+                    self.mostrar_mensaje_temporal("❌ " + tr("ubic.not_found2", default="NO ENCONTRADO: {termino}", termino=termino))
                 return
 
         # --- 2. BARRERAS DE SEGURIDAD (Validación de Navegación) ---
@@ -9159,7 +10306,7 @@ class VistaMapa(QGraphicsView):
         ):
             if hasattr(self, "mostrar_mensaje_temporal"):
                 self.mostrar_mensaje_temporal(
-                    "📍 ESCANEE UN QR PARA UBICAR SU POSICIÓN"
+                    "📍 " + tr("ubic.scan_qr_locate", default="ESCANEE UN QR PARA UBICAR SU POSICIÓN")
                 )
             return
 
@@ -9238,12 +10385,12 @@ class VistaMapa(QGraphicsView):
 
                 if hasattr(self, "mostrar_mensaje_temporal"):
                     self.mostrar_mensaje_temporal(
-                        f"🚀 RUTA ÓPTIMA: {dist_metros:.2f}m AL OBJETIVO"
+                        "🚀 " + tr("ubic.optimal_route", default="RUTA ÓPTIMA: {dist}m AL OBJETIVO", dist=f"{dist_metros:.2f}")
                     )
             else:
                 if hasattr(self, "mostrar_mensaje_temporal"):
                     self.mostrar_mensaje_temporal(
-                        "🚧 ÁREA BLOQUEADA O DESTINO INACCESIBLE"
+                        "🚧 " + tr("ubic.area_blocked", default="ÁREA BLOQUEADA O DESTINO INACCESIBLE")
                     )
 
                 # Opcional: Limpiar ruta anterior si la nueva falla
@@ -9278,7 +10425,7 @@ class VistaMapa(QGraphicsView):
                     self.lbl_resultado_nombre.setText(nombre_dest.upper())
             else:
                 if hasattr(self, "mostrar_mensaje_temporal"):
-                    self.mostrar_mensaje_temporal(f"❌ NO ENCONTRADO: {termino}")
+                    self.mostrar_mensaje_temporal("❌ " + tr("ubic.not_found2", default="NO ENCONTRADO: {termino}", termino=termino))
                 return
 
         visor = getattr(self, "visor_mapa", None)
@@ -9306,7 +10453,7 @@ class VistaMapa(QGraphicsView):
         if not visor or getattr(visor, "pos_operario", None) is None:
             if hasattr(self, "mostrar_mensaje_temporal"):
                 self.mostrar_mensaje_temporal(
-                    "📍 ESCANEE UN QR PARA UBICAR SU POSICIÓN"
+                    "📍 " + tr("ubic.scan_qr_locate", default="ESCANEE UN QR PARA UBICAR SU POSICIÓN")
                 )
             return
         if not coord_dest:
@@ -9319,7 +10466,7 @@ class VistaMapa(QGraphicsView):
         matriz = getattr(visor, "matriz_obstaculos", None)
         if matriz is None:
             if hasattr(self, "mostrar_mensaje_temporal"):
-                self.mostrar_mensaje_temporal("🚧 MAPA DE NAVEGACIÓN NO DISPONIBLE")
+                self.mostrar_mensaje_temporal("🚧 " + tr("ubic.nav_map_unavailable", default="MAPA DE NAVEGACIÓN NO DISPONIBLE"))
             self._actualizar_piloto_rastreo(False)
             return
 
@@ -9330,7 +10477,7 @@ class VistaMapa(QGraphicsView):
             return
 
         celda = max(1, int(getattr(visor, "celda_size", 20)))
-        inicio = getattr(visor, "pos_operario")
+        inicio = visor.pos_operario
         start_y = max(0, min(int(inicio.y() // celda), filas - 1))
         start_x = max(0, min(int(inicio.x() // celda), cols - 1))
         end_y = max(0, min(int(coord_dest.y() // celda), filas - 1))
@@ -9348,7 +10495,7 @@ class VistaMapa(QGraphicsView):
             if hasattr(visor, "limpiar_ruta"):
                 visor.limpiar_ruta()
             if hasattr(self, "mostrar_mensaje_temporal"):
-                self.mostrar_mensaje_temporal("🚧 ÁREA BLOQUEADA O DESTINO INACCESIBLE")
+                self.mostrar_mensaje_temporal("🚧 " + tr("ubic.area_blocked", default="ÁREA BLOQUEADA O DESTINO INACCESIBLE"))
             self._actualizar_piloto_rastreo(False)
             return
 
@@ -9369,7 +10516,7 @@ class VistaMapa(QGraphicsView):
         self._actualizar_piloto_rastreo(True, destino_txt)
         if hasattr(self, "mostrar_mensaje_temporal"):
             self.mostrar_mensaje_temporal(
-                f"🚀 RUTA ÓPTIMA: {dist_metros:.2f}m AL OBJETIVO"
+                "🚀 " + tr("ubic.optimal_route", default="RUTA ÓPTIMA: {dist}m AL OBJETIVO", dist=f"{dist_metros:.2f}")
             )
 
     def mostrar_mensaje_status(self, mensaje, color):
@@ -9442,9 +10589,8 @@ class VistaMapa(QGraphicsView):
         Renderiza la trayectoria óptima usando un único PathItem para máximo rendimiento.
         Aplica un efecto de resplandor (Glow) y marca el destino final.
         """
-        from PyQt6.QtGui import QPainterPath, QPen, QColor
         from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QGraphicsPathItem
+        from PyQt6.QtGui import QColor, QPainterPath, QPen
 
         # 1. LIMPIEZA PREVIA (Evita superposición de rutas viejas)
         self.limpiar_ruta()
@@ -9568,8 +10714,9 @@ class VistaMapa(QGraphicsView):
         - Seguimiento de Cámara (Auto-Pan)
         - HUD de Proximidad y Animación de Destino
         """
-        from PyQt6.QtCore import QPointF, QDateTime
         import math
+
+        from PyQt6.QtCore import QPointF
 
         # 0. VALIDACIÓN DE INTEGRIDAD
         if not hasattr(self, "pos_objetivo_operario") or not self.icono_operario:
@@ -9692,15 +10839,15 @@ class VistaMapa(QGraphicsView):
         Exporta la infraestructura a JSON y genera la matriz binaria de colisión.
         AJUSTE QUIRÚRGICO: Verificación estricta de escena y serialización NumPy.
         """
-        import json
-        import numpy as np
         from datetime import datetime
+
+        import numpy as np
 
         # 1. EXTRACCIÓN SEGURA DE MUROS
         lista_muros = []
         # Recuperamos los muros directamente del historial del visor
         muros_items = getattr(self, "historial_muros", [])
-        escena = self.scene() if callable(self.scene) else self.scene
+        escena = QGraphicsView.scene(self)
 
         for m in muros_items:
             try:
@@ -9752,9 +10899,8 @@ class VistaMapa(QGraphicsView):
         Reconstruye el entorno físico (muros y nodos) desde la persistencia.
         AJUSTE QUIRÚRGICO: Limpieza protegida y reconstrucción del trazado A*.
         """
-        import json
         from PyQt6.QtCore import QPointF, Qt
-        from PyQt6.QtGui import QPen, QColor
+        from PyQt6.QtGui import QColor, QPen
 
         if not json_datos:
             return
@@ -9764,7 +10910,7 @@ class VistaMapa(QGraphicsView):
             datos = (
                 json.loads(json_datos) if isinstance(json_datos, str) else json_datos
             )
-            escena = self.scene() if callable(self.scene) else self.scene
+            escena = QGraphicsView.scene(self)
 
             # --- 1. LIMPIEZA RADICAL PROTEGIDA ---
             if escena:
@@ -9850,9 +10996,8 @@ class VistaMapa(QGraphicsView):
         Diálogo de confirmación final.
         Blindado con inyección de fuente directa (QFont) para saltar errores de CSS.
         """
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QFrame
         from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QFont  # <--- Importación clave para la fuente
+        from PyQt6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
 
         diag = QDialog(self)
         diag.setFixedSize(450, 280)
@@ -9863,54 +11008,48 @@ class VistaMapa(QGraphicsView):
         main_lyt.setContentsMargins(0, 0, 0, 0)
 
         container = QFrame()
-        # CSS purgado de fuentes. Solo dejamos colores y formas.
         container.setStyleSheet(
-            """
-            QFrame { 
-                background-color: #121212; 
-                border: 2px solid #00FFFF; 
-                border-radius: 15px; 
-            }
-            QLabel { 
-                color: #E6EDF3; 
-                padding: 15px;
-            }
-            QPushButton { 
-                background-color: #1E1E1E; 
-                color: #00FFFF; 
-                border: 1px solid #00FFFF;
-                border-radius: 8px; 
-                padding: 10px; 
-                margin: 2px 10px;
-            }
-            QPushButton:hover { 
-                background-color: #00FFFF; 
-                color: #121212; 
-            }
-        """
+            "QFrame { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 18px; }"
+            " QLabel { color: #E6EDF3; border: none; background: transparent; }"
         )
 
         lyt = QVBoxLayout(container)
+        lyt.setContentsMargins(28, 24, 28, 24)
+        lyt.setSpacing(14)
 
-        # --- FORZADO MANUAL DE FUENTE ---
-        # ExtraBold (800) forzado directamente en memoria
-        fuente_titulo = QFont("Segoe UI", 13, QFont.Weight.Bold)
-        fuente_botones = QFont("Segoe UI", 11, QFont.Weight.Bold)
-
-        lbl_titulo = QLabel("¿CONFIRMAR UBICACIÓN DEL SATÉLITE?")
+        lbl_titulo = QLabel("📡  " + tr("ubic.confirm_sat_q", default="¿CONFIRMAR UBICACIÓN DEL SATÉLITE?"))
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_titulo.setWordWrap(True)
-        lbl_titulo.setFont(fuente_titulo)  # <--- Aplicamos fuente al título
+        lbl_titulo.setStyleSheet(
+            "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; font-size: 15px;"
+        )
         lyt.addWidget(lbl_titulo)
+        lyt.addStretch()
 
-        # Botones
-        btn_confirmar = QPushButton("CONFIRMAR Y FINALIZAR")
-        btn_seguir = QPushButton("SEGUIR INSTALANDO")
-        btn_cancelar = QPushButton("CANCELAR OPERACIÓN")
+        btn_confirmar = QPushButton(tr("ubic.confirm_finish", default="CONFIRMAR Y FINALIZAR"))
+        btn_seguir = QPushButton(tr("ubic.keep_installing", default="SEGUIR INSTALANDO"))
+        btn_cancelar = QPushButton(tr("ubic.cancel_op", default="CANCELAR OPERACIÓN"))
 
-        # Configuración de interacción y forzado de fuente
+        btn_confirmar.setStyleSheet(
+            "QPushButton { background-color: #1ED760; color: #0D1117;"
+            " border: 2px solid #1ED760; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; padding: 10px 14px; }"
+            " QPushButton:hover { background-color: transparent; color: #1ED760; border: 2px solid #1ED760; }"
+        )
+        btn_seguir.setStyleSheet(
+            "QPushButton { background-color: transparent; color: #00FFC6;"
+            " border: 2px solid #00FFC6; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; padding: 10px 14px; }"
+            " QPushButton:hover { background-color: #00FFC6; color: #0D1117; }"
+        )
+        btn_cancelar.setStyleSheet(
+            "QPushButton { background-color: #21262D; color: #8B949E;"
+            " border: 1px solid #30363D; border-radius: 10px;"
+            " font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; padding: 10px 14px; }"
+            " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }"
+        )
+
         for btn in [btn_confirmar, btn_seguir, btn_cancelar]:
-            btn.setFont(fuente_botones)  # <--- Aplicamos fuente a cada botón
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             lyt.addWidget(btn)
 
@@ -9974,12 +11113,12 @@ class VistaMapa(QGraphicsView):
         pintado de muros y ubicación de activos.
         Estilo Segoe UI Bold (900/800) y blindaje de cursor Crosshair.
         """
-        from PyQt6.QtCore import Qt, QLineF
-        from PyQt6.QtGui import QColor, QPen, QBrush, QFont
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QFrame
+        from PyQt6.QtCore import QLineF, Qt
+        from PyQt6.QtGui import QBrush, QColor, QFont, QPen
+        from PyQt6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
 
         # 1. ACCESO SEGURO A LA ESCENA Y VENTANA MAIN
-        escena = self.scene() if callable(self.scene) else self.scene
+        escena = QGraphicsView.scene(self)
         if not escena:
             return
 
@@ -10055,7 +11194,7 @@ class VistaMapa(QGraphicsView):
             txt.setAlignment(Qt.AlignmentFlag.AlignCenter)
             txt.setWordWrap(True)
 
-            btn = QPushButton("ENTENDIDO, CONTINUAR")
+            btn = QPushButton(tr("ubic.understood_continue", default="ENTENDIDO, CONTINUAR"))
             btn.setFont(f_btn)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(diag.accept)
@@ -10318,9 +11457,11 @@ class VistaMapa(QGraphicsView):
         Despliega un pin interactivo con HUD de datos.
         Mantiene el diseño intacto y asegura el posicionamiento absoluto sobre el nuevo plano.
         """
-        from PyQt6.QtWidgets import QLabel, QGraphicsItem
-        from PyQt6.QtCore import Qt
         import re
+
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
+        from PyQt6.QtWidgets import QLabel
 
         # --- 1. TRATAMIENTO DE TEXTO E ICONOGRAFÍA ---
         # Limpia coordenadas antiguas que pudieran venir pegadas en el nombre
@@ -10361,12 +11502,12 @@ class VistaMapa(QGraphicsView):
 
         # --- 3. CONFIGURACIÓN DEL WIDGET DEL PIN ---
         label_pin = PinClickeable(icono, self)
-        label_pin.setFixedSize(24, 24)
-        label_pin.setStyleSheet("background: transparent; font-size: 16px;")
+        label_pin.setFixedSize(10, 10)
+        label_pin.setStyleSheet("background: transparent; font-size: 7px;")
         label_pin.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Validación de la escena activa
-        escena_obj = self.scene() if callable(self.scene) else self.scene
+        escena_obj = QGraphicsView.scene(self)
         if not escena_obj:
             print("⚠️ Error: No hay escena activa para colocar el marcador.")
             return None
@@ -10381,43 +11522,63 @@ class VistaMapa(QGraphicsView):
         # False = El pin hará zoom junto con el plano. True = El pin mantendrá su tamaño en pantalla.
         proxy.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, False)
 
-        # Centrado exacto: restamos la mitad del tamaño (24/2 = 12) a las coordenadas X e Y
-        proxy.setPos(pos.x() - 12, pos.y() - 12)
+        # Centrado exacto: restamos la mitad del tamaño (10/2 = 5) a las coordenadas X e Y
+        proxy.setPos(pos.x() - 5, pos.y() - 5)
 
         # Datos incrustados para persistencia y búsquedas futuras
         epc_final = epc if epc else f"ID_{int(pos.x())}_{int(pos.y())}"
         proxy.setData(0, epc_final)
         proxy.setData(1, tipo_up)
+        proxy.setData(2, nombre_limpio)   # needed by mostrar_menu_borrado
         proxy.setData(10, "ICONO_INTERACTIVO")
 
-        # --- 5. CREACIÓN DEL HUD (ETIQUETA DE COORDENADAS) ---
+        # --- 5. CREACIÓN DEL HUD (nativo QGraphicsItem — esquinas redondeadas reales) ---
+        # QLabel/QGraphicsProxyWidget no puede clipar el fill al border-radius; un
+        # QGraphicsItem con QPainterPath.addRoundedRect sí lo hace correctamente.
         factor = getattr(self, "ratio_px_m_h", 1.0)
         if factor <= 0:
-            factor = 1.0  # Seguro contra divisiones por cero
+            factor = 1.0
 
         str_x, str_y = f"{pos.x()/factor:.2f}", f"{pos.y()/factor:.2f}"
+        hud_texto = f"{nombre_limpio.upper()}\n({str_x}m, {str_y}m)"
 
-        label_info = QLabel(f"{nombre_limpio.upper()}\n({str_x}m, {str_y}m)")
-        # Se mantiene tu CSS estilo "Terminal/Neón"
-        label_info.setStyleSheet(
-            """
-            QLabel {
-                background-color: rgba(13, 17, 23, 200); 
-                color: #00FF00; border: 1px solid #00FF00;
-                font-family: 'Segoe UI'; font-weight: 900; font-size: 9px;
-                padding: 2px 4px; border-radius: 4px;
-            }
-        """
-        )
+        class HUDItem(QGraphicsItem):
+            def __init__(self_, texto):
+                super().__init__()
+                self_._texto = texto
+                self_._font = QFont("Segoe UI", 5, QFont.Weight.Bold)
+                fm = QFontMetrics(self_._font)
+                lineas = texto.split("\n")
+                w = max(fm.horizontalAdvance(l) for l in lineas) + 6
+                h = fm.height() * len(lineas) + 4
+                self_._rect = QRectF(0, 0, w, h)
 
-        proxy_txt = escena_obj.addWidget(label_info)
-        proxy_txt.setParentItem(proxy)  # Se ancla al pin principal
-        proxy_txt.setPos(20, -10)  # Desplazamiento visual para que no tape el icono
-        proxy_txt.setZValue(10001)  # Ligeramente por encima del pin
-        proxy_txt.setVisible(False)  # Oculto por defecto
+            def boundingRect(self_):
+                return self_._rect
 
-        # Vinculamos el texto al pin para que el clic lo pueda mostrar/ocultar
-        label_pin.etiqueta_vinculada = proxy_txt
+            def paint(self_, painter, option, widget=None):
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                path = QPainterPath()
+                path.addRoundedRect(self_._rect, 4, 4)
+                painter.fillPath(path, QColor(13, 17, 23, 245))
+                painter.setPen(QPen(QColor("#00FF00"), 1))
+                painter.drawPath(path)
+                painter.setFont(self_._font)
+                painter.setPen(QColor("#00FF00"))
+                painter.drawText(
+                    self_._rect.adjusted(3, 2, -3, -2),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    self_._texto,
+                )
+
+        hud_item = HUDItem(hud_texto)
+        hud_item.setParentItem(proxy)
+        hud_item.setPos(12, -6)
+        hud_item.setZValue(10001)
+        hud_item.setVisible(False)
+
+        # Vinculamos el HUD al pin para que el clic lo muestre/oculte
+        label_pin.etiqueta_vinculada = hud_item
 
         # --- 6. REGISTRO EN MEMORIA ---
         if not hasattr(self, "puntos_interactivos"):
@@ -10434,12 +11595,11 @@ class VistaMapa(QGraphicsView):
         Dibuja la marca visual de Punto de Origen GPS (Areola Morada).
         Finaliza el flujo de calibración y activa la guía de muros.
         """
-        from PyQt6.QtGui import QColor, QPen, QBrush, QFont
-        from PyQt6.QtCore import Qt, QPointF
-        from PyQt6.QtWidgets import QGraphicsItem
         from PyQt6 import sip
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QBrush, QColor, QFont, QPen
 
-        escena = self.scene() if callable(self.scene) else self.scene
+        escena = QGraphicsView.scene(self)
         if not escena:
             return
 
@@ -10507,101 +11667,29 @@ class VistaMapa(QGraphicsView):
         if not win:
             return
 
-        # Disparar guía de muros
-        if mostrar_guia and hasattr(win, "mostrar_guia_muros"):
-            win.mostrar_guia_muros()
-
-        # Mutación del botón de calibración
-        btn = getattr(win, "btn_escala", getattr(win, "btn_calibrar_escala", None))
-        if btn:
-            btn.setText("RECALIBRAR")
-            btn.setStyleSheet(
-                """
-                QPushButton { 
-                    background-color: #E81123; color: white; border-radius: 6px; 
-                    font-family: 'Segoe UI'; font-weight: 900; padding: 10px; border: 1px solid #FFB3B3;
-                }
-                QPushButton:hover { background-color: white; color: #E81123; }
-            """
-            )
-
-            try:
-                btn.clicked.disconnect()
-            except:
-                pass
-
-            # Función de Reset interna corregida
-            def ejecutar_reset_recalibrar():
-                from PyQt6.QtWidgets import QDialog, QMessageBox
-                from src.db.conexion import obtener_conexion
-
-                confirm = QMessageBox(win)
-                confirm.setIcon(QMessageBox.Icon.Warning)
-                confirm.setWindowTitle("RESET SISTEMA")
-                confirm.setText("¿Eliminar toda la calibración de esta planta?")
-                confirm.setInformativeText("Se borrarán escala, origen y muros.")
-                confirm.setStandardButtons(
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-
-                if confirm.exec() == QMessageBox.StandardButton.Yes:
-                    try:
-                        p_idx = getattr(win, "planta_actual", 0)
-                        with obtener_conexion() as conn:
-                            with conn.cursor() as cur:
-                                # CORRECCIÓN: Filtro por planta_index, no ID fijo
-                                cur.execute(
-                                    """
-                                    UPDATE configuracion_mapa 
-                                    SET escala_px_metro=0, ancla_x=0, ancla_y=0, matriz_binaria=NULL, muros_vectoriales='[]'
-                                    WHERE planta_index=%s
-                                """,
-                                    (p_idx,),
-                                )
-                                conn.commit()
-
-                        # Reset de flags
-                        win.paso_calibracion = 1
-                        self.ratio_px_m_h = self.ratio_px_m_v = 1.0
-                        self.punto_ancla = None
-
-                        # Limpieza física de la escena por DATA
-                        for item in escena.items():
-                            if not sip.isdeleted(item) and str(item.data(0)) in [
-                                "MURO_TECNICO",
-                                "PIN_ORIGEN",
-                            ]:
-                                escena.removeItem(item)
-
-                        # Restaurar botón original
-                        btn.setText("CALIBRAR ESCALA")
-                        btn.setStyleSheet("")
-                        try:
-                            btn.clicked.disconnect()
-                        except:
-                            pass
-                        btn.clicked.connect(win.iniciar_calibracion_escala)
-
-                        if win.statusBar():
-                            win.statusBar().showMessage(
-                                "🔄 Calibración reseteada.", 3000
-                            )
-
-                    except Exception as e:
-                        print(f"❌ Error en reset: {e}")
-
-            btn.clicked.connect(ejecutar_reset_recalibrar)
+        # btn_escala is permanently connected to win._clic_boton_escala (stateless handler)
         if registrar_historial and hasattr(win, "guardar_escala_db"):
             try:
                 win.guardar_escala_db(
                     float(getattr(self, "ratio_px_m_h", 1.0)),
                     float(getattr(self, "ratio_px_m_v", 1.0)),
                 )
+                # Ask for floor height, then show wall-painting guide
+                if hasattr(win, "_pedir_altura_planta"):
+                    win._pedir_altura_planta()
             except Exception:
                 pass
 
+        # Guide shows AFTER height dialog (only during active manual calibration)
+        if mostrar_guia and hasattr(win, "mostrar_guia_muros"):
+            win.mostrar_guia_muros()
+
+        # Refresh button text from DB so it shows RECALIBRAR ESCALA correctly
+        if hasattr(win, "actualizar_estado_bloqueo"):
+            win.actualizar_estado_bloqueo()
+
         if win.statusBar():
-            win.statusBar().showMessage("✅ ORIGEN FIJADO", 3000)
+            win.statusBar().showMessage("✅ CALIBRACIÓN COMPLETADA", 3000)
 
     def mouseMoveEvent(self, event):
         """
@@ -10609,7 +11697,7 @@ class VistaMapa(QGraphicsView):
         Dibuja líneas elásticas en tiempo real para Calibración y Muros.
         Incluye blindaje de cursor para evitar el cambio a mano abierta.
         """
-        from PyQt6.QtCore import Qt, QLineF
+        from PyQt6.QtCore import QLineF, Qt
         from PyQt6.QtGui import QColor, QPen
 
         # --- 1. BLINDAJE DE CURSOR EN MOVIMIENTO ---
@@ -10638,7 +11726,7 @@ class VistaMapa(QGraphicsView):
         if hasattr(self, "viewport"):
             self.viewport().update()
 
-        escena = self.scene() if callable(self.scene) else self.scene
+        escena = QGraphicsView.scene(self)
         if not escena:
             return
 
@@ -10739,17 +11827,16 @@ class VistaMapa(QGraphicsView):
         CORRECCIÓN: Ventana Detalles con cuerpo sólido #0D1117 y borde turquesa (estilo imagen).
         Botones con fuente Segoe UI Bold y hover turquesa (estilo app).
         """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QFont
         from PyQt6.QtWidgets import (
-            QMenu,
             QDialog,
-            QVBoxLayout,
             QFrame,
+            QHBoxLayout,
             QLabel,
             QPushButton,
-            QHBoxLayout,
+            QVBoxLayout,
         )
-        from PyQt6.QtGui import QAction, QFont
-        from PyQt6.QtCore import Qt
 
         epc = item.data(0)
         tipo = item.data(1)
@@ -10837,7 +11924,7 @@ class VistaMapa(QGraphicsView):
             layout_interno.setSpacing(10)
 
             # Título de la ventana
-            lbl_titulo = QLabel("DETALLES DEL ACTIVO")
+            lbl_titulo = QLabel(tr("ubic.asset_details", default="DETALLES DEL ACTIVO"))
             lbl_titulo.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
             lbl_titulo.setStyleSheet(
                 "color: #00FFC6; border: none; background: transparent;"
@@ -10857,7 +11944,7 @@ class VistaMapa(QGraphicsView):
 
             # Botón Aceptar con estilo unificado
             layout_btn = QHBoxLayout()
-            btn_aceptar = QPushButton("ACEPTAR")
+            btn_aceptar = QPushButton(tr("ubic.accept_upper", default="ACEPTAR"))
             btn_aceptar.setCursor(Qt.CursorShape.PointingHandCursor)
 
             # Aplicamos el estilo de botón con hover turquesa y Segoe Bold
@@ -10903,16 +11990,16 @@ class VistaMapa(QGraphicsView):
         Elimina el ítem de la escena y lanza la petición de borrado a MariaDB.
         CORRECCIÓN: Botones con fuente Segoe UI Bold y hover turquesa (estilo app).
         """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QFont
         from PyQt6.QtWidgets import (
             QDialog,
-            QVBoxLayout,
             QFrame,
-            QLabel,
             QHBoxLayout,
+            QLabel,
             QPushButton,
+            QVBoxLayout,
         )
-        from PyQt6.QtGui import QFont
-        from PyQt6.QtCore import Qt
 
         # Importación perezosa de la conexión
         try:
@@ -10950,7 +12037,7 @@ class VistaMapa(QGraphicsView):
         fuente_segoe_bold = QFont("Segoe UI", 10, QFont.Weight.Bold)
         fuente_titulo = QFont("Segoe UI", 11, QFont.Weight.Bold)
 
-        lbl_titulo = QLabel("CONFIRMAR ELIMINACIÓN")
+        lbl_titulo = QLabel(tr("ubic.confirm_delete", default="CONFIRMAR ELIMINACIÓN"))
         lbl_titulo.setFont(fuente_titulo)
         lbl_titulo.setStyleSheet(
             "color: #00FFC6; border: none; background: transparent;"
@@ -10972,8 +12059,8 @@ class VistaMapa(QGraphicsView):
         layout_btns = QHBoxLayout()
         layout_btns.setSpacing(15)
 
-        btn_si = QPushButton("SÍ")
-        btn_no = QPushButton("NO")
+        btn_si = QPushButton(tr("common.yes", default="SÍ"))
+        btn_no = QPushButton(tr("common.no", default="NO"))
 
         estilo_base_boton = """
             QPushButton {
@@ -11023,7 +12110,7 @@ class VistaMapa(QGraphicsView):
                     ]
 
                 # C. Limpieza de Escena (Detección de método o propiedad)
-                escena = self.scene() if callable(self.scene) else self.scene
+                escena = QGraphicsView.scene(self)
                 if escena:
                     escena.removeItem(item)
 
@@ -11072,8 +12159,8 @@ class VistaMapa(QGraphicsView):
         1. Ghost Red: Matriz de navegación A* optimizada por vista.
         2. Cruceta Técnica: Guía dinámica con colores de estado.
         """
-        from PyQt6.QtGui import QColor, QBrush, QPen, QCursor
-        from PyQt6.QtCore import Qt, QPointF
+        from PyQt6.QtCore import QPointF, Qt
+        from PyQt6.QtGui import QBrush, QColor, QPen
 
         # --- 1. GHOST RED (AURA DE COLISIÓN) ---
         if (
@@ -11179,9 +12266,8 @@ class VistaMapa(QGraphicsView):
         Combina la creación del icono con el control de desplazamiento (Lerp o Salto),
         incluyendo blindaje de cámara, protección de límites y ZValue intocable.
         """
-        from PyQt6.QtGui import QColor, QPen, QBrush, QRadialGradient
-        from PyQt6.QtCore import QPointF, Qt, QTimer
-        from PyQt6.QtWidgets import QGraphicsItem
+        from PyQt6.QtCore import QPointF, QTimer
+        from PyQt6.QtGui import QBrush, QColor, QPen, QRadialGradient
 
         # --- 1. CONVERSIÓN DE COORDENADAS (Grid a Píxeles) ---
         size = getattr(self, "celda_size", 20)
@@ -11201,7 +12287,7 @@ class VistaMapa(QGraphicsView):
         nueva_pos = QPointF(final_x, final_y)
 
         # --- 2. ACCESO SEGURO A LA ESCENA ---
-        escena = self.scene() if callable(self.scene) else self.scene
+        escena = QGraphicsView.scene(self)
         if not escena:
             print("⚠️ ERROR: No hay escena para marcar al operario.")
             return
@@ -11286,6 +12372,10 @@ class VistaMapa(QGraphicsView):
         if not self.timer_animacion_operario.isActive():
             self.timer_animacion_operario.start()
 
+
+# ============================================================
+# BLOQUE MOTOR DE CÁLCULO DE RUTAS A*
+# ============================================================
 
 class PathFinder:
     """

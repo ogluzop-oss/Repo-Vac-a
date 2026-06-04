@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "सिस्टम एक्सेस",
+    "user_label": "कर्मचारी का नाम",
+    "user_placeholder": "अपना नाम दर्ज करें",
+    "password_label": "पासवर्ड",
+    "access_button": "सिस्टम में प्रवेश करें",
+    "language_tooltip": "भाषा",
+    "error_empty": "अपना नाम और पासवर्ड दर्ज करें"
+  },
+  "common": {
+    "accept": "स्वीकार करें",
+    "cancel": "रद्द करें",
+    "save": "सहेजें",
+    "delete": "हटाएँ",
+    "yes": "हाँ",
+    "no": "नहीं",
+    "back": "वापस",
+    "close": "बंद करें"
+  }
+}

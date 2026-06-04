@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "システムアクセス",
+    "user_label": "従業員名",
+    "user_placeholder": "名前を入力してください",
+    "password_label": "パスワード",
+    "access_button": "システムにアクセス",
+    "language_tooltip": "言語",
+    "error_empty": "名前とパスワードを入力してください"
+  },
+  "common": {
+    "accept": "確定",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "delete": "削除",
+    "yes": "はい",
+    "no": "いいえ",
+    "back": "戻る",
+    "close": "閉じる"
+  }
+}

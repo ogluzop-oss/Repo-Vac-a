@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "Dostęp do Systemu",
+    "user_label": "IMIĘ PRACOWNIKA",
+    "user_placeholder": "Wprowadź swoje imię",
+    "password_label": "HASŁO",
+    "access_button": "WEJDŹ DO SYSTEMU",
+    "language_tooltip": "Język",
+    "error_empty": "Wprowadź imię i hasło"
+  },
+  "common": {
+    "accept": "Akceptuj",
+    "cancel": "Anuluj",
+    "save": "Zapisz",
+    "delete": "Usuń",
+    "yes": "Tak",
+    "no": "Nie",
+    "back": "Wstecz",
+    "close": "Zamknij"
+  }
+}

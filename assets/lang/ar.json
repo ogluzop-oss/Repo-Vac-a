@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "الدخول إلى النظام",
+    "user_label": "اسم الموظف",
+    "user_placeholder": "أدخل اسمك",
+    "password_label": "كلمة المرور",
+    "access_button": "الدخول إلى النظام",
+    "language_tooltip": "اللغة",
+    "error_empty": "أدخل اسمك وكلمة المرور"
+  },
+  "common": {
+    "accept": "موافق",
+    "cancel": "إلغاء",
+    "save": "حفظ",
+    "delete": "حذف",
+    "yes": "نعم",
+    "no": "لا",
+    "back": "رجوع",
+    "close": "إغلاق"
+  }
+}

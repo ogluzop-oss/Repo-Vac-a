@@ -1,0 +1,87 @@
+name: CI
+
+# CI ligero (estructura preparada). De momento solo comprobaciones rápidas que
+# NO requieren instalar las dependencias pesadas (PyQt6, OpenCV, Prophet…).
+# Las tareas pesadas (smoke completo en Windows, build del .exe) quedan abajo
+# como plantillas comentadas para activarlas cuando el núcleo esté terminado.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  # ── Lint con Ruff (no bloqueante por ahora) ────────────────
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar Ruff
+        run: pip install ruff==0.8.4
+      - name: Ruff check
+        run: ruff check . --output-format=github
+        continue-on-error: true   # informa sin bloquear; quitar cuando el código esté limpio
+
+  # ── Validación de catálogos i18n (sin dependencias pesadas) ─
+  i18n:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validar JSON de idiomas y paridad es/en
+        run: |
+          python - <<'PY'
+          import json, glob, sys
+          def flat(d,p=""):
+              o={}
+              for k,v in d.items():
+                  o.update(flat(v,p+k+".")) if isinstance(v,dict) else o.update({p+k:v})
+              return o
+          errores=[]
+          for f in glob.glob("assets/lang/*.json"):
+              try: json.load(open(f,encoding="utf-8"))
+              except Exception as e: errores.append(f"{f}: {e}")
+          es=flat(json.load(open("assets/lang/es.json",encoding="utf-8")))
+          en=flat(json.load(open("assets/lang/en.json",encoding="utf-8")))
+          faltan=sorted(set(es)-set(en))
+          if faltan: errores.append(f"en.json no cubre {len(faltan)} claves de es.json: {faltan[:10]}")
+          if errores:
+              print("\n".join(errores)); sys.exit(1)
+          print("i18n OK: JSON válidos y en.json cubre es.json")
+          PY
+
+  # ============================================================
+  # PLANTILLAS PARA ACTIVAR MÁS ADELANTE (no se ejecutan ahora)
+  # ============================================================
+  #
+  # smoke:
+  #   runs-on: windows-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-python@v5
+  #       with: { python-version: "3.13" }
+  #     - run: pip install -r requirements-dev.txt
+  #     - name: Smoke test (offscreen)
+  #       env: { QT_QPA_PLATFORM: offscreen }
+  #       run: python tests/smoke_test.py
+  #
+  # build-exe:
+  #   needs: smoke
+  #   runs-on: windows-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-python@v5
+  #       with: { python-version: "3.13" }
+  #     - run: pip install -r requirements-dev.txt
+  #     - run: pyinstaller SmartManagerAI.spec --noconfirm
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: SmartManagerAI-windows
+  #         path: dist/SmartManagerAI/

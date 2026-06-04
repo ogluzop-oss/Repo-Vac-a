@@ -1,9 +1,8 @@
 import json
+import logging
 import os
 import re
-import logging
 from datetime import datetime
-from typing import List, Optional
 
 from src.db.conexion import (
     formatear_nombre_centro,
@@ -31,7 +30,7 @@ def _row_to_dict(cursor, row):
     if isinstance(row, dict):
         return row
     columnas = [desc[0] for desc in (cursor.description or [])]
-    return dict(zip(columnas, row))
+    return dict(zip(columnas, row, strict=False))
 
 
 def _rows_to_dicts(cursor, rows):
@@ -40,7 +39,7 @@ def _rows_to_dicts(cursor, rows):
     if isinstance(rows[0], dict):
         return list(rows)
     columnas = [desc[0] for desc in (cursor.description or [])]
-    return [dict(zip(columnas, row)) for row in rows]
+    return [dict(zip(columnas, row, strict=False)) for row in rows]
 
 
 def _normalizar_codigo_logistico(valor: str) -> str:
@@ -63,14 +62,24 @@ def _construir_id_pale(id_visual: str, secuencial: int, origen: str) -> str:
 # BLOQUE ESQUEMA DE BASE DE DATOS LOGÍSTICA
 # ============================================================
 
+_logistica_ready = False
+
+
 def ensure_schema_logistica():
+    # No-op tras la primera verificación (evita una consulta tabla_existe en
+    # CADA función de logística, que se llamaban en cascada al cargar pantallas).
+    global _logistica_ready
+    if _logistica_ready:
+        return
+
     if tabla_existe("documentos_logisticos"):
+        _logistica_ready = True
         return
 
     if not os.path.exists(SCHEMA_LOGISTICA_PATH):
         raise FileNotFoundError(f"No existe el esquema SQL: {SCHEMA_LOGISTICA_PATH}")
 
-    with open(SCHEMA_LOGISTICA_PATH, "r", encoding="utf-8") as f:
+    with open(SCHEMA_LOGISTICA_PATH, encoding="utf-8") as f:
         contenido = f.read()
 
     with obtener_conexion() as conn:
@@ -80,6 +89,7 @@ def ensure_schema_logistica():
                 if sql:
                     cur.execute(sql)
         conn.commit()
+    _logistica_ready = True
 
 
 # ============================================================
@@ -133,7 +143,7 @@ def guardar_traspaso_logistico(
     agencia: str,
     observaciones: str,
     pales: dict,
-    id_documento: Optional[str] = None,
+    id_documento: str | None = None,
     fecha_envio=None,
 ):
     ensure_schema_logistica()
@@ -287,10 +297,10 @@ def obtener_historial_traspasos(estado_filtro="PENDIENTE", texto_filtro=""):
 
 
 def obtener_trazabilidad_logistica(
-    origen: Optional[str] = None,
-    destino: Optional[str] = None,
+    origen: str | None = None,
+    destino: str | None = None,
     busqueda: str = "",
-) -> List[dict]:
+) -> list[dict]:
     ensure_schema_logistica()
 
     try:
@@ -394,7 +404,7 @@ def obtener_documento_logistico_completo(id_documento: str):
 
 def obtener_pales_por_documento_logistico(
     id_documento: str, busqueda: str = ""
-) -> List[dict]:
+) -> list[dict]:
     ensure_schema_logistica()
 
     try:
@@ -422,7 +432,7 @@ def obtener_pales_por_documento_logistico(
         return []
 
 
-def obtener_items_por_pale_logistico(id_pale: str, busqueda: str = "") -> List[dict]:
+def obtener_items_por_pale_logistico(id_pale: str, busqueda: str = "") -> list[dict]:
     ensure_schema_logistica()
 
     try:

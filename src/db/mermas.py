@@ -1,18 +1,23 @@
-from src.db.conexion import obtener_conexion
-from datetime import datetime
 import logging
+from datetime import datetime
 
+from src.db.conexion import obtener_conexion
 
 # ============================================================
 # BLOQUE CONSULTA DE MERMAS
 # ============================================================
 
-def obtener_mermas():
-    """Recupera el histórico completo de mermas."""
+
+def obtener_mermas(mes=None):
+    """Recupera mermas, opcionalmente filtradas por mes (YYYY-MM)."""
     try:
         with obtener_conexion() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, codigo, cantidad, motivo, fecha FROM mermas")
+            query = "SELECT id, codigo, cantidad, motivo, fecha FROM mermas"
+            if mes:
+                query += f" WHERE fecha LIKE '{mes}%'"
+            query += " ORDER BY fecha DESC"
+            cursor.execute(query)
             return cursor.fetchall()
     except Exception as e:
         logging.error(f"Error al obtener mermas: {e}")
@@ -23,19 +28,16 @@ def obtener_mermas():
 # BLOQUE REGISTRO Y MODIFICACIÓN DE MERMAS
 # ============================================================
 
+
 def registrar_merma(codigo, cantidad, motivo):
-    """Registra una merma y descuenta el stock del artículo."""
+    """Registra una merma en la base de datos."""
     try:
         with obtener_conexion() as conn:
             cursor = conn.cursor()
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute(
-                "INSERT INTO mermas (codigo, cantidad, motivo, fecha) VALUES (?,?,?,?)",
+                "INSERT INTO mermas (codigo, cantidad, motivo, fecha) VALUES (%s,%s,%s,%s)",
                 (codigo, cantidad, motivo, fecha),
-            )
-            cursor.execute(
-                "UPDATE articulos SET cantidad = cantidad - ? WHERE codigo=?",
-                (cantidad, codigo),
             )
             conn.commit()
             return True
@@ -45,26 +47,12 @@ def registrar_merma(codigo, cantidad, motivo):
 
 
 def modificar_merma(id_merma, nueva_cantidad):
-    """Ajusta una merma existente y recalcula el stock del artículo."""
+    """Ajusta la cantidad de una merma existente."""
     try:
         with obtener_conexion() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT codigo, cantidad FROM mermas WHERE id=?", (id_merma,)
-            )
-            resultado = cursor.fetchone()
-            if not resultado:
-                return False
-
-            codigo, cantidad_antigua = resultado
-            diff = nueva_cantidad - cantidad_antigua
-
-            cursor.execute(
-                "UPDATE mermas SET cantidad=? WHERE id=?", (nueva_cantidad, id_merma)
-            )
-            cursor.execute(
-                "UPDATE articulos SET cantidad = cantidad - ? WHERE codigo=?",
-                (diff, codigo),
+                "UPDATE mermas SET cantidad=%s WHERE id=%s", (nueva_cantidad, id_merma)
             )
             conn.commit()
             return True
@@ -77,12 +65,13 @@ def modificar_merma(id_merma, nueva_cantidad):
 # BLOQUE ELIMINACIÓN DE MERMAS
 # ============================================================
 
+
 def eliminar_merma(id_merma):
-    """Elimina una merma del registro utilizando la conexión centralizada."""
+    """Elimina una merma del registro."""
     try:
         with obtener_conexion() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM mermas WHERE id = ?", (id_merma,))
+            cursor.execute("DELETE FROM mermas WHERE id=%s", (id_merma,))
             conn.commit()
             return True
     except Exception as e:

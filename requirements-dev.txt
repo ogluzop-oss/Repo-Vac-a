@@ -1,0 +1,5 @@
+# Dependencias de desarrollo (no necesarias para ejecutar la app)
+-r requirements.txt
+pytest==8.3.4
+ruff==0.8.4
+pyinstaller==6.11.1

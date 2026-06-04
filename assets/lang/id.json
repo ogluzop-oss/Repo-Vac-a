@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "Akses Sistem",
+    "user_label": "NAMA KARYAWAN",
+    "user_placeholder": "Masukkan nama Anda",
+    "password_label": "KATA SANDI",
+    "access_button": "MASUK KE SISTEM",
+    "language_tooltip": "Bahasa",
+    "error_empty": "Masukkan nama dan kata sandi Anda"
+  },
+  "common": {
+    "accept": "Terima",
+    "cancel": "Batal",
+    "save": "Simpan",
+    "delete": "Hapus",
+    "yes": "Ya",
+    "no": "Tidak",
+    "back": "Kembali",
+    "close": "Tutup"
+  }
+}

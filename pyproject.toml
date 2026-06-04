@@ -1,0 +1,42 @@
+# ============================================================
+# Configuración de herramientas de calidad — Smart Manager AI
+# ============================================================
+
+[tool.ruff]
+# Longitud de línea generosa (el proyecto usa hojas de estilo largas).
+line-length = 120
+target-version = "py311"
+exclude = [
+    ".git", "__pycache__", "build", "dist", ".venv", "venv",
+    "documentos", "assets/lang", "codigos_generados",
+]
+
+[tool.ruff.lint]
+# Conjunto pragmático: errores reales (pyflakes), errores de estilo críticos,
+# imports ordenados y modernizaciones seguras. Ampliable con el tiempo.
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",   # longitud de línea (gestionada por line-length, hay líneas de estilo largas)
+    "E741",   # nombres ambiguos (l, I) usados en layouts
+    "B008",   # llamadas en valores por defecto (patrón frecuente en Qt)
+    "UP038",  # isinstance con tuplas (estilo del proyecto)
+    # --- Estilo deliberado del proyecto (silenciado para que el informe sea útil) ---
+    "E701",   # varias sentencias en una línea con ':' (one-liners intencionados)
+    "E702",   # varias sentencias separadas por ';' (estilo compacto del proyecto)
+    "E402",   # imports tras código (imports diferidos/condicionados intencionados)
+    "E722",   # bare-except (patrón defensivo usado de forma consciente)
+    "W291",   # espacios al final (residen dentro de literales SQL/QSS multilínea)
+    "W293",   # línea en blanco con espacios (idem, dentro de cadenas)
+    "UP031",  # %-formatting (estilo de cadenas usado en partes del código)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Los catálogos/inicializadores y el spec pueden saltarse reglas de imports.
+"SmartManagerAI.spec" = ["F821", "E402"]
+"src/main.py" = ["E402"]   # imports tras el bootstrap de entorno (intencionado)
+
+[tool.pytest.ini_options]
+# La suite de humo no requiere pytest, pero si se usa, esto la descubre.
+python_files = ["smoke_test.py", "test_*.py"]
+testpaths = ["tests"]
+addopts = "-q"

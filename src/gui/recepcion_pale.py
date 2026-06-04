@@ -1,110 +1,169 @@
-import os
-import sys
-import json
-import time
 import logging
+import os
 import platform
 import subprocess
-import traceback
 import tempfile
-from io import BytesIO
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 import cv2
-import pandas as pd
 import qrcode
-from PIL import Image as PILImage
-from pyzbar import pyzbar
-from pyzbar.pyzbar import decode
-from barcode import Code128
-from barcode.writer import ImageWriter
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
-    QWidget,
+    QCheckBox,
+    QComboBox,
     QDialog,
-    QMainWindow,
-    QFrame,
-    QStackedWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QGridLayout,
     QFormLayout,
-    QScrollArea,
+    QFrame,
+    QGraphicsDropShadowEffect,
+    QGridLayout,
+    QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
-    QTextEdit,
+    QMessageBox,
     QPushButton,
-    QComboBox,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
-    QDoubleSpinBox,
-    QDateEdit,
+    QStackedWidget,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleFactory,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
-    QListWidget,
-    QGroupBox,
-    QMessageBox,
-    QFileDialog,
-    QInputDialog,
-    QProgressDialog,
-    QAbstractItemView,
-    QGraphicsDropShadowEffect,
-    QSizePolicy,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm, cm
+from pyzbar import pyzbar
 from reportlab.lib import colors
-from reportlab.lib.utils import ImageReader
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm, mm
+from reportlab.pdfgen import canvas
 from reportlab.platypus import (
+    Image,
+    Paragraph,
     SimpleDocTemplate,
+    Spacer,
     Table,
     TableStyle,
-    Paragraph,
-    Spacer,
-    PageTemplate,
-    Frame,
-    Image,
 )
+
+# Pre-importar reportlab con alias para el generador de PDF de reabastecimiento
+try:
+    from reportlab.lib import colors as _RL_COLORS
+    from reportlab.lib.pagesizes import A4 as _RL_A4
+    from reportlab.lib.styles import ParagraphStyle as _RL_PARASTYLE
+    from reportlab.lib.styles import getSampleStyleSheet as _RL_STYLES
+    from reportlab.lib.units import cm as _RL_CM
+    from reportlab.platypus import (
+        Paragraph as _RL_PARA,
+    )
+    from reportlab.platypus import (
+        SimpleDocTemplate as _RL_DOC,
+    )
+    from reportlab.platypus import (
+        Spacer as _RL_SPACER,
+    )
+    from reportlab.platypus import (
+        Table as _RL_TABLE,
+    )
+    from reportlab.platypus import (
+        TableStyle as _RL_TABLESTYLE,
+    )
+    _REPORTLAB_REAB_OK = True
+except ImportError:
+    _REPORTLAB_REAB_OK = False
 from src.db.conexion import (
-    obtener_conexion,
-    obtener_articulo,
-    obtener_configuracion,
-    descontar_stock,
-    registrar_pale,
-    obtener_destinos_traspaso,
     formatear_nombre_centro,
+    obtener_articulo,
+    obtener_conexion,
+    obtener_configuracion,
+    obtener_destinos_traspaso,
 )
 from src.db.logistica import (
-    obtener_historial_traspasos,
-    obtener_items_pale_traspaso,
     generar_id_traspaso,
-    guardar_traspaso_logistico,
+    obtener_items_pale_traspaso,
 )
-from src.db.operaciones import guardar_traspaso_db
-from reportlab.graphics.barcode import code128
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QUrl, QThread, QDate, QTimer, QEvent
+
+try:
+    from src.db.reabastecimiento import (
+        cambiar_estado_propuesta as _reab_cambiar_estado_propuesta,
+    )
+    from src.db.reabastecimiento import (
+        cargar_schedule as _reab_cargar_schedule,
+    )
+    from src.db.reabastecimiento import (
+        crear_propuesta as _reab_crear_propuesta,
+    )
+    from src.db.reabastecimiento import (
+        eliminar_config as _reab_eliminar_config,
+    )
+    from src.db.reabastecimiento import (
+        guardar_schedule as _reab_guardar_schedule,
+    )
+    from src.db.reabastecimiento import (
+        listar_config as _reab_listar_config,
+    )
+    from src.db.reabastecimiento import (
+        listar_propuestas as _reab_listar_propuestas,
+    )
+    from src.db.reabastecimiento import (
+        marcar_articulos_recibidos as _reab_marcar_articulos_recibidos,
+    )
+    from src.db.reabastecimiento import (
+        marcar_envio_hoy as _reab_marcar_envio_hoy,
+    )
+    from src.db.reabastecimiento import (
+        obtener_config as _reab_obtener_config,
+    )
+    from src.db.reabastecimiento import (
+        obtener_propuesta as _reab_obtener_propuesta,
+    )
+    from src.db.reabastecimiento import (
+        propuesta_pendiente_existe as _reab_propuesta_pendiente_existe,
+    )
+    from src.db.reabastecimiento import (
+        upsert_config as _reab_upsert_config,
+    )
+    _REAB_DB_OK = True
+except ImportError:
+    _REAB_DB_OK = False
+    def _reab_listar_config(): return []
+    def _reab_upsert_config(*a, **kw): pass
+    def _reab_eliminar_config(*a): pass
+    def _reab_obtener_config(*a): return None
+    def _reab_crear_propuesta(*a, **kw): return None
+    def _reab_listar_propuestas(*a, **kw): return []
+    def _reab_cambiar_estado_propuesta(*a): pass
+    def _reab_propuesta_pendiente_existe(*a): return False
+    def _reab_marcar_articulos_recibidos(*a): return 0
+    def _reab_obtener_propuesta(*a): return None
+    def _reab_cargar_schedule(): return {}
+    def _reab_guardar_schedule(*a): return False
+    def _reab_marcar_envio_hoy(): pass
+from PyQt6.QtCore import QObject, QPoint, QRectF, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import (
-    QDesktopServices,
-    QFont,
     QColor,
+    QFont,
     QImage,
-    QPixmap,
-    QIcon,
-    QRegion,
+    QPainter,
     QPainterPath,
+    QPixmap,
+    QRegion,
 )
+from reportlab.graphics.barcode import code128
 
 # Clase SidebarButton: garantiza hover-swap mediante eventos de entrada/salida
 try:
     from assets.estilo_global import (
-        COLOR_FONDO_SIDEBAR,
         COLOR_CIAN,
         COLOR_FONDO_APP,
+        COLOR_FONDO_SIDEBAR,
         COLOR_ROJO_ERROR,
         aplicar_estilo_widget,
         construir_plantilla_camara,
@@ -129,6 +188,10 @@ except Exception:
     mostrar_mensaje = None
     repolish_widget = None
 
+
+# ============================================================
+# BLOQUE UTILIDADES DE INTERFAZ
+# ============================================================
 
 def _mensaje_ui(parent, titulo, texto, nivel="info"):
     if mostrar_mensaje is not None:
@@ -156,6 +219,7 @@ def _confirmar_ui(parent, titulo, texto):
 class SidebarButton(QPushButton):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.setObjectName("btn_sidebar")
         try:
             self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
             self.setMouseTracking(True)
@@ -175,7 +239,7 @@ class _SidebarFrameFilter(QObject):
 
 def abrir_pdf(ruta_pdf):
     """Abre un archivo PDF con el visor predeterminado de forma multiplataforma."""
-    import os, platform, subprocess
+    import os
 
     if not ruta_pdf or not os.path.exists(ruta_pdf):
         return False
@@ -193,7 +257,9 @@ def abrir_pdf(ruta_pdf):
         return False
 
 
-# --- CLASE SCANNER (DISEÑO MANTENIDO) ---
+# ============================================================
+# BLOQUE ESCÁNER DE CÓDIGOS DE BARRAS
+# ============================================================
 
 
 class ScannerDialog(QDialog):
@@ -202,74 +268,65 @@ class ScannerDialog(QDialog):
     confirmar_recepcion = pyqtSignal(str, list)
 
     def __init__(self, usuario, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Escáner Inteligente - Smart Manager AI")
-
-        # Punto 3 unificado: Usamos self.usuario de forma consistente
+        # Pass flags at construction time to avoid native-window recreation
+        super().__init__(parent, Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setObjectName("scanner_dialog")
+        self.setFixedSize(650, 600)
+        self.setWindowTitle("Escáner Inteligente - Smart Manager")
         self.usuario = usuario
         self.cap = None
         self.codigo_detectado = None
 
-        if construir_plantilla_camara is not None:
-            plantilla = construir_plantilla_camara(
-                self,
-                titulo="VISIÓN - LOGÍSTICA",
-                texto_video="",
-                estado_inicial="ALINEE EL CÓDIGO CON EL SENSOR",
-                texto_boton_primario="🚀 INICIAR ESCANEO",
-                texto_boton_cancelar="ABORTAR OPERACIÓN",
-                ancho=650,
-                alto=600,
-                ancho_video=580,
-                alto_video=330,
-                mostrar_boton_primario=False,
-                object_name_dialog="scanner_dialog",
-                object_name_frame="cuerpo_ventana_scan",
-            )
-            self.main_frame = plantilla["main_frame"]
-            self.layout = plantilla["layout"]
-            self.lbl_titulo = plantilla["lbl_titulo"]
-            self.lbl_video = plantilla["lbl_video"]
-            self.lbl_status = plantilla["lbl_status"]
-            self.btn_iniciar = plantilla["btn_primario"]
-            self.btn_cancelar = plantilla["btn_cancelar"]
-            self.lbl_status.setObjectName("lbl_info_scan")
-            if aplicar_estilo_widget is not None:
-                aplicar_estilo_widget(self.lbl_status)
-        else:
-            self.setFixedSize(650, 600)
-            self.setObjectName("scanner_dialog")
-            self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-            self.main_frame = QFrame(self)
-            self.main_frame.setObjectName("cuerpo_ventana_scan")
-            self.main_frame.setGeometry(0, 0, 650, 600)
-            self.layout = QVBoxLayout(self.main_frame)
-            self.layout.setContentsMargins(30, 30, 30, 30)
-            self.layout.setSpacing(15)
-            self.lbl_titulo = QLabel("VISIÓN - LOGÍSTICA")
-            self.lbl_titulo.setObjectName("titulo_scan")
-            self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.layout.addWidget(self.lbl_titulo)
-            self.lbl_video = QLabel("")
-            self.lbl_video.setObjectName("feed_video")
-            self.lbl_video.setProperty("activo", False)
-            self.lbl_video.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.lbl_video.setFixedSize(580, 330)
-            self.layout.addWidget(self.lbl_video, alignment=Qt.AlignmentFlag.AlignCenter)
-            self.lbl_status = QLabel("ALINEE EL CÓDIGO CON EL SENSOR")
-            self.lbl_status.setObjectName("lbl_info_scan")
-            self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.layout.addWidget(self.lbl_status)
-            self.btn_iniciar = QPushButton("🚀 INICIAR ESCANEO")
-            self.btn_iniciar.setObjectName("btn_primario")
-            self.btn_iniciar.setFixedHeight(55)
-            self.btn_iniciar.setVisible(False)
-            self.layout.addWidget(self.btn_iniciar)
-            self.btn_cancelar = QPushButton("ABORTAR OPERACIÓN")
-            self.btn_cancelar.setObjectName("btn_abortar_scan")
-            self.btn_cancelar.setFixedHeight(45)
-            self.layout.addWidget(self.btn_cancelar)
+        # Visual background frame
+        self.main_frame = QFrame(self)
+        self.main_frame.setObjectName("cuerpo_ventana_scan")
+        self.main_frame.setGeometry(0, 0, 650, 600)
+
+        # Layout manages title / status / buttons only.
+        # lbl_video is positioned manually so it is always exactly centred.
+        content_layout = QVBoxLayout(self.main_frame)
+        content_layout.setContentsMargins(30, 30, 30, 30)
+        content_layout.setSpacing(12)
+
+        self.lbl_titulo = QLabel("VISIÓN - LOGÍSTICA")
+        self.lbl_titulo.setObjectName("titulo_scan")
+        self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        content_layout.addWidget(self.lbl_titulo)
+
+        # Reserve vertical space for the video label (300 px + two 12 px gaps)
+        content_layout.addSpacing(324)
+
+        self.lbl_status = QLabel("ALINEE EL CÓDIGO CON EL SENSOR")
+        self.lbl_status.setObjectName("lbl_info_scan")
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        content_layout.addWidget(self.lbl_status)
+
+        self.btn_iniciar = QPushButton("🚀 INICIAR ESCANEO")
+        self.btn_iniciar.setObjectName("btn_primario")
+        self.btn_iniciar.setFixedHeight(50)
+        self.btn_iniciar.setVisible(False)
+        content_layout.addWidget(self.btn_iniciar)
+
+        self.btn_cancelar = QPushButton("ABORTAR OPERACIÓN")
+        self.btn_cancelar.setObjectName("btn_abortar_scan")
+        self.btn_cancelar.setFixedHeight(45)
+        content_layout.addWidget(self.btn_cancelar)
+
+        # Video label: child of main_frame but NOT in the layout.
+        # Centred with setGeometry once the title has been laid out.
+        self.lbl_video = QLabel("", self.main_frame)
+        self.lbl_video.setObjectName("feed_video")
+        self.lbl_video.setProperty("activo", False)
+        self.lbl_video.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_video.setFixedSize(540, 300)
+        self.lbl_video.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.lbl_video.setScaledContents(False)
+
+        if aplicar_estilo_widget is not None:
+            for _w in (self.lbl_titulo, self.lbl_video, self.lbl_status,
+                       self.btn_iniciar, self.btn_cancelar):
+                aplicar_estilo_widget(_w)
 
         self.btn_iniciar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -278,23 +335,54 @@ class ScannerDialog(QDialog):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
+
+        # Set initial video position (centered horizontally, below title).
+        # 80 = 30 top-margin + ~38px title + 12 gap — refined in showEvent.
+        _x0 = (self.main_frame.width() - self.lbl_video.width()) // 2
+        self.lbl_video.setGeometry(_x0, 80, self.lbl_video.width(), self.lbl_video.height())
+        self.lbl_video.raise_()
+        self.lbl_video.show()
+
         QTimer.singleShot(0, self.inicializar_hardware_camara)
+
+        screen = QApplication.primaryScreen().geometry()
+        self.move(
+            (screen.width() - self.width()) // 2,
+            (screen.height() - self.height()) // 2,
+        )
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._posicionar_video()
+
+    def _posicionar_video(self):
+        """Centra lbl_video con la geometría real del título (disponible en showEvent)."""
+        x = (self.main_frame.width() - self.lbl_video.width()) // 2
+        y_bottom = self.lbl_titulo.geometry().bottom()
+        y = (y_bottom + 12) if y_bottom > 0 else 80
+        self.lbl_video.setGeometry(x, y, self.lbl_video.width(), self.lbl_video.height())
+        self.lbl_video.raise_()
+
+    def get_codigo(self):
+        return self.codigo_detectado
 
     def aplicar_mascara_redondeada(self):
         """Crea una máscara para que el video respete los bordes redondeados del label."""
         path = QPainterPath()
-        # Definimos un rectángulo ligeramente menor al label para que no pise el borde neón
         rect = self.lbl_video.rect()
         path.addRoundedRect(
             float(rect.x()),
             float(rect.y()),
             float(rect.width()),
             float(rect.height()),
-            20,
-            20,
+            14,
+            14,
         )
         region = QRegion(path.toFillPolygon().toPolygon())
         self.lbl_video.setMask(region)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
 
     def inicializar_hardware_camara(self):
         self.btn_iniciar.setEnabled(False)
@@ -304,27 +392,20 @@ class ScannerDialog(QDialog):
         QApplication.processEvents()
 
         self.liberar_recursos()
-        # Priorizamos DirectShow para rapidez en Windows
-        backends = [cv2.CAP_DSHOW, cv2.CAP_ANY]
         camara_encontrada = False
-
-        for backend in backends:
-            for index in [0, 1]:
-                self.cap = cv2.VideoCapture(index, backend)
-                if self.cap.isOpened():
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                    camara_encontrada = True
-                    break
-            if camara_encontrada:
+        for index in [0, 1]:
+            self.cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+            if self.cap.isOpened():
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                camara_encontrada = True
                 break
 
         if camara_encontrada:
             self.lbl_video.setProperty("activo", True)
             if aplicar_estilo_widget is not None:
                 aplicar_estilo_widget(self.lbl_video)
-            # Aplicamos la máscara justo después de que la cámara se activa
-            self.aplicar_mascara_redondeada()
             self.lbl_status.setText("ALINEE EL CÓDIGO CON EL SENSOR")
             self.btn_iniciar.hide()
             self.timer.start(30)
@@ -353,7 +434,7 @@ class ScannerDialog(QDialog):
                     QTimer.singleShot(300, self.finalizar_y_cerrar_con_exito)
                     return
 
-            # Renderizado en el QLabel con escalado suave
+            # Renderizado en el QLabel con esquinas redondeadas y sin deformación
             rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb_image.shape
             bytes_per_line = ch * w
@@ -361,13 +442,37 @@ class ScannerDialog(QDialog):
                 rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888
             )
 
-            pixmap = QPixmap.fromImage(qt_image).scaled(
-                self.lbl_video.width(),
-                self.lbl_video.height(),
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.lbl_video.setPixmap(pixmap)
+            tw = self.lbl_video.width()
+            th = self.lbl_video.height()
+            if tw > 0 and th > 0:
+                B = 4  # border inset: outer half on dark fill, inner half on video
+                iw, ih = tw - 2 * B, th - 2 * B
+                src = QPixmap.fromImage(qt_image)
+                scaled = src.scaled(
+                    iw, ih,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                ox = (scaled.width() - iw) // 2
+                oy = (scaled.height() - ih) // 2
+                cropped = scaled.copy(ox, oy, iw, ih)
+                result = QPixmap(tw, th)
+                result.fill(QColor("#05070A"))
+                painter = QPainter(result)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                clip = QPainterPath()
+                clip.addRoundedRect(QRectF(B, B, iw, ih), 12, 12)
+                painter.setClipPath(clip)
+                painter.drawPixmap(B, B, cropped)
+                painter.setClipping(False)
+                from PyQt6.QtGui import QPen
+                _pen = QPen(QColor(0, 255, 198, 255), B * 2)
+                _pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                painter.setPen(_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRoundedRect(QRectF(B, B, iw, ih), 12, 12)
+                painter.end()
+                self.lbl_video.setPixmap(result)
 
     def finalizar_y_cerrar_con_exito(self):
         """
@@ -424,83 +529,141 @@ class ScannerDialog(QDialog):
             self.cap = None
 
 
-class SelectorLogisticoExtras(QDialog):
-    """Ventana emergente con botones grandes para añadir bultos vacíos o jaulas."""
+# ============================================================
+# BLOQUE SELECCIÓN LOGÍSTICA
+# ============================================================
 
-    item_seleccionado = pyqtSignal(str)  # Devuelve el nombre del ítem
+class SelectorLogisticoExtras(QDialog):
+    """Ventana emergente con botones toggle para añadir bultos extra al traspaso (multi-select)."""
+
+    items_confirmados = pyqtSignal(list)  # Lista de nombres confirmados
+
+    _BULTOS = [
+        ("BASE PALÉ",       "🪵"),
+        ("JAULA REMONTADA", "🔼"),
+        ("JAULA PLÁSTICO",  "🧺"),
+        ("JAULA CARTÓN",    "📦"),
+        ("JAULA METÁLICA",  "⚙️"),
+    ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Añadir Equipamiento Logístico")
-        self.setObjectName("scanner_dialog")
-        self.setFixedSize(
-            500, 450
-        )  # Incrementado ligeramente para mejor aire entre elementos
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-        self.setAttribute(
-            Qt.WidgetAttribute.WA_TranslucentBackground
-        )  # Para permitir bordes redondeados limpios
+        self.setObjectName("dlg_incidencia")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMinimumWidth(460)
+        self._drag_pos = None
+        self._seleccionados: set = set()
+        self._btns: dict = {}
+        self._build_ui()
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(15)
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        frame = QFrame()
+        frame.setObjectName("cuerpo_ventana")
+        outer.addWidget(frame)
 
-        body = QFrame()
-        body.setObjectName("panel_dialogo_logistico")
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(25, 25, 25, 25)
-        body_layout.setSpacing(15)
-        layout.addWidget(body)
+        ly = QVBoxLayout(frame)
+        ly.setContentsMargins(28, 24, 28, 24)
+        ly.setSpacing(18)
 
-        titulo = QLabel("¿Añadir bulto extra al traspaso?")
+        titulo = QLabel("¿AÑADIR BULTO EXTRA AL TRASPASO?")
         titulo.setObjectName("titulo_cian")
-        body_layout.addWidget(
-            titulo,
-            alignment=Qt.AlignmentFlag.AlignCenter,
-        )
+        titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ly.addWidget(titulo)
 
         grid = QGridLayout()
-        grid.setSpacing(10)
+        grid.setSpacing(12)
+        grid.setContentsMargins(0, 0, 0, 0)
 
-        # Definimos los botones basados en tus 'opciones_especiales'
-        botones = [
-            ("PALÉ VACÍO", "📦"),
-            ("JAULA METÁLICA", "⛓️"),
-            ("PALÉ PLÁSTICO", "🟦"),
-            ("PALÉ CARTÓN", "📝"),
-            ("CONTENEDOR", "🗑️"),
-            ("PALÉ REMONTADO", "🔝"),
-        ]
-
-        row, col = 0, 0
-        for nombre, icono in botones:
+        for idx, (nombre, icono) in enumerate(self._BULTOS):
             btn = QPushButton(f"{icono}\n{nombre}")
             btn.setObjectName("btn_secundario")
-            btn.setFixedSize(140, 90)
+            btn.setFixedSize(160, 80)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            # Mantenemos tu lógica de conexión original
-            btn.clicked.connect(lambda checked, n=nombre: self.finalizar(n))
-            grid.addWidget(btn, row, col)
-            col += 1
-            if col > 2:
-                col = 0
-                row += 1
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda checked, n=nombre: self._toggle(n))
+            self._btns[nombre] = btn
+            grid.addWidget(btn, idx // 3, idx % 3)
 
-        body_layout.addLayout(grid)
+        ly.addLayout(grid)
 
-        btn_cancelar = QPushButton("CANCELAR / FINALIZAR")
-        btn_cancelar.setObjectName("btn_peligro")
-        btn_cancelar.setFixedHeight(45)
-        btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_cancelar.clicked.connect(self.reject)
-        body_layout.addWidget(btn_cancelar)
+        h_btns = QHBoxLayout()
+        h_btns.setSpacing(12)
 
-    def finalizar(self, nombre):
-        self.item_seleccionado.emit(nombre)
+        self.btn_skip = QPushButton("SEGUIR SIN BULTOS EXTRA")
+        self.btn_skip.setObjectName("btn_secundario")
+        self.btn_skip.setFixedHeight(46)
+        self.btn_skip.setStyleSheet(
+            "QPushButton#btn_secundario { color: #4FC3F7; border-color: #4FC3F7; }"
+            "QPushButton#btn_secundario:hover { background-color: rgba(79,195,247,0.15); }"
+        )
+        self.btn_skip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_skip.clicked.connect(self.reject)
+
+        self.btn_aceptar = QPushButton("ACEPTAR")
+        self.btn_aceptar.setObjectName("btn_primario")
+        self.btn_aceptar.setFixedHeight(46)
+        self.btn_aceptar.setEnabled(False)
+        self.btn_aceptar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_aceptar.clicked.connect(self._confirmar)
+
+        h_btns.addWidget(self.btn_skip, 3)
+        h_btns.addWidget(self.btn_aceptar, 2)
+        ly.addLayout(h_btns)
+
+    def _toggle(self, nombre):
+        if nombre in self._seleccionados:
+            self._seleccionados.discard(nombre)
+            self._btns[nombre].setChecked(False)
+            self._btns[nombre].setStyleSheet("")
+        else:
+            self._seleccionados.add(nombre)
+            self._btns[nombre].setChecked(True)
+            self._btns[nombre].setStyleSheet(
+                "QPushButton { border-color: #00FFC6; color: #00FFC6;"
+                "  background-color: rgba(0,255,198,0.12); }"
+            )
+        self.btn_aceptar.setEnabled(bool(self._seleccionados))
+
+    def _confirmar(self):
+        self.items_confirmados.emit(sorted(self._seleccionados))
         self.accept()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._center_on_parent)
 
-# --- CLASE MAESTRA RECEPCIÓN (DEFINTIVA) ---
+    def _center_on_parent(self):
+        parent = self.parentWidget()
+        ref = parent.window().frameGeometry() if parent else None
+        if ref is None:
+            return
+        self.move(
+            ref.x() + (ref.width() - self.width()) // 2,
+            ref.y() + (ref.height() - self.height()) // 2,
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
+
+# ============================================================
+# BLOQUE GENERACIÓN DE DOCUMENTOS PDF
+# ============================================================
 
 
 class PdfWorker(QObject):
@@ -575,40 +738,28 @@ class PdfWorker(QObject):
             }
 
     def run(self):
-        """Ejecuta el proceso de generación en el hilo secundario."""
+        """Ejecuta el proceso de generación — delega en los servicios enterprise."""
         if self._pdf_generado:
             return
         self._pdf_generado = True
 
         try:
-            import os
+            from src.services.logistics.logistics_pdf_service import generar_albaran_traspaso
+            from src.services.logistics.pallet_label_service import generar_etiquetas_pales
 
-            terminos = self._get_terminos()
-
-            # 1. Estructura de carpetas
-            base_path = os.path.abspath(os.getcwd())
-            folder_pdf = os.path.join(base_path, "documentos", "albaranes")
-            os.makedirs(folder_pdf, exist_ok=True)
-
-            folder_etiquetas = os.path.join(base_path, "documentos", "etiquetas_pales")
-            os.makedirs(folder_etiquetas, exist_ok=True)
-
-            # 2. Construir data agrupada
             data = self._construir_data_agrupada()
 
-            # 3. Generación del Albarán
-            # Pasamos 'data' directamente como 'traspaso_data'
-            ruta_albaran = self.generar_pdf_traspaso(traspaso_data=data)
+            # Albarán enterprise
+            ruta_albaran = generar_albaran_traspaso(data)
 
-            # 4. Generación de Etiquetas (Solo en Traspasos)
+            # Etiquetas de palés (solo en traspasos)
             rutas_etiquetas = []
-            if self.tipo_operacion == "traspaso":
-                # Enviamos la lista completa de pales procesados en data['pales']
-                ruta_etq = self.generar_etiqueta_pdf(
+            if self.tipo_operacion == "traspaso" and data.get("pales"):
+                ruta_etq = generar_etiquetas_pales(
                     lista_pales=data["pales"],
                     origen=self.origen,
                     destino=self.destino,
-                    secuencial_traspaso=self.id_traspaso,
+                    id_traspaso=self.id_traspaso,
                 )
                 rutas_etiquetas.append(ruta_etq)
 
@@ -616,7 +767,6 @@ class PdfWorker(QObject):
 
         except Exception as e:
             import traceback
-
             print(f"DEBUG PDF ERROR: {traceback.format_exc()}")
             self.error.emit(f"Error en el proceso de documentación: {str(e)}")
 
@@ -711,6 +861,26 @@ class PdfWorker(QObject):
         )
         os.makedirs(os.path.dirname(ruta_pdf), exist_ok=True)
 
+        # --- i18n: etiquetas fijas (tr) + nombres de artículo por IA (lote) ---
+        from src.utils import ai_translator, i18n
+        lang = i18n.current_language()
+
+        def L(clave, defecto):
+            return i18n.tr(f"albaran.{clave}", default=defecto)
+
+        # Nivel 2: traducir TODOS los nombres de artículo en UNA sola llamada
+        # (dominio logístico), respetando el orden de ideración de la tabla.
+        _nombres_raw = [
+            a.get("nombre", "")
+            for p in traspaso_data.get("pales", [])
+            for a in p.get("articulos", [])
+        ]
+        try:
+            _nombres_tr = ai_translator.traducir_lote(_nombres_raw, lang, dominio="logistico")
+        except Exception:
+            _nombres_tr = _nombres_raw
+        _nombres_iter = iter(_nombres_tr)
+
         styles = getSampleStyleSheet()
         style_n = ParagraphStyle("Normal", fontName="Helvetica", fontSize=8, leading=10)
         style_b = ParagraphStyle(
@@ -730,22 +900,23 @@ class PdfWorker(QObject):
 
         head_data = [
             [
-                Paragraph("<b>Smart Manager AI</b>", styles["Heading1"]),
+                Paragraph("<b>Smart Manager</b>", styles["Heading1"]),
                 "",
                 Image(qr_path, 20 * mm, 20 * mm),
             ]
         ]
         head_tab = Table(head_data, colWidths=[10 * cm, 4 * cm, 5 * cm])
         story.append(head_tab)
+        story.append(Paragraph(f"<b>{L('doc_title', 'ALBARÁN DE TRASPASO')}</b>", style_b))
         story.append(Spacer(1, 10))
 
         # --- TABLA DE CONTENIDO ---
         data_table = [
             [
-                Paragraph("<b>PALÉ</b>", style_b),
-                Paragraph("<b>CÓDIGO</b>", style_b),
-                Paragraph("<b>ARTÍCULO</b>", style_b),
-                Paragraph("<b>UDS</b>", style_b),
+                Paragraph(f"<b>{L('col_pale', 'PALÉ')}</b>", style_b),
+                Paragraph(f"<b>{L('col_code', 'CÓDIGO')}</b>", style_b),
+                Paragraph(f"<b>{L('col_article', 'ARTÍCULO')}</b>", style_b),
+                Paragraph(f"<b>{L('col_units', 'UDS')}</b>", style_b),
             ]
         ]
 
@@ -756,7 +927,8 @@ class PdfWorker(QObject):
 
             for i, a in enumerate(arts):
                 # Punto 4: Resaltado de Jaulas y Logística
-                nombre = a.get("nombre", "")
+                # Nombre traducido por IA (mismo orden que el lote).
+                nombre = next(_nombres_iter, a.get("nombre", ""))
                 current_style = style_n
                 if a.get("es_logistico"):
                     nombre = f"[LOG] {nombre}"
@@ -776,7 +948,7 @@ class PdfWorker(QObject):
                 [
                     "",
                     "",
-                    Paragraph("<b>Peso declarado:</b>", style_n),
+                    Paragraph(f"<b>{L('declared_weight', 'Peso declarado:')}</b>", style_n),
                     Paragraph(f"<b>{texto_peso}</b>", style_n),
                 ]
             )
@@ -784,7 +956,7 @@ class PdfWorker(QObject):
                 [
                     "",
                     "",
-                    Paragraph("Total unidades bulto:", style_n),
+                    Paragraph(L("total_units", "Total unidades bulto:"), style_n),
                     Paragraph(str(sum(x["cantidad"] for x in arts))),
                 ]
             )
@@ -904,7 +1076,7 @@ class PdfWorker(QObject):
             canv.drawCentredString(
                 x_off + w_eti / 2,
                 y_off + 15 * mm,
-                "SISTEMA LOGÍSTICO - 360 SMART MANAGER",
+                "SISTEMA LOGÍSTICO - SMART MANAGER",
             )
 
             canv.setFont("Helvetica", 7)
@@ -924,6 +1096,10 @@ class PdfWorker(QObject):
         c.save()
         return ruta_pdf
 
+
+# ============================================================
+# BLOQUE RECEPCIÓN DE MERCANCÍA
+# ============================================================
 
 class RecepcionStockPage(QWidget):
 
@@ -1108,12 +1284,13 @@ class RecepcionStockPage(QWidget):
         layout_cam.setContentsMargins(20, 20, 20, 20)
         layout_cam.setSpacing(15)
 
-        # Contenedor del Feed de Vídeo
-        self.lbl_video = QLabel("Iniciando cámara...")
+        # Contenedor del Feed de Vídeo — con parent explícito para evitar ventana flotante
+        self.lbl_video = QLabel(self.vista_scanner)
         self.lbl_video.setObjectName("feed_video")
         self.lbl_video.setProperty("activo", True)
         self.lbl_video.setFixedSize(640, 480)
         self.lbl_video.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_video.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         # Input Manual (Debajo de la cámara, como en tus capturas)
         self.input_manual = QLineEdit()
@@ -1146,6 +1323,10 @@ class RecepcionStockPage(QWidget):
         self.stack.setCurrentIndex(0)
 
 
+# ============================================================
+# BLOQUE UTILIDADES PDF
+# ============================================================
+
 class NumberedCanvasWithLastPage(canvas.Canvas):
     """
     Añade numeración 'Página X de Y' y firmas solo en la última página.
@@ -1170,7 +1351,7 @@ class NumberedCanvasWithLastPage(canvas.Canvas):
             self.setFont("Helvetica-Oblique", 8)
             self.setFillColor(colors.grey)
             self.drawCentredString(
-                A4[0] / 2, 1.2 * cm, "360 SMART MANAGER - SISTEMA DE GESTIÓN LOGÍSTICA"
+                A4[0] / 2, 1.2 * cm, "SMART MANAGER - SISTEMA DE GESTIÓN LOGÍSTICA"
             )
 
             # Numeración
@@ -1187,6 +1368,10 @@ class NumberedCanvasWithLastPage(canvas.Canvas):
             super().showPage()
         super().save()
 
+
+# ============================================================
+# BLOQUE HISTORIAL DE TRASPASOS
+# ============================================================
 
 class HistorialTraspasosPage(QWidget):
 
@@ -1272,17 +1457,22 @@ class HistorialTraspasosPage(QWidget):
         layout.addWidget(wrap_tabla)
 
     def setup_tabla_estilo(self):
-        columnas = ["ID TRASPASO", "FECHA / HORA", "DESTINO", "ESTADO", "ACCIONES"]
+        columnas = ["ID TRASPASO", "FECHA ENVÍO", "DESTINO", "ESTADO", "ACCIONES"]
         self.tabla.setColumnCount(len(columnas))
         self.tabla.setHorizontalHeaderLabels(columnas)
         self.tabla.verticalHeader().setVisible(False)
+        # Altura de fila suficiente para que el botón de ACCIONES (32px + glow
+        # de neón) no se vea cortado; cada traspaso tiene su espacio vital.
+        self.tabla.verticalHeader().setDefaultSectionSize(60)
+        # Sin padding vertical en las celdas: el padding global (8px) empujaba el
+        # cell widget hacia abajo y descentraba el botón. Se mantiene el padding
+        # horizontal para el texto de las columnas.
+        self.tabla.setStyleSheet("QTableWidget::item { padding: 0px 8px; }")
         self.tabla.setAlternatingRowColors(True)
         self.tabla.setShowGrid(False)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
-        self.tabla.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
     def cargar_datos(self):
         """Consulta la DB y renderiza los traspasos del origen local con feedback visual."""
@@ -1315,7 +1505,7 @@ class HistorialTraspasosPage(QWidget):
 
                     # Convertimos a lista de diccionarios para compatibilidad total
                     columnas = [desc[0] for desc in cur.description]
-                    rows = [dict(zip(columnas, row)) for row in cur.fetchall()]
+                    rows = [dict(zip(columnas, row, strict=False)) for row in cur.fetchall()]
 
                     self.tabla.setRowCount(0)
 
@@ -1400,14 +1590,27 @@ class HistorialTraspasosPage(QWidget):
         btn = QPushButton("📄 VER ALBARÁN")
         btn.setObjectName("btn_secundario")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFixedSize(130, 32)
+        # Altura 44px: el QSS añade padding 10px + borde 2px (24px de chrome
+        # vertical); con 32px el texto quedaba cortado.
+        btn.setFixedSize(150, 44)
+        # Hover swap explícito: relleno cian + texto oscuro al pasar el cursor.
+        btn.setStyleSheet(
+            "QPushButton{background:#161B22;color:#E6EDF3;border:2px solid #00FFC6;"
+            "border-radius:10px;font-family:'Segoe UI';font-weight:700;font-size:13px;}"
+            "QPushButton:hover{background:#00FFC6;color:#0D1117;}"
+            "QPushButton:pressed{background:#00E0AE;color:#0D1117;}"
+        )
         btn.clicked.connect(lambda: self.ver_pdf(id_doc))
 
         container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        # El contenedor debe llenar la fila para no recortar el glow del botón
+        # (si no, queda en su sizeHint ~44px y corta el botón por abajo).
+        container.setMinimumHeight(60)
         lay = QHBoxLayout(container)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(btn)
+        # AlignHCenter|AlignVCenter centra el botón exactamente en la celda.
+        lay.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
         self.tabla.setCellWidget(fila, 4, container)
 
     def abrir_camara_filtro(self):
@@ -1499,6 +1702,10 @@ class HistorialTraspasosPage(QWidget):
         self.btn_actualizar.setText("🔄 ACTUALIZAR")
 
 
+# ============================================================
+# BLOQUE PANTALLA DE INICIO
+# ============================================================
+
 class LandingScannerPage(QWidget):
     """Página de inicio para la sección de Scanner con estilo moderno."""
 
@@ -1537,6 +1744,2859 @@ class LandingScannerPage(QWidget):
         layout.addStretch()
 
 
+# ============================================================
+# BLOQUE REABASTECIMIENTO — constantes, helpers y clases
+# ============================================================
+
+_REAB_CIAN = "#00FFC6"
+_REAB_FONDO = "#0E1117"
+_REAB_PANEL_BG = "#161B22"
+_REAB_GRIS_PANEL = "#1A1D23"
+_REAB_BORDE = "#30363D"
+
+_SPIN_SS = f"""
+QSpinBox {{
+    background-color: #161B22;
+    color: #FFFFFF;
+    border: 2px solid {_REAB_CIAN};
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: 'Segoe UI';
+}}
+QSpinBox::up-button, QSpinBox::down-button {{
+    width: 18px;
+    border: none;
+    background: #1A2230;
+}}
+"""
+
+_COMBO_SS = f"""
+QComboBox {{
+    background-color: #161B22;
+    color: #FFFFFF;
+    border: 2px solid {_REAB_CIAN};
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: 'Segoe UI';
+}}
+QComboBox::drop-down {{
+    border: none;
+    width: 24px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: #161B22;
+    color: #FFFFFF;
+    selection-background-color: {_REAB_CIAN};
+    selection-color: #0E1117;
+    border: 1px solid {_REAB_CIAN};
+}}
+"""
+
+_CFG_INPUT_SS = f"""
+QLineEdit {{
+    background-color: #161B22;
+    color: #FFFFFF;
+    border: 2px solid {_REAB_CIAN};
+    border-radius: 10px;
+    padding: 4px 8px;
+    font-size: 13px;
+    font-family: 'Segoe UI';
+}}
+QLineEdit:focus {{
+    border: 2px solid #00E6B2;
+    background-color: #1A2230;
+    outline: none;
+}}
+"""
+
+_REAB_NEON_INPUT_SS = f"""
+QLineEdit {{
+    background-color: #161B22;
+    color: #FFFFFF;
+    border: 2px solid {_REAB_CIAN};
+    border-radius: 12px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-family: 'Segoe UI';
+}}
+QLineEdit:focus {{
+    border: 2px solid #00E6B2;
+    background-color: #1A2230;
+    outline: none;
+}}
+"""
+
+_REAB_BTN_CIAN_SS = f"""
+QPushButton {{
+    background-color: #0E1117;
+    color: {_REAB_CIAN};
+    font-weight: bold;
+    border-radius: 14px;
+    padding: 12px 24px;
+    font-size: 13px;
+    font-family: 'Segoe UI';
+    border: 2px solid {_REAB_CIAN};
+    outline: none;
+}}
+QPushButton:hover {{
+    background-color: {_REAB_CIAN};
+    color: #0E1117;
+    border: 2px solid {_REAB_CIAN};
+}}
+QPushButton:pressed {{
+    background-color: #00C79A;
+    color: #0E1117;
+}}
+QPushButton:focus {{
+    outline: none;
+}}
+"""
+
+_REAB_BTN_ROJO_SS = """
+QPushButton {
+    background-color: #0E1117;
+    color: #FF4B4B;
+    font-weight: bold;
+    border-radius: 14px;
+    padding: 10px 20px;
+    font-size: 12px;
+    font-family: 'Segoe UI';
+    border: 2px solid #FF4B4B;
+    outline: none;
+}
+QPushButton:hover {
+    background-color: #FF4B4B;
+    color: #0E1117;
+    border: 2px solid #FF4B4B;
+}
+QPushButton:focus {
+    outline: none;
+}
+"""
+
+_TAB_BTN_SS = f"""
+QPushButton {{
+    background-color: {_REAB_FONDO};
+    color: {_REAB_CIAN};
+    border: 2px solid {_REAB_CIAN};
+    border-radius: 22px;
+    font-size: 13px;
+    font-weight: bold;
+    font-family: 'Segoe UI';
+    padding: 10px 20px;
+    outline: none;
+}}
+QPushButton:hover {{
+    background-color: rgba(0,255,198,0.12);
+    border: 2px solid {_REAB_CIAN};
+}}
+"""
+
+_TAB_BTN_ACTIVO_SS = f"""
+QPushButton {{
+    background-color: {_REAB_CIAN};
+    color: {_REAB_FONDO};
+    border: 2px solid {_REAB_CIAN};
+    border-radius: 22px;
+    font-size: 13px;
+    font-weight: bold;
+    font-family: 'Segoe UI';
+    padding: 10px 20px;
+    outline: none;
+}}
+QPushButton:hover {{
+    background-color: #00E6B2;
+    border: 2px solid #00E6B2;
+}}
+"""
+
+_ACT_BTN_SS = f"""
+QPushButton {{
+    background-color: {_REAB_FONDO};
+    color: {_REAB_CIAN};
+    border: 2px solid {_REAB_CIAN};
+    border-radius: 22px;
+    font-size: 14px;
+    font-weight: bold;
+    font-family: 'Segoe UI';
+    padding: 10px 22px;
+    outline: none;
+}}
+QPushButton:hover {{
+    background-color: {_REAB_CIAN};
+    color: {_REAB_FONDO};
+}}
+QPushButton:pressed {{
+    background-color: #00C79A;
+    color: {_REAB_FONDO};
+}}
+"""
+
+_DIA_BTN_SS = f"""
+QPushButton {{
+    background-color: {_REAB_FONDO};
+    color: #8B949E;
+    border: 2px solid #8B949E;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: bold;
+    font-family: 'Segoe UI';
+    padding: 6px 0px;
+    outline: none;
+}}
+QPushButton:hover {{
+    border-color: {_REAB_CIAN};
+    color: {_REAB_CIAN};
+}}
+QPushButton:checked {{
+    background-color: {_REAB_CIAN};
+    color: #0E1117;
+    border: 2px solid {_REAB_CIAN};
+}}
+"""
+
+_CMB_HORA_SS = f"""
+QComboBox {{
+    background-color: #161B22;
+    color: #FFFFFF;
+    border: 2px solid {_REAB_CIAN};
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: bold;
+    font-family: 'Segoe UI';
+    outline: none;
+}}
+QComboBox::drop-down {{
+    width: 0px;
+    border: none;
+}}
+QComboBox::down-arrow {{
+    image: none;
+    width: 0px;
+    height: 0px;
+}}
+"""
+
+_SAVE_BTN_SS = """
+QPushButton {
+    background-color: #1ED760;
+    color: #0E1117;
+    border: 2px solid #1ED760;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: bold;
+    font-family: 'Segoe UI';
+    padding: 10px 26px;
+    outline: none;
+}
+QPushButton:hover {
+    background-color: #FFFFFF;
+    color: #0E1117;
+    border: 2px solid #1ED760;
+}
+QPushButton:pressed {
+    background-color: #12A845;
+    color: #0E1117;
+    border: 2px solid #12A845;
+}
+"""
+
+_EMAIL_INPUT_SS = f"""
+QLineEdit {{
+    background-color: #161B22;
+    color: #FFFFFF;
+    border: 2px solid {_REAB_CIAN};
+    border-radius: 10px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-family: 'Segoe UI';
+}}
+QLineEdit:focus {{
+    border: 2px solid #00E6B2;
+    background-color: #1A2230;
+    outline: none;
+}}
+"""
+
+_ESTADO_COLORES = {
+    "pendiente": ("#FFC857", "#0E1117"),
+    "aprobado":  (_REAB_CIAN, "#0E1117"),
+    "enviado":   ("#58A6FF", "#FFFFFF"),
+    "recibido":  ("#00FF87", "#0E1117"),
+    "cancelado": ("#FF4B4B", "#FFFFFF"),
+}
+
+
+def _sombra_cian_reab(widget):
+    fx = QGraphicsDropShadowEffect()
+    fx.setBlurRadius(22)
+    fx.setColor(QColor(_REAB_CIAN))
+    fx.setOffset(0)
+    widget.setGraphicsEffect(fx)
+
+
+def _crear_tabla_reab(parent, cols):
+    cont, tabla = construir_tabla_estilizada(parent)
+    tabla.setStyleSheet(f"""
+        QTableWidget {{
+            border: none;
+            background-color: transparent;
+            outline: none;
+        }}
+        QHeaderView {{
+            background-color: transparent;
+            border: none;
+        }}
+        QHeaderView::section {{
+            background-color: #1A1D23;
+            color: {_REAB_CIAN};
+            border: none;
+        }}
+        QHeaderView::section:hover {{
+            background-color: {_REAB_CIAN};
+            color: #0E1117;
+        }}
+        QHeaderView::section:first {{
+            border-top-left-radius: 18px;
+        }}
+        QHeaderView::section:last {{
+            border-top-right-radius: 18px;
+        }}
+    """)
+    cont.layout().setContentsMargins(2, 2, 2, 2)
+    tabla.setColumnCount(len(cols))
+    tabla.setHorizontalHeaderLabels(cols)
+    tabla.horizontalHeader().setStretchLastSection(True)
+    tabla.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    tabla.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    tabla.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    return cont, tabla
+
+
+def _reab_buscar_articulos(query: str):
+    try:
+        like = f"%{query}%"
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT codigo, nombre,
+                           COALESCE(Stock_tienda, 0),
+                           COALESCE(Stock_total, 0),
+                           COALESCE(Stock_central, 0)
+                    FROM articulos
+                    WHERE codigo LIKE %s OR nombre LIKE %s
+                    ORDER BY nombre ASC
+                    LIMIT 200
+                    """,
+                    (like, like),
+                )
+                return cur.fetchall()
+    except Exception:
+        return []
+
+
+def _reab_get_todos_articulos():
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT codigo, nombre FROM articulos ORDER BY nombre ASC")
+                return cur.fetchall()
+    except Exception:
+        return []
+
+
+def _reab_get_articulo_stock(codigo: str):
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT nombre, COALESCE(Stock_tienda,0), COALESCE(Stock_total,0), "
+                    "COALESCE(Stock_central,0), COALESCE(Stock_esperado,0) "
+                    "FROM articulos WHERE codigo=%s",
+                    (codigo,),
+                )
+                row = cur.fetchone()
+        if row:
+            return {
+                "nombre": row[0],
+                "lineal": row[1],
+                "almacen": row[2],
+                "central": row[3],
+                "esperado": row[4],
+            }
+        return None
+    except Exception:
+        return None
+
+
+def _reab_obtener_info_empresa() -> dict:
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT nombre_empresa, codigo_local FROM configuraciones LIMIT 1"
+                )
+                r = cur.fetchone()
+                if r:
+                    return {"nombre": r[0] or "SMART MANAGER", "codigo": r[1] or ""}
+    except Exception:
+        pass
+    return {"nombre": "SMART MANAGER", "codigo": ""}
+
+
+def _reab_enviar_email_pdf_impl(email_destino: str, ruta_pdf: str,
+                                smtp_user: str = "", smtp_pass: str = "",
+                                props: list = None, solo_prueba: bool = False) -> bool:
+    import smtplib
+    from email import encoders as _enc
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    from src.utils.reab_webhook import generar_urls
+    if not smtp_user:
+        smtp_user = os.environ.get("SMTP_USER", "")
+    if not smtp_pass:
+        smtp_pass = os.environ.get("SMTP_PASSWORD", "")
+    if not smtp_user or not smtp_pass:
+        import logging
+        logging.getLogger("reabastecimiento").warning(
+            "SMTP no configurado. Configura el correo remitente en RESPONSABLE LOGÍSTICA."
+        )
+        return False
+    domain = smtp_user.split("@")[-1].lower() if "@" in smtp_user else ""
+    if domain == "gmail.com":
+        smtp_host, smtp_port = "smtp.gmail.com", 587
+    elif domain in ("hotmail.com", "outlook.com", "live.com", "msn.com", "office365.com"):
+        smtp_host, smtp_port = "smtp.office365.com", 587
+    else:
+        smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+
+    fecha = datetime.now().strftime("%d/%m/%Y")
+    filas_html = ""
+    if props:
+        for p in props:
+            url_ap, url_de = generar_urls(p["id"])
+            filas_html += f"""
+            <tr>
+              <td style="padding:12px 16px;border-bottom:1px solid #30363D;">{p.get('codigo','')}</td>
+              <td style="padding:12px 16px;border-bottom:1px solid #30363D;">{p.get('nombre','')}</td>
+              <td style="padding:12px 16px;border-bottom:1px solid #30363D;text-align:center;">{p.get('cantidad','')}</td>
+              <td style="padding:12px 16px;border-bottom:1px solid #30363D;text-align:center;">
+                <a href="{url_ap}" style="display:inline-block;background:#00FFC6;color:#0E1117;
+                   font-weight:bold;padding:8px 18px;border-radius:8px;text-decoration:none;
+                   margin-right:8px;">APROBAR</a>
+                <a href="{url_de}" style="display:inline-block;background:#FF4B4B;color:#fff;
+                   font-weight:bold;padding:8px 18px;border-radius:8px;text-decoration:none;">
+                   DENEGAR</a>
+              </td>
+            </tr>"""
+
+    html_body = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#0E1117;font-family:Arial,sans-serif;color:#fff;">
+  <div style="max-width:700px;margin:32px auto;background:#161B22;border-radius:16px;
+              border:1px solid #30363D;overflow:hidden;">
+    <div style="background:#00FFC6;padding:24px 32px;">
+      <h1 style="margin:0;color:#0E1117;font-size:20px;">Smart Manager</h1>
+      <p style="margin:4px 0 0;color:#0a3d2e;font-size:14px;">
+        Informe de Reabastecimiento — {fecha}
+      </p>
+    </div>
+    <div style="padding:32px;">
+      <p style="color:#8B949E;margin-top:0;">
+        Estimado responsable de logística, adjunto encontrará el informe PDF con las
+        propuestas de reabastecimiento pendientes. Puede aprobar o denegar cada propuesta
+        directamente desde este correo:
+      </p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#21262D;">
+            <th style="padding:10px 16px;text-align:left;color:#8B949E;">EAN</th>
+            <th style="padding:10px 16px;text-align:left;color:#8B949E;">ARTÍCULO</th>
+            <th style="padding:10px 16px;text-align:center;color:#8B949E;">CANTIDAD</th>
+            <th style="padding:10px 16px;text-align:center;color:#8B949E;">ACCIÓN</th>
+          </tr>
+        </thead>
+        <tbody>{filas_html}</tbody>
+      </table>
+      <p style="color:#8B949E;font-size:12px;margin-top:24px;">
+        Los botones funcionan mientras la aplicación Smart Manager esté en ejecución en la
+        tienda. El estado se actualizará automáticamente al hacer clic.
+      </p>
+    </div>
+  </div>
+</body></html>"""
+
+    try:
+        asunto = ("✉ Prueba de configuración SMTP — Smart Manager" if solo_prueba
+                  else f"Informe de Reabastecimiento — {fecha}")
+        msg = MIMEMultipart("alternative")
+        msg["From"] = smtp_user
+        msg["To"] = email_destino
+        msg["Subject"] = asunto
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        if not solo_prueba and ruta_pdf:
+            with open(ruta_pdf, "rb") as f:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(f.read())
+            _enc.encode_base64(part)
+            part.add_header(
+                "Content-Disposition",
+                f"attachment; filename={os.path.basename(ruta_pdf)}",
+            )
+            msg.attach(part)
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, email_destino, msg.as_string())
+        return True
+    except Exception as exc:
+        import logging
+        logging.getLogger("reabastecimiento").error(f"Error enviando email: {exc}")
+        return False
+
+
+def _reab_generar_pdf(propuestas: list) -> str:
+    if not _REPORTLAB_REAB_OK:
+        return "ERROR: reportlab no está instalado"
+    try:
+        empresa = _reab_obtener_info_empresa()
+        out_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../../documentos/pedidos_reabastecimiento")
+        )
+        os.makedirs(out_dir, exist_ok=True)
+        fname = f"Reabastecimiento_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        ruta = os.path.join(out_dir, fname)
+
+        doc = _RL_DOC(ruta, pagesize=_RL_A4,
+                      leftMargin=1.8*_RL_CM, rightMargin=1.8*_RL_CM,
+                      topMargin=2*_RL_CM, bottomMargin=2.2*_RL_CM)
+
+        styles = _RL_STYLES()
+        negro = _RL_COLORS.black
+        gris_oscuro = _RL_COLORS.HexColor("#333333")
+        gris_medio = _RL_COLORS.HexColor("#666666")
+        gris_claro = _RL_COLORS.HexColor("#F4F4F4")
+        gris_linea = _RL_COLORS.HexColor("#CCCCCC")
+
+        title_st = _RL_PARASTYLE("t_title", parent=styles["Normal"],
+                                 fontSize=22, leading=28, fontName="Helvetica-Bold",
+                                 textColor=negro, spaceAfter=3)
+        sub_st = _RL_PARASTYLE("t_sub", parent=styles["Normal"],
+                                fontSize=13, leading=17, fontName="Helvetica",
+                                textColor=gris_oscuro, spaceAfter=2)
+        ref_st = _RL_PARASTYLE("t_ref", parent=styles["Normal"],
+                                fontSize=10, leading=14, fontName="Helvetica-Bold",
+                                textColor=negro, spaceAfter=2)
+        meta_st = _RL_PARASTYLE("t_meta", parent=styles["Normal"],
+                                 fontSize=9, leading=13, fontName="Helvetica",
+                                 textColor=gris_medio, spaceAfter=0)
+        section_st = _RL_PARASTYLE("t_sec", parent=styles["Normal"],
+                                   fontSize=10, leading=14, fontName="Helvetica-Bold",
+                                   textColor=negro, spaceBefore=10, spaceAfter=5)
+        footer_st = _RL_PARASTYLE("t_foot", parent=styles["Normal"],
+                                   fontSize=8, leading=11, fontName="Helvetica",
+                                   textColor=gris_medio, alignment=1)
+
+        sep = _RL_TABLE([[""]], colWidths=[17.4*_RL_CM])
+        sep.setStyle(_RL_TABLESTYLE([
+            ("LINEBELOW",     (0, 0), (-1, -1), 1.2, negro),
+            ("TOPPADDING",    (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+
+        col_widths = [2.2*_RL_CM, 7.0*_RL_CM, 2.0*_RL_CM, 3.1*_RL_CM, 3.1*_RL_CM]
+        header_row = [["CÓDIGO", "ARTÍCULO", "CANTIDAD", "STOCK ACTUAL", "STOCK OBJ."]]
+        data_rows = [
+            [p["codigo"], p["nombre"], str(p["cantidad"]),
+             str(p["stock_actual"]), str(p["stock_objetivo"])]
+            for p in propuestas
+        ]
+        tbl = _RL_TABLE(header_row + data_rows, colWidths=col_widths, repeatRows=1)
+        tbl.setStyle(_RL_TABLESTYLE([
+            ("BACKGROUND",    (0, 0), (-1, 0),  negro),
+            ("TEXTCOLOR",     (0, 0), (-1, 0),  _RL_COLORS.white),
+            ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
+            ("FONTSIZE",      (0, 0), (-1, 0),  9),
+            ("ALIGN",         (0, 0), (-1, 0),  "CENTER"),
+            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_RL_COLORS.white, gris_claro]),
+            ("TEXTCOLOR",     (0, 1), (-1, -1), negro),
+            ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
+            ("FONTSIZE",      (0, 1), (-1, -1), 9),
+            ("ALIGN",         (0, 1), (-1, -1), "CENTER"),
+            ("ALIGN",         (1, 1), (1, -1),  "LEFT"),
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING",    (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+            ("GRID",          (0, 0), (-1, -1), 0.4, gris_linea),
+            ("LINEABOVE",     (0, 0), (-1, 0),  1.5, negro),
+            ("LINEBELOW",     (0, 0), (-1, 0),  1.0, negro),
+            ("LINEBELOW",     (0, -1), (-1, -1), 1.0, negro),
+        ]))
+
+        now_str = datetime.now().strftime("%d/%m/%Y  %H:%M")
+        ref_line = empresa["nombre"]
+        if empresa["codigo"]:
+            ref_line += f"  ·  Ref. tienda: {empresa['codigo']}"
+
+        story = [
+            _RL_PARA(empresa["nombre"].upper(), title_st),
+            _RL_PARA("Propuesta de Reabastecimiento — Artículos Pendientes", sub_st),
+            _RL_PARA(f"Referencia: {empresa['codigo'] or '—'}", ref_st),
+            _RL_PARA(
+                f"Fecha de emisión: {now_str}  ·  Artículos pendientes: {len(propuestas)}",
+                meta_st,
+            ),
+            _RL_SPACER(1, 0.3*_RL_CM),
+            sep,
+            _RL_SPACER(1, 0.4*_RL_CM),
+            _RL_PARA("ARTÍCULOS PENDIENTES DE REABASTECIMIENTO", section_st),
+            tbl,
+            _RL_SPACER(1, 0.6*_RL_CM),
+            sep,
+            _RL_SPACER(1, 0.2*_RL_CM),
+            _RL_PARA(
+                f"Documento generado automáticamente por Smart Manager  ·  {now_str}",
+                footer_st,
+            ),
+        ]
+        doc.build(story)
+        return ruta
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+class StockReplenishmentEngine(QObject):
+    propuesta_creada = pyqtSignal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def evaluate(self, codigo: str):
+        cfg = _reab_obtener_config(codigo)
+        if not cfg or not cfg["automatico"]:
+            return
+        art = _reab_get_articulo_stock(codigo)
+        if not art:
+            return
+        stock_actual = art["lineal"] + art["almacen"]
+        if stock_actual > cfg["umbral_min"]:
+            return
+        if _reab_propuesta_pendiente_existe(codigo):
+            return
+        cantidad = max(0, cfg["stock_objetivo"] - stock_actual)
+        if cantidad <= 0:
+            return
+        origen = "ALMACÉN CENTRAL" if art.get("central", 0) > 0 else "PROVEEDOR"
+        pid = _reab_crear_propuesta(
+            codigo, art["nombre"], cantidad,
+            origen, stock_actual, cfg["stock_objetivo"]
+        )
+        if pid:
+            self.propuesta_creada.emit({
+                "id": pid, "codigo": codigo, "nombre": art["nombre"],
+                "cantidad": cantidad, "origen": origen,
+            })
+
+    def evaluate_all(self):
+        for item in _reab_listar_config():
+            self.evaluate(item["codigo"])
+
+
+class _BuscarArticuloDialogReab(QDialog):
+    articulo_seleccionado = pyqtSignal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._drag_pos = None
+        self._resultado = None
+        self._articulos = []
+        self._build_ui()
+        self.resize(600, 480)
+        if parent:
+            pg = parent.geometry()
+            self.move(
+                pg.center().x() - 300,
+                pg.center().y() - 240,
+            )
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background-color: #0D1117;
+                border: 2px solid {_REAB_CIAN};
+                border-radius: 18px;
+            }}
+        """)
+        card.mousePressEvent = self._card_press
+        card.mouseMoveEvent = self._card_move
+        card.mouseReleaseEvent = lambda e: setattr(self, '_drag_pos', None)
+        outer.addWidget(card)
+
+        ly = QVBoxLayout(card)
+        ly.setContentsMargins(24, 20, 24, 20)
+        ly.setSpacing(14)
+
+        title = QLabel("AÑADIR ARTÍCULO AL CONTROL")
+        title.setFont(QFont("Segoe UI", 15, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {_REAB_CIAN}; background: transparent; border: none;")
+        ly.addWidget(title)
+
+        self.buscador = QLineEdit()
+        self.buscador.setPlaceholderText("Buscar por código o nombre…")
+        self.buscador.setStyleSheet(_REAB_NEON_INPUT_SS)
+        self.buscador.setFixedHeight(44)
+        self.buscador.textChanged.connect(self._filtrar)
+        ly.addWidget(self.buscador)
+
+        self.lista = QTableWidget(0, 2)
+        self.lista.setHorizontalHeaderLabels(["Código", "Nombre"])
+        self.lista.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.lista.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.lista.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.lista.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.lista.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.lista.setStyleSheet(f"""
+            QTableWidget {{ background: #161B22; color: #FFF; border: 1px solid {_REAB_BORDE}; border-radius: 10px; }}
+            QHeaderView::section {{ background: #1A1D23; color: {_REAB_CIAN}; border: none; padding: 6px; }}
+            QTableWidget::item:selected {{ background: {_REAB_CIAN}44; color: #FFF; }}
+        """)
+        self.lista.setFixedHeight(180)
+        self.lista.itemDoubleClicked.connect(self._seleccionar_fila)
+        ly.addWidget(self.lista)
+
+        cfg_frame = QFrame()
+        cfg_frame.setStyleSheet(f"background: #161B22; border: 1px solid {_REAB_BORDE}; border-radius: 12px;")
+        cfg_ly = QVBoxLayout(cfg_frame)
+        cfg_ly.setContentsMargins(16, 12, 16, 12)
+        cfg_ly.setSpacing(10)
+
+        def _row(label, widget):
+            r = QHBoxLayout()
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color: #8B949E; font-size: 13px; background: transparent; border: none;")
+            lbl.setFixedWidth(160)
+            r.addWidget(lbl)
+            r.addWidget(widget)
+            cfg_ly.addLayout(r)
+
+        self.spin_umbral = QSpinBox()
+        self.spin_umbral.setRange(0, 9999)
+        self.spin_umbral.setValue(5)
+        self.spin_umbral.setStyleSheet(_SPIN_SS)
+        self.spin_umbral.setFixedHeight(38)
+        _row("Umbral mínimo:", self.spin_umbral)
+
+        self.spin_objetivo = QSpinBox()
+        self.spin_objetivo.setRange(0, 9999)
+        self.spin_objetivo.setValue(20)
+        self.spin_objetivo.setStyleSheet(_SPIN_SS)
+        self.spin_objetivo.setFixedHeight(38)
+        _row("Stock objetivo:", self.spin_objetivo)
+
+        self.combo_origen = QComboBox()
+        self.combo_origen.addItems(["ALMACÉN CENTRAL", "PROVEEDOR"])
+        self.combo_origen.setStyleSheet(_COMBO_SS)
+        self.combo_origen.setFixedHeight(38)
+        _row("Origen de reposición:", self.combo_origen)
+
+        self.chk_auto = QCheckBox("Activar reposición automática")
+        self.chk_auto.setChecked(True)
+        self.chk_auto.setStyleSheet("color: #FFF; font-size: 13px; background: transparent; border: none;")
+        cfg_ly.addWidget(self.chk_auto)
+
+        ly.addWidget(cfg_frame)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+        btn_ok = QPushButton("AÑADIR")
+        btn_ok.setStyleSheet(_REAB_BTN_CIAN_SS)
+        btn_ok.setFixedHeight(44)
+        btn_ok.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_ok.clicked.connect(self._confirmar)
+        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel.setStyleSheet(_REAB_BTN_ROJO_SS)
+        btn_cancel.setFixedHeight(44)
+        btn_cancel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(btn_cancel)
+        ly.addLayout(btn_row)
+
+        self._cargar_articulos()
+
+    def _cargar_articulos(self):
+        self._articulos = _reab_get_todos_articulos()
+        self._mostrar(self._articulos)
+
+    def _filtrar(self, texto):
+        t = texto.lower().strip()
+        if not t:
+            self._mostrar(self._articulos)
+        else:
+            self._mostrar([a for a in self._articulos if t in a[0].lower() or t in a[1].lower()])
+
+    def _mostrar(self, rows):
+        self.lista.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c, v in enumerate([str(row[0]), str(row[1])]):
+                item = QTableWidgetItem(v)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.lista.setItem(r, c, item)
+
+    def _seleccionar_fila(self, item):
+        row = item.row()
+        codigo_item = self.lista.item(row, 0)
+        if codigo_item:
+            self.buscador.setText(codigo_item.text())
+
+    def _confirmar(self):
+        rows = self.lista.selectedItems()
+        if not rows:
+            texto = self.buscador.text().strip()
+            if not texto:
+                return
+            codigo = texto.split("–")[0].split("-")[0].strip()
+        else:
+            row = rows[0].row()
+            codigo = self.lista.item(row, 0).text()
+        art = _reab_get_articulo_stock(codigo)
+        if not art:
+            QMessageBox.warning(self, "Error", "Artículo no encontrado.")
+            return
+        _reab_upsert_config(
+            codigo,
+            self.spin_umbral.value(),
+            self.spin_objetivo.value(),
+            self.combo_origen.currentText(),
+            self.chk_auto.isChecked(),
+        )
+        self.articulo_seleccionado.emit({"codigo": codigo, "nombre": art["nombre"]})
+        self.accept()
+
+    def _card_press(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def _card_move(self, event):
+        if self._drag_pos and event.buttons() == Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+
+class _EditarConfigDialogReab(QDialog):
+    def __init__(self, codigo: str, nombre: str, cfg: dict, parent=None):
+        super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._drag_pos = None
+        self.codigo = codigo
+        self._build_ui(nombre, cfg)
+        self.resize(480, 360)
+        if parent:
+            pg = parent.geometry()
+            self.move(pg.center().x() - 240, pg.center().y() - 180)
+
+    def _build_ui(self, nombre, cfg):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        card = QFrame()
+        card.setStyleSheet(f"QFrame {{ background: #0D1117; border: 2px solid {_REAB_CIAN}; border-radius: 18px; }}")
+        card.mousePressEvent = lambda e: setattr(self, '_drag_pos', e.globalPosition().toPoint() - self.frameGeometry().topLeft()) if e.button() == Qt.MouseButton.LeftButton else None
+        card.mouseMoveEvent = lambda e: self.move(e.globalPosition().toPoint() - self._drag_pos) if self._drag_pos and e.buttons() == Qt.MouseButton.LeftButton else None
+        card.mouseReleaseEvent = lambda e: setattr(self, '_drag_pos', None)
+        outer.addWidget(card)
+
+        ly = QVBoxLayout(card)
+        ly.setContentsMargins(24, 20, 24, 20)
+        ly.setSpacing(14)
+
+        title = QLabel("EDITAR CONFIGURACIÓN")
+        title.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {_REAB_CIAN}; background: transparent; border: none;")
+        ly.addWidget(title)
+
+        lbl_art = QLabel(f"{nombre}  ({self.codigo})")
+        lbl_art.setStyleSheet("color: #8B949E; font-size: 12px; background: transparent; border: none;")
+        ly.addWidget(lbl_art)
+
+        def _row(label, widget):
+            r = QHBoxLayout()
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color: #8B949E; font-size: 13px; background: transparent; border: none;")
+            lbl.setFixedWidth(160)
+            r.addWidget(lbl)
+            r.addWidget(widget)
+            ly.addLayout(r)
+
+        self.spin_umbral = QSpinBox()
+        self.spin_umbral.setRange(0, 9999)
+        self.spin_umbral.setValue(cfg.get("umbral_min", 5))
+        self.spin_umbral.setStyleSheet(_SPIN_SS)
+        self.spin_umbral.setFixedHeight(38)
+        _row("Umbral mínimo:", self.spin_umbral)
+
+        self.spin_objetivo = QSpinBox()
+        self.spin_objetivo.setRange(0, 9999)
+        self.spin_objetivo.setValue(cfg.get("stock_objetivo", 20))
+        self.spin_objetivo.setStyleSheet(_SPIN_SS)
+        self.spin_objetivo.setFixedHeight(38)
+        _row("Stock objetivo:", self.spin_objetivo)
+
+        self.combo_origen = QComboBox()
+        self.combo_origen.addItems(["ALMACÉN CENTRAL", "PROVEEDOR"])
+        self.combo_origen.setCurrentText(cfg.get("origen", "ALMACÉN CENTRAL"))
+        self.combo_origen.setStyleSheet(_COMBO_SS)
+        self.combo_origen.setFixedHeight(38)
+        _row("Origen:", self.combo_origen)
+
+        self.chk_auto = QCheckBox("Reposición automática")
+        self.chk_auto.setChecked(cfg.get("automatico", True))
+        self.chk_auto.setStyleSheet("color: #FFF; font-size: 13px; background: transparent; border: none;")
+        ly.addWidget(self.chk_auto)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+        btn_ok = QPushButton("GUARDAR")
+        btn_ok.setStyleSheet(_REAB_BTN_CIAN_SS)
+        btn_ok.setFixedHeight(44)
+        btn_ok.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_ok.clicked.connect(self._guardar)
+        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel.setStyleSheet(_REAB_BTN_ROJO_SS)
+        btn_cancel.setFixedHeight(44)
+        btn_cancel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(btn_cancel)
+        ly.addLayout(btn_row)
+
+    def _guardar(self):
+        _reab_upsert_config(
+            self.codigo,
+            self.spin_umbral.value(),
+            self.spin_objetivo.value(),
+            self.combo_origen.currentText(),
+            self.chk_auto.isChecked(),
+        )
+        self.accept()
+
+
+class _HistorialDialogReab(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._drag_pos = None
+        self._build_ui()
+        self.resize(900, 540)
+        if parent:
+            pg = parent.geometry()
+            self.move(pg.center().x() - 450, pg.center().y() - 270)
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        card = QFrame()
+        card.setStyleSheet(f"QFrame {{ background: #0D1117; border: 2px solid {_REAB_CIAN}; border-radius: 18px; }}")
+        card.mousePressEvent = lambda e: setattr(self, '_drag_pos', e.globalPosition().toPoint() - self.frameGeometry().topLeft()) if e.button() == Qt.MouseButton.LeftButton else None
+        card.mouseMoveEvent = lambda e: self.move(e.globalPosition().toPoint() - self._drag_pos) if self._drag_pos and e.buttons() == Qt.MouseButton.LeftButton else None
+        card.mouseReleaseEvent = lambda e: setattr(self, '_drag_pos', None)
+        outer.addWidget(card)
+
+        ly = QVBoxLayout(card)
+        ly.setContentsMargins(24, 20, 24, 20)
+        ly.setSpacing(14)
+
+        title = QLabel("HISTORIAL DE PROPUESTAS")
+        title.setFont(QFont("Segoe UI", 15, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {_REAB_CIAN}; background: transparent; border: none;")
+        ly.addWidget(title)
+
+        cols = ["ID", "ARTÍCULO", "CANTIDAD", "ORIGEN", "ESTADO", "CREACIÓN", "ACCIÓN"]
+        self.tabla = QTableWidget(0, len(cols))
+        self.tabla.setHorizontalHeaderLabels(cols)
+        hh = self.tabla.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tabla.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.tabla.setStyleSheet(f"""
+            QTableWidget {{ background: #161B22; color: #FFF; border: 1px solid {_REAB_BORDE}; border-radius: 10px; outline: none; }}
+            QHeaderView::section {{ background: #1A1D23; color: {_REAB_CIAN}; border: none; padding: 6px; font-size: 13px; font-weight: bold; }}
+            QHeaderView::section:hover {{ background: {_REAB_CIAN}; color: #0E1117; }}
+            QTableWidget::item:selected {{ background: {_REAB_CIAN}22; }}
+        """)
+        ly.addWidget(self.tabla)
+
+        btn_cerrar = QPushButton("CERRAR")
+        btn_cerrar.setStyleSheet(_REAB_BTN_ROJO_SS)
+        btn_cerrar.setFixedHeight(44)
+        btn_cerrar.setFixedWidth(160)
+        btn_cerrar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_cerrar.clicked.connect(self.accept)
+        ly.addWidget(btn_cerrar, alignment=Qt.AlignmentFlag.AlignRight)
+
+        self._cargar()
+
+    def _cargar(self):
+        props = _reab_listar_propuestas()
+        self.tabla.setRowCount(len(props))
+        for r, p in enumerate(props):
+            estado = p["estado"]
+            bg, fg = _ESTADO_COLORES.get(estado, ("#8B949E", "#FFF"))
+            vals = [
+                str(p["id"]),
+                p["nombre"],
+                str(p["cantidad"]),
+                p["origen"],
+                estado.upper(),
+                str(p["fecha_creacion"])[:16] if p["fecha_creacion"] else "—",
+                str(p["fecha_accion"])[:16] if p["fecha_accion"] else "—",
+            ]
+            for c, v in enumerate(vals):
+                item = QTableWidgetItem(v)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if c == 4:
+                    item.setBackground(QColor(bg))
+                    item.setForeground(QColor(fg))
+                self.tabla.setItem(r, c, item)
+
+
+class _ReabItemDelegateReab(QStyledItemDelegate):
+    """Rounded-corner item delegate for _ReabComboBoxReab popups."""
+
+    def paint(self, painter, option, index):
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        is_sel   = bool(option.state & QStyle.StateFlag.State_Selected)
+        is_hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        rect = QRectF(option.rect).adjusted(4, 2, -4, -2)
+        path = QPainterPath()
+        path.addRoundedRect(rect, 6, 6)
+        if is_sel or is_hover:
+            painter.fillPath(path, QColor(_REAB_CIAN))
+        txt_color = QColor("#0E1117") if (is_sel or is_hover) else QColor("#FFFFFF")
+        painter.setPen(txt_color)
+        painter.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        painter.drawText(
+            option.rect.adjusted(14, 0, -14, 0),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            index.data() or "",
+        )
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        sh = super().sizeHint(option, index)
+        sh.setHeight(38)
+        return sh
+
+
+class _ReabComboBoxReab(QComboBox):
+    """QComboBox styled for the RESPONSABLE LOGÍSTICA page."""
+
+    _fusion_style = None
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._popup_ready = False
+        if _ReabComboBoxReab._fusion_style is None:
+            _ReabComboBoxReab._fusion_style = QStyleFactory.create("Fusion")
+        self.setStyle(_ReabComboBoxReab._fusion_style)
+        self.setMaxVisibleItems(5)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        clip = QPainterPath()
+        clip.addRoundedRect(QRectF(2, 2, self.width() - 4, self.height() - 4), 8, 8)
+        p.setClipPath(clip)
+        p.fillRect(self.width() - 30, 2, 28, self.height() - 4, QColor("#161B22"))
+        p.end()
+
+    def showPopup(self):
+        if not self._popup_ready:
+            self._popup_ready = True
+            view = self.view()
+            vp = view.viewport()
+            vp.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            vp.setStyleSheet("background:#1A1D23;")
+            view.setFrameShape(QFrame.Shape.NoFrame)
+            view.setItemDelegate(_ReabItemDelegateReab(self))
+            container = view.parent()
+            if isinstance(container, QWidget) and container is not self:
+                container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+                container.setWindowFlags(
+                    container.windowFlags()
+                    | Qt.WindowType.FramelessWindowHint
+                    | Qt.WindowType.NoDropShadowWindowHint
+                )
+        super().showPopup()
+        _v = self.view()
+        if _v is not None:
+            _p = _v.window()
+            if _p is not self:
+                _p.setWindowOpacity(0.0)
+        QTimer.singleShot(0, self._fix_popup)
+
+    def _fix_popup(self):
+        view = self.view()
+        if view is None:
+            return
+        popup = view.window()
+        if popup is self:
+            return
+        if hasattr(popup, "setFrameShape"):
+            popup.setFrameShape(QFrame.Shape.NoFrame)
+            popup.setLineWidth(0)
+            popup.setMidLineWidth(0)
+        popup.setAutoFillBackground(False)
+        popup.setStyleSheet("background: transparent;")
+        popup.setContentsMargins(0, 0, 0, 0)
+        if popup.layout() is not None:
+            popup.layout().setContentsMargins(0, 0, 0, 0)
+            popup.layout().setSpacing(0)
+        for _child in popup.children():
+            if isinstance(_child, QWidget) and _child is not view:
+                _child.setFixedSize(0, 0)
+                _child.hide()
+        view.setStyleSheet(
+            f"QAbstractItemView{{background:#1A1D23;border:2px solid {_REAB_CIAN};"
+            f"border-radius:10px;outline:none;}}"
+            f"QScrollBar:vertical{{background:transparent;width:12px;margin:2px 0px;}}"
+            f"QScrollBar::handle:vertical{{background:{_REAB_CIAN};min-height:24px;border-radius:6px;}}"
+            f"QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{"
+            f"border:none;background:none;width:0px;height:0px;}}"
+            f"QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{{background:transparent;}}"
+        )
+        view.setAutoScroll(False)
+        _item_h = view.sizeHintForRow(0) if self.count() > 0 else 38
+        _max_view_h = 5 * _item_h + 4
+        if view.height() > _max_view_h or self.count() > 5:
+            view.setFixedHeight(_max_view_h)
+            popup.resize(popup.width(), _max_view_h)
+        view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        # Scroll por píxel: sin hueco vacío bajo el último item.
+        view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        sb = view.verticalScrollBar()
+        if sb is not None:
+            sb.show()
+        global_bottom = self.mapToGlobal(QPoint(0, self.height()))
+        popup.move(global_bottom.x(), global_bottom.y())
+        sz = popup.size()
+        if sz.width() > 0 and sz.height() > 0:
+            _ = popup.winId()
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(0, 0, sz.width(), sz.height()), 10, 10)
+            popup.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        popup.setWindowOpacity(1.0)
+
+
+class _ReabastecimientoPage(QWidget):
+    _sig_prueba_ok = pyqtSignal()
+    _sig_prueba_err = pyqtSignal()
+
+    def __init__(self, engine: StockReplenishmentEngine, parent=None):
+        super().__init__(parent)
+        self._engine = engine
+        self._engine.propuesta_creada.connect(self._on_propuesta_auto)
+        try:
+            from src.db.conexion import stock_signals as _db_signals
+            _db_signals.stock_actualizado.connect(self._on_stock_cambio)
+            _db_signals.propuestas_actualizadas.connect(self._cargar_config)
+            _db_signals.propuestas_actualizadas.connect(self._cargar_propuestas)
+            _db_signals.propuestas_actualizadas.connect(self._cargar_historial)
+        except Exception:
+            pass
+        self._build_ui()
+        self._sig_prueba_ok.connect(self._on_prueba_ok)
+        self._sig_prueba_err.connect(self._on_prueba_err)
+        self._schedule_timer = QTimer(self)
+        self._schedule_timer.setInterval(60_000)
+        self._schedule_timer.timeout.connect(self._check_schedule)
+        self._schedule_timer.start()
+        try:
+            from src.utils import reab_webhook as _wh
+            _wh.iniciar_servidor()
+            if _wh.webhook_signals is not None:
+                _wh.webhook_signals.propuesta_actualizada.connect(
+                    self._recargar_desde_webhook)
+        except Exception:
+            pass
+
+    def _act_btn_loading(self, label, fn):
+        btn = QPushButton(label)
+        btn.setStyleSheet(_ACT_BTN_SS)
+        btn.setFixedHeight(44)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn.clicked.connect(lambda: self._with_loading(btn, fn))
+        return btn
+
+    def _with_loading(self, btn: QPushButton, fn):
+        if not btn.isEnabled():
+            return
+        from PyQt6.QtWidgets import QApplication
+        original = btn.text()
+        btn.setText("⟳  Cargando...")
+        btn.setEnabled(False)
+        QApplication.processEvents()
+        try:
+            fn()
+        finally:
+            btn.setText(original)
+            btn.setEnabled(True)
+
+    def _ir_tab(self, idx: int):
+        self._stack.setCurrentIndex(idx)
+        for i, btn in enumerate(self._tab_btns):
+            btn.setStyleSheet(_TAB_BTN_ACTIVO_SS if i == idx else _TAB_BTN_SS)
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 24, 24, 16)
+        root.setSpacing(14)
+
+        lbl = QLabel("Reabastecimiento")
+        lbl.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
+        lbl.setStyleSheet(f"color: {_REAB_CIAN};")
+        root.addWidget(lbl)
+
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(12)
+        nav_row.setContentsMargins(0, 0, 0, 0)
+
+        tab_labels = [
+            "ARTÍCULOS MONITORIZADOS",
+            "PROPUESTAS ACTIVAS",
+            "HISTORIAL COMPLETO",
+            "RESPONSABLE LOGÍSTICA",
+        ]
+        self._tab_btns = []
+        for i, label in enumerate(tab_labels):
+            btn = QPushButton(label)
+            btn.setFixedHeight(44)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.clicked.connect(lambda _, idx=i: self._ir_tab(idx))
+            nav_row.addWidget(btn)
+            self._tab_btns.append(btn)
+
+        root.addLayout(nav_row)
+
+        self._stack = QStackedWidget()
+        self._stack.setStyleSheet(f"background: {_REAB_FONDO};")
+
+        # Page 0: ARTÍCULOS MONITORIZADOS
+        page0 = QWidget()
+        page0.setStyleSheet(f"background: {_REAB_FONDO};")
+        p0_ly = QVBoxLayout(page0)
+        p0_ly.setContentsMargins(0, 8, 0, 0)
+        p0_ly.setSpacing(8)
+
+        p0_hdr = QHBoxLayout()
+        btn_guardar_cfg = QPushButton("GUARDAR")
+        btn_guardar_cfg.setStyleSheet(_SAVE_BTN_SS)
+        btn_guardar_cfg.setFixedHeight(46)
+        btn_guardar_cfg.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_guardar_cfg.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_guardar_cfg.clicked.connect(self._guardar_config)
+        p0_hdr.addWidget(btn_guardar_cfg)
+        p0_hdr.addStretch()
+        p0_hdr.addWidget(self._act_btn_loading("⟳  ACTUALIZAR", self._cargar_config))
+        p0_ly.addLayout(p0_hdr)
+
+        cols_cfg = ["EAN", "ARTÍCULO", "STOCK TIENDA", "STOCK CENTRAL", "UMBRAL MÍN", "STOCK OBJETIVO"]
+        self._cont_cfg, self._tbl_cfg = _crear_tabla_reab(self, cols_cfg)
+        hh = self._tbl_cfg.horizontalHeader()
+        hh.setStretchLastSection(False)
+        for i in range(len(cols_cfg)):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+        self._tbl_cfg.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._tbl_cfg.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._tbl_cfg.verticalHeader().setVisible(False)
+        p0_ly.addWidget(self._cont_cfg)
+        self._stack.addWidget(page0)
+
+        # Page 1: PROPUESTAS ACTIVAS
+        page1 = QWidget()
+        page1.setStyleSheet(f"background: {_REAB_FONDO};")
+        p1_ly = QVBoxLayout(page1)
+        p1_ly.setContentsMargins(0, 8, 0, 0)
+        p1_ly.setSpacing(8)
+
+        p1_hdr = QHBoxLayout()
+        p1_hdr.addStretch()
+        p1_hdr.addWidget(self._act_btn_loading("⟳  ACTUALIZAR", self._verificar_y_crear_propuestas))
+        p1_ly.addLayout(p1_hdr)
+
+        cols_prop = ["EAN", "ARTÍCULO", "CANTIDAD", "ESTADO", "FECHA"]
+        self._cont_prop, self._tbl_prop = _crear_tabla_reab(self, cols_prop)
+        ph = self._tbl_prop.horizontalHeader()
+        ph.setStretchLastSection(False)
+        ph.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        ph.resizeSection(0, 160)
+        ph.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        ph.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        ph.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        ph.resizeSection(3, 200)
+        ph.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self._tbl_prop.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._tbl_prop.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._tbl_prop.verticalHeader().setVisible(False)
+        p1_ly.addWidget(self._cont_prop)
+        self._stack.addWidget(page1)
+
+        # Page 2: HISTORIAL COMPLETO
+        page2 = QWidget()
+        page2.setStyleSheet(f"background: {_REAB_FONDO};")
+        p2_ly = QVBoxLayout(page2)
+        p2_ly.setContentsMargins(0, 8, 0, 0)
+        p2_ly.setSpacing(8)
+
+        p2_hdr = QHBoxLayout()
+        p2_hdr.addStretch()
+        p2_hdr.addWidget(self._act_btn_loading("⟳  ACTUALIZAR", self._cargar_historial))
+        p2_ly.addLayout(p2_hdr)
+
+        cols_hist = ["ID", "ARTÍCULO", "CANTIDAD", "ESTADO", "FECHA"]
+        self._cont_hist, self._tbl_hist = _crear_tabla_reab(self, cols_hist)
+        hh_h = self._tbl_hist.horizontalHeader()
+        hh_h.setStretchLastSection(False)
+        hh_h.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        hh_h.resizeSection(0, 240)
+        hh_h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh_h.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh_h.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        hh_h.resizeSection(3, 160)
+        hh_h.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self._tbl_hist.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._tbl_hist.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._tbl_hist.verticalHeader().setVisible(False)
+        p2_ly.addWidget(self._cont_hist)
+        self._stack.addWidget(page2)
+
+        # Page 3: RESPONSABLE LOGÍSTICA
+        page3 = QWidget()
+        page3.setStyleSheet(f"background: {_REAB_FONDO};")
+        p3_ly = QVBoxLayout(page3)
+        p3_ly.setContentsMargins(32, 20, 32, 20)
+        p3_ly.setSpacing(0)
+
+        lbl_sec1 = QLabel("Correo electrónico del responsable de logística")
+        lbl_sec1.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        lbl_sec1.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 4px;")
+        p3_ly.addWidget(lbl_sec1)
+
+        lbl_sec1_desc = QLabel(
+            "Se enviarán automáticamente los informes de artículos pendientes de reabastecimiento "
+            "a esta dirección según la programación definida a continuación."
+        )
+        lbl_sec1_desc.setWordWrap(True)
+        lbl_sec1_desc.setStyleSheet("color: #8B949E; font-size: 11px; margin-bottom: 10px;")
+        p3_ly.addWidget(lbl_sec1_desc)
+
+        self._inp_email = QLineEdit()
+        self._inp_email.setPlaceholderText("logistica@miempresa.com")
+        self._inp_email.setFixedHeight(46)
+        self._inp_email.setStyleSheet(_EMAIL_INPUT_SS)
+        p3_ly.addWidget(self._inp_email)
+
+        p3_ly.addSpacing(24)
+
+        lbl_smtp = QLabel("Correo remitente (cuenta que envía los informes)")
+        lbl_smtp.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        lbl_smtp.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 4px;")
+        p3_ly.addWidget(lbl_smtp)
+
+        smtp_row = QHBoxLayout()
+        smtp_row.setSpacing(12)
+        smtp_row.setContentsMargins(0, 0, 0, 0)
+
+        self._inp_smtp_user = QLineEdit()
+        self._inp_smtp_user.setPlaceholderText("remitente@gmail.com")
+        self._inp_smtp_user.setFixedHeight(46)
+        self._inp_smtp_user.setStyleSheet(_EMAIL_INPUT_SS)
+        smtp_row.addWidget(self._inp_smtp_user, 1, Qt.AlignmentFlag.AlignTop)
+
+        pass_col = QVBoxLayout()
+        pass_col.setSpacing(3)
+        pass_col.setContentsMargins(0, 0, 0, 0)
+
+        self._inp_smtp_pass = QLineEdit()
+        self._inp_smtp_pass.setPlaceholderText("Contraseña de aplicación (16 caracteres)")
+        self._inp_smtp_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self._inp_smtp_pass.setFixedHeight(46)
+        self._inp_smtp_pass.setStyleSheet(_EMAIL_INPUT_SS)
+        pass_col.addWidget(self._inp_smtp_pass)
+
+        self._lbl_pass_saved = QLabel("")
+        self._lbl_pass_saved.setFixedHeight(16)
+        self._lbl_pass_saved.setStyleSheet(
+            "color: #1ED760; font-size: 10px; background: transparent;"
+        )
+        pass_col.addWidget(self._lbl_pass_saved)
+
+        smtp_row.addLayout(pass_col, 1)
+        p3_ly.addLayout(smtp_row)
+
+        p3_ly.addSpacing(8)
+
+        lbl_sec2 = QLabel("Días de envío (puede seleccionar varios)")
+        lbl_sec2.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        lbl_sec2.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 10px;")
+        p3_ly.addWidget(lbl_sec2)
+
+        dias_row = QHBoxLayout()
+        dias_row.setSpacing(10)
+        dias_row.setContentsMargins(0, 0, 0, 0)
+        dias_nombres = ["LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB", "DOM"]
+        self._dia_btns = []
+        for nombre in dias_nombres:
+            btn = QPushButton(nombre)
+            btn.setCheckable(True)
+            btn.setFixedSize(66, 46)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setStyleSheet(_DIA_BTN_SS)
+            dias_row.addWidget(btn)
+            self._dia_btns.append(btn)
+        dias_row.addStretch()
+        p3_ly.addLayout(dias_row)
+
+        p3_ly.addSpacing(24)
+
+        lbl_sec3 = QLabel("Hora de envío")
+        lbl_sec3.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        lbl_sec3.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 10px;")
+        p3_ly.addWidget(lbl_sec3)
+
+        hora_row = QHBoxLayout()
+        hora_row.setSpacing(8)
+        hora_row.setContentsMargins(0, 0, 0, 0)
+
+        self._cmb_hora = _ReabComboBoxReab()
+        for h in range(24):
+            self._cmb_hora.addItem(f"{h:02d}h")
+        self._cmb_hora.setFixedWidth(100)
+        self._cmb_hora.setFixedHeight(46)
+        self._cmb_hora.setStyleSheet(_CMB_HORA_SS)
+        hora_row.addWidget(self._cmb_hora)
+
+        lbl_sep_hora = QLabel(":")
+        lbl_sep_hora.setStyleSheet(f"color: {_REAB_CIAN}; font-size: 22px; font-weight: bold;")
+        lbl_sep_hora.setFixedWidth(18)
+        hora_row.addWidget(lbl_sep_hora)
+
+        self._cmb_min = _ReabComboBoxReab()
+        for m in range(0, 60, 5):
+            self._cmb_min.addItem(f"{m:02d}min")
+        self._cmb_min.setFixedWidth(110)
+        self._cmb_min.setFixedHeight(46)
+        self._cmb_min.setStyleSheet(_CMB_HORA_SS)
+        hora_row.addWidget(self._cmb_min)
+        hora_row.addStretch()
+        p3_ly.addLayout(hora_row)
+
+        p3_ly.addStretch()
+
+        self._lbl_save_ok = QLabel("")
+        self._lbl_save_ok.setStyleSheet(
+            "color: #1ED760; font-size: 13px; font-weight: bold; background: transparent;"
+        )
+        self._lbl_save_ok.setVisible(False)
+
+        save_row = QHBoxLayout()
+        save_row.addStretch()
+        save_row.addWidget(self._lbl_save_ok)
+        save_row.addSpacing(20)
+        btn_test = QPushButton("PROBAR ENVÍO")
+        btn_test.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {_REAB_CIAN}; border: 2px solid {_REAB_CIAN};"
+            f" border-radius: 10px; font-size: 13px; font-weight: bold; padding: 0 18px; outline: none; }}"
+            f"QPushButton:hover {{ background: {_REAB_CIAN}; color: #0E1117; }}"
+        )
+        btn_test.setFixedHeight(46)
+        btn_test.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_test.clicked.connect(self._probar_envio)
+        save_row.addWidget(btn_test)
+        save_row.addSpacing(12)
+        btn_save = QPushButton("GUARDAR")
+        btn_save.setStyleSheet(_SAVE_BTN_SS)
+        btn_save.setFixedHeight(46)
+        btn_save.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_save.clicked.connect(self._guardar_schedule_ui)
+        save_row.addWidget(btn_save)
+        p3_ly.addLayout(save_row)
+
+        self._stack.addWidget(page3)
+
+        root.addWidget(self._stack)
+        self._ir_tab(0)
+        self.cargar()
+
+    def cargar(self):
+        self._cargar_config()
+        self._cargar_propuestas()
+        self._cargar_historial()
+        self._cargar_schedule_ui()
+
+    def _cargar_config(self):
+        try:
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT a.codigo, a.nombre,
+                               COALESCE(a.Stock_tienda, 0) + COALESCE(a.Stock_total, 0),
+                               COALESCE(a.Stock_central, 0),
+                               rc.umbral_min, rc.stock_objetivo
+                        FROM articulos a
+                        LEFT JOIN reab_config rc ON rc.codigo = a.codigo
+                        ORDER BY a.nombre ASC
+                    """)
+                    rows = cur.fetchall()
+        except Exception:
+            rows = []
+
+        self._tbl_cfg.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            codigo = row[0]
+            nombre = row[1]
+            st_tienda = row[2]
+            st_central = row[3]
+            tiene_cfg = row[4] is not None
+            umbral = int(row[4]) if tiene_cfg else 5
+            objetivo = int(row[5]) if tiene_cfg else 20
+
+            self._tbl_cfg.setRowHeight(r, 48)
+
+            ean_item = QTableWidgetItem(codigo)
+            ean_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            ean_item.setFlags(ean_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if not tiene_cfg:
+                ean_item.setForeground(QColor("#8B949E"))
+            self._tbl_cfg.setItem(r, 0, ean_item)
+
+            art_item = QTableWidgetItem(nombre)
+            art_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            art_item.setFlags(art_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if not tiene_cfg:
+                art_item.setForeground(QColor("#8B949E"))
+            self._tbl_cfg.setItem(r, 1, art_item)
+
+            for ci, val in enumerate([st_tienda, st_central], start=2):
+                it = QTableWidgetItem(str(val))
+                it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._tbl_cfg.setItem(r, ci, it)
+
+            inp_u = QLineEdit(str(umbral))
+            inp_u.setStyleSheet(_CFG_INPUT_SS)
+            inp_u.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            inp_u.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+            w_u = QWidget()
+            w_u.setStyleSheet("background: transparent;")
+            ly_u = QHBoxLayout(w_u)
+            ly_u.setContentsMargins(4, 2, 4, 2)
+            ly_u.addWidget(inp_u)
+            self._tbl_cfg.setCellWidget(r, 4, w_u)
+
+            inp_o = QLineEdit(str(objetivo))
+            inp_o.setStyleSheet(_CFG_INPUT_SS)
+            inp_o.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            inp_o.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+            w_o = QWidget()
+            w_o.setStyleSheet("background: transparent;")
+            ly_o = QHBoxLayout(w_o)
+            ly_o.setContentsMargins(4, 2, 4, 2)
+            ly_o.addWidget(inp_o)
+            self._tbl_cfg.setCellWidget(r, 5, w_o)
+
+            inp_u.editingFinished.connect(
+                lambda c=codigo, iu=inp_u, io=inp_o: self._auto_guardar_cfg(c, iu, io)
+            )
+            inp_o.editingFinished.connect(
+                lambda c=codigo, iu=inp_u, io=inp_o: self._auto_guardar_cfg(c, iu, io)
+            )
+
+    def _cargar_propuestas(self):
+        props = _reab_listar_propuestas(estados=("pendiente", "aprobado", "enviado"))
+        self._tbl_prop.setRowCount(len(props))
+        for r, p in enumerate(props):
+            self._tbl_prop.setRowHeight(r, 44)
+            estado = p["estado"]
+            bg, fg = _ESTADO_COLORES.get(estado, ("#8B949E", "#FFF"))
+
+            for c, v in enumerate([p["codigo"], p["nombre"], str(p["cantidad"])]):
+                item = QTableWidgetItem(v)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._tbl_prop.setItem(r, c, item)
+
+            w_estado = QWidget()
+            w_estado.setStyleSheet("background: transparent;")
+            ly_estado = QHBoxLayout(w_estado)
+            ly_estado.setContentsMargins(6, 4, 6, 4)
+            ly_estado.setSpacing(6)
+
+            lbl_e = QLabel(estado.upper())
+            lbl_e.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_e.setStyleSheet(
+                f"background:{bg}; color:{fg}; border-radius:6px; "
+                f"font-size:13px; font-weight:bold; padding:2px 8px;"
+            )
+            ly_estado.addWidget(lbl_e, 1)
+
+            if estado == "pendiente":
+                btn_x = QPushButton("✕")
+                btn_x.setFixedWidth(36)
+                btn_x.setSizePolicy(
+                    QSizePolicy.Policy.Fixed,
+                    QSizePolicy.Policy.Expanding,
+                )
+                btn_x.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                btn_x.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_x.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+                btn_x.setStyleSheet(
+                    "QPushButton {"
+                    "  background: #F85149;"
+                    "  color: #FFFFFF;"
+                    "  border: none;"
+                    "  border-radius: 6px;"
+                    "  font-size: 20px;"
+                    "  font-weight: 900;"
+                    "  padding: 0px 0px 4px 0px;"
+                    "  margin: 0px;"
+                    "}"
+                    "QPushButton:hover {"
+                    "  background: #FFFFFF;"
+                    "  color: #F85149;"
+                    "}"
+                    "QPushButton:pressed {"
+                    "  background: #F85149;"
+                    "  color: #FFFFFF;"
+                    "}"
+                )
+                btn_x.clicked.connect(
+                    lambda checked, pid=p["id"]: self._accion_propuesta(pid, "cancelado")
+                )
+                ly_estado.addWidget(btn_x, 0)
+
+            self._tbl_prop.setCellWidget(r, 3, w_estado)
+
+            fecha_item = QTableWidgetItem(
+                str(p["fecha_creacion"])[:16] if p["fecha_creacion"] else "—"
+            )
+            fecha_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            fecha_item.setFlags(fecha_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._tbl_prop.setItem(r, 4, fecha_item)
+
+    def _cargar_historial(self):
+        props = _reab_listar_propuestas()
+        self._tbl_hist.setRowCount(len(props))
+        for r, p in enumerate(props):
+            self._tbl_hist.setRowHeight(r, 44)
+            estado = p["estado"]
+            bg, fg = _ESTADO_COLORES.get(estado, ("#8B949E", "#FFFFFF"))
+
+            for c, v in enumerate([str(p["id"]), p["nombre"], str(p["cantidad"])]):
+                item = QTableWidgetItem(v)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._tbl_hist.setItem(r, c, item)
+
+            w_e = QWidget()
+            w_e.setStyleSheet("background: transparent;")
+            ly_e = QHBoxLayout(w_e)
+            ly_e.setContentsMargins(8, 4, 8, 4)
+            lbl_e = QLabel(estado.upper())
+            lbl_e.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_e.setStyleSheet(
+                f"background:{bg}; color:{fg}; border-radius:8px; "
+                f"font-size:13px; font-weight:bold; padding:2px 10px;"
+            )
+            ly_e.addWidget(lbl_e)
+            self._tbl_hist.setCellWidget(r, 3, w_e)
+
+            fecha_item = QTableWidgetItem(
+                str(p["fecha_creacion"])[:16] if p["fecha_creacion"] else "—"
+            )
+            fecha_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            fecha_item.setFlags(fecha_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._tbl_hist.setItem(r, 4, fecha_item)
+
+    def _auto_guardar_cfg(self, codigo: str, inp_umbral: QLineEdit, inp_obj: QLineEdit):
+        try:
+            umbral = max(0, int(inp_umbral.text().strip() or "0"))
+            objetivo = max(0, int(inp_obj.text().strip() or "0"))
+        except ValueError:
+            return
+        _reab_upsert_config(codigo, umbral, objetivo, automatico=True)
+        self._on_stock_cambio(codigo)
+
+    def _guardar_config(self):
+        codigos_guardados = []
+        for r in range(self._tbl_cfg.rowCount()):
+            ean_item = self._tbl_cfg.item(r, 0)
+            if not ean_item:
+                continue
+            codigo = ean_item.text().strip()
+            if not codigo:
+                continue
+            w_u = self._tbl_cfg.cellWidget(r, 4)
+            w_o = self._tbl_cfg.cellWidget(r, 5)
+            if w_u is None or w_o is None:
+                continue
+            inp_u = w_u.layout().itemAt(0).widget()
+            inp_o = w_o.layout().itemAt(0).widget()
+            try:
+                umbral = max(0, int(inp_u.text().strip() or "0"))
+                objetivo = max(0, int(inp_o.text().strip() or "0"))
+            except ValueError:
+                continue
+            _reab_upsert_config(codigo, umbral, objetivo)
+            codigos_guardados.append(codigo)
+            inp_u.deselect()
+            inp_o.deselect()
+        self._tbl_cfg.clearSelection()
+        self._tbl_cfg.setFocus()
+        for codigo in codigos_guardados:
+            self._crear_propuesta_si_bajo_umbral(codigo)
+        self._cargar_propuestas()
+
+    def _verificar_y_crear_propuestas(self):
+        try:
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT rc.codigo, a.nombre,
+                               COALESCE(a.Stock_tienda, 0) + COALESCE(a.Stock_total, 0),
+                               rc.stock_objetivo, rc.origen,
+                               COALESCE(a.Stock_central, 0)
+                        FROM reab_config rc
+                        JOIN articulos a ON a.codigo = rc.codigo
+                        WHERE (COALESCE(a.Stock_tienda, 0) + COALESCE(a.Stock_total, 0)) < rc.umbral_min
+                          AND NOT EXISTS (
+                              SELECT 1 FROM reab_propuestas rp
+                              WHERE rp.codigo = rc.codigo
+                                AND rp.estado IN ('pendiente', 'aprobado', 'enviado')
+                          )
+                    """)
+                    candidatos = cur.fetchall()
+        except Exception:
+            candidatos = []
+
+        for codigo, nombre, stock_actual, stock_objetivo, origen, stock_central in candidatos:
+            cantidad = max(1, (stock_objetivo or 0) - (stock_actual or 0))
+            origen_final = origen or ("ALMACÉN CENTRAL" if (stock_central or 0) > 0 else "PROVEEDOR")
+            _reab_crear_propuesta(
+                codigo, nombre, cantidad, origen_final,
+                stock_actual or 0, stock_objetivo or 0
+            )
+        self._cargar_propuestas()
+
+    def _crear_propuesta_si_bajo_umbral(self, codigo: str) -> bool:
+        """Crea una propuesta si el stock está bajo el umbral y no existe ya una activa.
+        Devuelve True si se creó una propuesta."""
+        try:
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT rc.codigo, a.nombre,
+                               COALESCE(a.Stock_tienda, 0) + COALESCE(a.Stock_total, 0),
+                               rc.stock_objetivo, rc.origen,
+                               COALESCE(a.Stock_central, 0)
+                        FROM reab_config rc
+                        JOIN articulos a ON a.codigo = rc.codigo
+                        WHERE rc.codigo = %s
+                          AND (COALESCE(a.Stock_tienda, 0) + COALESCE(a.Stock_total, 0)) < rc.umbral_min
+                          AND NOT EXISTS (
+                              SELECT 1 FROM reab_propuestas rp
+                              WHERE rp.codigo = rc.codigo
+                                AND rp.estado IN ('pendiente', 'aprobado', 'enviado')
+                          )
+                    """, (codigo,))
+                    row = cur.fetchone()
+        except Exception:
+            row = None
+
+        if row:
+            cod, nombre, stock_actual, stock_objetivo, origen, stock_central = row
+            cantidad = max(1, (stock_objetivo or 0) - (stock_actual or 0))
+            origen_final = origen or ("ALMACÉN CENTRAL" if (stock_central or 0) > 0 else "PROVEEDOR")
+            _reab_crear_propuesta(
+                cod, nombre, cantidad, origen_final,
+                stock_actual or 0, stock_objetivo or 0
+            )
+            return True
+        return False
+
+    def _actualizar_stock_en_cfg(self, codigo: str):
+        """Actualiza solo las celdas de stock del artículo en ARTÍCULOS MONITORIZADOS."""
+        try:
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT COALESCE(Stock_tienda, 0) + COALESCE(Stock_total, 0),
+                               COALESCE(Stock_central, 0)
+                        FROM articulos WHERE codigo = %s
+                    """, (codigo,))
+                    row = cur.fetchone()
+        except Exception:
+            row = None
+
+        if not row:
+            return
+
+        st_tienda, st_central = int(row[0] or 0), int(row[1] or 0)
+        for r in range(self._tbl_cfg.rowCount()):
+            ean_item = self._tbl_cfg.item(r, 0)
+            if ean_item and ean_item.text() == codigo:
+                for ci, val in enumerate([st_tienda, st_central], start=2):
+                    it = self._tbl_cfg.item(r, ci)
+                    if it:
+                        it.setText(str(val))
+                break
+
+    def _on_stock_cambio(self, codigo: str):
+        self._actualizar_stock_en_cfg(codigo)
+        if self._crear_propuesta_si_bajo_umbral(codigo):
+            self._cargar_propuestas()
+
+    def _eliminar_config(self, codigo: str):
+        _reab_eliminar_config(codigo)
+        self._cargar_config()
+
+    def _accion_propuesta(self, pid: int, estado: str):
+        _reab_cambiar_estado_propuesta(pid, estado)
+        self._cargar_propuestas()
+        self._cargar_historial()
+
+    def _generar_pdf_global(self):
+        props = _reab_listar_propuestas(estados=("pendiente",))
+        if not props:
+            QMessageBox.information(
+                self.window(), "Sin propuestas",
+                "No hay propuestas en estado PENDIENTE para generar el informe.",
+            )
+            return
+
+        def _do_generate():
+            ruta = _reab_generar_pdf(props)
+            self._on_pdf_done(ruta)
+
+        QTimer.singleShot(0, _do_generate)
+
+    def _on_pdf_done(self, ruta: str):
+        if ruta.startswith("ERROR"):
+            QMessageBox.critical(self.window(), "Error PDF", ruta)
+        else:
+            from PyQt6.QtCore import QUrl
+            from PyQt6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl.fromLocalFile(ruta))
+
+    def _on_propuesta_auto(self, info: dict):
+        self._cargar_propuestas()
+        self._cargar_historial()
+
+    def _cargar_schedule_ui(self):
+        cfg = _reab_cargar_schedule()
+        self._inp_email.setText(cfg.get("email", ""))
+        self._inp_smtp_user.setText(cfg.get("smtp_user", ""))
+        self._inp_smtp_pass.clear()
+        has_pass = bool(cfg.get("smtp_pass", ""))
+        self._lbl_pass_saved.setText(
+            "✓  Contraseña guardada (déjalo vacío para conservarla)" if has_pass else ""
+        )
+        dias_activos = set(cfg.get("dias", "").split(",")) if cfg.get("dias") else set()
+        for i, btn in enumerate(self._dia_btns):
+            btn.setChecked(str(i) in dias_activos)
+        hora = cfg.get("hora", 8)
+        minuto = cfg.get("minuto", 0)
+        self._cmb_hora.setCurrentIndex(max(0, min(hora, 23)))
+        closest = min(range(0, 60, 5), key=lambda m: abs(m - minuto))
+        self._cmb_min.setCurrentIndex(closest // 5)
+
+    def _guardar_schedule_ui(self):
+        email = self._inp_email.text().strip()
+        smtp_user = self._inp_smtp_user.text().strip()
+        smtp_pass = self._inp_smtp_pass.text().strip()
+        if not smtp_pass:
+            smtp_pass = _reab_cargar_schedule().get("smtp_pass", "")
+        dias_str = ",".join(str(i) for i, btn in enumerate(self._dia_btns) if btn.isChecked())
+        hora = int(self._cmb_hora.currentText().replace("h", "").strip())
+        minuto = int(self._cmb_min.currentText().replace("min", "").strip())
+        if _reab_guardar_schedule(email, dias_str, hora, minuto, smtp_user, smtp_pass):
+            self._inp_smtp_pass.clear()
+            self._lbl_pass_saved.setText(
+                "✓  Contraseña guardada (déjalo vacío para conservarla)" if smtp_pass else ""
+            )
+            self._lbl_save_ok.setText("✓ Configuración guardada correctamente")
+            self._lbl_save_ok.setStyleSheet(
+                "color: #1ED760; font-size: 13px; font-weight: bold; background: transparent;"
+            )
+            self._lbl_save_ok.setVisible(True)
+            QTimer.singleShot(3000, self._hide_save_ok)
+        else:
+            self._lbl_save_ok.setText("✕ Error al guardar la configuración")
+            self._lbl_save_ok.setStyleSheet(
+                "color: #FF4B4B; font-size: 13px; font-weight: bold; background: transparent;"
+            )
+            self._lbl_save_ok.setVisible(True)
+            QTimer.singleShot(4000, self._hide_save_ok)
+
+    def _probar_envio(self):
+        cfg = _reab_cargar_schedule()
+        email = cfg.get("email", "")
+        smtp_user = cfg.get("smtp_user", "")
+        smtp_pass = cfg.get("smtp_pass", "")
+        if not email or not smtp_user or not smtp_pass:
+            self._lbl_save_ok.setText("✕ Completa y guarda email, remitente y contraseña antes de probar")
+            self._lbl_save_ok.setStyleSheet(
+                "color: #FF4B4B; font-size: 12px; font-weight: bold; background: transparent;"
+            )
+            self._lbl_save_ok.setVisible(True)
+            QTimer.singleShot(5000, self._hide_save_ok)
+            return
+        props = _reab_listar_propuestas(estados=("pendiente",))
+        if not props:
+            self._lbl_save_ok.setText("⚠ No hay propuestas pendientes — se envía un artículo de ejemplo para verificar SMTP")
+            self._lbl_save_ok.setStyleSheet(
+                "color: #E3B341; font-size: 11px; font-weight: bold; background: transparent;"
+            )
+            self._lbl_save_ok.setVisible(True)
+            props = [{"id": 0, "codigo": "EJEMPLO", "nombre": "Sin propuestas pendientes — prueba SMTP",
+                      "cantidad": 0}]
+        else:
+            self._lbl_save_ok.setText(f"⏳ Enviando {len(props)} propuesta(s) pendiente(s)…")
+            self._lbl_save_ok.setStyleSheet(
+                "color: #E3B341; font-size: 13px; font-weight: bold; background: transparent;"
+            )
+            self._lbl_save_ok.setVisible(True)
+        import threading
+        def _bg():
+            ok = _reab_enviar_email_pdf_impl(email, "", smtp_user, smtp_pass, props,
+                                             solo_prueba=True)
+            if ok:
+                self._sig_prueba_ok.emit()
+            else:
+                self._sig_prueba_err.emit()
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _on_prueba_ok(self):
+        self._lbl_save_ok.setText("✓ Correo de prueba enviado — revisa tu bandeja de entrada")
+        self._lbl_save_ok.setStyleSheet(
+            "color: #1ED760; font-size: 13px; font-weight: bold; background: transparent;"
+        )
+        QTimer.singleShot(6000, self._hide_save_ok)
+
+    def _on_prueba_err(self):
+        self._lbl_save_ok.setText(
+            "✕ Error al enviar. Gmail: usa Contraseña de Aplicación (no tu clave normal)")
+        self._lbl_save_ok.setStyleSheet(
+            "color: #FF4B4B; font-size: 12px; font-weight: bold; background: transparent;"
+        )
+        QTimer.singleShot(8000, self._hide_save_ok)
+
+    def _recargar_desde_webhook(self):
+        self._cargar_propuestas()
+        self._cargar_historial()
+
+    def _hide_save_ok(self):
+        try:
+            self._lbl_save_ok.setVisible(False)
+        except RuntimeError:
+            pass
+
+    def _check_schedule(self):
+        from datetime import date as _date
+        cfg = _reab_cargar_schedule()
+        if not cfg.get("email") or not cfg.get("dias"):
+            return
+        smtp_user = cfg.get("smtp_user", "")
+        smtp_pass = cfg.get("smtp_pass", "")
+        if not smtp_user or not smtp_pass:
+            return
+        now = datetime.now()
+        dias = [int(d) for d in cfg["dias"].split(",") if d.strip().isdigit()]
+        if now.weekday() not in dias:
+            return
+        target_mins = cfg["hora"] * 60 + cfg["minuto"]
+        current_mins = now.hour * 60 + now.minute
+        if abs(current_mins - target_mins) > 1:
+            return
+        today = _date.today()
+        if cfg.get("ultima_envio") == today:
+            return
+        props = _reab_listar_propuestas(estados=("pendiente",))
+        if not props:
+            return
+        import threading
+        def _send_bg():
+            ruta = _reab_generar_pdf(props)
+            if not ruta.startswith("ERROR"):
+                if _reab_enviar_email_pdf_impl(cfg["email"], ruta, smtp_user, smtp_pass, props):
+                    _reab_marcar_envio_hoy()
+        threading.Thread(target=_send_bg, daemon=True).start()
+
+
+# ============================================================
+# CONSTANTES ENTERPRISE — ESTADOS LOGÍSTICOS
+# ============================================================
+
+_ESTADO_COLORES_LOG = {
+    "PENDIENTE":          "#F59E0B",
+    "EN PREPARACIÓN":     "#3B82F6",
+    "EN PREPARACION":     "#3B82F6",
+    "PREPARADO":          "#00FFC6",
+    "EXPEDIDO":           "#8B5CF6",
+    "EN TRÁNSITO":        "#60A5FA",
+    "EN TRANSITO":        "#60A5FA",
+    "RECEPCIÓN PARCIAL":  "#F97316",
+    "RECEPCION PARCIAL":  "#F97316",
+    "RECIBIDO":           "#22C55E",
+    "INCIDENCIA":         "#EF4444",
+    "CANCELADO":          "#6B7280",
+    "ABIERTA":            "#EF4444",
+    "CERRADA":            "#22C55E",
+}
+
+
+def _color_estado_log(estado: str) -> str:
+    return _ESTADO_COLORES_LOG.get((estado or "").upper().strip(), "#6B7280")
+
+
+def _tabla_item_centrado(texto):
+    it = QTableWidgetItem(str(texto) if texto is not None else "—")
+    it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+    return it
+
+
+def _query_docs_por_estado(estados: tuple) -> list:
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                ph = ",".join(["%s"] * len(estados))
+                cur.execute(
+                    f"SELECT id_documento, tipo_documento, origen, destino, "
+                    f"estado, usuario_emisor, fecha_creacion, observaciones "
+                    f"FROM documentos_logisticos WHERE estado IN ({ph}) "
+                    f"ORDER BY fecha_creacion DESC",
+                    estados,
+                )
+                return [
+                    {"id": r[0], "tipo": r[1], "origen": r[2], "destino": r[3],
+                     "estado": r[4], "emisor": r[5], "fecha": r[6], "obs": r[7]}
+                    for r in cur.fetchall()
+                ]
+    except Exception as e:
+        logger.error(f"_query_docs_por_estado: {e}")
+        return []
+
+
+def _query_incidencias(estado_filtro=None) -> list:
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                if estado_filtro and estado_filtro != "TODAS":
+                    cur.execute(
+                        "SELECT id, id_documento, id_pale, codigo_articulo, tipo, "
+                        "descripcion, cantidad_afectada, usuario, estado, "
+                        "fecha_creacion, fecha_cierre "
+                        "FROM incidencias_logisticas WHERE estado=%s "
+                        "ORDER BY fecha_creacion DESC",
+                        (estado_filtro,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT id, id_documento, id_pale, codigo_articulo, tipo, "
+                        "descripcion, cantidad_afectada, usuario, estado, "
+                        "fecha_creacion, fecha_cierre "
+                        "FROM incidencias_logisticas ORDER BY fecha_creacion DESC"
+                    )
+                return [
+                    {"id": r[0], "id_documento": r[1], "id_pale": r[2],
+                     "codigo": r[3], "tipo": r[4], "descripcion": r[5],
+                     "cantidad": r[6], "usuario": r[7], "estado": r[8],
+                     "fecha_creacion": r[9], "fecha_cierre": r[10]}
+                    for r in cur.fetchall()
+                ]
+    except Exception as e:
+        logger.error(f"_query_incidencias: {e}")
+        return []
+
+
+def _registrar_incidencia_db(id_documento, tipo, descripcion, usuario,
+                              id_pale=None, codigo=None, cantidad=0):
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO incidencias_logisticas "
+                    "(id_documento, id_pale, codigo_articulo, tipo, "
+                    "descripcion, cantidad_afectada, usuario, estado) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, 'ABIERTA')",
+                    (id_documento, id_pale, codigo, tipo,
+                     descripcion, cantidad, usuario),
+                )
+                iid = cur.lastrowid
+            conn.commit()
+            return iid
+    except Exception as e:
+        logger.error(f"_registrar_incidencia_db: {e}")
+        return None
+
+
+def _cerrar_incidencia_db(inc_id: int) -> bool:
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE incidencias_logisticas "
+                    "SET estado='CERRADA', fecha_cierre=NOW() WHERE id=%s",
+                    (inc_id,),
+                )
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"_cerrar_incidencia_db: {e}")
+        return False
+
+
+# ============================================================
+# PÁGINA PREPARACIÓN
+# ============================================================
+
+class PreparacionPage(QWidget):
+    """Documentos logísticos en estado EN PREPARACIÓN / PREPARADO."""
+
+    _ESTADOS = ("EN PREPARACIÓN", "EN PREPARACION", "PREPARADO")
+
+    def __init__(self, usuario=None, codigo_local="ALMC", parent=None):
+        super().__init__(parent)
+        self.usuario = usuario
+        self.codigo_local = codigo_local
+        self.setObjectName("panel_contenido")
+        self._datos = []
+        self._setup_ui()
+        self.cargar_datos()
+
+    def _setup_ui(self):
+        ly = QVBoxLayout(self)
+        ly.setContentsMargins(30, 30, 30, 30)
+        ly.setSpacing(20)
+
+        hdr = QHBoxLayout()
+        vc = QVBoxLayout()
+        t = QLabel("Preparación de Envíos")
+        t.setObjectName("titulo_cian")
+        s = QLabel("Documentos en preparación activa y listos para expedir")
+        s.setObjectName("subtitulo_muted")
+        vc.addWidget(t)
+        vc.addWidget(s)
+        hdr.addLayout(vc)
+        hdr.addStretch()
+        self.btn_actualizar = QPushButton("🔄 ACTUALIZAR")
+        self.btn_actualizar.setObjectName("btn_primario")
+        self.btn_actualizar.setFixedSize(180, 45)
+        self.btn_actualizar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_actualizar.clicked.connect(self.ejecutar_actualizacion)
+        hdr.addWidget(self.btn_actualizar)
+        ly.addLayout(hdr)
+
+        self.input_busqueda = QLineEdit()
+        self.input_busqueda.setObjectName("input_buscador")
+        self.input_busqueda.setPlaceholderText(
+            "🔍 Filtrar por ID, Origen, Destino o Estado..."
+        )
+        self.input_busqueda.setFixedHeight(50)
+        self.input_busqueda.textChanged.connect(self._filtrar)
+        ly.addWidget(self.input_busqueda)
+
+        if construir_tabla_estilizada:
+            self._cont, self.tabla = construir_tabla_estilizada(self)
+        else:
+            self._cont = QFrame(self)
+            self.tabla = QTableWidget(self._cont)
+            QVBoxLayout(self._cont).addWidget(self.tabla)
+
+        cols = ["ID", "TIPO", "ORIGEN", "DESTINO", "ESTADO", "EMISOR", "FECHA CREACIÓN"]
+        self.tabla.setColumnCount(len(cols))
+        self.tabla.setHorizontalHeaderLabels(cols)
+        hh = self.tabla.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        ly.addWidget(self._cont)
+
+    def cargar_datos(self):
+        self._datos = _query_docs_por_estado(self._ESTADOS)
+        self._filtrar()
+
+    def ejecutar_actualizacion(self):
+        self.btn_actualizar.setEnabled(False)
+        self.btn_actualizar.setText("⌛ ACTUALIZANDO...")
+        self.btn_actualizar.repaint()
+        QApplication.processEvents()
+        try:
+            self.cargar_datos()
+        finally:
+            self.btn_actualizar.setEnabled(True)
+            self.btn_actualizar.setText("🔄 ACTUALIZAR")
+
+    def _filtrar(self):
+        txt = (
+            self.input_busqueda.text() if hasattr(self, "input_busqueda") else ""
+        ).strip().lower()
+        filas = [d for d in self._datos if not txt or any(
+            txt in str(v).lower() for v in d.values()
+        )]
+        self.tabla.setRowCount(len(filas))
+        for i, d in enumerate(filas):
+            self.tabla.setItem(i, 0, _tabla_item_centrado(d["id"]))
+            self.tabla.setItem(i, 1, _tabla_item_centrado(d["tipo"]))
+            self.tabla.setItem(i, 2, _tabla_item_centrado(d["origen"]))
+            self.tabla.setItem(i, 3, _tabla_item_centrado(d["destino"]))
+            ei = _tabla_item_centrado(d["estado"])
+            ei.setForeground(QColor(_color_estado_log(d["estado"])))
+            ei.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            self.tabla.setItem(i, 4, ei)
+            self.tabla.setItem(i, 5, _tabla_item_centrado(d["emisor"]))
+            fc = d["fecha"]
+            self.tabla.setItem(i, 6, _tabla_item_centrado(str(fc)[:16] if fc else "—"))
+        self.tabla.resizeRowsToContents()
+
+
+# ============================================================
+# PÁGINA EXPEDICIONES
+# ============================================================
+
+class ExpedicionesPage(QWidget):
+    """Documentos logísticos en estado EXPEDIDO / EN TRÁNSITO / RECEPCIÓN PARCIAL."""
+
+    _ESTADOS = (
+        "EXPEDIDO", "EN TRÁNSITO", "EN TRANSITO",
+        "RECEPCIÓN PARCIAL", "RECEPCION PARCIAL",
+    )
+
+    def __init__(self, usuario=None, codigo_local="ALMC", parent=None):
+        super().__init__(parent)
+        self.usuario = usuario
+        self.codigo_local = codigo_local
+        self.setObjectName("panel_contenido")
+        self._datos = []
+        self._setup_ui()
+        self.cargar_datos()
+
+    def _setup_ui(self):
+        ly = QVBoxLayout(self)
+        ly.setContentsMargins(30, 30, 30, 30)
+        ly.setSpacing(20)
+
+        hdr = QHBoxLayout()
+        vc = QVBoxLayout()
+        t = QLabel("Expediciones y Tránsito")
+        t.setObjectName("titulo_cian")
+        s = QLabel("Seguimiento de envíos expedidos y en tránsito hacia destino")
+        s.setObjectName("subtitulo_muted")
+        vc.addWidget(t)
+        vc.addWidget(s)
+        hdr.addLayout(vc)
+        hdr.addStretch()
+        self.btn_actualizar = QPushButton("🔄 ACTUALIZAR")
+        self.btn_actualizar.setObjectName("btn_primario")
+        self.btn_actualizar.setFixedSize(180, 45)
+        self.btn_actualizar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_actualizar.clicked.connect(self.ejecutar_actualizacion)
+        hdr.addWidget(self.btn_actualizar)
+        ly.addLayout(hdr)
+
+        self.input_busqueda = QLineEdit()
+        self.input_busqueda.setObjectName("input_buscador")
+        self.input_busqueda.setPlaceholderText(
+            "🔍 Filtrar por ID, Origen, Destino o Estado..."
+        )
+        self.input_busqueda.setFixedHeight(50)
+        self.input_busqueda.textChanged.connect(self._filtrar)
+        ly.addWidget(self.input_busqueda)
+
+        if construir_tabla_estilizada:
+            self._cont, self.tabla = construir_tabla_estilizada(self)
+        else:
+            self._cont = QFrame(self)
+            self.tabla = QTableWidget(self._cont)
+            QVBoxLayout(self._cont).addWidget(self.tabla)
+
+        cols = ["ID", "TIPO", "ORIGEN", "DESTINO", "ESTADO", "EMISOR", "FECHA CREACIÓN"]
+        self.tabla.setColumnCount(len(cols))
+        self.tabla.setHorizontalHeaderLabels(cols)
+        hh = self.tabla.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        ly.addWidget(self._cont)
+
+    def cargar_datos(self):
+        self._datos = _query_docs_por_estado(self._ESTADOS)
+        self._filtrar()
+
+    def ejecutar_actualizacion(self):
+        self.btn_actualizar.setEnabled(False)
+        self.btn_actualizar.setText("⌛ ACTUALIZANDO...")
+        self.btn_actualizar.repaint()
+        QApplication.processEvents()
+        try:
+            self.cargar_datos()
+        finally:
+            self.btn_actualizar.setEnabled(True)
+            self.btn_actualizar.setText("🔄 ACTUALIZAR")
+
+    def _filtrar(self):
+        txt = (
+            self.input_busqueda.text() if hasattr(self, "input_busqueda") else ""
+        ).strip().lower()
+        filas = [d for d in self._datos if not txt or any(
+            txt in str(v).lower() for v in d.values()
+        )]
+        self.tabla.setRowCount(len(filas))
+        for i, d in enumerate(filas):
+            self.tabla.setItem(i, 0, _tabla_item_centrado(d["id"]))
+            self.tabla.setItem(i, 1, _tabla_item_centrado(d["tipo"]))
+            self.tabla.setItem(i, 2, _tabla_item_centrado(d["origen"]))
+            self.tabla.setItem(i, 3, _tabla_item_centrado(d["destino"]))
+            ei = _tabla_item_centrado(d["estado"])
+            ei.setForeground(QColor(_color_estado_log(d["estado"])))
+            ei.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            self.tabla.setItem(i, 4, ei)
+            self.tabla.setItem(i, 5, _tabla_item_centrado(d["emisor"]))
+            fc = d["fecha"]
+            self.tabla.setItem(i, 6, _tabla_item_centrado(str(fc)[:16] if fc else "—"))
+        self.tabla.resizeRowsToContents()
+
+
+# ============================================================
+# PÁGINA INCIDENCIAS
+# ============================================================
+
+_TIPOS_INCIDENCIA = [
+    "ROTURA", "FALTANTE", "EXCESO", "MERCANCÍA INCORRECTA",
+    "PALÉ DAÑADO", "CAJA DAÑADA", "HUMEDAD", "ERROR ETIQUETADO",
+]
+
+
+class _NuevaIncidenciaDialog(QDialog):
+
+    def __init__(self, usuario, parent=None):
+        super().__init__(parent)
+        if isinstance(usuario, dict):
+            self._usuario_str = usuario.get("nombre", "Usuario")
+        else:
+            self._usuario_str = str(usuario or "Usuario")
+        self.setWindowTitle("Registrar Incidencia Logística")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setObjectName("dlg_incidencia")
+        self.setMinimumWidth(500)
+        self._drag_pos = None
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        frame = QFrame()
+        frame.setObjectName("cuerpo_ventana")
+        outer.addWidget(frame)
+
+        ly = QVBoxLayout(frame)
+        ly.setContentsMargins(30, 25, 30, 25)
+        ly.setSpacing(16)
+
+        lbl = QLabel("NUEVA INCIDENCIA LOGÍSTICA")
+        lbl.setObjectName("titulo_cian")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ly.addWidget(lbl)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self.inp_doc = QLineEdit()
+        self.inp_doc.setObjectName("input_buscador")
+        self.inp_doc.setPlaceholderText("ej. DOC-2024-001")
+        form.addRow("ID Documento *:", self.inp_doc)
+
+        self.cmb_tipo = QComboBox()
+        self.cmb_tipo.addItems(_TIPOS_INCIDENCIA)
+        form.addRow("Tipo *:", self.cmb_tipo)
+
+        self.inp_pale = QLineEdit()
+        self.inp_pale.setObjectName("input_buscador")
+        self.inp_pale.setPlaceholderText("Opcional")
+        form.addRow("ID Palé:", self.inp_pale)
+
+        self.inp_codigo = QLineEdit()
+        self.inp_codigo.setObjectName("input_buscador")
+        self.inp_codigo.setPlaceholderText("Opcional")
+        form.addRow("Código Artículo:", self.inp_codigo)
+
+        self.spin_cant = QSpinBox()
+        self.spin_cant.setRange(0, 9999)
+        form.addRow("Cantidad Afectada:", self.spin_cant)
+
+        self.txt_desc = QTextEdit()
+        self.txt_desc.setPlaceholderText("Descripción detallada de la incidencia...")
+        self.txt_desc.setFixedHeight(90)
+        form.addRow("Descripción:", self.txt_desc)
+
+        ly.addLayout(form)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(12)
+        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel.setObjectName("btn_secundario")
+        btn_cancel.setFixedHeight(45)
+        btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton("✅  REGISTRAR")
+        btn_ok.setObjectName("btn_primario")
+        btn_ok.setFixedHeight(45)
+        btn_ok.clicked.connect(self._registrar)
+        btns.addWidget(btn_cancel)
+        btns.addWidget(btn_ok)
+        ly.addLayout(btns)
+
+    def _registrar(self):
+        id_doc = self.inp_doc.text().strip()
+        tipo = self.cmb_tipo.currentText()
+        desc = self.txt_desc.toPlainText().strip()
+        if not id_doc:
+            _mensaje_ui(
+                self, "Campo obligatorio",
+                "Debes indicar el ID del documento.", "warning"
+            )
+            return
+        iid = _registrar_incidencia_db(
+            id_documento=id_doc,
+            tipo=tipo,
+            descripcion=desc,
+            usuario=self._usuario_str,
+            id_pale=self.inp_pale.text().strip() or None,
+            codigo=self.inp_codigo.text().strip() or None,
+            cantidad=self.spin_cant.value(),
+        )
+        if iid:
+            self.accept()
+        else:
+            _mensaje_ui(self, "Error", "No se pudo registrar la incidencia.", "error")
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._center_on_parent)
+
+    def _center_on_parent(self):
+        parent = self.parentWidget()
+        ref = parent.window().frameGeometry() if parent else None
+        if ref is None:
+            return
+        self.move(
+            ref.x() + (ref.width() - self.width()) // 2,
+            ref.y() + (ref.height() - self.height()) // 2,
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
+
+class IncidenciasPage(QWidget):
+    """Gestión de incidencias logísticas."""
+
+    def __init__(self, usuario=None, codigo_local="ALMC", parent=None):
+        super().__init__(parent)
+        self.usuario = usuario
+        self.codigo_local = codigo_local
+        self.setObjectName("panel_contenido")
+        self._datos = []
+        self._setup_ui()
+        self.cargar_datos()
+
+    def _setup_ui(self):
+        ly = QVBoxLayout(self)
+        ly.setContentsMargins(30, 30, 30, 30)
+        ly.setSpacing(20)
+
+        hdr = QHBoxLayout()
+        vc = QVBoxLayout()
+        t = QLabel("Incidencias Logísticas")
+        t.setObjectName("titulo_cian")
+        s = QLabel("Registro y seguimiento de incidencias durante el proceso logístico")
+        s.setObjectName("subtitulo_muted")
+        vc.addWidget(t)
+        vc.addWidget(s)
+        hdr.addLayout(vc)
+        hdr.addStretch()
+        btn_nueva = QPushButton("⚠️  NUEVA INCIDENCIA")
+        btn_nueva.setObjectName("btn_primario")
+        btn_nueva.setFixedHeight(45)
+        btn_nueva.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_nueva.clicked.connect(self._abrir_nueva)
+        hdr.addWidget(btn_nueva)
+        hdr.addSpacing(8)
+        self.btn_actualizar = QPushButton("🔄 ACTUALIZAR")
+        self.btn_actualizar.setObjectName("btn_secundario")
+        self.btn_actualizar.setFixedSize(150, 45)
+        self.btn_actualizar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_actualizar.clicked.connect(self.ejecutar_actualizacion)
+        hdr.addWidget(self.btn_actualizar)
+        ly.addLayout(hdr)
+
+        fil = QHBoxLayout()
+        fil.setSpacing(12)
+        lbl_f = QLabel("Estado:")
+        lbl_f.setObjectName("label_campo")
+        self.cmb_estado = QComboBox()
+        self.cmb_estado.addItems(["TODAS", "ABIERTA", "CERRADA"])
+        self.cmb_estado.setFixedWidth(160)
+        self.cmb_estado.currentTextChanged.connect(self.cargar_datos)
+        self.input_busqueda = QLineEdit()
+        self.input_busqueda.setObjectName("input_buscador")
+        self.input_busqueda.setPlaceholderText(
+            "🔍 Filtrar por ID, Documento, Tipo o Usuario..."
+        )
+        self.input_busqueda.setFixedHeight(50)
+        self.input_busqueda.textChanged.connect(self._filtrar)
+        fil.addWidget(lbl_f)
+        fil.addWidget(self.cmb_estado)
+        fil.addWidget(self.input_busqueda)
+        ly.addLayout(fil)
+
+        if construir_tabla_estilizada:
+            self._cont, self.tabla = construir_tabla_estilizada(self)
+        else:
+            self._cont = QFrame(self)
+            self.tabla = QTableWidget(self._cont)
+            QVBoxLayout(self._cont).addWidget(self.tabla)
+
+        cols = [
+            "ID", "TIPO", "DESCRIPCIÓN",
+            "PALÉ", "ARTÍCULO", "CANT.", "USUARIO", "ESTADO", "FECHA",
+        ]
+        self.tabla.setColumnCount(len(cols))
+        self.tabla.setHorizontalHeaderLabels(cols)
+        hh = self.tabla.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla.doubleClicked.connect(self._accion_cerrar)
+        ly.addWidget(self._cont)
+
+        hint = QLabel("Doble clic sobre una incidencia ABIERTA para cerrarla.")
+        hint.setObjectName("subtitulo_muted")
+        ly.addWidget(hint)
+
+    def cargar_datos(self):
+        filtro = (
+            self.cmb_estado.currentText()
+            if hasattr(self, "cmb_estado") else "TODAS"
+        )
+        self._datos = _query_incidencias(None if filtro == "TODAS" else filtro)
+        self._filtrar()
+
+    def ejecutar_actualizacion(self):
+        self.btn_actualizar.setEnabled(False)
+        self.btn_actualizar.setText("⌛ ACTUALIZANDO...")
+        self.btn_actualizar.repaint()
+        QApplication.processEvents()
+        try:
+            self.cargar_datos()
+        finally:
+            self.btn_actualizar.setEnabled(True)
+            self.btn_actualizar.setText("🔄 ACTUALIZAR")
+
+    def _filtrar(self):
+        txt = (
+            self.input_busqueda.text() if hasattr(self, "input_busqueda") else ""
+        ).strip().lower()
+        filas = [d for d in self._datos if not txt or any(
+            txt in str(v).lower() for v in d.values()
+        )]
+        self.tabla.setRowCount(len(filas))
+        for i, d in enumerate(filas):
+            # Col 0: ID DOC. — shows document reference, UserRole holds incidence id for close action
+            item_id = _tabla_item_centrado(str(d["id_documento"] or "—"))
+            item_id.setData(Qt.ItemDataRole.UserRole, d["id"])
+            self.tabla.setItem(i, 0, item_id)
+            it_tipo = _tabla_item_centrado(d["tipo"])
+            it_tipo.setForeground(QColor("#F97316"))
+            it_tipo.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            self.tabla.setItem(i, 1, it_tipo)
+            self.tabla.setItem(i, 2, _tabla_item_centrado(d["descripcion"]))
+            self.tabla.setItem(i, 3, _tabla_item_centrado(d["id_pale"]))
+            self.tabla.setItem(i, 4, _tabla_item_centrado(d["codigo"]))
+            self.tabla.setItem(i, 5, _tabla_item_centrado(d["cantidad"]))
+            self.tabla.setItem(i, 6, _tabla_item_centrado(d["usuario"]))
+            ei = _tabla_item_centrado(d["estado"])
+            ei.setForeground(QColor(_color_estado_log(d["estado"])))
+            ei.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            self.tabla.setItem(i, 7, ei)
+            fc = d["fecha_creacion"]
+            self.tabla.setItem(i, 8, _tabla_item_centrado(str(fc)[:16] if fc else "—"))
+        self.tabla.resizeRowsToContents()
+
+    def _abrir_nueva(self):
+        dlg = _NuevaIncidenciaDialog(self.usuario, parent=self)
+        if dlg.exec():
+            self.cargar_datos()
+            _mensaje_ui(
+                self, "Registrada",
+                "La incidencia ha sido registrada correctamente.", "info"
+            )
+
+    def _accion_cerrar(self):
+        fila = self.tabla.currentRow()
+        if fila < 0:
+            return
+        estado_item = self.tabla.item(fila, 7)  # ESTADO is now col 7
+        if not estado_item or estado_item.text() != "ABIERTA":
+            return
+        id_item = self.tabla.item(fila, 0)
+        if not id_item:
+            return
+        try:
+            inc_id = id_item.data(Qt.ItemDataRole.UserRole)  # incidence id stored in UserRole
+            if inc_id is None:
+                return
+            inc_id = int(inc_id)
+        except (ValueError, TypeError):
+            return
+        if not _confirmar_ui(
+            self, "Cerrar incidencia",
+            f"¿Confirmas el cierre de la incidencia #{inc_id}?"
+        ):
+            return
+        if _cerrar_incidencia_db(inc_id):
+            self.cargar_datos()
+        else:
+            _mensaje_ui(self, "Error", "No se pudo cerrar la incidencia.", "error")
+
+
+# ============================================================
+# HISTORIAL UNIFICADO (switch Recepciones / Traspasos)
+# ============================================================
+
+class HistorialUnificadoPage(QWidget):
+    """Pestaña HISTORIAL con selector entre Recepciones y Traspasos."""
+
+    def __init__(self, usuario=None, codigo_local="ALMC", parent=None):
+        super().__init__(parent)
+        self.usuario = usuario
+        self.codigo_local = codigo_local
+        self.setObjectName("panel_contenido")
+        self._setup_ui()
+
+    # Inline stylesheets for the pill segmented switch
+    _SS_PILL_ACTIVE = (
+        "QPushButton {"
+        "  background-color: #00FFC6;"
+        "  color: #0D1117;"
+        "  border: 1px solid #00FFC6;"
+        "  font-family: 'Segoe UI';"
+        "  font-size: 13px;"
+        "  font-weight: 700;"
+        "  padding: 0 20px;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #00E5B3;"
+        "}"
+    )
+    _SS_PILL_IZQUIERDO_ACTIVE = (
+        _SS_PILL_ACTIVE
+        + "QPushButton { border-top-left-radius: 22px; border-bottom-left-radius: 22px;"
+        "  border-top-right-radius: 0px; border-bottom-right-radius: 0px; border-right: none; }"
+    )
+    _SS_PILL_DERECHO_ACTIVE = (
+        _SS_PILL_ACTIVE
+        + "QPushButton { border-top-right-radius: 22px; border-bottom-right-radius: 22px;"
+        "  border-top-left-radius: 0px; border-bottom-left-radius: 0px; border-left: none; }"
+    )
+    _SS_PILL_INACTIVE = (
+        "QPushButton {"
+        "  background-color: transparent;"
+        "  color: #00FFC6;"
+        "  border: 1px solid #00FFC6;"
+        "  font-family: 'Segoe UI';"
+        "  font-size: 14px;"
+        "  font-weight: 700;"
+        "  padding: 0 20px;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: rgba(0, 255, 198, 0.12);"
+        "}"
+    )
+    _SS_PILL_IZQUIERDO_INACTIVE = (
+        _SS_PILL_INACTIVE
+        + "QPushButton { border-top-left-radius: 22px; border-bottom-left-radius: 22px;"
+        "  border-top-right-radius: 0px; border-bottom-right-radius: 0px; border-right: none; }"
+    )
+    _SS_PILL_DERECHO_INACTIVE = (
+        _SS_PILL_INACTIVE
+        + "QPushButton { border-top-right-radius: 22px; border-bottom-right-radius: 22px;"
+        "  border-top-left-radius: 0px; border-bottom-left-radius: 0px; border-left: none; }"
+    )
+
+    def _setup_ui(self):
+        ly = QVBoxLayout(self)
+        ly.setContentsMargins(30, 30, 30, 30)
+        ly.setSpacing(20)
+
+        # Header row: title/subtitle left, refresh button right
+        hdr = QHBoxLayout()
+        vc = QVBoxLayout()
+        t = QLabel("Historial Logístico")
+        t.setObjectName("titulo_cian")
+        s = QLabel("Consulta el historial de recepciones de palés y traspasos de stock")
+        s.setObjectName("subtitulo_muted")
+        vc.addWidget(t)
+        vc.addWidget(s)
+        hdr.addLayout(vc)
+        hdr.addStretch()
+        self.btn_refresh = QPushButton("🔄 ACTUALIZAR")
+        self.btn_refresh.setObjectName("btn_primario")
+        self.btn_refresh.setFixedSize(180, 45)
+        self.btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_refresh.clicked.connect(self._actualizar)
+        hdr.addWidget(self.btn_refresh)
+        ly.addLayout(hdr)
+
+        # Pill segmented switch — inline, no wrapper frame
+        pill_row = QHBoxLayout()
+        pill_row.setSpacing(0)
+
+        self.btn_rec = QPushButton("📥  HISTORIAL RECEPCIONES")
+        self.btn_rec.setFixedHeight(44)
+        self.btn_rec.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_rec.clicked.connect(lambda: self._cambiar(0))
+
+        # Divider pixel — 1 px separator between the two halves
+        div = QFrame()
+        div.setFixedWidth(1)
+        div.setFixedHeight(44)
+        div.setStyleSheet("background-color: #00FFC6;")
+
+        self.btn_tras = QPushButton("🚚  HISTORIAL TRASPASOS")
+        self.btn_tras.setFixedHeight(44)
+        self.btn_tras.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_tras.clicked.connect(lambda: self._cambiar(1))
+
+        pill_row.addStretch()
+        pill_row.addWidget(self.btn_rec)
+        pill_row.addWidget(div)
+        pill_row.addWidget(self.btn_tras)
+        pill_row.addStretch()
+        ly.addLayout(pill_row)
+
+        # Sub-pages embedded directly
+        self._stack = QStackedWidget()
+        self.pag_recepciones = HistorialRecepcionesPage(
+            codigo_local=self.codigo_local, usuario=self.usuario
+        )
+        self.pag_traspasos = HistorialTraspasosPage(
+            usuario=self.usuario, codigo_local=self.codigo_local
+        )
+        self._stack.addWidget(self.pag_recepciones)  # index 0
+        self._stack.addWidget(self.pag_traspasos)    # index 1
+        ly.addWidget(self._stack)
+
+        # Hide sub-page internal headers (would duplicate our own title/refresh)
+        self._ocultar_cabecera_subpagina(self.pag_recepciones)
+        self._ocultar_cabecera_subpagina(self.pag_traspasos)
+
+        # Set initial active state
+        self._aplicar_estilos_pill(0)
+
+    def _ocultar_cabecera_subpagina(self, pag):
+        # HistorialRecepcionesPage wraps content in page_widget; HistorialTraspasosPage uses self directly
+        target_widget = getattr(pag, 'page_widget', pag)
+        target_ly = target_widget.layout() if target_widget is not None else None
+        if target_ly is None:
+            return
+        if target_ly.count() > 0:
+            target_ly.takeAt(0)
+            target_ly.setContentsMargins(0, 0, 0, 0)
+        # Hide any label children that were orphaned from the removed layout item
+        try:
+            for lbl in target_widget.findChildren(QLabel):
+                if lbl.objectName() in ("titulo_cian", "subtitulo_muted"):
+                    lbl.hide()
+        except Exception:
+            pass
+        # Hide known header buttons that remain as self attributes (camera/search buttons stay visible)
+        for attr in ("btn_refresh", "btn_back_level", "btn_actualizar"):
+            w = getattr(pag, attr, None)
+            if w is not None:
+                w.hide()
+
+    def _aplicar_estilos_pill(self, idx: int):
+        if idx == 0:
+            self.btn_rec.setStyleSheet(self._SS_PILL_IZQUIERDO_ACTIVE)
+            self.btn_tras.setStyleSheet(self._SS_PILL_DERECHO_INACTIVE)
+        else:
+            self.btn_rec.setStyleSheet(self._SS_PILL_IZQUIERDO_INACTIVE)
+            self.btn_tras.setStyleSheet(self._SS_PILL_DERECHO_ACTIVE)
+
+    def _cambiar(self, idx: int):
+        self._stack.setCurrentIndex(idx)
+        self._aplicar_estilos_pill(idx)
+        pag = self._stack.currentWidget()
+        if hasattr(pag, "cargar_datos"):
+            pag.cargar_datos()
+
+    def _actualizar(self):
+        self.btn_refresh.setEnabled(False)
+        self.btn_refresh.setText("⌛ ACTUALIZANDO...")
+        self.btn_refresh.repaint()
+        QApplication.processEvents()
+        try:
+            self.cargar_datos()
+        finally:
+            self.btn_refresh.setEnabled(True)
+            self.btn_refresh.setText("🔄 ACTUALIZAR")
+
+    def cargar_datos(self):
+        pag = self._stack.currentWidget()
+        if hasattr(pag, "cargar_datos"):
+            pag.cargar_datos()
+
+
+# ============================================================
+# BLOQUE VENTANA PRINCIPAL DE RECEPCIÓN
+# ============================================================
+
 class RecepcionPaleWindow(QWidget):
 
     def __init__(self, usuario, callback_vuelta=None, codigo_local="T001", **kwargs):
@@ -1550,12 +4610,15 @@ class RecepcionPaleWindow(QWidget):
         self.hilo_pdf = None
 
         self.setWindowTitle(
-            f"Smart Manager AI - Gestión Logística [{self.codigo_local}]"
+            f"Smart Manager - Gestión Logística [{self.codigo_local}]"
         )
         self.setMinimumSize(1200, 800)
 
         # Atributo crítico para la limpieza de memoria
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+        # Motor de reabastecimiento
+        self._engine = StockReplenishmentEngine(self)
 
         self.setup_ui()
         self.conectar_eventos_paginas()
@@ -1576,21 +4639,27 @@ class RecepcionPaleWindow(QWidget):
         side_ly.setContentsMargins(0, 40, 0, 20)
         side_ly.setSpacing(0)
 
-        lbl_m = QLabel("OPERACIONES")
+        lbl_m = QLabel("LOGÍSTICA")
         lbl_m.setObjectName("sidebar_title")
         side_ly.addWidget(lbl_m)
 
-        # Botones de navegación
-        self.btn_nav_scan = self.crear_boton_nav("Scanner Entrada", True)
-        self.btn_nav_traspasar = self.crear_boton_nav("Nuevo Traspaso")
-        self.btn_nav_hist_trasp = self.crear_boton_nav("Historial Traspasos")
-        self.btn_nav_hist_recep = self.crear_boton_nav("Historial Recepción")
+        # Botones de navegación — 7 pestañas enterprise
+        self.btn_nav_scan      = self.crear_boton_nav("Recepción", True)
+        self.btn_nav_traspasar = self.crear_boton_nav("Traspasos")
+        self.btn_nav_prep      = self.crear_boton_nav("Preparación")
+        self.btn_nav_expedir   = self.crear_boton_nav("Expediciones")
+        self.btn_nav_incid     = self.crear_boton_nav("Incidencias")
+        self.btn_nav_historial = self.crear_boton_nav("Historial")
+        self.btn_nav_reab      = self.crear_boton_nav("Reabastecimiento")
 
         self.lista_botones_nav = [
             self.btn_nav_scan,
             self.btn_nav_traspasar,
-            self.btn_nav_hist_trasp,
-            self.btn_nav_hist_recep,
+            self.btn_nav_prep,
+            self.btn_nav_expedir,
+            self.btn_nav_incid,
+            self.btn_nav_historial,
+            self.btn_nav_reab,
         ]
 
         for btn in self.lista_botones_nav:
@@ -1621,27 +4690,61 @@ class RecepcionPaleWindow(QWidget):
 
         self.main_layout.addWidget(self.sidebar)
 
-        # --- ÁREA DE CONTENIDO (QStackedWidget) ---
+        # --- ÁREA DE CONTENIDO (QStackedWidget) — 7 páginas enterprise ---
+        # Lazy load: construir las 7 sub-páginas en el __init__ hacía la apertura
+        # lenta (~850 ms; cada página hace consultas y construye UI pesada). Ahora
+        # solo se construye la inicial (RECEPCIÓN, ligera); el resto se crean la
+        # primera vez que se visitan.
         self.vistas = QStackedWidget()
         self.vistas.setObjectName("contenido_logistica")
 
-        self.vista_landing_scanner = LandingScannerPage()
-        self.vista_traspaso = TraspasoStockPage(
-            usuario=self.usuario, codigo_local=self.codigo_local
-        )
-        self.vista_hist_trasp = HistorialTraspasosPage(
-            usuario=self.usuario, codigo_local=self.codigo_local
-        )
-        self.vista_hist_recep = HistorialRecepcionesPage(
-            usuario=self.usuario, codigo_local=self.codigo_local
-        )
+        self.vista_landing_scanner = LandingScannerPage()                       # 0 RECEPCIÓN (eager)
+        self.vistas.addWidget(self.vista_landing_scanner)
 
-        self.vistas.addWidget(self.vista_landing_scanner)  # Index 0
-        self.vistas.addWidget(self.vista_traspaso)  # Index 1
-        self.vistas.addWidget(self.vista_hist_trasp)  # Index 2
-        self.vistas.addWidget(self.vista_hist_recep)  # Index 3
+        self._vista_factories = {
+            1: lambda: TraspasoStockPage(usuario=self.usuario, codigo_local=self.codigo_local),
+            2: lambda: PreparacionPage(usuario=self.usuario, codigo_local=self.codigo_local),
+            3: lambda: ExpedicionesPage(usuario=self.usuario, codigo_local=self.codigo_local),
+            4: lambda: IncidenciasPage(usuario=self.usuario, codigo_local=self.codigo_local),
+            5: lambda: HistorialUnificadoPage(usuario=self.usuario, codigo_local=self.codigo_local),
+            6: lambda: _ReabastecimientoPage(self._engine),
+        }
+        self._vista_attr = {
+            1: "vista_traspaso", 2: "vista_preparacion", 3: "vista_expediciones",
+            4: "vista_incidencias", 5: "vista_historial", 6: "vista_reabastecimiento",
+        }
+        self._vista_built = {0: True}
+        # Placeholders (y atributos a None) para los índices 1..6.
+        for i in range(1, 7):
+            setattr(self, self._vista_attr[i], None)
+            self.vistas.addWidget(QWidget())
 
         self.main_layout.addWidget(self.vistas)
+
+    def _ensure_vista(self, index):
+        """Construye la sub-página `index` la primera vez que se visita."""
+        if self._vista_built.get(index):
+            return
+        factory = self._vista_factories.get(index)
+        if factory is None:
+            return
+        page = factory()
+        old = self.vistas.widget(index)
+        self.vistas.insertWidget(index, page)
+        self.vistas.removeWidget(old)
+        old.deleteLater()
+        setattr(self, self._vista_attr[index], page)
+        self._vista_built[index] = True
+        self._wire_vista(index, page)
+
+    def _wire_vista(self, index, page):
+        """Conecta las señales propias de cada sub-página al construirla (lazy)."""
+        if index == 1 and hasattr(page, "btn_lanzar_dialogo"):
+            try:
+                page.btn_lanzar_dialogo.clicked.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            page.btn_lanzar_dialogo.clicked.connect(self.abrir_dialogo_traspaso_final)
 
 
     def crear_boton_nav(self, txt, active=False):
@@ -1679,25 +4782,33 @@ class RecepcionPaleWindow(QWidget):
             pass
 
         return btn
-    
+
     def conectar_eventos_paginas(self):
         """
         Conecta clics de botones y eventos de las sub-páginas y diálogos.
         Implementa desconexión de seguridad para evitar duplicidad de ventanas.
         """
-        # 1. Botones de la Sidebar (Navegación)
-        # Para los botones de navegación no solemos desconectar porque se definen una vez en setup_ui
+        # 1. Botones de la Sidebar — 7 pestañas enterprise
         self.btn_nav_scan.clicked.connect(
             lambda: self.cambiar_vista(0, self.btn_nav_scan)
         )
         self.btn_nav_traspasar.clicked.connect(
             lambda: self.cambiar_vista(1, self.btn_nav_traspasar)
         )
-        self.btn_nav_hist_trasp.clicked.connect(
-            lambda: self.cambiar_vista(2, self.btn_nav_hist_trasp)
+        self.btn_nav_prep.clicked.connect(
+            lambda: self.cambiar_vista(2, self.btn_nav_prep)
         )
-        self.btn_nav_hist_recep.clicked.connect(
-            lambda: self.cambiar_vista(3, self.btn_nav_hist_recep)
+        self.btn_nav_expedir.clicked.connect(
+            lambda: self.cambiar_vista(3, self.btn_nav_expedir)
+        )
+        self.btn_nav_incid.clicked.connect(
+            lambda: self.cambiar_vista(4, self.btn_nav_incid)
+        )
+        self.btn_nav_historial.clicked.connect(
+            lambda: self.cambiar_vista(5, self.btn_nav_historial)
+        )
+        self.btn_nav_reab.clicked.connect(
+            lambda: self.cambiar_vista(6, self.btn_nav_reab)
         )
 
         # 2. Acción del botón central de la Landing Page
@@ -1710,20 +4821,9 @@ class RecepcionPaleWindow(QWidget):
                 self.abrir_escaner_recepcion
             )
 
-        # 3. PUENTE CRÍTICO: Solución al error de la "Ventana Doble"
-        # Forzamos la desconexión antes de conectar para asegurar que solo exista UN vínculo activo.
-        if hasattr(self.vista_traspaso, "btn_lanzar_dialogo"):
-            try:
-                # Si el botón ya tenía una función conectada, la eliminamos
-                self.vista_traspaso.btn_lanzar_dialogo.clicked.disconnect()
-            except (TypeError, RuntimeError):
-                # Si no había conexión previa, Qt lanza un error que ignoramos
-                pass
-
-            # Conectamos de forma limpia
-            self.vista_traspaso.btn_lanzar_dialogo.clicked.connect(
-                self.abrir_dialogo_traspaso_final
-            )
+        # 3. PUENTE CRÍTICO ("Ventana Doble"): la página de Traspasos ahora se
+        # construye de forma diferida (lazy), así que su señal btn_lanzar_dialogo
+        # se conecta en _wire_vista(1) cuando la página se crea por primera vez.
 
     def abrir_dialogo_traspaso_final(self):
         """Lanza el TraspasoDialog de forma modal, controlada y sin duplicidad."""
@@ -1743,9 +4843,11 @@ class RecepcionPaleWindow(QWidget):
 
             # 4. Al cerrar, evaluamos el resultado
             if resultado:
-                # Si el diálogo terminó en éxito, refrescamos el historial
-                if hasattr(self.vista_hist_trasp, "cargar_datos"):
-                    self.vista_hist_trasp.cargar_datos()
+                # Si el diálogo terminó en éxito, refrescamos el historial (solo
+                # si ya se ha construido — es lazy).
+                hist = getattr(self, "vista_historial", None)
+                if hist is not None and hasattr(hist, "cargar_datos"):
+                    hist.cargar_datos()
 
             # 5. Limpieza explícita del objeto en memoria
             dialogo.deleteLater()
@@ -1774,7 +4876,8 @@ class RecepcionPaleWindow(QWidget):
         Gestiona el cambio de página en el QStackedWidget y
         actualiza visualmente el botón seleccionado con feedback inmediato.
         """
-        # 1. Cambiar el índice del StackedWidget
+        # 1. Construir la sub-página si aún no existe (lazy) y cambiar el índice
+        self._ensure_vista(index)
         self.vistas.setCurrentIndex(index)
 
         # 2. Resetear el estado checked de todos los botones (delegar estilo al CSS global)
@@ -1880,7 +4983,7 @@ class RecepcionPaleWindow(QWidget):
                 # Try to fetch column names from cursor.description
                 try:
                     cols = [c[0] for c in cursor.description]
-                    registro = dict(zip(cols, r))
+                    registro = dict(zip(cols, r, strict=False))
                 except Exception:
                     registro = None
 
@@ -1951,6 +5054,20 @@ class RecepcionPaleWindow(QWidget):
             conn.commit()
             conn.close()
 
+            # Marcar propuestas activas de los artículos recibidos como RECIBIDO
+            codigos_recibidos = [
+                str(item[0]).strip().upper()
+                for item in items_a_recibir
+                if not any(x in str(item[0]).upper() for x in CODIGOS_IGNORAR)
+            ]
+            if codigos_recibidos:
+                _reab_marcar_articulos_recibidos(codigos_recibidos)
+                try:
+                    from src.db.conexion import stock_signals as _db_signals
+                    _db_signals.propuestas_actualizadas.emit()
+                except Exception:
+                    pass
+
             # 5. FEEDBACK FINAL
             resumen = f"Stock actualizado: {count_actualizados} productos."
             if articulos_no_encontrados:
@@ -1964,14 +5081,18 @@ class RecepcionPaleWindow(QWidget):
                 dialogo = DialogoNuevosArticulos(articulos_no_encontrados, self)
                 dialogo.exec()
 
-            # Redirigir automáticamente al Historial de Entradas (Vista Index 3)
-            self.cambiar_vista(3, self.btn_nav_hist_recep)
+            # Redirigir automáticamente al Historial (Vista Index 5)
+            self.cambiar_vista(5, self.btn_nav_historial)
 
         except Exception as e:
             _mensaje_ui(
                 self, "Error de Base de Datos", f"Fallo crítico: {str(e)}", "error"
             )
 
+
+# ============================================================
+# BLOQUE DIÁLOGOS DE GESTIÓN DE ARTÍCULOS
+# ============================================================
 
 class DialogoNuevosArticulos(QDialog):
 
@@ -1983,13 +5104,20 @@ class DialogoNuevosArticulos(QDialog):
         self.items_nuevos = items_nuevos
 
         self.setWindowTitle("Gestión de Artículos Nuevos")
-        self.setMinimumSize(700, 500)  # Ligeramente más grande para comodidad visual
-        self.setObjectName("panel_contenido")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setObjectName("dlg_entrada_cantidad")
+        self.setMinimumSize(700, 500)
 
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        frame = QFrame()
+        frame.setObjectName("cuerpo_ventana")
+        outer.addWidget(frame)
+        layout = QVBoxLayout(frame)
         layout.setContentsMargins(25, 25, 25, 25)
         layout.setSpacing(15)
 
@@ -2096,8 +5224,186 @@ class DialogoNuevosArticulos(QDialog):
             )
 
 
-# --- ARCHIVO: src/gui/recepcion_pale.py ---
-# --- CLASE PRINCIPAL: RecepcionPaleWindow ---
+# ============================================================
+# BLOQUE DIÁLOGO DE TRASPASO
+# ============================================================
+
+
+class _PesoDialog(QDialog):
+    """Diálogo frameless para capturar el peso de un bulto (texto libre)."""
+
+    def __init__(self, titulo: str, texto: str, parent=None):
+        super().__init__(parent)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setObjectName("dlg_entrada_cantidad")
+        self.setMinimumWidth(400)
+        self._drag_pos = None
+        self._valor: str = ""
+        self._build_ui(titulo, texto)
+
+    def _build_ui(self, titulo, texto):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        frame = QFrame()
+        frame.setObjectName("cuerpo_ventana")
+        outer.addWidget(frame)
+        ly = QVBoxLayout(frame)
+        ly.setContentsMargins(28, 22, 28, 22)
+        ly.setSpacing(14)
+
+        lbl_titulo = QLabel(titulo.upper())
+        lbl_titulo.setObjectName("titulo_cian")
+        lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ly.addWidget(lbl_titulo)
+
+        lbl_texto = QLabel(texto)
+        lbl_texto.setWordWrap(True)
+        ly.addWidget(lbl_texto)
+
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Ej: 18.5")
+        self.input.setFixedHeight(46)
+        self.input.returnPressed.connect(self._aceptar)
+        ly.addWidget(self.input)
+
+        h = QHBoxLayout()
+        h.setSpacing(12)
+        btn_skip = QPushButton("DEJAR PENDIENTE")
+        btn_skip.setObjectName("btn_secundario")
+        btn_skip.setFixedHeight(44)
+        btn_skip.clicked.connect(self.accept)
+        btn_ok = QPushButton("GUARDAR PESO")
+        btn_ok.setObjectName("btn_primario")
+        btn_ok.setFixedHeight(44)
+        btn_ok.clicked.connect(self._aceptar)
+        h.addWidget(btn_skip)
+        h.addWidget(btn_ok)
+        ly.addLayout(h)
+
+    def _aceptar(self):
+        self._valor = self.input.text().strip()
+        self.accept()
+
+    def get_value(self) -> str:
+        return self._valor
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._center_on_parent)
+
+    def _center_on_parent(self):
+        parent = self.parentWidget()
+        ref = parent.window().frameGeometry() if parent else None
+        if ref is None:
+            return
+        self.move(
+            ref.x() + (ref.width() - self.width()) // 2,
+            ref.y() + (ref.height() - self.height()) // 2,
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
+
+
+class _EntradaCantidadDialog(QDialog):
+    """Frameless quantity-input dialog replacing QInputDialog.getInt."""
+
+    def __init__(self, titulo, texto, valor_min=1, valor_max=9999, valor_defecto=1, parent=None):
+        super().__init__(parent)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setObjectName("dlg_entrada_cantidad")
+        self.setMinimumWidth(380)
+        self._drag_pos = None
+        self._valor = valor_defecto
+        self._build_ui(titulo, texto, valor_min, valor_max, valor_defecto)
+
+    def _build_ui(self, titulo, texto, valor_min, valor_max, valor_defecto):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        frame = QFrame()
+        frame.setObjectName("cuerpo_ventana")
+        outer.addWidget(frame)
+
+        ly = QVBoxLayout(frame)
+        ly.setContentsMargins(28, 22, 28, 22)
+        ly.setSpacing(14)
+
+        lbl_titulo = QLabel(titulo.upper())
+        lbl_titulo.setObjectName("titulo_cian")
+        lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ly.addWidget(lbl_titulo)
+
+        lbl_texto = QLabel(texto)
+        lbl_texto.setWordWrap(True)
+        ly.addWidget(lbl_texto)
+
+        self.spin = QSpinBox()
+        self.spin.setRange(valor_min, valor_max)
+        self.spin.setValue(valor_defecto)
+        self.spin.setFixedHeight(46)
+        ly.addWidget(self.spin)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(12)
+        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel.setObjectName("btn_secundario")
+        btn_cancel.setFixedHeight(44)
+        btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton("ACEPTAR")
+        btn_ok.setObjectName("btn_primario")
+        btn_ok.setFixedHeight(44)
+        btn_ok.clicked.connect(self._aceptar)
+        btns.addWidget(btn_cancel)
+        btns.addWidget(btn_ok)
+        ly.addLayout(btns)
+
+    def _aceptar(self):
+        self._valor = self.spin.value()
+        self.accept()
+
+    def get_value(self):
+        return self._valor
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._center_on_parent)
+
+    def _center_on_parent(self):
+        parent = self.parentWidget()
+        ref = parent.window().frameGeometry() if parent else None
+        if ref is None:
+            return
+        self.move(
+            ref.x() + (ref.width() - self.width()) // 2,
+            ref.y() + (ref.height() - self.height()) // 2,
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
 
 class TraspasoDialog(QDialog):
@@ -2107,8 +5413,8 @@ class TraspasoDialog(QDialog):
         usuario=None,
         tipo: str = "enviar",
         codigo_local="ALMC",
-        payload_items: Optional[List[dict]] = None,
-        pale_codigo: Optional[str] = None,
+        payload_items: list[dict] | None = None,
+        pale_codigo: str | None = None,
         parent=None,
         **kwargs,
     ):
@@ -2139,7 +5445,7 @@ class TraspasoDialog(QDialog):
         self.destino_final = ""
         self.agencia_final = ""
         self.observaciones_final = ""
-        self.items_widgets: List[dict] = []
+        self.items_widgets: list[dict] = []
         self.peso_bulto = {}
         self.lista_pales_final = []
 
@@ -2233,9 +5539,9 @@ class TraspasoDialog(QDialog):
         self.input_codigo_manual.setCompleter(None)  # Blindaje
         self.input_codigo_manual.returnPressed.connect(self.agregar_articulo_manual)
 
-        btn_cam = QPushButton("📷")
-        btn_cam.setObjectName("btn_icono")
-        btn_cam.setFixedSize(55, 55)
+        btn_cam = QPushButton("📷 SCAN")
+        btn_cam.setObjectName("btn_secundario")
+        btn_cam.setFixedSize(110, 55)
         btn_cam.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cam.clicked.connect(lambda: self.abrir_escaner_camara())
 
@@ -2256,14 +5562,16 @@ class TraspasoDialog(QDialog):
         h_asignar = QHBoxLayout()
         h_asignar.setSpacing(10)
 
+        _OPCIONES_PALE = [f"PALÉ {i:02d}" for i in range(1, 21)]
+        self._opciones_pale = _OPCIONES_PALE
+
         self.global_pale_selector = QComboBox()
-        self.global_pale_selector.addItems(
-            ["Palé Logístico"] + [f"Palé {i:02d}" for i in range(1, 21)]
-        )
-        self.global_pale_selector.setFixedSize(220, 40)
+        self.global_pale_selector.addItems(_OPCIONES_PALE)
+        self.global_pale_selector.setFixedSize(220, 46)
 
         lbl_cargar = QLabel("CARGAR EN:")
         lbl_cargar.setObjectName("etiqueta_secundaria")
+        lbl_cargar.setStyleSheet("font-size: 12px; font-weight: 900;")
 
         h_asignar.addWidget(lbl_cargar)
         h_asignar.addWidget(self.global_pale_selector)
@@ -2303,7 +5611,7 @@ class TraspasoDialog(QDialog):
         nombre_str = str(nombre if nombre else codigo).strip()
 
         # Seguridad: Si el selector no existe o no tiene texto, usamos un valor por defecto
-        pale_actual = "PALÉ 1"
+        pale_actual = "PALÉ 01"
         if hasattr(self, "global_pale_selector"):
             pale_actual = self.global_pale_selector.currentText()
 
@@ -2434,37 +5742,28 @@ class TraspasoDialog(QDialog):
             # Personalizamos el mensaje según si es una Jaula o un Palé
             tipo_bulto = "la JAULA" if "JAU" in pale or "JAULA" in pale else "el PALÉ"
 
-            input_dialog = QInputDialog(self)
-            input_dialog.setWindowTitle(f"PESAJE: {pale}")
-            input_dialog.setLabelText(
-                f"Peso para {tipo_bulto} {pale}\n(Dejar vacío si no se puede pesar ahora):"
+            dlg_peso = _PesoDialog(
+                f"PESAJE: {pale}",
+                f"Peso para {tipo_bulto} {pale}\n(Dejar vacío si no se puede pesar ahora):",
+                parent=self,
             )
-            input_dialog.setTextValue("")  # Vacío por defecto
+            dlg_peso.exec()
+            peso_str = dlg_peso.get_value()
 
-            if aplicar_estilo_widget is not None:
-                aplicar_estilo_widget(input_dialog)
-
-            ok = input_dialog.exec()
-            peso_str = input_dialog.textValue().strip()
-
-            if ok:
-                if not peso_str:
-                    # Si el operario no pone nada, guardamos None para imprimir "___ KG"
-                    self.peso_bulto[pale] = None
-                else:
-                    try:
-                        valor = float(peso_str.replace(",", "."))
-                        self.peso_bulto[pale] = round(valor, 2)
-                    except ValueError:
-                        _mensaje_ui(
-                            self,
-                            "Error",
-                            f"Formato inválido en {pale}. Se marcará como pendiente.",
-                            "warning",
-                        )
-                        self.peso_bulto[pale] = None
+            if not peso_str:
+                self.peso_bulto[pale] = None
             else:
-                return False  # El usuario canceló el proceso completo
+                try:
+                    valor = float(peso_str.replace(",", "."))
+                    self.peso_bulto[pale] = round(valor, 2)
+                except ValueError:
+                    _mensaje_ui(
+                        self,
+                        "Error",
+                        f"Formato inválido en {pale}. Se marcará como pendiente.",
+                        "warning",
+                    )
+                    self.peso_bulto[pale] = None
         return True
 
     def gestionar_confirmacion_final(self):
@@ -2490,11 +5789,18 @@ class TraspasoDialog(QDialog):
 
         # --- PASO 2: DIÁLOGO DE CONFIGURACIÓN DE ENVÍO ---
         diag = QDialog(self)
-        diag.setObjectName("panel_dialogo_logistico")
+        diag.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        diag.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        diag.setObjectName("dlg_entrada_cantidad")
         diag.setWindowTitle("FINALIZAR ENVÍO LOGÍSTICO")
-        diag.setFixedWidth(450)
+        diag.setFixedWidth(480)
+        _diag_outer = QVBoxLayout(diag)
+        _diag_outer.setContentsMargins(0, 0, 0, 0)
+        _diag_frame = QFrame()
+        _diag_frame.setObjectName("cuerpo_ventana")
+        _diag_outer.addWidget(_diag_frame)
 
-        ly = QVBoxLayout(diag)
+        ly = QVBoxLayout(_diag_frame)
         ly.setSpacing(12)
         ly.setContentsMargins(30, 20, 30, 20)
 
@@ -2547,6 +5853,30 @@ class TraspasoDialog(QDialog):
         if aplicar_estilo_widget is not None:
             aplicar_estilo_widget(diag)
 
+        # Centrar y habilitar arrastre
+        diag.adjustSize()
+        _ref = self.window().frameGeometry()
+        diag.move(
+            _ref.x() + (_ref.width() - diag.width()) // 2,
+            _ref.y() + (_ref.height() - diag.height()) // 2,
+        )
+        _diag_drag: list = [None]
+
+        def _diag_mouse_press(ev):
+            if ev.button() == Qt.MouseButton.LeftButton:
+                _diag_drag[0] = ev.globalPosition().toPoint() - diag.pos()
+
+        def _diag_mouse_move(ev):
+            if ev.buttons() == Qt.MouseButton.LeftButton and _diag_drag[0] is not None:
+                diag.move(ev.globalPosition().toPoint() - _diag_drag[0])
+
+        def _diag_mouse_release(ev):
+            _diag_drag[0] = None
+
+        diag.mousePressEvent = _diag_mouse_press
+        diag.mouseMoveEvent = _diag_mouse_move
+        diag.mouseReleaseEvent = _diag_mouse_release
+
         # --- PROCESAR RESULTADO Y GENERAR PDF ---
         if diag.exec() == QDialog.DialogCode.Accepted:
             self.destino_final = self.combo_destino_diag.currentText().strip().upper()
@@ -2584,13 +5914,21 @@ class TraspasoDialog(QDialog):
                     )
                     self.pdf_worker.run()
 
-                    # Abrir PDF automáticamente
+                    # Abrir PDFs automáticamente
                     id_doc = getattr(self, "ultimo_id_doc", "")
                     ruta_alb = os.path.join(
                         os.getcwd(), "documentos", "albaranes", f"ALB_{id_doc}.pdf"
                     )
                     if os.path.exists(ruta_alb):
                         os.startfile(ruta_alb)
+
+                    # Abrir etiquetas de palés si se generaron
+                    from pathlib import Path as _Path
+                    etiq_dir = _Path(os.getcwd()) / "documentos" / "etiquetas_pales"
+                    if etiq_dir.exists():
+                        etiq_files = sorted(etiq_dir.glob("ETIQ_*.pdf"), key=lambda f: f.stat().st_mtime, reverse=True)
+                        if etiq_files:
+                            os.startfile(str(etiq_files[0]))
 
                     _mensaje_ui(
                         self, "Éxito", f"Traspaso {id_doc} finalizado.", "success"
@@ -2604,20 +5942,14 @@ class TraspasoDialog(QDialog):
         """Muestra el selector de ítems logísticos y los añade al traspaso."""
         dialogo = SelectorLogisticoExtras(self)
 
-        # Conectamos la señal para procesar la selección
-        def al_seleccionar(nombre_item):
-            # Simulamos un "escaneo" de este item especial
-            # Buscamos el nombre completo en nuestras opciones_especiales
-            match = next(
-                (s for s in self.opciones_especiales if nombre_item in s), nombre_item
-            )
+        def al_confirmar(nombres: list):
+            for nombre_item in nombres:
+                match = next(
+                    (s for s in self.opciones_especiales if nombre_item in s), nombre_item
+                )
+                self.procesar_insercion_item(codigo=match, cantidad=1, es_logistico=True)
 
-            # Lo añadimos directamente como un item logístico
-            self.procesar_insercion_item(codigo=match, cantidad=1, es_logistico=True)
-            # Opcional: Mostrar un aviso de que se ha añadido
-            print(f"Logística: {match} añadido al traspaso.")
-
-        dialogo.item_seleccionado.connect(al_seleccionar)
+        dialogo.items_confirmados.connect(al_confirmar)
         dialogo.exec()
 
     def confirmar_traspaso(self) -> bool:
@@ -2780,19 +6112,16 @@ class TraspasoDialog(QDialog):
                     stock_disp = int(art[col])
                     break
 
-            # Solicitar cantidad con UI intuitiva
-            cant, ok = QInputDialog.getInt(
-                self,
+            # Solicitar cantidad con diálogo personalizado (evita QInputDialog.getInt
+            # que causa un bucle de geometría con FramelessWindowHint en Qt/Windows).
+            dlg_cant = _EntradaCantidadDialog(
                 "Entrada Manual",
                 f"Producto: {nombre}\nStock disponible: {stock_disp}\n\nCantidad a traspasar:",
-                1,
-                1,
-                9999,
+                1, 9999, 1, parent=self,
             )
-
-            if ok:
+            if dlg_cant.exec() == QDialog.DialogCode.Accepted:
                 self.procesar_insercion_item(
-                    codigo, cant, nombre=nombre, es_logistico=False
+                    codigo, dlg_cant.get_value(), nombre=nombre, es_logistico=False
                 )
 
         except Exception as e:
@@ -2834,16 +6163,15 @@ class TraspasoDialog(QDialog):
 
         # 2. Selector de Bulto (Mantenemos tu lógica sin completer)
         cb_p = QComboBox()
-        opciones_bulto = (
-            ["CAJA LOG."]
-            + [f"PALÉ {i:02}" for i in range(1, 21)]
-            + ["JAULA 01", "JAULA 02"]
+        _opciones_bulto = getattr(self, "_opciones_pale", None) or (
+            [f"PALÉ {i:02d}" for i in range(1, 21)]
+            + ["BASE PALÉ", "JAULA REMONTADA", "JAULA CARTÓN", "JAULA PLÁSTICO"]
         )
-        cb_p.addItems(opciones_bulto)
+        cb_p.addItems(_opciones_bulto)
         cb_p.setCompleter(None)
         cb_p.setEditable(False)
         cb_p.setCurrentText(pale_def)
-        cb_p.setFixedWidth(135)
+        cb_p.setFixedWidth(175)
         cb_p.setCursor(Qt.CursorShape.PointingHandCursor)
         ly.addWidget(cb_p)
 
@@ -3044,6 +6372,10 @@ class TraspasoDialog(QDialog):
             self.reject()
 
 
+# ============================================================
+# BLOQUE TRASPASO DE STOCK
+# ============================================================
+
 class TraspasoStockPage(QWidget):
 
     def __init__(self, usuario=None, codigo_local="ALMC"):
@@ -3133,9 +6465,7 @@ class TraspasoStockPage(QWidget):
                 # buscando la página vecina en el QStackedWidget
                 padre = self.parentWidget()  # QStackedWidget
                 if padre and hasattr(padre, "widget"):
-                    historial = padre.widget(
-                        2
-                    )  # Índice 2 es HistorialTraspasosPage según tu setup
+                    historial = padre.widget(5)  # Índice 5 es HistorialUnificadoPage
                     if hasattr(historial, "cargar_datos"):
                         historial.cargar_datos()
 
@@ -3149,8 +6479,9 @@ class TraspasoStockPage(QWidget):
             _mensaje_ui(self, "Error", f"No se pudo iniciar el flujo: {e}", "error")
 
 
-# --- ARCHIVO: src/gui/recepcion_pale.py ---
-# --- BLOQUE: CLASE HistorialRecepcionesPage ---
+# ============================================================
+# BLOQUE HISTORIAL DE RECEPCIONES
+# ============================================================
 
 
 class HistorialRecepcionesPage(QWidget):
@@ -3272,6 +6603,12 @@ class HistorialRecepcionesPage(QWidget):
 
         header = self.tabla.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Altura de fila suficiente para que los botones de ACCIONES (32px + glow
+        # de neón) no se vean cortados; cada recepción tiene su espacio vital.
+        self.tabla.verticalHeader().setDefaultSectionSize(60)
+        # Sin padding vertical en las celdas (el global de 8px descentraba los
+        # cell widgets hacia abajo); se mantiene el horizontal para el texto.
+        self.tabla.setStyleSheet("QTableWidget::item { padding: 0px 8px; }")
 
         ly_principal.addWidget(wrap_tabla)
 
@@ -3451,7 +6788,7 @@ class HistorialRecepcionesPage(QWidget):
                     if cursor.description:
                         columnas = [desc[0] for desc in cursor.description]
                         resultados = [
-                            dict(zip(columnas, row)) for row in cursor.fetchall()
+                            dict(zip(columnas, row, strict=False)) for row in cursor.fetchall()
                         ]
                         self.renderizar_filas(resultados)
                     else:
@@ -3528,9 +6865,12 @@ class HistorialRecepcionesPage(QWidget):
 
         id_doc_str = str(id_doc)
         container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        container.setMinimumHeight(60)  # llenar la fila → no recortar el glow
         lay = QHBoxLayout(container)
         lay.setContentsMargins(5, 4, 5, 4)
         lay.setSpacing(8)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Botón para profundizar al Nivel 2 (Palés)
         btn_ver = self.crear_boton_estilizado("🔍 DETALLES", "#21262D", "#00FFC6")
@@ -3541,8 +6881,8 @@ class HistorialRecepcionesPage(QWidget):
         btn_ver.clicked.connect(lambda: self.ir_a_nivel_2(id_doc_str))
         btn_pdf.clicked.connect(lambda: self.abrir_albaran_existente(id_doc_str))
 
-        lay.addWidget(btn_ver)
-        lay.addWidget(btn_pdf)
+        lay.addWidget(btn_ver, alignment=Qt.AlignmentFlag.AlignVCenter)
+        lay.addWidget(btn_pdf, alignment=Qt.AlignmentFlag.AlignVCenter)
         self.tabla.setCellWidget(fila, 4, container)
 
     # MÉTODO 11: Botones Nivel 2 (Ver Contenido de Palé)
@@ -3551,6 +6891,8 @@ class HistorialRecepcionesPage(QWidget):
 
         id_pale_str = str(id_pale)
         container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        container.setMinimumHeight(60)  # llenar la fila → no recortar el glow
         lay = QHBoxLayout(container)
         lay.setContentsMargins(5, 4, 5, 4)
 
@@ -3559,7 +6901,7 @@ class HistorialRecepcionesPage(QWidget):
         )
         btn_items.clicked.connect(lambda: self.ir_a_nivel_3(id_pale_str))
 
-        lay.addWidget(btn_items)
+        lay.addWidget(btn_items, alignment=Qt.AlignmentFlag.AlignCenter)
         self.tabla.setCellWidget(fila, 3, container)
 
     # MÉTODO 12: Generador de Botones Estilizados (GitHub Dark Style)
@@ -3567,9 +6909,18 @@ class HistorialRecepcionesPage(QWidget):
         """Crea un QPushButton con bordes redondeados y efecto hover industrial."""
 
         btn = QPushButton(texto)
-        btn.setObjectName("btn_secundario")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFixedHeight(32)
+        # Altura 44px: el QSS añade 24px de chrome vertical (padding+borde); con
+        # 32px el texto quedaba cortado.
+        btn.setFixedHeight(44)
+        # Hover swap por color: relleno del color del botón + texto oscuro.
+        btn.setStyleSheet(
+            f"QPushButton{{background:{bg};color:{color_neon};"
+            f"border:2px solid {color_neon};border-radius:10px;"
+            f"font-family:'Segoe UI';font-weight:700;font-size:12px;padding:0px 14px;}}"
+            f"QPushButton:hover{{background:{color_neon};color:#0D1117;}}"
+            f"QPushButton:pressed{{background:{color_neon};color:#0D1117;}}"
+        )
         return btn
 
     # MÉTODO 13: Apertura de PDF Albarán

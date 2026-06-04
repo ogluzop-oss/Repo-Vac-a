@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "Truy cập Hệ thống",
+    "user_label": "TÊN NHÂN VIÊN",
+    "user_placeholder": "Nhập tên của bạn",
+    "password_label": "MẬT KHẨU",
+    "access_button": "TRUY CẬP HỆ THỐNG",
+    "language_tooltip": "Ngôn ngữ",
+    "error_empty": "Nhập tên và mật khẩu của bạn"
+  },
+  "common": {
+    "accept": "Đồng ý",
+    "cancel": "Hủy",
+    "save": "Lưu",
+    "delete": "Xóa",
+    "yes": "Có",
+    "no": "Không",
+    "back": "Quay lại",
+    "close": "Đóng"
+  }
+}

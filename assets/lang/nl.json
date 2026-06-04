@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "Systeemtoegang",
+    "user_label": "NAAM MEDEWERKER",
+    "user_placeholder": "Voer uw naam in",
+    "password_label": "WACHTWOORD",
+    "access_button": "TOEGANG TOT SYSTEEM",
+    "language_tooltip": "Taal",
+    "error_empty": "Voer uw naam en wachtwoord in"
+  },
+  "common": {
+    "accept": "Accepteren",
+    "cancel": "Annuleren",
+    "save": "Opslaan",
+    "delete": "Verwijderen",
+    "yes": "Ja",
+    "no": "Nee",
+    "back": "Terug",
+    "close": "Sluiten"
+  }
+}

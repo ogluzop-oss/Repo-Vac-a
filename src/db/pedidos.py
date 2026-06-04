@@ -1,26 +1,30 @@
 # src/db/pedidos.py
-from src.db.conexion import obtener_conexion
 import json
 
+from src.db.conexion import obtener_conexion
 
 # ============================================================
 # BLOQUE CONSULTA DE PEDIDOS
 # ============================================================
 
 def obtener_pedido_por_pale(pale_codigo):
-    conn = obtener_conexion()
-    c = conn.cursor()
-    c.execute(
-        "SELECT * FROM pedidos WHERE pale_codigo = ? AND procesado = 0 ORDER BY id DESC",
-        (pale_codigo,),
-    )
-    row = c.fetchone()
-    conn.close()
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, pale_codigo, items, procesado, fecha "
+            "FROM pedidos WHERE pale_codigo=%s AND procesado=0 ORDER BY id DESC",
+            (pale_codigo,),
+        )
+        row = cursor.fetchone()
     if not row:
         return None
-    data = dict(row)
-    data["items"] = json.loads(data["items"])
-    return data
+    return {
+        "id": row[0],
+        "pale_codigo": row[1],
+        "items": json.loads(row[2]),
+        "procesado": row[3],
+        "fecha": row[4],
+    }
 
 
 # ============================================================
@@ -28,15 +32,13 @@ def obtener_pedido_por_pale(pale_codigo):
 # ============================================================
 
 def crear_pedido(pale_codigo, items):
-    conn = obtener_conexion()
-    c = conn.cursor()
-    items_json = json.dumps(items)
-    c.execute(
-        "INSERT INTO pedidos (pale_codigo, items) VALUES (?,?)",
-        (pale_codigo, items_json),
-    )
-    conn.commit()
-    conn.close()
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO pedidos (pale_codigo, items) VALUES (%s,%s)",
+            (pale_codigo, json.dumps(items)),
+        )
+        conn.commit()
 
 
 # ============================================================
@@ -44,8 +46,7 @@ def crear_pedido(pale_codigo, items):
 # ============================================================
 
 def marcar_procesado(id_pedido):
-    conn = obtener_conexion()
-    c = conn.cursor()
-    c.execute("UPDATE pedidos SET procesado = 1 WHERE id = ?", (id_pedido,))
-    conn.commit()
-    conn.close()
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE pedidos SET procesado=1 WHERE id=%s", (id_pedido,))
+        conn.commit()

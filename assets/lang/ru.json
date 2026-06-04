@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "Вход в систему",
+    "user_label": "ИМЯ СОТРУДНИКА",
+    "user_placeholder": "Введите ваше имя",
+    "password_label": "ПАРОЛЬ",
+    "access_button": "ВОЙТИ В СИСТЕМУ",
+    "language_tooltip": "Язык",
+    "error_empty": "Введите имя и пароль"
+  },
+  "common": {
+    "accept": "Принять",
+    "cancel": "Отмена",
+    "save": "Сохранить",
+    "delete": "Удалить",
+    "yes": "Да",
+    "no": "Нет",
+    "back": "Назад",
+    "close": "Закрыть"
+  }
+}

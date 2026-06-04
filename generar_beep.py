@@ -1,7 +1,11 @@
-import numpy as np
-import wave
 import struct
+import wave
 
+import numpy as np
+
+# ============================================================
+# BLOQUE GENERACIÓN DE AUDIO WAV
+# ============================================================
 
 def generar_beep(
     nombre_archivo="error.wav",
@@ -42,5 +46,8 @@ def generar_beep(
     print(f"Archivo WAV generado: {nombre_archivo}")
 
 
-# Generar beep de 1.5 segundos a 440 Hz
+# ============================================================
+# BLOQUE EJECUCIÓN
+# ============================================================
+
 generar_beep("assets/error.wav", duracion=1.5, frecuencia=440, volumen=0.5)

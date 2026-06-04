@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "Sisteme Erişim",
+    "user_label": "ÇALIŞAN ADI",
+    "user_placeholder": "Adınızı girin",
+    "password_label": "PAROLA",
+    "access_button": "SİSTEME GİRİŞ",
+    "language_tooltip": "Dil",
+    "error_empty": "Adınızı ve parolanızı girin"
+  },
+  "common": {
+    "accept": "Tamam",
+    "cancel": "İptal",
+    "save": "Kaydet",
+    "delete": "Sil",
+    "yes": "Evet",
+    "no": "Hayır",
+    "back": "Geri",
+    "close": "Kapat"
+  }
+}

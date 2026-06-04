@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "Systemåtkomst",
+    "user_label": "ANSTÄLLDS NAMN",
+    "user_placeholder": "Ange ditt namn",
+    "password_label": "LÖSENORD",
+    "access_button": "GÅ IN I SYSTEMET",
+    "language_tooltip": "Språk",
+    "error_empty": "Ange ditt namn och lösenord"
+  },
+  "common": {
+    "accept": "Acceptera",
+    "cancel": "Avbryt",
+    "save": "Spara",
+    "delete": "Ta bort",
+    "yes": "Ja",
+    "no": "Nej",
+    "back": "Tillbaka",
+    "close": "Stäng"
+  }
+}

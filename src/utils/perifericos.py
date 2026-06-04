@@ -1,37 +1,30 @@
 # src/utils/perifericos.py
-"""
-Módulo para manejo de periféricos (impresoras, escáneres, cajón de dinero).
-Abstrae diferencias entre sistemas operativos.
-"""
-import platform
-from typing import Optional
+"""Manejo de periféricos (impresoras, escáneres, cajón de dinero). Abstrae diferencias entre SO."""
 import logging
+import platform
 
 logger = logging.getLogger(__name__)
-
 OS = platform.system()
 
 
-def detectar_impresora_termica() -> Optional[str]:
-    """Detecta impresora térmica conectada."""
+# ============================================================
+# BLOQUE DETECCIÓN DE IMPRESORA TÉRMICA
+# ============================================================
+
+def detectar_impresora_termica() -> str | None:
+    """Detecta impresora térmica conectada y devuelve su identificador."""
     try:
         if OS == "Windows":
-            # Usar win32api o pyusb para detectar
             import usb.core
-
-            dev = usb.core.find(idVendor=0x04B8, idProduct=0x0202)  # Ejemplo Epson
+            dev = usb.core.find(idVendor=0x04B8, idProduct=0x0202)
             return dev.serial_number if dev else None
         elif OS == "Linux":
-            # Buscar en /dev/usb/lp*
-            import os
-
-            for device in os.listdir("/dev"):
+            import os as _os
+            for device in _os.listdir("/dev"):
                 if device.startswith("lp"):
                     return f"/dev/{device}"
-        elif OS == "Darwin":  # macOS
-            # Usar IOKit o pyusb
+        elif OS == "Darwin":
             import usb.core
-
             dev = usb.core.find(idVendor=0x04B8, idProduct=0x0202)
             return dev.serial_number if dev else None
     except Exception as e:
@@ -39,27 +32,32 @@ def detectar_impresora_termica() -> Optional[str]:
     return None
 
 
+# ============================================================
+# BLOQUE CONTROL DE CAJÓN DE DINERO
+# ============================================================
+
 def abrir_cajon_dinero():
-    """Envía comando ESC/POS para abrir cajón."""
+    """Envía comando ESC/POS para abrir el cajón portamonedas."""
     try:
         from escpos.printer import Serial
-
-        # Asumir puerto serial estándar
-        puerto = "COM1" if OS == "Windows" else "/dev/ttyUSB0"
+        puerto  = "COM1" if OS == "Windows" else "/dev/ttyUSB0"
         printer = Serial(puerto)
-        printer.cashdraw(2)  # Comando para cajón
+        printer.cashdraw(2)
         printer.close()
         logger.info("Cajón de dinero abierto.")
     except Exception as e:
         logger.error(f"Error abriendo cajón: {e}")
 
 
-def escanear_codigo() -> Optional[str]:
-    """Lee código de escáner (simulado por ahora)."""
+# ============================================================
+# BLOQUE LECTURA DE CÓDIGOS DE ESCÁNER
+# ============================================================
+
+def escanear_codigo() -> str | None:
+    """Lee un código desde el escáner serie y lo devuelve como cadena."""
     try:
         import serial
-
-        ser = serial.Serial("COM3" if OS == "Windows" else "/dev/ttyACM0", 9600)
+        ser  = serial.Serial("COM3" if OS == "Windows" else "/dev/ttyACM0", 9600)
         data = ser.readline().decode().strip()
         ser.close()
         return data

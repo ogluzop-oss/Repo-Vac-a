@@ -1,5 +1,5 @@
 """
-Smart Manager AI - Global style system
+Smart Manager - Global style system
 
 Search keywords:
 - SECTION TOKENS
@@ -18,12 +18,19 @@ Search keywords:
 """
 
 import ctypes
+import os
 import re
 import sys
 
+# Cyan dropdown-arrow icon (same triangle look as the empleado combo).
+# QSS url() requires forward slashes even on Windows.
+_ARROW_ICON = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "combo_arrow.png"
+).replace("\\", "/")
+
 try:
-    from PyQt6.QtCore import QEvent, QObject, Qt
-    from PyQt6.QtGui import QFont
+    from PyQt6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QTimer
+    from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
     from PyQt6.QtWidgets import (
         QAbstractButton,
         QAbstractItemView,
@@ -34,10 +41,11 @@ try:
         QDialog,
         QDialogButtonBox,
         QFrame,
-        QGroupBox,
         QGraphicsDropShadowEffect,
-        QHeaderView,
+        QGroupBox,
         QHBoxLayout,
+        QHeaderView,
+        QInputDialog,
         QLabel,
         QLineEdit,
         QListView,
@@ -49,6 +57,7 @@ try:
         QRadioButton,
         QScrollArea,
         QSlider,
+        QStyledItemDelegate,
         QTabBar,
         QTableView,
         QTableWidget,
@@ -63,8 +72,15 @@ try:
 except Exception:  # pragma: no cover
     QEvent = None
     QObject = object
+    QColor = None
+    QRectF = None
+    QSize = None
     Qt = None
+    QTimer = None
     QFont = None
+    QPainter = None
+    QPainterPath = None
+    QPen = None
     QAbstractButton = None
     QAbstractItemView = None
     QAbstractSpinBox = None
@@ -87,8 +103,10 @@ except Exception:  # pragma: no cover
     QPlainTextEdit = None
     QPushButton = None
     QRadioButton = None
+    QInputDialog = None
     QScrollArea = None
     QSlider = None
+    QStyledItemDelegate = None
     QTabBar = None
     QTableView = None
     QTableWidget = None
@@ -101,9 +119,9 @@ except Exception:  # pragma: no cover
     QWidget = None
 
 
-# =========================================================
-# SECTION TOKENS
-# =========================================================
+# ============================================================
+# BLOQUE TOKENS Y CONSTANTES DE ESTILO
+# ============================================================
 FUENTE_APP = "Segoe UI"
 COLOR_CIAN = "#00FFC6"
 COLOR_CIAN_HOVER = "#00E6B2"
@@ -143,9 +161,9 @@ RADIO_TABLAS = "20px"
 _APP_FILTER = None
 
 
-# =========================================================
-# SECTION HELPERS
-# =========================================================
+# ============================================================
+# BLOQUE HELPERS INTERNOS
+# ============================================================
 def _safe_instance(widget, klass):
     return klass is not None and widget is not None and isinstance(widget, klass)
 
@@ -171,10 +189,9 @@ def _repolish(widget):
         pass
 
 
-# =========================================================
-# SECTION FEEDBACK HELPERS
-# (escaneo, suma de ítems; propiedades flashHighlight / tituloProcesando en QSS)
-# =========================================================
+# ============================================================
+# BLOQUE FEEDBACK Y PLANTILLAS DE WIDGETS
+# ============================================================
 
 
 def repolish_widget(widget):
@@ -266,6 +283,8 @@ def construir_plantilla_camara(
     lbl_video.setProperty("activo", False)
     lbl_video.setAlignment(Qt.AlignmentFlag.AlignCenter)
     lbl_video.setFixedSize(int(ancho_video), int(alto_video))
+    lbl_video.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    lbl_video.setScaledContents(False)
     layout.addWidget(lbl_video, alignment=Qt.AlignmentFlag.AlignCenter)
 
     lbl_status = QLabel(str(estado_inicial))
@@ -304,7 +323,7 @@ def construir_plantilla_camara(
 
 def construir_tabla_estilizada(parent=None):
     """
-    Plantilla visual universal para tablas Smart Manager AI.
+    Plantilla visual universal para tablas Smart Manager.
     Devuelve (contenedor, tabla) y deja filas/columnas al módulo consumidor.
     """
     if QFrame is None or QVBoxLayout is None or QTableWidget is None:
@@ -332,6 +351,57 @@ def construir_tabla_estilizada(parent=None):
     _set_widget_background_flag(tabla)
     _repolish(contenedor)
     _repolish(tabla)
+
+    # CornerCover: smooth anti-aliased rounded corners for the container.
+    # Paints the 4 corner areas with the panel background colour, then redraws
+    # the neon border arc on top — hiding any child-widget content (rows,
+    # scrollbars) that bleeds past the rounded border without pixelated clipping.
+    if (QPainter is not None and QPen is not None and QColor is not None
+            and QPainterPath is not None and QRectF is not None):
+        _bg = QColor(COLOR_FONDO_APP)
+        _border = QColor(COLOR_CIAN)
+        _r = 20.0
+
+        class _CornerCover(QWidget):
+            def __init__(self, parent):
+                super().__init__(parent)
+                self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+
+            def paintEvent(self, _ev):  # noqa: N802
+                p = QPainter(self)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                W, H = float(self.width()), float(self.height())
+                full = QPainterPath()
+                full.addRect(QRectF(0.0, 0.0, W, H))
+                inner = QPainterPath()
+                inner.addRoundedRect(QRectF(0.0, 0.0, W, H), _r, _r)
+                p.fillPath(full.subtracted(inner), _bg)
+                p.setPen(QPen(_border, 2.0))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawRoundedRect(QRectF(1.0, 1.0, W - 2.0, H - 2.0), _r - 1.0, _r - 1.0)
+                p.end()
+
+        _cover = _CornerCover(contenedor)
+
+        def _raise_cover():
+            _cover.setGeometry(contenedor.rect())
+            _cover.raise_()
+            _cover.update()
+
+        class _CoverFilter(QObject):
+            def eventFilter(self_, obj, ev):  # noqa: N805
+                if ev.type() == QEvent.Type.Resize:
+                    _raise_cover()
+                return False
+
+        _filt = _CoverFilter(contenedor)
+        contenedor._cover_filter = _filt   # prevent GC
+        contenedor._corner_cover = _cover  # prevent GC
+        contenedor.installEventFilter(_filt)
+        if QTimer is not None:
+            QTimer.singleShot(0, _raise_cover)
+
     return contenedor, tabla
 
 
@@ -421,16 +491,100 @@ def _apply_button_role(widget):
         pass
 
 
+class _RoundedComboDelegate(QStyledItemDelegate if QStyledItemDelegate is not None else object):
+    """Draws combo-box list items with a rounded-rect highlight on hover/selection."""
+
+    def paint(self, painter, option, index):
+        if QPainter is None or Qt is None or QRectF is None:
+            super().paint(painter, option, index)
+            return
+        try:
+            from PyQt6.QtWidgets import QStyle
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            is_active = bool(
+                option.state & (QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_Selected)
+            )
+            if is_active:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(COLOR_CIAN))
+                r = QRectF(option.rect).adjusted(6, 2, -6, -2)
+                painter.drawRoundedRect(r, 8, 8)
+                painter.setPen(QColor(COLOR_FONDO_APP))
+            else:
+                painter.setPen(QColor("#E6EDF3"))
+            text = str(index.data() or "")
+            painter.setFont(option.font)
+            text_rect = option.rect.adjusted(16, 0, -8, 0)
+            painter.drawText(
+                text_rect,
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                text,
+            )
+            painter.restore()
+        except Exception:
+            super().paint(painter, option, index)
+
+    def sizeHint(self, option, index):
+        sh = super().sizeHint(option, index)
+        if QSize is not None:
+            return sh.expandedTo(QSize(0, 38))
+        return sh
+
+
 def _apply_combo_extras(widget):
     if widget is None or not _safe_instance(widget, QComboBox):
         return
     try:
+        # HORARIO comboboxes handle their own popup styling via per-widget stylesheet;
+        # skip the expensive lazy view() init to avoid freezing on 112+ comboboxes.
+        if widget.property("horario_cb"):
+            return
         view = widget.view()
         if view is not None:
             _apply_font(view)
             _set_widget_cursor(view)
-            if hasattr(view, "objectName") and not view.objectName():
-                view.setObjectName("combo_popup_generic")
+            # Always use _sm_combo_view name so the global QSS exclusion rule
+            # (border:none for #_sm_combo_view) fires reliably.
+            view.setObjectName("_sm_combo_view")
+            # Scroll por píxel: evita el hueco vacío bajo el último item cuando el
+            # viewport no es múltiplo exacto de la altura de item.
+            try:
+                view.setVerticalScrollMode(
+                    QAbstractItemView.ScrollMode.ScrollPerPixel
+                )
+            except Exception:
+                pass
+            # Diseño unificado de scrollbar para TODOS los desplegables:
+            # barra cian de 12px con extremos redondeados, sin columna gris de
+            # fondo (idéntica a la sidebar y al combo de "producto a granel").
+            view.setStyleSheet(
+                f"QListView#_sm_combo_view {{"
+                f"  border: none;"
+                f"  background-color: {COLOR_FONDO_APP};"
+                f"  outline: 0px;"
+                f"}}"
+                f"QListView#_sm_combo_view QScrollBar:vertical {{"
+                f"  background: transparent; width: 12px; margin: 2px 0px;"
+                f"}}"
+                f"QListView#_sm_combo_view QScrollBar::handle:vertical {{"
+                f"  background: {COLOR_CIAN}; min-height: 24px; border-radius: 6px;"
+                f"}}"
+                f"QListView#_sm_combo_view QScrollBar::add-line:vertical,"
+                f"QListView#_sm_combo_view QScrollBar::sub-line:vertical {{"
+                f"  border: none; background: none; width: 0px; height: 0px;"
+                f"}}"
+                f"QListView#_sm_combo_view QScrollBar::add-page:vertical,"
+                f"QListView#_sm_combo_view QScrollBar::sub-page:vertical {{"
+                f"  background: transparent;"
+                f"}}"
+            )
+            # Install rounded-item delegate so hover/selection appears with rounded corners
+            try:
+                if not isinstance(view.itemDelegate(), _RoundedComboDelegate):
+                    view.setItemDelegate(_RoundedComboDelegate(view))
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -501,19 +655,147 @@ def _apply_windows_dark_title_bar(widget):
         pass
 
 
-# =========================================================
-# SECTION FILTERS
-# =========================================================
+# ============================================================
+# BLOQUE FILTROS Y DIÁLOGOS DE MENSAJES
+# ============================================================
 class _SmartGlobalFilter(QObject):
     def eventFilter(self, watched, event):
         if watched is None or event is None or Qt is None or QEvent is None:
             return super().eventFilter(watched, event)
         try:
-            if event.type() == QEvent.Type.Show and (
-                _safe_instance(watched, QMessageBox)
-                or _safe_instance(watched, QInputDialog)
-            ):
+            if event.type() == QEvent.Type.Show and _safe_instance(watched, QMessageBox):
+                # QInputDialog is intentionally excluded: setWindowFlags(FramelessHint) on a
+                # visible QInputDialog causes Qt to destroy/recreate the native handle, which
+                # puts the internal spinbox/buttons into a geometry-correction loop where
+                # Windows keeps rejecting the recalculated positions, freezing the UI.
+                # The global QSS already applies the dark theme to QInputDialog correctly.
                 _apply_native_dialog_chrome(watched)
+            # QComboBoxPrivateContainer: clip OS window to rounded rect (SetWindowRgn)
+            # so the QAbstractItemView's QSS border-radius + neon border shows correctly.
+            try:
+                _cn = watched.metaObject().className() if hasattr(watched, 'metaObject') else ""
+                _is_combo_container = _cn == "QComboBoxPrivateContainer"
+            except Exception:
+                _is_combo_container = False
+            if _is_combo_container:
+                if event.type() == QEvent.Type.Hide:
+                    # Restaurar el stylesheet ORIGINAL del combo al cerrar el popup.
+                    # Antes se hacía setStyleSheet("") que borraba el QSS inline de
+                    # los combos con borde propio (p. ej. el de empleado), dejándolos
+                    # sin contorno de neón. Ahora restauramos lo guardado en Show.
+                    try:
+                        _pcombo = watched.parentWidget()
+                        if _pcombo is not None and _safe_instance(_pcombo, QComboBox):
+                            if not _pcombo.property("horario_cb"):
+                                _saved = _pcombo.property("_sm_qss_saved")
+                                _pcombo.setStyleSheet(_saved if _saved is not None else "")
+                    except Exception:
+                        pass
+                # Combos marcados con 'horario_cb' gestionan su propio popup
+                # (borde + scrollbar) → no aplicamos el borde del contenedor para
+                # evitar un doble contorno de neón.
+                try:
+                    _pc = watched.parentWidget()
+                    _self_styled = bool(
+                        _pc is not None and _safe_instance(_pc, QComboBox)
+                        and _pc.property("horario_cb")
+                    )
+                except Exception:
+                    _self_styled = False
+                if _self_styled and event.type() in {QEvent.Type.Show, QEvent.Type.Polish}:
+                    # El combo se auto-estiliza (borde + scrollbar en su vista).
+                    # NO tocamos windowFlags/atributos aquí (recrearía el handle
+                    # nativo en cada Show → lentitud y parpadeos). Sólo dejamos el
+                    # contenedor transparente sin borde, para que se vea un único
+                    # contorno de neón (el de la vista). Los flags translúcidos
+                    # del contenedor los fija el combo en su __init__.
+                    try:
+                        ly = watched.layout()
+                        if ly is not None:
+                            ly.setContentsMargins(0, 0, 0, 0)
+                        if not watched.objectName():
+                            watched.setObjectName("_sm_combo_popup_self")
+                        watched.setStyleSheet(
+                            f"QWidget#{watched.objectName()} {{"
+                            f"  background: transparent;"
+                            f"  border: none;"
+                            f"}}"
+                        )
+                    except Exception:
+                        pass
+                elif event.type() in {QEvent.Type.Show, QEvent.Type.Polish}:
+                    try:
+                        ly = watched.layout()
+                        if ly is not None:
+                            ly.setContentsMargins(0, 0, 0, 0)
+                        # Neon border lives on the container frame (aligns with SetWindowRgn).
+                        # The view's border is neutralised via _apply_combo_extras +
+                        # the global QListView#_sm_combo_view { border: none } rule.
+                        if not watched.objectName():
+                            watched.setObjectName("_sm_combo_popup")
+                        watched.setStyleSheet(
+                            f"QWidget#_sm_combo_popup {{"
+                            f"  background-color: {COLOR_FONDO_APP};"
+                            f"  border: 2px solid {COLOR_CIAN};"
+                            f"  border-radius: {RADIO_XL};"
+                            f"}}"
+                        )
+                        # Collapse QComboBoxPrivateScroller widgets (top/bottom scroll arrows)
+                        # so they don't appear as black bars inside the popup.
+                        for _child in watched.children():
+                            if hasattr(_child, 'metaObject') and hasattr(_child, 'setStyleSheet'):
+                                try:
+                                    if "Scroller" in _child.metaObject().className():
+                                        _child.setStyleSheet(
+                                            f"background-color: {COLOR_FONDO_APP}; border: none;"
+                                        )
+                                        _child.setMaximumHeight(0)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                # Suppress the parent QComboBox border only when the popup is actually visible
+                # (Show, not Polish — Polish fires at creation time before the popup ever opens).
+                if event.type() == QEvent.Type.Show:
+                    try:
+                        _pcombo = watched.parentWidget()
+                        if _pcombo is not None and _safe_instance(_pcombo, QComboBox):
+                            if not _pcombo.property("horario_cb"):
+                                # Guardar el QSS original UNA vez para poder
+                                # restaurarlo al cerrar (ver rama Hide).
+                                if _pcombo.property("_sm_qss_saved") is None:
+                                    _pcombo.setProperty(
+                                        "_sm_qss_saved", _pcombo.styleSheet()
+                                    )
+                                _pcombo.setStyleSheet(
+                                    f"QComboBox {{"
+                                    f"  border: 2px solid transparent;"
+                                    f"  border-radius: {RADIO_LG};"
+                                    f"}}"
+                                )
+                    except Exception:
+                        pass
+                if (not _self_styled
+                        and event.type() in {QEvent.Type.Show, QEvent.Type.Resize}
+                        and sys.platform == "win32"):
+                    _ctr = watched
+                    def _clip_combo_popup(_w=_ctr):
+                        try:
+                            hwnd = int(_w.winId())
+                            if not hwnd:
+                                return
+                            w, h = _w.width(), _w.height()
+                            if w <= 0 or h <= 0:
+                                return
+                            r = 20  # matches RADIO_XL border-radius
+                            rgn = ctypes.windll.gdi32.CreateRoundRectRgn(
+                                0, 0, w + 1, h + 1, r * 2, r * 2
+                            )
+                            ctypes.windll.user32.SetWindowRgn(hwnd, rgn, True)
+                        except Exception:
+                            pass
+                    if QTimer is not None:
+                        QTimer.singleShot(0, _clip_combo_popup)
             if event.type() in {
                 QEvent.Type.Show,
                 QEvent.Type.Polish,
@@ -557,7 +839,7 @@ class SmartMessageDialog(QDialog):
         self.buttons = list(buttons or ["ok"])
 
         self.setObjectName("smart_message_dialog")
-        self.setWindowTitle(title or "Smart Manager AI")
+        self.setWindowTitle(title or "Smart Manager")
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setModal(True)
@@ -684,6 +966,35 @@ class SmartMessageDialog(QDialog):
                 font-size: 13px;
                 font-weight: 900;
             }}
+            QPushButton[semanticRole="success"] {{
+                background-color: {COLOR_VERDE_OK};
+                color: {COLOR_FONDO_APP};
+                border: 2px solid {COLOR_VERDE_OK};
+                border-radius: {RADIO_MD};
+                font-family: '{FUENTE_APP}';
+                font-size: 13px;
+                font-weight: 900;
+                padding: 10px 16px;
+            }}
+            QPushButton[semanticRole="success"]:hover {{
+                background-color: #FFFFFF;
+                color: {COLOR_FONDO_APP};
+                border: 2px solid {COLOR_VERDE_OK};
+            }}
+            QPushButton[semanticRole="neutral"] {{
+                background-color: transparent;
+                color: {COLOR_CIAN};
+                border: 2px solid {COLOR_CIAN};
+                border-radius: {RADIO_MD};
+                font-family: '{FUENTE_APP}';
+                font-size: 13px;
+                font-weight: 900;
+                padding: 10px 16px;
+            }}
+            QPushButton[semanticRole="neutral"]:hover {{
+                background-color: {COLOR_CIAN};
+                color: {COLOR_FONDO_APP};
+            }}
             """
         )
 
@@ -701,9 +1012,9 @@ class SmartMessageDialog(QDialog):
             pass
 
 
-# =========================================================
-# SECTION PUBLIC API
-# =========================================================
+# ============================================================
+# BLOQUE API PÚBLICA
+# ============================================================
 def aplicar_estilo_app(app):
     global _APP_FILTER
 
@@ -726,6 +1037,25 @@ def aplicar_estilo_app(app):
             pass
 
 
+def _apply_button_glow(widget):
+    if widget is None or not _safe_instance(widget, QPushButton) or QGraphicsDropShadowEffect is None:
+        return
+    try:
+        name = widget.objectName() if hasattr(widget, "objectName") else ""
+        if name in {"btn_sidebar", "btn_sidebar_exit"}:
+            return
+        if widget.graphicsEffect() is not None:
+            return
+        from PyQt6.QtGui import QColor
+        fx = QGraphicsDropShadowEffect()
+        fx.setBlurRadius(22)
+        fx.setColor(QColor(COLOR_CIAN))
+        fx.setOffset(0, 0)
+        widget.setGraphicsEffect(fx)
+    except Exception:
+        pass
+
+
 def aplicar_estilo_widget(widget):
     if widget is None or Qt is None:
         return
@@ -734,6 +1064,7 @@ def aplicar_estilo_widget(widget):
     _apply_font(widget)
     _set_widget_cursor(widget)
     _apply_button_role(widget)
+    _apply_button_glow(widget)
     _apply_combo_extras(widget)
     _apply_dialog_semantics(widget)
     _apply_windows_dark_title_bar(widget)
@@ -800,6 +1131,10 @@ def mostrar_confirmacion(parent, titulo, mensaje):
     )
     return resultado == SmartMessageDialog.ROLE_TO_RESULT["yes"]
 
+
+# ============================================================
+# BLOQUE HOJAS DE ESTILO QSS
+# ============================================================
 
 QSS_ROOT = f"""
 /* =====================================================
@@ -1208,12 +1543,22 @@ QDateEdit:hover, QTimeEdit:hover {{
     border: 2px solid {COLOR_CIAN};
 }}
 
+QLineEdit#empName:hover {{
+    background-color: transparent;
+    border: 1px solid transparent;
+    color: #D0DCE8;
+}}
+
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
 QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QDateEdit:focus, QTimeEdit:focus {{
     background-color: {COLOR_FONDO_WIDGET};
     color: {COLOR_TEXTO_PRINCIPAL};
     border: 2px solid {COLOR_CIAN};
+}}
+
+QComboBox:on {{
+    border: 2px solid transparent;
 }}
 
 QLineEdit#input_buscador[flashHighlight="true"] {{
@@ -1234,25 +1579,22 @@ QLineEdit::placeholder, QTextEdit::placeholder, QPlainTextEdit::placeholder {{
 }}
 
 QComboBox {{
-    padding-right: 38px;
+    padding-right: 28px;
 }}
 
 QComboBox::drop-down {{
     subcontrol-origin: padding;
-    subcontrol-position: top right;
-    width: 34px;
+    subcontrol-position: center right;
+    width: 24px;
+    margin-right: 4px;
     border: none;
     background: transparent;
 }}
 
 QComboBox::down-arrow {{
-    image: none;
-    width: 0px;
-    height: 0px;
-    border-left: 6px solid transparent;
-    border-right: 6px solid transparent;
-    border-top: 8px solid {COLOR_CIAN};
-    margin-right: 14px;
+    image: url({_ARROW_ICON});
+    width: 14px;
+    height: 14px;
 }}
 
 QComboBox QAbstractItemView,
@@ -1287,6 +1629,23 @@ QMenu::item:selected {{
     background-color: {COLOR_CIAN};
     color: {COLOR_FONDO_APP};
 }}
+
+/* Popup view used by _sm_combo_popup container: border lives on the container,
+   so the view itself must have no border at all. This rule has specificity
+   (0,1,1) and appears last, beating QComboBox QAbstractItemView at (0,0,2). */
+QListView#_sm_combo_view {{
+    border: none;
+    background-color: {COLOR_FONDO_APP};
+    outline: 0px;
+}}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    width: 0px;
+    height: 0px;
+    border: none;
+    background: transparent;
+}}
 """
 
 QSS_BUTTONS = f"""
@@ -1315,33 +1674,40 @@ QPushButton:pressed {{
 }}
 
 QPushButton#btn_primario {{
-    background-color: {COLOR_CIAN};
-    color: {COLOR_FONDO_APP};
-    border: 2px solid {COLOR_CIAN};
-}}
-
-QPushButton#btn_primario:hover {{
     background-color: {COLOR_FONDO_APP};
     color: {COLOR_CIAN};
     border: 2px solid {COLOR_CIAN};
+    outline: none;
+}}
+
+QPushButton#btn_primario:hover {{
+    background-color: {COLOR_CIAN};
+    color: {COLOR_FONDO_APP};
+    border: 2px solid {COLOR_CIAN};
+    outline: none;
 }}
 
 QPushButton#btn_primario:pressed {{
     background-color: {COLOR_CIAN_PRESION};
     color: {COLOR_FONDO_APP};
+    outline: none;
+}}
+
+QPushButton#btn_primario:focus {{
+    outline: none;
 }}
 
 QPushButton#btn_traspaso_land {{
-    background-color: {COLOR_CIAN};
-    color: {COLOR_FONDO_APP};
+    background-color: {COLOR_FONDO_APP};
+    color: {COLOR_CIAN};
     border: 2px solid {COLOR_CIAN};
     text-align: center;
     padding: 10px 0px 10px 12px;
 }}
 
 QPushButton#btn_traspaso_land:hover {{
-    background-color: {COLOR_FONDO_APP};
-    color: {COLOR_CIAN};
+    background-color: {COLOR_CIAN};
+    color: {COLOR_FONDO_APP};
     border: 2px solid {COLOR_CIAN};
 }}
 
@@ -1368,14 +1734,14 @@ QPushButton#btn_secundario:pressed {{
 }}
 
 QPushButton#btn_peligro {{
-    background-color: {COLOR_ROJO_ERROR};
-    color: {COLOR_TEXTO_PRINCIPAL};
+    background-color: {COLOR_FONDO_APP};
+    color: {COLOR_ROJO_ERROR};
     border: 2px solid {COLOR_ROJO_ERROR};
 }}
 
 QPushButton#btn_peligro:hover {{
-    background-color: {COLOR_FONDO_APP};
-    color: {COLOR_ROJO_ERROR};
+    background-color: {COLOR_ROJO_ERROR};
+    color: {COLOR_FONDO_APP};
     border: 2px solid {COLOR_ROJO_ERROR};
 }}
 
@@ -1431,8 +1797,8 @@ QToolButton[semanticRole="success"] {{
 
 QPushButton[semanticRole="success"]:hover,
 QToolButton[semanticRole="success"]:hover {{
-    background-color: {COLOR_FONDO_APP};
-    color: {COLOR_VERDE_OK};
+    background-color: #FFFFFF;
+    color: {COLOR_FONDO_APP};
     border: 2px solid {COLOR_VERDE_OK};
 }}
 
@@ -1465,16 +1831,16 @@ QToolButton[semanticRole="neutral"]:pressed {{
 
 QPushButton[semanticRole="danger"],
 QToolButton[semanticRole="danger"] {{
-    background-color: {COLOR_ROJO_ERROR};
-    color: {COLOR_TEXTO_PRINCIPAL};
+    background-color: {COLOR_FONDO_APP};
+    color: {COLOR_ROJO_ERROR};
     border: 2px solid {COLOR_ROJO_ERROR};
     border-radius: {RADIO_MD};
 }}
 
 QPushButton[semanticRole="danger"]:hover,
 QToolButton[semanticRole="danger"]:hover {{
-    background-color: {COLOR_FONDO_APP};
-    color: {COLOR_ROJO_ERROR};
+    background-color: {COLOR_ROJO_ERROR};
+    color: {COLOR_FONDO_APP};
     border: 2px solid {COLOR_ROJO_ERROR};
 }}
 
@@ -1655,7 +2021,7 @@ QFrame#item_frame_logistico[flashHighlight="true"] {{
     border: 2px solid {COLOR_CIAN};
 }}
 
-/* Plantilla universal de tabla Smart Manager AI */
+/* Plantilla universal de tabla Smart Manager */
 QFrame#contenedor_tabla_estandar,
 QFrame#frame_tabla_neon_logistica {{
     background-color: {COLOR_GRIS_PANEL};
@@ -1718,43 +2084,115 @@ QFrame#frame_tabla_neon_logistica QTableCornerButton::section {{
     background: transparent;
     border: none;
 }}
+
+/* ── Scrollbars inside table/list widgets ─────────────────────────────────
+   Groove: transparent (border-radius on groove doesn't work in Qt QSS).
+   Handle: cyan capsule inset 22 px from top/bottom so it never enters
+   the CornerCover zone (20 px radius) and always shows rounded ends.        */
+QTableWidget QScrollBar:vertical,
+QTreeWidget QScrollBar:vertical,
+QListWidget QScrollBar:vertical {{
+    background: transparent;
+    width: 8px;
+    margin: 22px 0px 22px 0px;
+}}
+
+QTableWidget QScrollBar::handle:vertical,
+QTreeWidget QScrollBar::handle:vertical,
+QListWidget QScrollBar::handle:vertical {{
+    background: {COLOR_CIAN};
+    min-height: 20px;
+    border-radius: 4px;
+}}
+
+QTableWidget QScrollBar::add-line:vertical,
+QTableWidget QScrollBar::sub-line:vertical,
+QTreeWidget QScrollBar::add-line:vertical,
+QTreeWidget QScrollBar::sub-line:vertical,
+QListWidget QScrollBar::add-line:vertical,
+QListWidget QScrollBar::sub-line:vertical {{
+    border: none;
+    background: none;
+    height: 0px;
+}}
+
+QTableWidget QScrollBar::add-page:vertical,
+QTableWidget QScrollBar::sub-page:vertical,
+QTreeWidget QScrollBar::add-page:vertical,
+QTreeWidget QScrollBar::sub-page:vertical,
+QListWidget QScrollBar::add-page:vertical,
+QListWidget QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+
+QTableWidget QScrollBar:horizontal,
+QTreeWidget QScrollBar:horizontal,
+QListWidget QScrollBar:horizontal {{
+    background: transparent;
+    height: 8px;
+    margin: 0px 22px 0px 22px;
+}}
+
+QTableWidget QScrollBar::handle:horizontal,
+QTreeWidget QScrollBar::handle:horizontal,
+QListWidget QScrollBar::handle:horizontal {{
+    background: {COLOR_CIAN};
+    min-width: 20px;
+    border-radius: 4px;
+}}
+
+QTableWidget QScrollBar::add-line:horizontal,
+QTableWidget QScrollBar::sub-line:horizontal,
+QTreeWidget QScrollBar::add-line:horizontal,
+QTreeWidget QScrollBar::sub-line:horizontal,
+QListWidget QScrollBar::add-line:horizontal,
+QListWidget QScrollBar::sub-line:horizontal {{
+    border: none;
+    background: none;
+    width: 0px;
+}}
+
+QTableWidget QScrollBar::add-page:horizontal,
+QTableWidget QScrollBar::sub-page:horizontal,
+QTreeWidget QScrollBar::add-page:horizontal,
+QTreeWidget QScrollBar::sub-page:horizontal,
+QListWidget QScrollBar::add-page:horizontal,
+QListWidget QScrollBar::sub-page:horizontal {{
+    background: transparent;
+}}
 """
 
 QSS_SCROLLBARS = f"""
 /* =====================================================
    SECTION QSS SCROLLBARS
+   Qt does NOT apply border-radius to the scrollbar groove background,
+   so the groove is kept transparent everywhere. Only the ::handle has
+   a visible background; its border-radius creates the capsule shape
+   that gives rounded ends on every scrollbar in the app.
    ===================================================== */
 
 QScrollBar:vertical {{
     background: transparent;
-    width: 14px;
-    margin: 12px 0 12px 0;
+    width: 8px;
+    margin: 2px 0px;
 }}
 
 QScrollBar::handle:vertical {{
-    background: {COLOR_GRIS_SUAVE};
-    min-height: 40px;
-    border-radius: 7px;
-}}
-
-QScrollBar::handle:vertical:hover {{
     background: {COLOR_CIAN};
+    min-height: 24px;
+    border-radius: 4px;
 }}
 
 QScrollBar:horizontal {{
     background: transparent;
-    height: 14px;
-    margin: 0 12px 0 12px;
+    height: 8px;
+    margin: 0px 2px;
 }}
 
 QScrollBar::handle:horizontal {{
-    background: {COLOR_GRIS_SUAVE};
-    min-width: 40px;
-    border-radius: 7px;
-}}
-
-QScrollBar::handle:horizontal:hover {{
     background: {COLOR_CIAN};
+    min-width: 24px;
+    border-radius: 4px;
 }}
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
@@ -1781,6 +2219,12 @@ QDialog, QInputDialog, QMessageBox {{
     color: {COLOR_TEXTO_PRINCIPAL};
     border: 2px solid {COLOR_CIAN};
     border-radius: {RADIO_XL};
+}}
+
+QDialog#dlg_incidencia,
+QDialog#dlg_entrada_cantidad {{
+    background: transparent;
+    border: none;
 }}
 
 QMessageBox#smart_message_box {{
@@ -1856,14 +2300,15 @@ QLabel#titulo_contexto_scan {{
 
 QLabel#feed_video,
 QLabel#lbl_video {{
-    background-color: #000000;
-    border: 1px solid {COLOR_BORDE_SIDEBAR};
-    border-radius: {RADIO_SM};
+    background: transparent;
+    border: none;
+    qproperty-alignment: AlignCenter;
 }}
 
 QLabel#feed_video[activo="true"],
 QLabel#lbl_video[activo="true"] {{
-    border: 2px solid {COLOR_CIAN};
+    background: transparent;
+    border: none;
 }}
 
 QLabel#info_scan,

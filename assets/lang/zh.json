@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "系统登录",
+    "user_label": "员工姓名",
+    "user_placeholder": "请输入您的姓名",
+    "password_label": "密码",
+    "access_button": "进入系统",
+    "language_tooltip": "语言",
+    "error_empty": "请输入您的姓名和密码"
+  },
+  "common": {
+    "accept": "确定",
+    "cancel": "取消",
+    "save": "保存",
+    "delete": "删除",
+    "yes": "是",
+    "no": "否",
+    "back": "返回",
+    "close": "关闭"
+  }
+}

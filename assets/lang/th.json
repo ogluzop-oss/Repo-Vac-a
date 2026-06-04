@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "เข้าสู่ระบบ",
+    "user_label": "ชื่อพนักงาน",
+    "user_placeholder": "กรอกชื่อของคุณ",
+    "password_label": "รหัสผ่าน",
+    "access_button": "เข้าสู่ระบบ",
+    "language_tooltip": "ภาษา",
+    "error_empty": "กรอกชื่อและรหัสผ่านของคุณ"
+  },
+  "common": {
+    "accept": "ตกลง",
+    "cancel": "ยกเลิก",
+    "save": "บันทึก",
+    "delete": "ลบ",
+    "yes": "ใช่",
+    "no": "ไม่",
+    "back": "กลับ",
+    "close": "ปิด"
+  }
+}

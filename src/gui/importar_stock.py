@@ -1,59 +1,17 @@
 # src/gui/importar_stock.py
 import os
-import sqlite3
+
 import pandas as pd
-from PyQt6.QtWidgets import QMessageBox, QFileDialog, QProgressDialog
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
 
-
-# ============================================================
-# BLOQUE INICIALIZACIÓN Y ESQUEMA DE BASE DE DATOS
-# ============================================================
-
-class ImportarStock:
-    def __init__(self):
-        self.db_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "database", "stock.db"
-        )
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        self._crear_tabla_si_no_existe()
-
-    def _crear_tabla_si_no_existe(self):
-        """Crea la tabla articulos si no existe."""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS articulos (
-                codigo TEXT PRIMARY KEY,
-                nombre TEXT,
-                Stock_total INTEGER DEFAULT 0,
-                Stock_tienda INTEGER DEFAULT 0,
-                stock_esperado INTEGER DEFAULT 0,
-                ultima_recepcion TEXT
-            )
-        """
-        )
-        conn.commit()
-        conn.close()
-
-    def _agregar_columnas_si_faltan(self, columnas):
-        """Agregar automáticamente columnas que existen en el archivo pero no en DB."""
-        conn = sqlite3.connect(self.db_path)
-        cur = conn.cursor()
-        cur.execute("PRAGMA table_info(articulos)")
-        columnas_existentes = [c[1] for c in cur.fetchall()]
-        for col in columnas:
-            if col not in columnas_existentes:
-                cur.execute(f"ALTER TABLE articulos ADD COLUMN '{col}' TEXT")
-        conn.commit()
-        conn.close()
-
+from src.db.conexion import obtener_conexion
 
 # ============================================================
 # BLOQUE IMPORTACIÓN DESDE FICHERO
 # ============================================================
 
+class ImportarStock:
     def cargar_desde_fichero(self, formatos_permitidos=["*.xlsx", "*.txt"]):
         """Permite al usuario seleccionar un archivo Excel o TXT e importar datos."""
         fichero, _ = QFileDialog.getOpenFileName(
@@ -71,7 +29,7 @@ class ImportarStock:
         progreso.setCancelButton(None)
         progreso.show()
 
-        self.hilo = ImportarHilo(fichero, self.db_path)
+        self.hilo = ImportarHilo(fichero)
         self.hilo.finalizado.connect(
             lambda mensaje: self._finalizar_importacion(progreso, mensaje)
         )
@@ -89,10 +47,9 @@ class ImportarStock:
 class ImportarHilo(QThread):
     finalizado = pyqtSignal(str)
 
-    def __init__(self, ruta_fichero, db_path):
+    def __init__(self, ruta_fichero):
         super().__init__()
         self.ruta_fichero = ruta_fichero
-        self.db_path = db_path
 
     def run(self):
         try:
@@ -116,24 +73,37 @@ class ImportarHilo(QThread):
 
             df.columns = [c.strip().lower() for c in df.columns]
 
-            conn = sqlite3.connect(self.db_path)
-            cur = conn.cursor()
-            cur.execute("PRAGMA table_info(articulos)")
-            columnas_existentes = [c[1] for c in cur.fetchall()]
-            for col in df.columns:
-                if col not in columnas_existentes:
-                    cur.execute(f"ALTER TABLE articulos ADD COLUMN '{col}' TEXT")
+            with obtener_conexion() as conn:
+                cur = conn.cursor()
 
-            for _, row in df.iterrows():
-                cols = list(row.index)
-                values = [row[c] for c in cols]
-                col_names = ",".join(f"'{c}'" for c in cols)
-                placeholders = ",".join("?" for _ in cols)
-                query = f"REPLACE INTO articulos ({col_names}) VALUES ({placeholders})"
-                cur.execute(query, values)
+                # Retrieve existing columns from MariaDB INFORMATION_SCHEMA
+                cur.execute(
+                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'articulos'"
+                )
+                columnas_existentes = {row[0].lower() for row in cur.fetchall()}
 
-            conn.commit()
-            conn.close()
+                for col in df.columns:
+                    if col not in columnas_existentes:
+                        cur.execute(
+                            f"ALTER TABLE articulos ADD COLUMN `{col}` TEXT"
+                        )
+                        columnas_existentes.add(col)
+
+                for _, row in df.iterrows():
+                    cols = list(row.index)
+                    values = [row[c] for c in cols]
+                    col_names = ", ".join(f"`{c}`" for c in cols)
+                    placeholders = ", ".join("%s" for _ in cols)
+                    updates = ", ".join(f"`{c}`=VALUES(`{c}`)" for c in cols if c != "codigo")
+                    query = (
+                        f"INSERT INTO articulos ({col_names}) VALUES ({placeholders}) "
+                        f"ON DUPLICATE KEY UPDATE {updates}"
+                    )
+                    cur.execute(query, values)
+
+                conn.commit()
+
             self.finalizado.emit(
                 f"Stock importado correctamente desde:\n{self.ruta_fichero}"
             )

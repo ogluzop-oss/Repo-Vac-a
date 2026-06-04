@@ -1,7 +1,4 @@
-import sqlite3
 import logging
-from datetime import datetime
-from src.db.conexion import obtener_conexion
 
 logger = logging.getLogger(__name__)
 
@@ -12,71 +9,51 @@ logger = logging.getLogger(__name__)
 
 def guardar_traspaso_db(datos: dict):
     """
-    Registra el traspaso logístico y descuenta existencias:
-    1. Resta de stock_total (Almacén de la tienda)
-    2. Resta de stock_tienda (Lineal/Exposición)
+    Registra un traspaso logístico delegando en la capa logística unificada.
+    Acepta el dict legacy con claves: tienda_origen, tienda_destino, usuario,
+    observaciones, fecha_entrega, items (lista de {codigo, nombre, cantidad, pale}).
     """
-    conn = obtener_conexion()
-    cursor = conn.cursor()
-
     try:
-        query_cabecera = """
-            INSERT INTO documentos_logisticos (
-                origen, 
-                fecha_envio, 
-                observaciones, 
-                estado, 
-                fecha_creacion
-            ) VALUES (?, ?, ?, 'SALIDA', ?)
-        """
-        fecha_creacion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        from src.db.logistica import guardar_traspaso_logistico
 
-        cursor.execute(
-            query_cabecera,
-            (
-                datos["tienda_origen"],
-                datos["fecha_entrega"],
-                datos["observaciones"],
-                fecha_creacion,
-            ),
+        origen       = datos.get("tienda_origen", "DESCONOCIDO")
+        destino      = datos.get("tienda_destino", "DESCONOCIDO")
+        usuario      = datos.get("usuario", "SISTEMA")
+        observaciones = datos.get("observaciones", "")
+        fecha_envio  = datos.get("fecha_entrega")
+
+        # Agrupa los items por palé
+        pales: dict = {}
+        for item in datos.get("items", []):
+            pale_id = str(item.get("pale") or "PALE1").upper().replace(" ", "")
+            pale = pales.setdefault(
+                pale_id,
+                {"id_visual": pale_id, "peso": None, "articulos": []},
+            )
+            pale["articulos"].append(
+                {
+                    "codigo":   str(item.get("codigo", "")),
+                    "nombre":   str(item.get("nombre", item.get("codigo", ""))),
+                    "cantidad": int(item.get("cantidad", 0)),
+                }
+            )
+
+        resultado = guardar_traspaso_logistico(
+            origen=origen,
+            destino=destino,
+            usuario=usuario,
+            observaciones=observaciones,
+            pales=pales,
+            fecha_envio=fecha_envio,
         )
 
-        traspaso_id = cursor.lastrowid
+        if resultado:
+            id_doc = resultado.get("id_documento", "")
+            logger.info(f"Traspaso {id_doc} registrado correctamente.")
+            return True, id_doc
 
-        query_detalle = """
-            INSERT INTO recepciones_items (traspaso_id, codigo_articulo, cantidad, pale)
-            VALUES (?, ?, ?, ?)
-        """
-
-        query_update_stock = """
-            UPDATE articulos 
-            SET stock_total = stock_total - ?,
-                stock_tienda = stock_tienda - ?
-            WHERE codigo = ?
-        """
-
-        for item in datos["items"]:
-            codigo = item["codigo"]
-            cantidad = item["cantidad"]
-            pale = item["pale"]
-
-            cursor.execute(query_detalle, (traspaso_id, codigo, cantidad, pale))
-            cursor.execute(query_update_stock, (cantidad, cantidad, codigo))
-
-            if cursor.rowcount == 0:
-                raise Exception(
-                    f"Error crítico: El artículo {codigo} no existe en la base de datos."
-                )
-
-        conn.commit()
-        logger.info(
-            f"Traspaso ID {traspaso_id} procesado: stocks de almacén y lineal actualizados."
-        )
-        return True, traspaso_id
+        return False, "Error en guardar_traspaso_logistico"
 
     except Exception as e:
-        conn.rollback()
-        logger.error(f"Error al procesar el traspaso en DB: {e}")
+        logger.error(f"Error al procesar traspaso en DB: {e}")
         return False, str(e)
-    finally:
-        conn.close()

@@ -1,0 +1,21 @@
+{
+  "login": {
+    "window_title": "Вхід у систему",
+    "user_label": "ІМ'Я ПРАЦІВНИКА",
+    "user_placeholder": "Введіть ваше ім'я",
+    "password_label": "ПАРОЛЬ",
+    "access_button": "УВІЙТИ В СИСТЕМУ",
+    "language_tooltip": "Мова",
+    "error_empty": "Введіть ім'я та пароль"
+  },
+  "common": {
+    "accept": "Прийняти",
+    "cancel": "Скасувати",
+    "save": "Зберегти",
+    "delete": "Видалити",
+    "yes": "Так",
+    "no": "Ні",
+    "back": "Назад",
+    "close": "Закрити"
+  }
+}

@@ -1,7 +1,10 @@
 # src/utils/mensajes.py
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QLabel, QWidget
-from PyQt6.QtCore import QTimer, Qt
 
+# ============================================================
+# BLOQUE NOTIFICACIONES TEMPORALES (TOAST)
+# ============================================================
 
 class Toast(QWidget):
     def __init__(self, parent, message, duration=2500):
@@ -23,10 +26,11 @@ class Toast(QWidget):
         )
         self.label.adjustSize()
         self.resize(self.label.size())
-        # position bottom-left-ish (but not overlapping controls)
+
         parent_geo = parent.geometry()
         x = parent_geo.x() + 20
         y = parent_geo.y() + parent_geo.height() - self.height() - 20
         self.move(x, y)
+
         QTimer.singleShot(duration, self.close)
         self.show()

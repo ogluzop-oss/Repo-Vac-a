@@ -1,0 +1,51 @@
+# ============================================================
+# Smart Manager AI — .gitignore
+# ============================================================
+
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+# spec de PyInstaller del proyecto: SÍ se versiona
+*.spec
+!SmartManagerAI.spec
+
+# ── Entornos virtuales ──────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Configuración sensible / local ──────────────────────────
+.env
+*.env
+!.env.example
+
+# ── Editores / IDE ──────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Sistema operativo ───────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ── Salidas en tiempo de ejecución (documentos/) ────────────
+# Carpeta de salida: PDFs, etiquetas, tickets, informes, QR, cachés
+# y estado local. NO debe versionarse (es datos generados).
+documentos/*
+!documentos/.gitkeep
+
+# Caché de traducción IA y ajustes locales (por si se generan fuera)
+ai_translate_cache.json
+app_settings.json
+
+# ── Logs ────────────────────────────────────────────────────
+*.log
+logs/
