@@ -80,11 +80,39 @@ _MODULO_SINONIMOS: dict[str, tuple[str, ...]] = {
 
 
 def _detectar_modulo(normalizado: str) -> str | None:
-    """Return the module id whose synonym appears in the text, or None."""
+    """Return the module id whose synonym appears in the text, or None.
+
+    Primero coincidencia EXACTA por subcadena; si falla, un respaldo DIFUSO
+    (difflib) para que las erratas leves de Google al transcribir el nombre del
+    módulo (p. ej. 'mermas' -> 'mernas', 'merca', 'mermes'...) sigan reconociéndose.
+    Esto aplica a 'comandos <módulo>' y 'cierra <módulo>'."""
+    # 1) Exacto.
     for modulo, sinonimos in _MODULO_SINONIMOS.items():
         for s in sinonimos:
             if _norm(s) in normalizado:
                 return modulo
+
+    # 2) Difuso: comparamos cada palabra/bigrama contra los sinónimos.
+    import difflib
+    palabras = normalizado.split()
+    if not palabras:
+        return None
+    fragmentos = list(palabras) + [
+        f"{palabras[i]} {palabras[i + 1]}" for i in range(len(palabras) - 1)
+    ]
+    mejor_mod, mejor_ratio = None, 0.0
+    for modulo, sinonimos in _MODULO_SINONIMOS.items():
+        for s in sinonimos:
+            sn = _norm(s)
+            if len(sn) < 4:   # evita sinónimos demasiado cortos (falsos positivos)
+                continue
+            for frag in fragmentos:
+                r = difflib.SequenceMatcher(None, frag, sn).ratio()
+                if r > mejor_ratio:
+                    mejor_ratio, mejor_mod = r, modulo
+    if mejor_ratio >= 0.80:
+        logger.info(f"Módulo (difuso) '{mejor_mod}' ratio={mejor_ratio:.2f}")
+        return mejor_mod
     return None
 
 
