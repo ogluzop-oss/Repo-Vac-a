@@ -185,7 +185,7 @@ class SomaWorker(QObject):
         # so high that quiet speech is ignored.
         rec.dynamic_energy_threshold = True
         rec.energy_threshold         = self._ENERGY_BASE
-        rec.pause_threshold          = 0.45    # finalise speech quickly
+        rec.pause_threshold          = 0.60    # algo más alto: no corta "Ey SOMA + comando"
         rec.non_speaking_duration    = 0.35
         rec.phrase_threshold         = 0.20
 
@@ -244,40 +244,48 @@ class SomaWorker(QObject):
         self._clamp_threshold(rec)
 
         self.estado_cambiado.emit(ESTADO_PROCESANDO)
-        texto = self._transcribir(rec, audio)
-        if not texto:
+        alternativas = self._transcribir(rec, audio)
+        if not alternativas:
             self.estado_cambiado.emit(ESTADO_ESCUCHANDO)
             return
 
         dt = (time.time() - t_listen) * 1000
+        texto = alternativas[0]
         if self._debug:
-            logger.info(f"[SOMA-DEBUG] STT='{texto}'  ({dt:.0f} ms)")
+            logger.info(f"[SOMA-DEBUG] STT={alternativas!r}  ({dt:.0f} ms)")
         else:
-            logger.debug(f"STT: '{texto}' ({dt:.0f} ms)")
+            logger.debug(f"STT: {alternativas!r} ({dt:.0f} ms)")
 
-        found, comando = detectar_wake(texto)
+        # Wake word: se busca en TODAS las hipótesis (la correcta puede no ser la
+        # primera). Se recopilan los comandos en línea (lo que sigue a la wake) de
+        # cada hipótesis que la contenga, para luego elegir el que sea un comando válido.
+        found = False
+        candidatos_inline: list[str] = []
+        for alt in alternativas:
+            f, c = detectar_wake(alt)
+            if f:
+                found = True
+                if c:
+                    candidatos_inline.append(c)
         if not found:
-            # Diagnóstico (siempre, sin modo debug): deja constancia en el log de
-            # QUÉ transcribió Google cuando NO se detectó la wake word. Si SOMA
-            # "no responde", este registro revela si el micro capta y qué se oyó
-            # (p. ej. STT='OYE SOM' → ajustar variantes) o si no llega audio.
+            # Diagnóstico: deja constancia de lo que oyó cuando NO hubo wake.
             logger.info("SOMA oyó (sin wake): '%s' (%.0f ms)", texto, dt)
             self.estado_cambiado.emit(ESTADO_ESCUCHANDO)
             return
 
         # Wake word detected
         self.estado_cambiado.emit(ESTADO_ACTIVADO)
-        tiene_inline = bool(comando)
+        tiene_inline = bool(candidatos_inline)
         self.soma_activado.emit(tiene_inline)
         if self._debug:
-            logger.info(f"[SOMA-DEBUG] WAKE OK  inline={tiene_inline!r}  cmd='{comando}'")
+            logger.info(f"[SOMA-DEBUG] WAKE OK  inline={tiene_inline!r}  cands={candidatos_inline!r}")
         else:
             logger.info(f"SOMA activado. inline={tiene_inline}")
 
         if tiene_inline:
             # Command in the same phrase → fire immediately (the action message
             # IS the acknowledgement; main.py cancels any greeting TTS).
-            self.comando_detectado.emit(comando)
+            self.comando_detectado.emit(self._elegir_mejor_comando(candidatos_inline))
             return
 
         # Bare wake word → main.py plays a short greeting ("¿Qué necesitas?").
@@ -300,13 +308,17 @@ class SomaWorker(QObject):
             return
 
         self.estado_cambiado.emit(ESTADO_PROCESANDO)
-        comando2 = self._transcribir(rec, audio2)
-        if comando2:
-            # The follow-up may itself include the wake word again; strip it.
-            f2, inner = detectar_wake(comando2)
-            cmd = inner if (f2 and inner) else comando2
+        alternativas2 = self._transcribir(rec, audio2)
+        if alternativas2:
+            # Cada hipótesis puede traer otra vez la wake; la quitamos. Después
+            # elegimos la que sea un comando válido.
+            cands2: list[str] = []
+            for alt in alternativas2:
+                f2, inner = detectar_wake(alt)
+                cands2.append(inner if (f2 and inner) else alt)
+            cmd = self._elegir_mejor_comando(cands2)
             if self._debug:
-                logger.info(f"[SOMA-DEBUG] FOLLOW-UP cmd='{cmd}'")
+                logger.info(f"[SOMA-DEBUG] FOLLOW-UP cands={cands2!r} -> '{cmd}'")
             self.comando_detectado.emit(cmd)
         else:
             self.estado_cambiado.emit(ESTADO_ESCUCHANDO)
@@ -323,17 +335,64 @@ class SomaWorker(QObject):
         except Exception:
             return "es-ES"
 
-    def _transcribir(self, rec, audio) -> str:
+    def _transcribir(self, rec, audio) -> list[str]:
+        """Devuelve VARIAS hipótesis de Google (no solo la mejor), en orden de
+        confianza. Probarlas todas mejora muchísimo el reconocimiento: la frase
+        correcta suele estar entre las alternativas aunque la primera sea errónea
+        (p. ej. 'abre ubicación' → top 'MAL', alternativa 'ABRE UBICACIÓN')."""
         import speech_recognition as sr
         idioma = self._idioma_stt()
         try:
-            return rec.recognize_google(audio, language=idioma).upper()
+            res = rec.recognize_google(audio, language=idioma, show_all=True)
+            if isinstance(res, dict):
+                vistos: set[str] = set()
+                out: list[str] = []
+                for a in res.get("alternative", []):
+                    t = (a.get("transcript") or "").upper().strip()
+                    if t and t not in vistos:
+                        vistos.add(t)
+                        out.append(t)
+                return out
+            if isinstance(res, str) and res.strip():
+                return [res.upper().strip()]
+            return []
         except sr.UnknownValueError:
-            return ""
+            return []
         except sr.RequestError:
             logger.debug("Google STT no disponible (sin red).")
         try:
-            return rec.recognize_sphinx(audio, language=idioma).upper()
+            s = rec.recognize_sphinx(audio, language=idioma).upper().strip()
+            return [s] if s else []
         except Exception:
             pass
-        return ""
+        return []
+
+    def _elegir_mejor_comando(self, candidatos: list[str]) -> str:
+        """De varias hipótesis de comando, elige la mejor. Prioriza:
+          1) la que produce una acción por coincidencia EXACTA (más fiable),
+          2) la que la produce por coincidencia DIFUSA,
+          3) en último caso, la primera (la de mayor confianza de Google).
+        Así una hipótesis correcta exacta ('abre ubicación') gana a una errónea que
+        solo encaje por aproximación ('ábreme más' → mermas)."""
+        candidatos = [c for c in candidatos if c]
+        if not candidatos:
+            return ""
+        try:
+            from src.utils.soma_engine import parsear_comando
+            difusa = None
+            for cand in candidatos:
+                try:
+                    accion, params = parsear_comando(cand)
+                except Exception:
+                    continue
+                if accion in ("desconocido", "ignorar"):
+                    continue
+                if not params.get("fuzzy"):
+                    return cand                 # coincidencia exacta → la mejor
+                if difusa is None:
+                    difusa = cand               # primera difusa válida (reserva)
+            if difusa is not None:
+                return difusa
+        except Exception:
+            pass
+        return candidatos[0]
