@@ -95,11 +95,38 @@ def _detectar_modulo(normalizado: str) -> str | None:
             if _norm(s) in normalizado:
                 return modulo
 
-    # 2) Difuso: comparamos cada palabra/bigrama contra los sinónimos.
-    import difflib
     palabras = normalizado.split()
     if not palabras:
         return None
+
+    # 2) Por PREFIJO: una palabra que sea el COMIENZO de un sinónimo. Resuelve los
+    #    finales que Google recorta ('sto'->stock, 'mer'->mermas, 'etiq'->etiquetas,
+    #    'ubica'->ubicacion...). Se excluyen palabras comunes para evitar falsos
+    #    positivos (p. ej. 'con' -> configuracion).
+    _STOP = {
+        "CON", "SIN", "POR", "PARA", "DEL", "LOS", "LAS", "UNA", "UNO", "QUE",
+        "DOS", "MAS", "ESO", "ESE", "ESA", "AHI", "AQUI", "COMO", "ESTE", "ESTA",
+        "ABRE", "CIERRA", "CERRAR", "DAME", "QUITA",
+    }
+    pref_mod, pref_cov, pref_toklen = None, 0.0, 0
+    for modulo, sinonimos in _MODULO_SINONIMOS.items():
+        for s in sinonimos:
+            sn = _norm(s)
+            if len(sn) < 5 or " " in sn:   # solo sinónimos de una palabra y largos
+                continue
+            for tok in palabras:
+                if len(tok) >= 3 and tok not in _STOP and sn.startswith(tok):
+                    # Cobertura = cuánto del sinónimo cubre la palabra. Así 'mer'
+                    # prefiere 'MERMA' (0.6) sobre 'MERCANCIA' (0.33) → mermas.
+                    cov = len(tok) / len(sn)
+                    if cov > pref_cov or (cov == pref_cov and len(tok) > pref_toklen):
+                        pref_mod, pref_cov, pref_toklen = modulo, cov, len(tok)
+    if pref_mod is not None:
+        logger.info(f"Módulo (prefijo) '{pref_mod}' cobertura={pref_cov:.2f}")
+        return pref_mod
+
+    # 3) Difuso: comparamos cada palabra/bigrama contra los sinónimos.
+    import difflib
     fragmentos = list(palabras) + [
         f"{palabras[i]} {palabras[i + 1]}" for i in range(len(palabras) - 1)
     ]
