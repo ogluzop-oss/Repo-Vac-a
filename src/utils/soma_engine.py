@@ -64,7 +64,10 @@ def _extraer_articulo(texto_norm: str) -> str:
 _MODULO_SINONIMOS: dict[str, tuple[str, ...]] = {
     "tpv":            ("TPV", "PUNTO DE VENTA", "PUNTO VENTA", "TERMINAL",
                        "CAJA REGISTRADORA", "TE PE UVE", "TE PE VE", "TEPE UVE",
-                       "TEPEUVE", "T P V", "TP V"),
+                       "TEPEUVE", "T P V", "TP V",
+                       # Erratas frecuentes de Google al oír "TPV":
+                       "DPV", "DE PE VE", "TE VE", "TEVE", "PE VE", "ESTE TV",
+                       "ESTE TE VE", "TE PE"),
     "ventas":         ("VENTAS",),
     "stock":          ("STOCK", "INVENTARIO", "EXISTENCIAS"),
     "logistica":      ("RECEPCION", "RECEPCIONES", "LOGISTICA", "TRASPASO",

@@ -373,18 +373,19 @@ class SomaWorker(QObject):
         return []
 
     def _elegir_mejor_comando(self, candidatos: list[str]) -> str:
-        """De varias hipótesis de comando, elige la mejor. Prioriza:
-          1) la que produce una acción por coincidencia EXACTA (más fiable),
-          2) la que la produce por coincidencia DIFUSA,
-          3) en último caso, la primera (la de mayor confianza de Google).
-        Así una hipótesis correcta exacta ('abre ubicación') gana a una errónea que
-        solo encaje por aproximación ('ábreme más' → mermas)."""
+        """De varias hipótesis de comando, elige la mejor por PUNTUACIÓN:
+          · acción ESPECÍFICA (abrir/cerrar/ayuda-de-módulo/consulta...) > genérica
+            (ayuda general 'mostrar_ayuda'),
+          · coincidencia EXACTA > DIFUSA.
+        Ejemplos: 'comandos tpv' (ayuda de TPV) gana a 'comandos dpv' (ayuda
+        general); 'abre ubicación' (exacta) gana a 'ábreme más' (difusa→mermas).
+        Si ninguna hipótesis es válida, devuelve la primera (mayor confianza)."""
         candidatos = [c for c in candidatos if c]
         if not candidatos:
             return ""
         try:
             from src.utils.soma_engine import parsear_comando
-            difusa = None
+            mejor_cand, mejor_score = None, 0
             for cand in candidatos:
                 try:
                     accion, params = parsear_comando(cand)
@@ -392,12 +393,13 @@ class SomaWorker(QObject):
                     continue
                 if accion in ("desconocido", "ignorar"):
                     continue
-                if not params.get("fuzzy"):
-                    return cand                 # coincidencia exacta → la mejor
-                if difusa is None:
-                    difusa = cand               # primera difusa válida (reserva)
-            if difusa is not None:
-                return difusa
+                especifica = accion != "mostrar_ayuda"
+                exacta = not params.get("fuzzy")
+                score = (4 if especifica else 1) + (1 if exacta else 0)
+                if score > mejor_score:   # '>' → ante empate gana la primera (más confianza)
+                    mejor_score, mejor_cand = score, cand
+            if mejor_cand is not None:
+                return mejor_cand
         except Exception:
             pass
         return candidatos[0]
