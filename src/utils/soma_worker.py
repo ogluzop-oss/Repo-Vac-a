@@ -185,7 +185,7 @@ class SomaWorker(QObject):
         # so high that quiet speech is ignored.
         rec.dynamic_energy_threshold = True
         rec.energy_threshold         = self._ENERGY_BASE
-        rec.pause_threshold          = 0.60    # algo más alto: no corta "Ey SOMA + comando"
+        rec.pause_threshold          = 0.80    # más alto: no corta "Ey SOMA + comando" antes de tiempo
         rec.non_speaking_duration    = 0.35
         rec.phrase_threshold         = 0.20
 
@@ -275,17 +275,22 @@ class SomaWorker(QObject):
 
         # Wake word detected
         self.estado_cambiado.emit(ESTADO_ACTIVADO)
-        tiene_inline = bool(candidatos_inline)
-        self.soma_activado.emit(tiene_inline)
+        # Solo lo tratamos como "comando en la misma frase" si ese comando es
+        # VÁLIDO. Si la voz se cortó y quedó incompleto ("abre" sin módulo,
+        # "más abre"...), lo tratamos como wake a secas: SOMA saluda y escucha el
+        # comando completo, en vez de responder "no reconozco".
+        mejor_inline = self._elegir_mejor_comando(candidatos_inline) if candidatos_inline else ""
+        inline_valido = self._es_comando_valido(mejor_inline)
+        self.soma_activado.emit(inline_valido)
         if self._debug:
-            logger.info(f"[SOMA-DEBUG] WAKE OK  inline={tiene_inline!r}  cands={candidatos_inline!r}")
+            logger.info(f"[SOMA-DEBUG] WAKE OK  inline_valido={inline_valido}  cands={candidatos_inline!r}")
         else:
-            logger.info(f"SOMA activado. inline={tiene_inline}")
+            logger.info(f"SOMA activado. inline={inline_valido}")
 
-        if tiene_inline:
+        if inline_valido:
             # Command in the same phrase → fire immediately (the action message
             # IS the acknowledgement; main.py cancels any greeting TTS).
-            self.comando_detectado.emit(self._elegir_mejor_comando(candidatos_inline))
+            self.comando_detectado.emit(mejor_inline)
             return
 
         # Bare wake word → main.py plays a short greeting ("¿Qué necesitas?").
@@ -396,3 +401,14 @@ class SomaWorker(QObject):
         except Exception:
             pass
         return candidatos[0]
+
+    def _es_comando_valido(self, texto: str) -> bool:
+        """True si el texto se reconoce como una acción ejecutable (no 'desconocido')."""
+        if not texto:
+            return False
+        try:
+            from src.utils.soma_engine import parsear_comando
+            accion, _ = parsear_comando(texto)
+            return accion not in ("desconocido", "ignorar")
+        except Exception:
+            return False
