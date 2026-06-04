@@ -6,7 +6,8 @@
     "password_label": "CONTRASEÑA",
     "access_button": "ACCEDER AL SISTEMA",
     "language_tooltip": "Idioma",
-    "error_empty": "Introduce tu nombre y contraseña"
+    "error_empty": "Introduce tu nombre y contraseña",
+    "loading_ai": "⚡ INICIANDO IA Y SINCRONIZANDO..."
   },
   "common": {
     "accept": "Aceptar",
@@ -38,7 +39,7 @@
     "day_7": "DOMINGO"
   },
   "menu": {
-    "subtitle": "CENTRO DE CONTROL LOGÍSTICO",
+    "subtitle": "CENTRO DE CONTROL",
     "powered_by": "Desarrollado por Smart Manager",
     "restricted": "RESTRINGIDO",
     "logout_title": "Cerrar Sesión",

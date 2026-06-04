@@ -24,9 +24,25 @@ from src.db.usuario import sesion_global
 from src.utils import i18n
 from src.utils.i18n import tr
 
-_LOGO_PATH = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "documentos", "logo_corporativo.png")
-)
+def _resolver_logo():
+    """Logo CORPORATIVO del cliente (subido en Configuración → Logo corporativo,
+    guardado en documentos/logo_corporativo.png). Si no hay ninguno, cae al logo
+    de la app como marca por defecto."""
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    corp = os.path.join(base, "documentos", "logo_corporativo.png")
+    if os.path.exists(corp):
+        return corp
+    try:
+        from src.utils import recursos
+        app_logo = recursos.ruta_recurso("assets", "Logo Smart Manager.png")
+        if os.path.exists(app_logo):
+            return app_logo
+    except Exception:
+        pass
+    return os.path.join(base, "assets", "Logo Smart Manager.png")
+
+
+_LOGO_PATH = _resolver_logo()
 
 try:
     from assets.estilo_global import (
@@ -275,6 +291,7 @@ class MenuPrincipal(QWidget):
         center_vbox.setSpacing(2)
         center_vbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # Título de la APLICACIÓN (marca del software, centrado).
         title = QLabel("SMART MANAGER")
         title.setObjectName("titulo_principal")
         title.setFont(QFont("Segoe UI", 32, QFont.Weight.Black))
@@ -653,10 +670,13 @@ class MenuPrincipal(QWidget):
         self._actualizar_logo_label()
 
     def _actualizar_logo_label(self):
-        if os.path.exists(_LOGO_PATH):
-            pix = QPixmap(_LOGO_PATH)
+        # Logo CORPORATIVO del cliente, a la IZQUIERDA junto a la referencia de
+        # tienda/almacén. Resolución dinámica: refleja un logo recién subido.
+        logo_path = _resolver_logo()
+        if os.path.exists(logo_path):
+            pix = QPixmap(logo_path)
             if not pix.isNull():
-                scaled = pix.scaledToHeight(108, Qt.TransformationMode.SmoothTransformation)
+                scaled = pix.scaledToHeight(64, Qt.TransformationMode.SmoothTransformation)
                 self.logo_label.setPixmap(scaled)
                 self.logo_label.setFixedWidth(scaled.width())
                 self.logo_label.show()

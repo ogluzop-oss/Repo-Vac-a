@@ -6,7 +6,8 @@
     "password_label": "PASSWORT",
     "access_button": "AUF DAS SYSTEM ZUGREIFEN",
     "language_tooltip": "Sprache",
-    "error_empty": "Geben Sie Ihren Namen und Ihr Passwort ein"
+    "error_empty": "Geben Sie Ihren Namen und Ihr Passwort ein",
+    "loading_ai": "⚡ KI WIRD GESTARTET UND SYNCHRONISIERT..."
   },
   "common": {
     "accept": "Akzeptieren",
@@ -19,7 +20,7 @@
     "close": "Schließen"
   },
   "menu": {
-    "subtitle": "LOGISTIK-LEITSTELLE",
+    "subtitle": "KONTROLLZENTRUM",
     "powered_by": "Bereitgestellt von Smart Manager",
     "restricted": "GESPERRT",
     "logout_title": "Abmelden",

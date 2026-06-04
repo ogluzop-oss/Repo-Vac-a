@@ -1,6 +1,6 @@
 import os
 
-from PyQt6.QtCore import QPropertyAnimation, QSize, Qt
+from PyQt6.QtCore import QPropertyAnimation, QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPalette, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -10,14 +10,37 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QStyle,
+    QStyledItemDelegate,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-_LOGO_CORP_PATH = os.path.normpath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "documentos", "logo_corporativo.png"
-))
+def _resolver_logo():
+    """Logo a mostrar en login/menú: el CORPORATIVO de la empresa cliente, que se
+    sube desde Configuración → Logo corporativo (se guarda en
+    documentos/logo_corporativo.png). Si aún no se ha subido ninguno, cae al logo
+    de la propia app (assets/Logo Smart Manager.png) como marca por defecto.
+
+    NOTA: el logo de assets es el de la APLICACIÓN (lo usa el icono de la barra de
+    tareas); el corporativo es el del cliente."""
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    corp = os.path.join(base, "documentos", "logo_corporativo.png")
+    if os.path.exists(corp):
+        return corp
+    # Fallback: logo de la app.
+    try:
+        from src.utils import recursos
+        app_logo = recursos.ruta_recurso("assets", "Logo Smart Manager.png")
+        if os.path.exists(app_logo):
+            return app_logo
+    except Exception:
+        pass
+    return os.path.join(base, "assets", "Logo Smart Manager.png")
+
+
+_LOGO_CORP_PATH = _resolver_logo()
 
 try:
     from assets.estilo_global import aplicar_estilo_widget
@@ -26,6 +49,75 @@ except Exception:
 
 from src.utils import i18n
 from src.utils.i18n import tr
+
+
+class _LangItemDelegate(QStyledItemDelegate):
+    """Dibuja cada idioma con el código de país (ES, GB, FR...) un punto MÁS GRANDE
+    que el nombre. Los códigos son emojis de bandera que Windows pinta como las dos
+    letras del indicador regional (más pequeñas), así que los agrandamos aquí."""
+
+    def paint(self, painter, option, index):
+        texto = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        if "  " in texto:
+            code, name = texto.split("  ", 1)
+        else:
+            code, name = "", texto
+        painter.save()
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, QColor("#00FFC6"))
+            painter.setPen(QColor("#0D1117"))
+        elif option.state & QStyle.StateFlag.State_MouseOver:
+            painter.fillRect(option.rect, QColor("#11312B"))
+            painter.setPen(QColor("#E6EDF3"))
+        else:
+            painter.setPen(QColor("#E6EDF3"))
+        base = QFont(option.font)
+        if base.pointSize() <= 0:
+            base.setPointSize(10)
+        big = QFont(base)
+        big.setPointSize(base.pointSize() + 1)
+        r = option.rect.adjusted(12, 0, -12, 0)
+        flags = int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        painter.setFont(big)
+        painter.drawText(r, flags, code)
+        cw = painter.fontMetrics().horizontalAdvance(code + "  ")
+        painter.setFont(base)
+        painter.drawText(QRect(r.left() + cw, r.top(), r.width() - cw, r.height()), flags, name)
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        s = super().sizeHint(option, index)
+        s.setHeight(max(s.height(), 34))
+        return s
+
+
+class _LangCombo(QComboBox):
+    """QComboBox que muestra SIEMPRE como máximo 5 idiomas y deja el resto tras
+    una scrollbar. Fijar la altura del popup a 5 filas en showPopup() es
+    determinista (no depende de que el estilo respete setMaxVisibleItems)."""
+
+    _MAX_VIS = 5
+
+    def showPopup(self):
+        super().showPopup()
+        view = self.view()
+        n = self.count()
+        if n > self._MAX_VIS:
+            row_h = view.sizeHintForRow(0)
+            if row_h <= 0:
+                row_h = 36
+            alto = row_h * self._MAX_VIS + 2 * view.frameWidth() + 4
+            popup = view.parentWidget() or view
+            popup.setMaximumHeight(alto)
+            popup.resize(popup.width(), alto)
+            view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            # Abrir mostrando el idioma actual arriba (no a mitad de lista).
+            try:
+                from PyQt6.QtWidgets import QAbstractItemView
+                idx = self.model().index(self.currentIndex(), 0)
+                view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtTop)
+            except Exception:
+                pass
 
 
 class NeonEyeButton(QToolButton):
@@ -253,8 +345,9 @@ class LoginWindow(QWidget):
         available_h = h - 80 - 390 - 32
         side = max(100, min(available_h, w // 3, 280))
         self.lbl_logo_login.setFixedSize(side, side)
-        if os.path.exists(_LOGO_CORP_PATH):
-            pix = QPixmap(_LOGO_CORP_PATH)
+        logo_path = _resolver_logo()  # dinámico: refleja un logo corporativo recién subido
+        if os.path.exists(logo_path):
+            pix = QPixmap(logo_path)
             if not pix.isNull():
                 self.lbl_logo_login.setPixmap(
                     pix.scaled(side, side, Qt.AspectRatioMode.KeepAspectRatio,
@@ -342,7 +435,7 @@ class LoginWindow(QWidget):
     def _build_language_selector(self):
         """Selector de idioma (esquina superior derecha): contorno neón, esquinas
         redondeadas, dark mode, Segoe UI Bold. Muestra el nombre nativo + bandera."""
-        combo = QComboBox()
+        combo = _LangCombo()
         combo.setObjectName("login_lang_combo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
         combo.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
@@ -359,12 +452,39 @@ class LoginWindow(QWidget):
                 idx_actual = i
         combo.setCurrentIndex(idx_actual)
 
+        # Solo 5 idiomas visibles a la vez; el resto, vía scrollbar (como el
+        # resto de desplegables de la app).
+        combo.setMaxVisibleItems(5)
+        # Delegate: código de país 1pt más grande que el nombre.
+        combo.setItemDelegate(_LangItemDelegate(combo))
         combo.setStyleSheet(
             "QComboBox#login_lang_combo{"
+            # combobox-popup:0 → fuerza el popup en modo lista (no menú nativo),
+            # imprescindible para que setMaxVisibleItems y la scrollbar funcionen.
+            "combobox-popup:0;"
             "background:#0D1117;color:#E6EDF3;border:2px solid #00FFC6;"
             "border-radius:12px;padding:4px 14px;font-family:'Segoe UI';font-weight:700;}"
             "QComboBox#login_lang_combo:hover{background:#11181D;}"
             "QComboBox#login_lang_combo::drop-down{border:none;width:22px;}"
+            # Popup: la presencia de esta regla fuerza a Qt a respetar
+            # setMaxVisibleItems y a mostrar scrollbar cuando hay más de 5.
+            "QComboBox#login_lang_combo QAbstractItemView{"
+            "background:#0D1117;color:#E6EDF3;border:2px solid #00FFC6;border-radius:10px;"
+            "outline:none;padding:2px;"
+            "selection-background-color:#00FFC6;selection-color:#0D1117;}"
+            "QComboBox#login_lang_combo QAbstractItemView::item{min-height:30px;padding:2px 10px;}"
+            "QComboBox#login_lang_combo QAbstractItemView::item:hover{background:#11312B;}"
+            # Scrollbar neón discreta.
+            "QComboBox#login_lang_combo QAbstractItemView QScrollBar:vertical{"
+            "background:#0D1117;width:10px;margin:3px;border-radius:5px;}"
+            "QComboBox#login_lang_combo QAbstractItemView QScrollBar::handle:vertical{"
+            "background:#00FFC6;border-radius:5px;min-height:28px;}"
+            "QComboBox#login_lang_combo QAbstractItemView QScrollBar::handle:vertical:hover{"
+            "background:#7AFFF0;}"
+            "QComboBox#login_lang_combo QAbstractItemView QScrollBar::add-line:vertical,"
+            "QComboBox#login_lang_combo QAbstractItemView QScrollBar::sub-line:vertical{height:0;}"
+            "QComboBox#login_lang_combo QAbstractItemView QScrollBar::add-page:vertical,"
+            "QComboBox#login_lang_combo QAbstractItemView QScrollBar::sub-page:vertical{background:transparent;}"
         )
         combo.currentIndexChanged.connect(self._on_language_changed)
         self.combo_idioma = combo

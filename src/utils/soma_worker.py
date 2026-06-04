@@ -114,9 +114,12 @@ class SomaWorker(QObject):
     # Energy-threshold band for the dynamic detector. Keeps sensitivity stable
     # over a long session: never so low it triggers on background noise (the
     # "umbral=49" bug), never so high it ignores normal speech.
-    _ENERGY_MIN  = 180
+    # Banda algo más sensible que antes: el síntoma "no responde a Ey SOMA" suele
+    # deberse a un umbral demasiado alto que no captura voz normal. Bajamos el mínimo
+    # y la base (siguen MUY por encima del valor 49 que provocaba disparos por ruido).
+    _ENERGY_MIN  = 130
     _ENERGY_MAX  = 600
-    _ENERGY_BASE = 300
+    _ENERGY_BASE = 230
 
     def _clamp_threshold(self, rec):
         try:
@@ -136,11 +139,16 @@ class SomaWorker(QObject):
         self._check_deps()
 
     def _check_deps(self):
-        try:
-            import speech_recognition as sr  # noqa: F401
+        # IMPORTANTE: solo comprobamos DISPONIBILIDAD (find_spec), sin importar de
+        # verdad speech_recognition aquí. Este método corre en el hilo PRINCIPAL al
+        # crear el worker; importar speech_recognition+pyaudio tarda 1-3 s y
+        # CONGELABA el menú nada más hacer login. El import real ocurre en start(),
+        # ya dentro del hilo secundario.
+        import importlib.util
+        if importlib.util.find_spec("speech_recognition") is not None:
             self._disponible = True
             logger.info("SOMA: speech_recognition disponible.")
-        except ImportError:
+        else:
             logger.warning("SOMA: speech_recognition no instalado.")
 
     @property
@@ -179,7 +187,9 @@ class SomaWorker(QObject):
             self._mic = sr.Microphone()
             with self._mic as source:
                 logger.info("SOMA: calibrando ruido ambiente...")
-                rec.adjust_for_ambient_noise(source, duration=1.0)
+                # Calibración más corta → SOMA empieza a escuchar antes (menos
+                # "Ey SOMA" perdidos durante el arranque).
+                rec.adjust_for_ambient_noise(source, duration=0.6)
                 self._clamp_threshold(rec)
         except Exception as e:
             msg = f"No se pudo abrir el micrófono: {e}"
@@ -240,6 +250,11 @@ class SomaWorker(QObject):
 
         found, comando = detectar_wake(texto)
         if not found:
+            # Diagnóstico (siempre, sin modo debug): deja constancia en el log de
+            # QUÉ transcribió Google cuando NO se detectó la wake word. Si SOMA
+            # "no responde", este registro revela si el micro capta y qué se oyó
+            # (p. ej. STT='OYE SOM' → ajustar variantes) o si no llega audio.
+            logger.info("SOMA oyó (sin wake): '%s' (%.0f ms)", texto, dt)
             self.estado_cambiado.emit(ESTADO_ESCUCHANDO)
             return
 

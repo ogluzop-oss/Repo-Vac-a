@@ -6,7 +6,8 @@
     "password_label": "PASSWORD",
     "access_button": "ACCESS THE SYSTEM",
     "language_tooltip": "Language",
-    "error_empty": "Enter your name and password"
+    "error_empty": "Enter your name and password",
+    "loading_ai": "⚡ STARTING AI AND SYNCING..."
   },
   "common": {
     "accept": "Accept",
@@ -38,7 +39,7 @@
     "day_7": "SUNDAY"
   },
   "menu": {
-    "subtitle": "LOGISTICS CONTROL CENTER",
+    "subtitle": "CONTROL CENTER",
     "powered_by": "Powered by Smart Manager",
     "restricted": "RESTRICTED",
     "logout_title": "Log Out",

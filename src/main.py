@@ -295,14 +295,46 @@ class SmartManagerApp(QStackedWidget):
         self.overlay.setGeometry(self.ventana_login.rect())
         self.overlay.setStyleSheet("background-color: rgba(14, 17, 23, 200);")
 
+        from src.utils.i18n import tr
+        from PyQt6.QtGui import QPixmap
+
         layout = QVBoxLayout(self.overlay)
-        self.loading_label = QLabel("⚡ INICIANDO IA Y SINCRONIZANDO...")
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addStretch(5)
+
+        # Logo de la APLICACIÓN, centrado y visiblemente grande (no invasivo).
+        self.loading_logo = QLabel()
+        self.loading_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_logo.setStyleSheet("background: transparent; border: none;")
+        try:
+            from src.utils import recursos
+            _lp = recursos.ruta_recurso("assets", "Logo Smart Manager.png")
+            _pix = QPixmap(_lp)
+            if not _pix.isNull():
+                self.loading_logo.setPixmap(
+                    _pix.scaled(
+                        230, 230,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+        except Exception:
+            pass
+        layout.addWidget(self.loading_logo, 0, Qt.AlignmentFlag.AlignCenter)
+
+        # Texto un poco por debajo del logo.
+        layout.addSpacing(34)
+        self.loading_label = QLabel(
+            tr("login.loading_ai", default="⚡ INICIANDO IA Y SINCRONIZANDO...")
+        )
         self.loading_label.setStyleSheet("""
             color: #00FFC6; font-family: 'Segoe UI'; font-size: 16px;
             font-weight: bold; letter-spacing: 2px;
         """)
         self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.loading_label)
+        layout.addWidget(self.loading_label, 0, Qt.AlignmentFlag.AlignCenter)
+
+        layout.addStretch(4)
 
     # ============================================================
     # BLOQUE RFID
@@ -385,6 +417,14 @@ class SmartManagerApp(QStackedWidget):
     # ============================================================
     def iniciar_proceso_login(self):
         """Activa el spinner y valida tras un delay."""
+        # Refresca el texto al idioma seleccionado en el login antes de mostrarlo.
+        try:
+            from src.utils.i18n import tr
+            self.loading_label.setText(
+                tr("login.loading_ai", default="⚡ INICIANDO IA Y SINCRONIZANDO...")
+            )
+        except Exception:
+            pass
         self.overlay.setGeometry(self.ventana_login.rect())
         self.overlay.show()
         self.overlay.raise_()
@@ -409,8 +449,11 @@ class SmartManagerApp(QStackedWidget):
             self.intro_player.setPosition(0)
             if self.intro_player.source().isValid():
                 self.intro_player.play()
-            # Arrancar SOMA (TTS init happens inside, 1.5s after sound starts)
-            self._iniciar_soma()
+            # Arrancar SOMA DIFERIDO: dejamos que el menú principal se pinte y sea
+            # interactivo ANTES de inicializar el asistente de voz. Antes se
+            # llamaba aquí en línea y el arranque de SOMA congelaba los botones del
+            # menú durante 1-3 s. Con el retardo, la UI responde de inmediato.
+            QTimer.singleShot(350, self._iniciar_soma)
         else:
             self.overlay.hide()
             mostrar_mensaje(
@@ -521,9 +564,11 @@ class SmartManagerApp(QStackedWidget):
         """
         if not _SOMA_DISPONIBLE:
             return
-        # Initialize TTS lazily — delayed 1500ms so QMediaPlayer startup sound plays cleanly
+        # Initialize TTS lazily — delayed 800ms so QMediaPlayer startup sound plays
+        # cleanly. (Antes 1500 ms: el TTS tardaba en estar listo y las primeras
+        # invocaciones de "Ey SOMA" detectaban la wake pero no sonaba el saludo.)
         if self._soma_tts is None:
-            QTimer.singleShot(1500, self._init_soma_tts)
+            QTimer.singleShot(800, self._init_soma_tts)
         # Avoid double-starting the worker across re-logins
         if self._soma_thread and self._soma_thread.isRunning():
             return
@@ -908,6 +953,17 @@ if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
 
+    # Windows: identidad explícita de la app para que la barra de tareas use
+    # NUESTRO icono (y no el del intérprete de Python) y agrupe las ventanas.
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "SmartManagerAI.Desktop.1"
+            )
+        except Exception:
+            pass
+
     iniciar_backend()
     init_db()
 
@@ -924,6 +980,17 @@ if __name__ == "__main__":
     app.setStyle("Fusion")
     aplicar_estilo_app(app)
     app.setQuitOnLastWindowClosed(False)
+
+    # Icono de la aplicación (ventanas + barra de tareas).
+    try:
+        from PyQt6.QtGui import QIcon
+        from src.utils import recursos
+        _icon_path = recursos.ruta_recurso("assets", "app_icon.png")
+        if not os.path.exists(_icon_path):
+            _icon_path = recursos.ruta_recurso("assets", "icono.ico")
+        app.setWindowIcon(QIcon(_icon_path))
+    except Exception as _e:
+        logger.debug(f"No se pudo fijar el icono de la app: {_e}")
 
     global manager
     manager = SmartManagerApp()

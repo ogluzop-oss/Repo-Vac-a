@@ -6,7 +6,8 @@
     "password_label": "MOT DE PASSE",
     "access_button": "ACCÉDER AU SYSTÈME",
     "language_tooltip": "Langue",
-    "error_empty": "Saisissez votre nom et votre mot de passe"
+    "error_empty": "Saisissez votre nom et votre mot de passe",
+    "loading_ai": "⚡ DÉMARRAGE DE L'IA ET SYNCHRONISATION..."
   },
   "common": {
     "accept": "Accepter",
@@ -19,7 +20,7 @@
     "close": "Fermer"
   },
   "menu": {
-    "subtitle": "CENTRE DE CONTRÔLE LOGISTIQUE",
+    "subtitle": "CENTRE DE CONTRÔLE",
     "powered_by": "Propulsé par Smart Manager",
     "restricted": "RESTREINT",
     "logout_title": "Déconnexion",

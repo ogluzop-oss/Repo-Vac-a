@@ -6,7 +6,8 @@
     "password_label": "PASSWORD",
     "access_button": "ACCEDI AL SISTEMA",
     "language_tooltip": "Lingua",
-    "error_empty": "Inserisci il tuo nome e la password"
+    "error_empty": "Inserisci il tuo nome e la password",
+    "loading_ai": "⚡ AVVIO IA E SINCRONIZZAZIONE..."
   },
   "common": {
     "accept": "Accetta",
@@ -19,7 +20,7 @@
     "close": "Chiudi"
   },
   "menu": {
-    "subtitle": "CENTRO DI CONTROLLO LOGISTICO",
+    "subtitle": "CENTRO DI CONTROLLO",
     "powered_by": "Realizzato da Smart Manager",
     "restricted": "RISERVATO",
     "logout_title": "Disconnetti",
