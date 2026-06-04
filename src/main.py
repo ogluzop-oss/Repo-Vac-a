@@ -322,8 +322,8 @@ class SmartManagerApp(QStackedWidget):
             pass
         layout.addWidget(self.loading_logo, 0, Qt.AlignmentFlag.AlignCenter)
 
-        # Texto un poco por debajo del logo.
-        layout.addSpacing(34)
+        # Texto justo debajo del logo (cerca de él).
+        layout.addSpacing(14)
         self.loading_label = QLabel(
             tr("login.loading_ai", default="⚡ INICIANDO IA Y SINCRONIZANDO...")
         )
@@ -596,15 +596,32 @@ class SmartManagerApp(QStackedWidget):
         logger.info("SOMA: worker iniciado en hilo secundario.")
 
     def _init_soma_tts(self):
-        """Delayed TTS init — runs 1.5s after login so startup.wav doesn't conflict."""
-        if self._soma_tts is None and _SOMA_DISPONIBLE:
-            self._soma_tts = SomaTTS()
-            logger.info("SOMA TTS inicializado (delayed).")
-            # Install global click-to-cancel filter on QApplication
-            app = QApplication.instance()
-            if app:
-                self._soma_cancel_filter = _SomaCancelFilter(lambda: self._soma_tts)
-                app.installEventFilter(self._soma_cancel_filter)
+        """Inicializa el TTS de SOMA SIN bloquear la interfaz.
+
+        SomaTTS.__init__ espera hasta 6 s a que pygame.mixer arranque; si eso se
+        ejecuta en el hilo principal, CONGELA el menú nada más hacer login (era la
+        causa del lag de botones que persistía). Por eso lo construimos en un hilo
+        de fondo y asignamos self._soma_tts cuando esté listo."""
+        if self._soma_tts is not None or not _SOMA_DISPONIBLE:
+            return
+        # El filtro de cancelación (clic para callar a SOMA) se instala YA en el
+        # hilo principal; lee self._soma_tts de forma perezosa (tolera None).
+        app = QApplication.instance()
+        if app and getattr(self, "_soma_cancel_filter", None) is None:
+            self._soma_cancel_filter = _SomaCancelFilter(lambda: self._soma_tts)
+            app.installEventFilter(self._soma_cancel_filter)
+
+        import threading
+
+        def _construir_tts():
+            try:
+                tts = SomaTTS()  # bloquea ~hasta 6 s, pero en ESTE hilo de fondo
+                self._soma_tts = tts
+                logger.info("SOMA TTS inicializado (en segundo plano).")
+            except Exception as e:
+                logger.error(f"SOMA TTS: fallo al inicializar: {e}")
+
+        threading.Thread(target=_construir_tts, daemon=True, name="SomaTTSInit").start()
 
     def _detener_soma(self):
         if self._soma_worker:

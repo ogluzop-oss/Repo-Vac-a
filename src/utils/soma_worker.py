@@ -34,7 +34,10 @@ ESTADO_ERROR      = "error"
 
 # ── Wake word ──────────────────────────────────────────────────────────────────
 # Greeting prefixes that may precede the name ("Ey SOMA", "Oye SOMA"...).
-_PREFIJOS = ("EY", "HEY", "OYE", "EI", "OK", "HOLA", "VALE", "OYES", "EH")
+# Añadidos EL/E/EX a partir de transcripciones reales: Google STT convierte el
+# "Ey" de "Ey SOMA" en "EL", "E" o "EX" con frecuencia.
+_PREFIJOS = ("EY", "HEY", "OYE", "EI", "OK", "HOLA", "VALE", "OYES", "EH",
+             "EL", "E", "EX")
 
 # STRICT name set: a bare token equal to one of these counts as the wake word
 # on its own. Kept tight so common Spanish words never cause false activations.
@@ -47,7 +50,11 @@ _NOMBRE_ESTRICTO = frozenset((
 # "toma"/"suma"/"coma"/"zona" said during normal work does NOT).
 _NOMBRE_LAXO = frozenset((
     "ZONA", "GOMA", "TOMA", "COMA", "SUMA", "SOPA", "SOMO",
-    "SONA", "SONIA", "ROMA", "SOLA", "ESOMA", "SObA",
+    "SONA", "SONIA", "ROMA", "SOLA", "ESOMA", "SOBA",
+    # Fragmentos reales en los que Google parte "SOMA" al transcribir "Ey SOMA":
+    # "EL SO", "HEY SO", "E HIZO", "E ISO"... Solo cuentan precedidos de prefijo,
+    # así que un "so"/"hizo" sueltos en una frase normal NO activan a SOMA.
+    "SO", "HIZO", "ISO", "HISO", "SOMABA", "SOMI",
 ))
 # Strict fuzzy threshold vs "SOMA"/"SOMMA" only (SOMMA=0.80, SUMA=0.75<thr).
 _FUZZY_ESTRICTO = 0.80
