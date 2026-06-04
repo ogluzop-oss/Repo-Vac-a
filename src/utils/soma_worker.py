@@ -64,6 +64,10 @@ _FUZZY_ESTRICTO = 0.80
 # playing before re-opening the mic (prevents SOMA hearing its own voice).
 _TTS_GREETING_GUARD_S = 1.6
 
+# Ventana para decir el SEGUNDO comando tras "Ey SOMA" (el primero). Si en este
+# tiempo el usuario no dice nada, SOMA responde solo al primero (el saludo).
+_VENTANA_SEGUNDO_COMANDO_S = 2.5
+
 
 def _norm(s: str) -> str:
     return s.upper().strip().replace(",", " ").replace(".", " ")
@@ -185,7 +189,7 @@ class SomaWorker(QObject):
         # so high that quiet speech is ignored.
         rec.dynamic_energy_threshold = True
         rec.energy_threshold         = self._ENERGY_BASE
-        rec.pause_threshold          = 0.80    # más alto: no corta "Ey SOMA + comando" antes de tiempo
+        rec.pause_threshold          = 0.85    # un poco más alto: da tiempo a oír el comando entero
         rec.non_speaking_duration    = 0.35
         rec.phrase_threshold         = 0.20
 
@@ -301,10 +305,15 @@ class SomaWorker(QObject):
         # (_es_eco_saludo) as a second line of defence.
         time.sleep(_TTS_GREETING_GUARD_S)
 
-        # Now capture the actual follow-up command. Give the user time to speak.
+        # Ahora capturamos el comando de seguimiento. Espera hasta 2,5 s a que el
+        # usuario empiece a hablar; si no, solo responde al primero (el saludo).
         try:
             with self._mic as source:
-                audio2 = rec.listen(source, timeout=6, phrase_time_limit=7)
+                audio2 = rec.listen(
+                    source,
+                    timeout=_VENTANA_SEGUNDO_COMANDO_S,
+                    phrase_time_limit=7,
+                )
         except sr.WaitTimeoutError:
             self.estado_cambiado.emit(ESTADO_ESCUCHANDO)
             return

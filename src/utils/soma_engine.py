@@ -251,6 +251,23 @@ ACCION_A_MODULO: dict[str, str] = {
     "accion_buscar_articulo":  "info",
 }
 
+# Módulo → acción de navegación. Fallback robusto: si tras los intentos exacto y
+# difuso no hubo comando, pero SÍ se reconoce un módulo (incluso por prefijo, p. ej.
+# 'sto'→stock), navegamos a él. Cubre los finales cortados en CUALQUIER función.
+_MODULO_A_NAV: dict[str, str] = {
+    "logistica":     "nav_recepciones",
+    "stock":         "nav_stock",
+    "ventas":        "nav_ventas",
+    "tpv":           "nav_tpv",
+    "mermas":        "nav_mermas",
+    "etiquetas":     "nav_etiquetas",
+    "reposicion":    "nav_reposicion",
+    "ubicacion":     "nav_ubicacion",
+    "info":          "nav_info",
+    "configuracion": "nav_configuracion",
+    "usuarios":      "nav_usuarios",
+}
+
 NOMBRE_MODULO: dict[str, str] = {
     "nav_recepciones":         "recepciones",
     "nav_traspasos":           "traspasos",
@@ -400,6 +417,13 @@ def parsear_comando(texto: str) -> tuple[str, dict]:
         if accion in ("query_stock", "accion_buscar_articulo"):
             params["articulo"] = _extraer_articulo(normalizado)
         return accion, params
+
+    # 3 — fallback por módulo (prefijo/difuso). Blinda TODAS las funciones contra
+    #     los finales que Google recorta: 'abre sto' / 'sto' -> stock, etc.
+    modulo = _detectar_modulo(normalizado)
+    if modulo in _MODULO_A_NAV:
+        logger.info(f"Nav por módulo (robusto): {modulo}")
+        return _MODULO_A_NAV[modulo], {"texto": texto, "modulo": modulo, "fuzzy": True}
 
     logger.info(f"Sin coincidencia: '{normalizado}'")
     return "desconocido", {"texto": texto}
