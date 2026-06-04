@@ -721,7 +721,26 @@ class SmartManagerApp(QStackedWidget):
         if accion == "cerrar_sesion":
             if self._soma_tts:
                 self._soma_tts.decir("Cerrando sesión. Hasta pronto.")
-            QTimer.singleShot(1500, self.detectar_logout)
+            # Replicamos el cierre de sesión del botón (sin diálogo): limpiamos la
+            # sesión y cerramos el menú. Su señal 'destroyed' dispara detectar_logout,
+            # que al ver la sesión vacía VUELVE AL LOGIN. IMPORTANTE: antes se llamaba
+            # a detectar_logout SIN limpiar la sesión (con 1,5 s de espera), lo que
+            # hacía que _procesar_retorno_o_cierre cayera en el 'else' y CERRARA LA
+            # APP entera. Ahora es correcto e instantáneo.
+            mp = self.menu_principal
+            try:
+                if mp is not None and hasattr(mp, "_cerrar_recursos"):
+                    mp._cerrar_recursos()
+            except Exception:
+                pass
+            try:
+                sesion_global.cerrar_sesion()
+            except Exception:
+                sesion_global.usuario_actual = None
+            if mp is not None:
+                mp.close()  # WA_DeleteOnClose → destroyed → detectar_logout → LOGIN
+            else:
+                QTimer.singleShot(120, self.detectar_logout)
             return
 
         # ── Volver al menú ─────────────────────────────────────────────────
@@ -851,8 +870,9 @@ class SmartManagerApp(QStackedWidget):
             return
 
         abi_n = nombre.get(abierto, abierto)
-        if self._soma_tts:
-            self._soma_tts.decir(f"Cerrando {abi_n} y volviendo al menú.")
+        # Cerramos PRIMERO (ejecución inmediata) y confirmamos por voz DESPUÉS, con
+        # una frase corta para que se perciba rápido. El TTS es asíncrono, así que
+        # la función se cierra al instante sin esperar a la voz.
         try:
             if hasattr(mp, "cerrar_ventana_activa"):
                 mp.cerrar_ventana_activa()
@@ -861,6 +881,8 @@ class SmartManagerApp(QStackedWidget):
         except Exception as e:
             logger.error(f"SOMA cerrar módulo error: {e}")
         self._soma_modulo_activo = None
+        if self._soma_tts:
+            self._soma_tts.decir(f"Cerrando {abi_n}.")
 
     def _soma_ejecutar_query(self, accion: str, params: dict):
         """Run a DB query in a background thread, then speak the result."""
