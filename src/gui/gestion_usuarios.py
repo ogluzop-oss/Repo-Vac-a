@@ -6305,6 +6305,16 @@ class ConfiguracionWindow(QWidget):
         combo.setMinimumWidth(320)
         combo.setMaxVisibleItems(10)
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Borde neón ESTABLE: el filtro global guarda/restaura el QSS inline del
+        # combo al abrir/cerrar el popup. Sin inline, lo restauraba a "" y en una
+        # página persistente (no diálogo) el contorno turquesa se perdía tras el
+        # primer ciclo. Con este QSS, el neón se conserva (y :on lo oculta mientras
+        # el popup está abierto, para que solo el popup muestre el contorno).
+        combo.setStyleSheet(
+            f"QComboBox{{border:2px solid {_CIAN};border-radius:10px;}}"
+            "QComboBox:on{border:2px solid transparent;}"
+            f"QComboBox:disabled{{border:2px solid {_BORDE};}}"
+        )
         for code in divisas.monedas_soportadas():
             inf = divisas.info(code)
             combo.addItem(f"{code} · {inf['nombre']} ({inf['simbolo']})", code)
