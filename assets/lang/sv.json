@@ -1215,7 +1215,15 @@
     "col_id": "ID",
     "emp_p5": "+34 XXX XXX XXX",
     "emp_p6": "ES00 0000 0000 0000 0000 0000",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "BILD",
+    "col_value": "VÄRDE",
+    "col_total": "TOTALT",
+    "divisa_empresa": "💱  FÖRETAGETS VALUTA:",
+    "divisa_solo_admin": "Endast ADMINISTRATÖR / CHEF",
+    "divisa_title": "Valuta uppdaterad",
+    "divisa_msg": "Företagets valuta är nu {code}. Kassatabeller och belopp visas i denna valuta.",
+    "divisa_error": "Det gick inte att ändra valutan."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

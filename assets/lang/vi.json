@@ -1215,7 +1215,15 @@
     "wz_f_cif": "CIF / NIF:",
     "pv_cif": "CIF:",
     "pv_nif": "NIF / NIE:",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "HÌNH ẢNH",
+    "col_value": "GIÁ TRỊ",
+    "col_total": "TỔNG CỘNG",
+    "divisa_empresa": "💱  TIỀN TỆ CỦA CÔNG TY:",
+    "divisa_solo_admin": "Chỉ QUẢN TRỊ VIÊN / QUẢN LÝ",
+    "divisa_title": "Tiền tệ đã được cập nhật",
+    "divisa_msg": "Tiền tệ của công ty hiện là {code}. Các bảng tiền mặt và số tiền sẽ được hiển thị bằng tiền tệ này.",
+    "divisa_error": "Không thể thay đổi tiền tệ."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Máy Quét Thông Minh - Smart Manager",

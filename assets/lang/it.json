@@ -1215,7 +1215,15 @@
     "col_document": "DOCUMENTO",
     "pv_documento": "DOCUMENTO:",
     "pv_tipo": "TIPO:",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "IMMAGINE",
+    "col_value": "VALORE",
+    "col_total": "TOTALE",
+    "divisa_empresa": "💱  VALUTA AZIENDALE:",
+    "divisa_solo_admin": "Solo AMMINISTRATORE / MANAGER",
+    "divisa_title": "Valuta aggiornata",
+    "divisa_msg": "La valuta aziendale è ora {code}. Le tabelle di cassa e gli importi verranno visualizzati in questa valuta.",
+    "divisa_error": "Non è stato possibile modificare la valuta."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Intelligente - Smart Manager",

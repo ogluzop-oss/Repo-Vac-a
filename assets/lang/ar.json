@@ -1215,7 +1215,15 @@
     "emp_p5": "+34 XXX XXX XXX",
     "emp_p6": "ES00 0000 0000 0000 0000 0000",
     "wz_ph_ddmmaaaa": "DD/MM/AAAA",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "صورة",
+    "col_value": "القيمة",
+    "col_total": "الإجمالي",
+    "divisa_empresa": "💱 عملة الشركة:",
+    "divisa_solo_admin": "مسؤول/مدير فقط",
+    "divisa_title": "تم تحديث العملة",
+    "divisa_msg": "عملة الشركة هي الآن {code}. سيتم عرض جداول النقد والمبالغ بهذه العملة.",
+    "divisa_error": "تعذر تغيير العملة."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "ماسح ذكي - Smart Manager",

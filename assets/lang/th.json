@@ -1215,7 +1215,15 @@
     "emp_p5": "+34 XXX XXX XXX",
     "emp_p6": "ES00 0000 0000 0000 0000 0000",
     "wz_ph_ddmmaaaa": "DD/MM/AAAA",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "รูปภาพ",
+    "col_value": "มูลค่า",
+    "col_total": "รวม",
+    "divisa_empresa": "💱  สกุลเงินของบริษัท:",
+    "divisa_solo_admin": "เฉพาะ ผู้จัดการระบบ / ผู้จัดการ",
+    "divisa_title": "สกุลเงินได้รับการอัปเดต",
+    "divisa_msg": "สกุลเงินของบริษัทเป็น {code} แล้ว ตารางเงินสดและจำนวนเงินจะแสดงในสกุลเงินนี้",
+    "divisa_error": "ไม่สามารถเปลี่ยนสกุลเงินได้"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "สแกนเนอร์อัจฉริยะ - Smart Manager",

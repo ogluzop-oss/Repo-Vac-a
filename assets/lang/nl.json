@@ -1215,7 +1215,15 @@
     "col_id": "ID",
     "emp_p5": "+34 XXX XXX XXX",
     "emp_p6": "ES00 0000 0000 0000 0000 0000",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "AFBEELDING",
+    "col_value": "WAARDE",
+    "col_total": "TOTAAL",
+    "divisa_empresa": "💱  BEDRIJFSMUNT:",
+    "divisa_solo_admin": "Alleen BEHEERDER / MANAGER",
+    "divisa_title": "Munt bijgewerkt",
+    "divisa_msg": "De bedrijfsmunt is nu {code}. De contant- en bedragtabellen worden in deze munt weergegeven.",
+    "divisa_error": "De munt kon niet worden gewijzigd."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligente Scanner - Smart Manager",

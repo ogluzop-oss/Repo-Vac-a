@@ -1215,7 +1215,15 @@
     "col_id": "ID",
     "emp_p5": "+34 XXX XXX XXX",
     "emp_p6": "ES00 0000 0000 0000 0000 0000",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "BILD",
+    "col_value": "WERT",
+    "col_total": "GESAMT",
+    "divisa_empresa": "💱  UNTERNEHMENSWÄHRUNG:",
+    "divisa_solo_admin": "Nur ADMINISTRATOR / MANAGER",
+    "divisa_title": "Währung aktualisiert",
+    "divisa_msg": "Die Unternehmenswährung ist jetzt {code}. Kassentabellen und Beträge werden in dieser Währung angezeigt.",
+    "divisa_error": "Die Währung konnte nicht geändert werden."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",

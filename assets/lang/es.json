@@ -1215,7 +1215,15 @@
     "hora_inicio": "HORA INICIO:",
     "hora_fin": "HORA FIN:",
     "smart_config": "SMART CONFIG",
-    "detalles_del_evento": "DETALLES DEL EVENTO"
+    "detalles_del_evento": "DETALLES DEL EVENTO",
+    "col_image": "IMAGEN",
+    "col_value": "VALOR",
+    "col_total": "TOTAL",
+    "divisa_empresa": "💱  DIVISA DE LA EMPRESA:",
+    "divisa_solo_admin": "Solo ADMINISTRADOR / GERENTE",
+    "divisa_title": "Divisa actualizada",
+    "divisa_msg": "La divisa de la empresa es ahora {code}. Las tablas de efectivo e importes se mostrarán en esta divisa.",
+    "divisa_error": "No se pudo cambiar la divisa."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Escáner Inteligente - Smart Manager",

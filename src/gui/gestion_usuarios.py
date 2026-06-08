@@ -70,7 +70,7 @@ from src.db.usuario import (
     sesion_global,
     validar_pin_fichaje,
 )
-from src.utils import i18n, pdf_fonts
+from src.utils import divisas, i18n, pdf_fonts
 from src.utils.i18n import tr
 from src.utils.logger import LOG_DOCUMENTOS
 
@@ -3327,8 +3327,36 @@ class _QtyInput(QWidget):
         return self._val
 
 
+def _icono_denominacion(denom: dict) -> "QIcon":
+    """Icono de una denominación de la divisa activa: usa su imagen real si existe;
+    si falta, un icono GENÉRICO (círculo=moneda / rectángulo=billete), sin romper."""
+    ruta = denom.get("imagen")
+    if ruta and os.path.exists(ruta):
+        pm = QPixmap(ruta)
+        if not pm.isNull():
+            return QIcon(pm)
+    # Genérico (la imagen no estaba; ya se ha registrado el aviso en logs).
+    pm = QPixmap(64, 64)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    es_billete = denom.get("tipo") == "billete"
+    p.setBrush(QColor("#2A3340"))
+    p.setPen(QPen(QColor("#566273"), 2))
+    if es_billete:
+        p.drawRoundedRect(6, 18, 52, 28, 5, 5)
+    else:
+        p.drawEllipse(12, 12, 40, 40)
+    p.setPen(QColor("#8B949E"))
+    f = p.font(); f.setBold(True); f.setPointSize(11 if es_billete else 14); p.setFont(f)
+    p.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, divisas.simbolo())
+    p.end()
+    return QIcon(pm)
+
+
 class _ConteoEfectivoDialog(QDialog):
-    """Modal de arqueo de efectivo con tabla de denominaciones y totales en tiempo real."""
+    """Modal de arqueo de efectivo con tabla de denominaciones y totales en tiempo real.
+    La tabla es DINÁMICA según la divisa de empresa: imagen | valor | cantidad | total."""
 
     def __init__(self, titulo="ARQUEO DE EFECTIVO", fondo_esperado=None, parent=None):
         super().__init__(parent)
@@ -3338,6 +3366,9 @@ class _ConteoEfectivoDialog(QDialog):
         self._fondo_esperado = fondo_esperado
         self._spins: list = []
         self._sub_items: list = []
+        # Denominaciones de la divisa de empresa activa (dinámico): si el admin
+        # cambia la divisa, el siguiente arqueo se construye con la nueva.
+        self._denoms = divisas.denominaciones()
         self._build(titulo)
 
     @staticmethod
@@ -3374,14 +3405,19 @@ class _ConteoEfectivoDialog(QDialog):
         tbl_wrap = QWidget()
         tbl_wrap.setStyleSheet("background:#0D1117;")
 
-        tbl = QTableWidget(len(_DENOM), 3)
+        tbl = QTableWidget(len(self._denoms), 4)
         tbl.setHorizontalHeaderLabels([
-            tr("cfg.col_denom", default="DENOMINACIÓN"),
+            tr("cfg.col_image", default="IMAGEN"),
+            tr("cfg.col_value", default="VALOR"),
             tr("cfg.col_qty", default="CANTIDAD"),
-            tr("cfg.col_subtotal", default="SUBTOTAL"),
+            tr("cfg.col_total", default="TOTAL"),
         ])
-        tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        tbl.setColumnWidth(1, 130); tbl.setColumnWidth(2, 120)
+        _hdr = tbl.horizontalHeader()
+        _hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        _hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        _hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        _hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        tbl.setColumnWidth(0, 86); tbl.setColumnWidth(2, 130); tbl.setColumnWidth(3, 120)
         tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         tbl.verticalHeader().setVisible(False)
@@ -3406,22 +3442,32 @@ class _ConteoEfectivoDialog(QDialog):
         tbl.setIconSize(QSize(64, 64))
         tbl.verticalHeader().setDefaultSectionSize(68)
 
-        for row, (lbl, val, typ) in enumerate(_DENOM):
-            it_l = QTableWidgetItem(f"  {lbl}")
-            it_l.setIcon(_make_denom_icon(lbl, typ))
-            it_l.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            it_l.setForeground(QColor("#E3B341" if typ == "B" else "#E6EDF3"))
-            tbl.setItem(row, 0, it_l)
+        _cero = divisas.formatear(0)
+        for row, den in enumerate(self._denoms):
+            tipo_b = den["tipo"] == "billete"
+            # Col 0 — IMAGEN (moneda/billete) con fallback genérico
+            it_img = QTableWidgetItem()
+            it_img.setIcon(_icono_denominacion(den))
+            it_img.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            tbl.setItem(row, 0, it_img)
 
+            # Col 1 — VALOR
+            it_v = QTableWidgetItem("  " + den["etiqueta"])
+            it_v.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            it_v.setForeground(QColor("#E3B341" if tipo_b else "#E6EDF3"))
+            tbl.setItem(row, 1, it_v)
+
+            # Col 2 — CANTIDAD
             qty = _QtyInput()
             qty.valueChanged.connect(self._upd)
-            tbl.setCellWidget(row, 1, qty)
-            self._spins.append((val, qty))
+            tbl.setCellWidget(row, 2, qty)
+            self._spins.append((den["valor"], qty))
 
-            it_s = QTableWidgetItem("0.00 €")
+            # Col 3 — TOTAL
+            it_s = QTableWidgetItem(_cero)
             it_s.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             it_s.setForeground(QColor("#6E7681"))
-            tbl.setItem(row, 2, it_s)
+            tbl.setItem(row, 3, it_s)
             self._sub_items.append(it_s)
 
         stack_ly = QStackedLayout(tbl_wrap)
@@ -3472,13 +3518,13 @@ class _ConteoEfectivoDialog(QDialog):
 
         lbl_tt = QLabel(tr("cfg.total_counted", default="TOTAL CONTADO:"))
         lbl_tt.setStyleSheet("color:#6E7681;font-family:'Segoe UI';font-weight:900;font-size:13px;border:none;background:transparent;")
-        self._lbl_total = QLabel("0.00 €")
+        self._lbl_total = QLabel(divisas.formatear(0))
         self._lbl_total.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:22px;border:none;background:transparent;")
         t_ly.addWidget(lbl_tt)
         t_ly.addSpacing(10)
         t_ly.addWidget(self._lbl_total)
         if self._fondo_esperado is not None:
-            le = QLabel(tr("cfg.expected_suffix", default="  |  Esperado: {x} €", x=f"{self._fondo_esperado:.2f}"))
+            le = QLabel(tr("cfg.expected_suffix", default="  |  Esperado: {x}", x=divisas.formatear(self._fondo_esperado)))
             le.setStyleSheet("color:#6E7681;font-family:'Segoe UI';font-size:11px;border:none;background:transparent;")
             t_ly.addWidget(le)
         ly.addWidget(tf)
@@ -3494,15 +3540,15 @@ class _ConteoEfectivoDialog(QDialog):
         )
 
         def _focus_qty(row):
-            if 0 <= row < len(_DENOM):
-                w = tbl.cellWidget(row, 1)
+            if 0 <= row < len(self._denoms):
+                w = tbl.cellWidget(row, 2)
                 if w is not None:
                     w._inp.setFocus()
                     w._inp.selectAll()
 
         def _nav(delta):
             row = tbl.currentRow()
-            nrow = max(0, min(len(_DENOM) - 1, (row if row >= 0 else 0) + delta))
+            nrow = max(0, min(len(self._denoms) - 1, (row if row >= 0 else 0) + delta))
             tbl.selectRow(nrow)
             tbl.scrollTo(tbl.model().index(nrow, 0))
             _focus_qty(nrow)
@@ -3547,18 +3593,18 @@ class _ConteoEfectivoDialog(QDialog):
         for i, (val, spin) in enumerate(self._spins):
             sub = round(val * spin.value(), 2)
             total += sub
-            self._sub_items[i].setText(f"{sub:.2f} €")
+            self._sub_items[i].setText(divisas.formatear(sub))
             self._sub_items[i].setForeground(QColor("#3FB950" if sub > 0 else "#6E7681"))
         self._total = round(total, 2)
-        self._lbl_total.setText(f"{self._total:.2f} €")
+        self._lbl_total.setText(divisas.formatear(self._total))
 
     def get_total(self) -> float:
         return self._total
 
     def get_detalle(self) -> list:
         return [
-            {"denominacion": _DENOM[i][0], "valor": _DENOM[i][1],
-             "cantidad": sp.value(), "subtotal": round(_DENOM[i][1] * sp.value(), 2)}
+            {"denominacion": self._denoms[i]["etiqueta"], "valor": self._denoms[i]["valor"],
+             "cantidad": sp.value(), "subtotal": round(self._denoms[i]["valor"] * sp.value(), 2)}
             for i, (_, sp) in enumerate(self._spins) if sp.value() > 0
         ]
 
@@ -6433,6 +6479,72 @@ class ConfiguracionWindow(QWidget):
                 self._cal_widget.update()
 
     # --- PESTAÑA 1: GESTIÓN CAJA ---
+    def _crear_selector_divisa(self):
+        """Selector de DIVISA EMPRESA (global, independiente del idioma). Solo lo
+        pueden cambiar ADMINISTRADOR y GERENTE; al cambiarlo, las tablas de arqueo
+        y los importes pasan a esa divisa (sin reiniciar)."""
+        frame = QFrame()
+        frame.setObjectName("divisaBox")
+        frame.setFixedHeight(60)
+        frame.setStyleSheet(f"QFrame#divisaBox{{background:#161B22;border:2px solid {_BORDE};border-radius:14px;}}")
+        ly = QHBoxLayout(frame)
+        ly.setContentsMargins(20, 0, 20, 0)
+        lbl = QLabel(tr("cfg.divisa_empresa", default="💱  DIVISA DE LA EMPRESA:"))
+        lbl.setStyleSheet("color:#6E7681;font-family:'Segoe UI';font-weight:900;font-size:12px;background:transparent;border:none;")
+        combo = QComboBox()
+        combo.setFixedHeight(36)
+        combo.setMinimumWidth(300)
+        combo.setMaxVisibleItems(8)
+        combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        combo.setStyleSheet(
+            f"QComboBox{{background:#0D1117;color:#E6EDF3;border:2px solid {_CIAN};"
+            "border-radius:10px;padding:4px 12px;font-family:'Segoe UI';font-weight:700;}"
+            "QComboBox::drop-down{border:none;width:22px;}"
+            f"QComboBox QAbstractItemView{{background:#0D1117;color:#E6EDF3;border:2px solid {_CIAN};"
+            "selection-background-color:#00FFC6;selection-color:#0D1117;outline:none;}}"
+        )
+        for code in divisas.monedas_soportadas():
+            inf = divisas.info(code)
+            combo.addItem(f"{code} · {inf['nombre']} ({inf['simbolo']})", code)
+        idx = combo.findData(divisas.divisa_actual())
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        nivel = getattr(sesion_global, "nivel", None) if sesion_global else None
+        puede = nivel in ("ADMINISTRADOR", "GERENTE")
+        combo.setEnabled(puede)
+        combo.currentIndexChanged.connect(
+            lambda _i, c=combo: self._cambiar_divisa(c.currentData())
+        )
+        self._combo_divisa = combo
+        ly.addWidget(lbl)
+        ly.addStretch()
+        ly.addWidget(combo)
+        if not puede:
+            nota = QLabel(tr("cfg.divisa_solo_admin", default="Solo ADMINISTRADOR / GERENTE"))
+            nota.setStyleSheet("color:#484F58;font-family:'Segoe UI';font-size:11px;background:transparent;border:none;")
+            ly.addSpacing(10)
+            ly.addWidget(nota)
+        return frame
+
+    def _cambiar_divisa(self, code):
+        if not code or code == divisas.divisa_actual():
+            return
+        try:
+            divisas.set_divisa(code)
+            mostrar_mensaje(
+                self, tr("cfg.divisa_title", default="Divisa actualizada"),
+                tr("cfg.divisa_msg",
+                   default="La divisa de la empresa es ahora {code}. Las tablas de "
+                           "efectivo e importes se mostrarán en esta divisa.", code=code),
+                "info",
+            )
+        except Exception as e:
+            LOG_DOCUMENTOS.error("No se pudo cambiar la divisa: %s", e)
+            mostrar_mensaje(
+                self, tr("cfg.error_title", default="Error"),
+                tr("cfg.divisa_error", default="No se pudo cambiar la divisa."), "error",
+            )
+
     def _crear_page_caja(self):
         page = QWidget()
         outer = QVBoxLayout(page)
@@ -6461,6 +6573,9 @@ class ConfiguracionWindow(QWidget):
         sf_ly.addSpacing(20)
         sf_ly.addWidget(self._caja_hora_lbl)
         outer.addWidget(status_frame)
+
+        # ── Divisa de la empresa (independiente del idioma) ──────────────────
+        outer.addWidget(self._crear_selector_divisa())
 
         # ── Grid de botones ──────────────────────────────────────────────────
         grid = QGridLayout(); grid.setSpacing(16)

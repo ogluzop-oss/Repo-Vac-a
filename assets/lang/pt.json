@@ -1215,7 +1215,15 @@
     "edit": "EDITAR",
     "repeat_pin_ph": "Repetir PIN",
     "pin_invalid2_title": "PIN inválido",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "IMAGEM",
+    "col_value": "VALOR",
+    "col_total": "TOTAL",
+    "divisa_empresa": "💱  MOEDA DA EMPRESA:",
+    "divisa_solo_admin": "Apenas ADMINISTRADOR / GERENTE",
+    "divisa_title": "Moeda atualizada",
+    "divisa_msg": "A moeda da empresa é agora {code}. As tabelas de caixa e valores serão exibidos nesta moeda.",
+    "divisa_error": "Não foi possível alterar a moeda."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Inteligente - Smart Manager",

@@ -1215,7 +1215,15 @@
     "emp_p5": "+34 XXX XXX XXX",
     "emp_p6": "ES00 0000 0000 0000 0000 0000",
     "wz_ph_ddmmaaaa": "DD/MM/AAAA",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "图像",
+    "col_value": "价值",
+    "col_total": "总计",
+    "divisa_empresa": "💱 公司货币:",
+    "divisa_solo_admin": "仅限管理员/经理",
+    "divisa_title": "货币已更新",
+    "divisa_msg": "公司货币现为 {code}。现金表和金额将以此货币显示。",
+    "divisa_error": "无法更改货币。"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "智能扫描仪 - Smart Manager",

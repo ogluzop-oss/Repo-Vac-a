@@ -1215,7 +1215,15 @@
     "emp_p5": "+34 XXX XXX XXX",
     "emp_p6": "ES00 0000 0000 0000 0000 0000",
     "pv_ss": "Nº SS:",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "GÖRÜNTÜ",
+    "col_value": "DEĞER",
+    "col_total": "TOPLAM",
+    "divisa_empresa": "💱  ŞİRKET PARABİRİMİ:",
+    "divisa_solo_admin": "Yalnızca YÖNETİCİ / MÜDÜR",
+    "divisa_title": "Parabirimi güncellendi",
+    "divisa_msg": "Şirket parabirimi şu anda {code}. Nakit ve tutar tabloları bu parabiriminde gösterilecektir.",
+    "divisa_error": "Parabirimi değiştirilemedi."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Akıllı Tarayıcı - Smart Manager",

@@ -1215,7 +1215,15 @@
     "emp_p4": "correo@empresa.com",
     "emp_p5": "+34 XXX XXX XXX",
     "emp_p6": "ES00 0000 0000 0000 0000 0000",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "OBRAZ",
+    "col_value": "WARTOŚĆ",
+    "col_total": "RAZEM",
+    "divisa_empresa": "💱  WALUTA FIRMY:",
+    "divisa_solo_admin": "Tylko ADMINISTRATOR / KIEROWNIK",
+    "divisa_title": "Waluta zaktualizowana",
+    "divisa_msg": "Waluta firmy to teraz {code}. Tabele gotówkowe i kwoty będą wyświetlane w tej walucie.",
+    "divisa_error": "Nie udało się zmienić waluty."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

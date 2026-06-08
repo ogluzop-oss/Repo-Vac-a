@@ -1215,7 +1215,15 @@
     "hora_inicio": "START TIME:",
     "hora_fin": "END TIME:",
     "smart_config": "SMART CONFIG",
-    "detalles_del_evento": "EVENT DETAILS"
+    "detalles_del_evento": "EVENT DETAILS",
+    "col_image": "IMAGE",
+    "col_value": "VALUE",
+    "col_total": "TOTAL",
+    "divisa_empresa": "💱  COMPANY CURRENCY:",
+    "divisa_solo_admin": "Only ADMINISTRATOR / MANAGER",
+    "divisa_title": "Currency updated",
+    "divisa_msg": "The company currency is now {code}. Cash tables and amounts will be shown in this currency.",
+    "divisa_error": "Could not change the currency."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

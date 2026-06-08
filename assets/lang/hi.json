@@ -1215,7 +1215,15 @@
     "emp_p5": "+34 XXX XXX XXX",
     "emp_p6": "ES00 0000 0000 0000 0000 0000",
     "wz_ph_ddmmaaaa": "DD/MM/AAAA",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "चित्र",
+    "col_value": "मूल्य",
+    "col_total": "कुल",
+    "divisa_empresa": "💱  कंपनी की मुद्रा:",
+    "divisa_solo_admin": "केवल व्यवस्थापक / प्रबंधक",
+    "divisa_title": "मुद्रा अपडेट की गई",
+    "divisa_msg": "कंपनी की मुद्रा अब {code} है। नकद तालिकाओं और राशियों को इस मुद्रा में दिखाया जाएगा।",
+    "divisa_error": "मुद्रा को बदलने में विफल।"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "स्मार्ट स्कैनर - Smart Manager",

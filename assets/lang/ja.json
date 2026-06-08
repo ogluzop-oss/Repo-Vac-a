@@ -1215,7 +1215,15 @@
     "wz_f_cif": "CIF / NIF:",
     "pv_cif": "CIF:",
     "pv_nif": "NIF / NIE:",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "画像",
+    "col_value": "値",
+    "col_total": "合計",
+    "divisa_empresa": "💱  会社通貨:",
+    "divisa_solo_admin": "管理者/マネージャーのみ",
+    "divisa_title": "通貨が更新されました",
+    "divisa_msg": "会社の通貨は現在{code}です。現金テーブルと金額がこの通貨で表示されます。",
+    "divisa_error": "通貨を変更できませんでした。"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

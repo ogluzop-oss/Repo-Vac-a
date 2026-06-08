@@ -1215,7 +1215,15 @@
     "wz_f_cif": "CIF / NIF:",
     "pv_cif": "CIF:",
     "pv_nif": "NIF / NIE:",
-    "smart_config": "SMART CONFIG"
+    "smart_config": "SMART CONFIG",
+    "col_image": "GAMBAR",
+    "col_value": "NILAI",
+    "col_total": "TOTAL",
+    "divisa_empresa": "💱  MATA UANG PERUSAHAAN:",
+    "divisa_solo_admin": "Hanya ADMINISTRATOR / MANAJER",
+    "divisa_title": "Mata uang diperbarui",
+    "divisa_msg": "Mata uang perusahaan sekarang adalah {code}. Tabel kas dan jumlah akan ditampilkan dalam mata uang ini.",
+    "divisa_error": "Tidak dapat mengubah mata uang."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",
