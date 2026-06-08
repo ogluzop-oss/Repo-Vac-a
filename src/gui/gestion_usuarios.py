@@ -6269,8 +6269,7 @@ class ConfiguracionWindow(QWidget):
     def _cambiar_vista(self, index):
         # Access control: HORARIO EMPLEADOS (index 3) — ADMINISTRADOR and GERENTE only
         if index == 3:
-            nivel = getattr(sesion_global, "nivel", None) if sesion_global else None
-            if nivel == "OPERARIO":
+            if not (sesion_global and sesion_global.es_admin()):
                 mostrar_mensaje(
                     self, tr("cfg.access_restricted_title", default="Acceso restringido"),
                     tr("cfg.access_restricted_msg", default="Solo ADMINISTRADOR y GERENTE pueden gestionar horarios."), "error"
@@ -6312,8 +6311,7 @@ class ConfiguracionWindow(QWidget):
         idx = combo.findData(divisas.divisa_actual())
         if idx >= 0:
             combo.setCurrentIndex(idx)
-        nivel = getattr(sesion_global, "nivel", None) if sesion_global else None
-        combo.setEnabled(nivel in ("ADMINISTRADOR", "GERENTE"))
+        combo.setEnabled(bool(sesion_global and sesion_global.es_admin()))
         combo.currentIndexChanged.connect(
             lambda _i, c=combo: self._cambiar_divisa(c.currentData())
         )
