@@ -280,7 +280,7 @@
     "deactivate": "Dezaktywuj",
     "activate": "Aktywuj",
     "title": "Zarządzanie Produktami Sypkimi",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "Edytuj produkt luzem",
@@ -288,7 +288,7 @@
     "header_edit": "EDYTUJ PRODUKT LUZEM",
     "header_new": "NOWY PRODUKT LUZEM",
     "name": "Nazwa",
-    "price": "Cena €/kg",
+    "price": "Cena {sym}/kg",
     "category": "Kategoria",
     "err_title": "Nie można było zapisać",
     "emoji": "Emoji"
@@ -315,7 +315,7 @@
     "not_found_title": "Nie znaleziono",
     "not_found_msg": "Nie znaleziono artykułu: {termino}",
     "update_title": "Zaktualizuj Cenę",
-    "current_price": "Aktualna Cena: {precio} €",
+    "current_price": "Aktualna Cena: {precio}",
     "new_price_ph": "Nowa cena (przykład: 12.50)",
     "new_price_lbl": "NOWA CENA:",
     "size_lbl": "ROZMIAR ETYKIETY:",

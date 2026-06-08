@@ -280,7 +280,7 @@
     "deactivate": "비활성화",
     "activate": "활성화",
     "title": "대량 제품 관리",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "대량 제품 편집",
@@ -289,7 +289,7 @@
     "header_new": "새 대량 제품",
     "name": "이름",
     "emoji": "이모지",
-    "price": "가격 €/kg",
+    "price": "가격 {sym}/kg",
     "category": "카테고리",
     "err_title": "저장할 수 없습니다"
   },
@@ -315,7 +315,7 @@
     "not_found_title": "찾을 수 없음",
     "not_found_msg": "상품을 찾을 수 없습니다: {termino}",
     "update_title": "가격 업데이트",
-    "current_price": "현재 가격: {precio} €",
+    "current_price": "현재 가격: {precio}",
     "new_price_ph": "새 가격 (예: 12.50)",
     "new_price_lbl": "새 가격:",
     "size_lbl": "라벨 크기:",

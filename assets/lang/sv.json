@@ -280,7 +280,7 @@
     "deactivate": "Inaktivera",
     "activate": "Aktivera",
     "title": "Hantering av bulkprodukter",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "Redigera bulkprodukt",
@@ -288,7 +288,7 @@
     "header_edit": "REDIGERA BULKPRODUKT",
     "header_new": "NY BULKPRODUKT",
     "name": "Namn",
-    "price": "Pris €/kg",
+    "price": "Pris {sym}/kg",
     "category": "Kategori",
     "err_title": "Kunde inte sparas",
     "emoji": "Emoji"
@@ -315,7 +315,7 @@
     "not_found_title": "Inte funnet",
     "not_found_msg": "Artikeln hittades inte: {termino}",
     "update_title": "Uppdatera Pris",
-    "current_price": "Aktuellt pris: {precio} €",
+    "current_price": "Aktuellt pris: {precio}",
     "new_price_ph": "Nytt pris (ex: 12.50)",
     "new_price_lbl": "NYTT PRIS:",
     "size_lbl": "ETIKETTSTORLEK:",

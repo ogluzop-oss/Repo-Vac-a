@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 import time
 
+from src.utils import divisas
+
 logger = logging.getLogger("tpv.terminal")
 
 
@@ -56,9 +58,9 @@ class SimulatedTerminal(CardTerminalDriver):
         import random
         tail = f"{random.randint(0, 9999):04d}"
         ref  = f"AUT{random.randint(100000, 999999)}"
-        logger.info(f"[SIM] Cobro tarjeta {importe:.2f}€ OK ref={ref} ****{tail}")
+        logger.info(f"[SIM] Cobro tarjeta {divisas.formatear(importe)} OK ref={ref} ****{tail}")
         return CardTerminalResult(
-            True, f"Pago aprobado: {importe:.2f} €", tail, ref
+            True, f"Pago aprobado: {divisas.formatear(importe)}", tail, ref
         )
 
     def devolver(self, importe: float,
@@ -69,9 +71,9 @@ class SimulatedTerminal(CardTerminalDriver):
         import random
         tail = ultimos_digitos or f"{random.randint(0, 9999):04d}"
         ref  = f"DEV{random.randint(100000, 999999)}"
-        logger.info(f"[SIM] Devolución tarjeta {importe:.2f}€ OK ref={ref} ****{tail}")
+        logger.info(f"[SIM] Devolución tarjeta {divisas.formatear(importe)} OK ref={ref} ****{tail}")
         return CardTerminalResult(
-            True, f"Devolución aprobada: {importe:.2f} €", tail, ref
+            True, f"Devolución aprobada: {divisas.formatear(importe)}", tail, ref
         )
 
 

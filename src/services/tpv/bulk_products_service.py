@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import logging
 
+from src.utils import divisas
+
 logger = logging.getLogger("tpv.bulk")
 
 
@@ -89,7 +91,7 @@ def guardar_producto(nombre: str, precio_kg: float, emoji: str = "🛒",
     if precio_kg < 0:
         return False, "El precio por kilo no puede ser negativo."
     if precio_kg > 9999:
-        return False, "El precio por kilo parece incorrecto (>9999 €)."
+        return False, f"El precio por kilo parece incorrecto (>9999 {divisas.simbolo()})."
 
     try:
         with _conn() as conn:

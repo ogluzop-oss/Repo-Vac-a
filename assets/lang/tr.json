@@ -280,7 +280,7 @@
     "deactivate": "Devre Dışı Bırak",
     "activate": "Etkinleştir",
     "title": "Dökme Ürün Yönetimi",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "Toplu ürün düzenle",
@@ -288,7 +288,7 @@
     "header_edit": "TOPLU ÜRÜN DÜZENLE",
     "header_new": "YENİ TOPLU ÜRÜN",
     "name": "Ad",
-    "price": "Fiyat €/kg",
+    "price": "Fiyat {sym}/kg",
     "category": "Kategori",
     "err_title": "Kaydedilemedi",
     "emoji": "Emoji"
@@ -315,7 +315,7 @@
     "not_found_title": "Bulunamadı",
     "not_found_msg": "Ürün bulunamadı: {termino}",
     "update_title": "Fiyatı Güncelle",
-    "current_price": "Mevcut Fiyat: {precio} €",
+    "current_price": "Mevcut Fiyat: {precio}",
     "new_price_ph": "Yeni fiyat (ör: 12.50)",
     "new_price_lbl": "YENİ FİYAT:",
     "size_lbl": "ETİKET BOYUTU:",

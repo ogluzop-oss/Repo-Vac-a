@@ -278,7 +278,7 @@
     "deactivate": "Desativar",
     "activate": "Ativar",
     "title": "Gestão de Produtos a Granel",
-    "col_price": "€/kg",
+    "col_price": "{sym}/kg",
     "col_status": "Estado",
     "edit": "Editar"
   },
@@ -288,7 +288,7 @@
     "header_edit": "EDITAR PRODUTO A GRANEL",
     "header_new": "NOVO PRODUTO A GRANEL",
     "name": "Nome",
-    "price": "Preço €/kg",
+    "price": "Preço {sym}/kg",
     "category": "Categoria",
     "err_title": "Não foi possível salvar",
     "emoji": "Emoji"
@@ -315,7 +315,7 @@
     "not_found_title": "Não encontrado",
     "not_found_msg": "Artigo não encontrado: {termino}",
     "update_title": "Atualizar Preço",
-    "current_price": "Preço Atual: {precio} €",
+    "current_price": "Preço Atual: {precio}",
     "new_price_ph": "Novo preço (ex: 12.50)",
     "new_price_lbl": "NOVO PREÇO:",
     "size_lbl": "TAMANHO ETIQUETA:",

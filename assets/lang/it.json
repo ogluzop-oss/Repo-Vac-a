@@ -280,7 +280,7 @@
     "deactivate": "Disattiva",
     "activate": "Attiva",
     "title": "Gestione Prodotti Sfusi",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "Modifica prodotto sfuso",
@@ -288,7 +288,7 @@
     "header_edit": "MODIFICA PRODOTTO SFUSO",
     "header_new": "NUOVO PRODOTTO SFUSO",
     "name": "Nome",
-    "price": "Prezzo €/kg",
+    "price": "Prezzo {sym}/kg",
     "category": "Categoria",
     "err_title": "Impossibile salvare",
     "emoji": "Emoji"
@@ -315,7 +315,7 @@
     "not_found_title": "Non trovato",
     "not_found_msg": "Articolo non trovato: {termino}",
     "update_title": "Aggiorna Prezzo",
-    "current_price": "Prezzo Attuale: {precio} €",
+    "current_price": "Prezzo Attuale: {precio}",
     "new_price_ph": "Nuovo prezzo (es: 12.50)",
     "new_price_lbl": "NUOVO PREZZO:",
     "size_lbl": "DIMENSIONE ETICHETTA:",

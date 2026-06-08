@@ -280,7 +280,7 @@
     "deactivate": "Deactiveren",
     "activate": "Activeren",
     "title": "Beheer Producten in Bulk",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "Bulkproduct bewerken",
@@ -288,7 +288,7 @@
     "header_edit": "BULKPRODUCT BEWERKEN",
     "header_new": "NIEUW BULKPRODUCT",
     "name": "Naam",
-    "price": "Prijs €/kg",
+    "price": "Prijs {sym}/kg",
     "category": "Categorie",
     "err_title": "Kon niet opslaan",
     "emoji": "Emoji"
@@ -315,7 +315,7 @@
     "not_found_title": "Niet gevonden",
     "not_found_msg": "Artikel niet gevonden: {termino}",
     "update_title": "Prijs Bijwerken",
-    "current_price": "Huidige Prijs: {precio} €",
+    "current_price": "Huidige Prijs: {precio}",
     "new_price_ph": "Nieuwe prijs (bijv: 12.50)",
     "new_price_lbl": "NIEUWE PRIJS:",
     "size_lbl": "ETIKETGROOTTE:",

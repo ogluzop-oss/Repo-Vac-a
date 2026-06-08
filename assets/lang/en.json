@@ -272,7 +272,7 @@
     "new": "＋ NEW PRODUCT",
     "col_product": "Product",
     "col_category": "Category",
-    "col_price": "€/kg",
+    "col_price": "{sym}/kg",
     "col_status": "Status",
     "col_actions": "Actions",
     "active": "ACTIVE",
@@ -289,7 +289,7 @@
     "header_new": "NEW BULK PRODUCT",
     "name": "Name",
     "emoji": "Emoji",
-    "price": "Price €/kg",
+    "price": "Price {sym}/kg",
     "category": "Category",
     "err_title": "Could not save"
   },

@@ -1,6 +1,8 @@
 import os
 from datetime import datetime
 
+from src.utils import divisas
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
@@ -165,7 +167,7 @@ class GeneradorEtiquetas:
         c.drawString(4 * mm, (h_mm - 8) * mm, nombre[:30].upper())
 
         # Precio destacado (Centro-Derecha)
-        precio_str = f"{float(precio):.2f} €"
+        precio_str = f"{divisas.formatear(float(precio))}"
         c.setFont("Helvetica-Bold", 24 if h_mm < 40 else 42)
         c.drawRightString((w_mm - 5) * mm, (h_mm / 2 - 4) * mm, precio_str)
 
@@ -279,8 +281,8 @@ class _CambiarPrecioPage(QWidget):
         lbl_n.setWordWrap(True)
 
         lbl_p = QLabel(
-            tr("etiq.current_price", default="Precio Actual: {precio} €",
-               precio=f"{float(precio_actual):.2f}")
+            tr("etiq.current_price", default="Precio Actual: {precio}",
+               precio=divisas.formatear(float(precio_actual)))
         )
         lbl_p.setStyleSheet("color: #8B949E; font-size: 13px; border:none;")
 

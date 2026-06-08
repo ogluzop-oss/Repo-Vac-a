@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from src.utils import divisas
+
 logger = logging.getLogger("tpv.refund")
 
 # Default return window in days (overridden by configuraciones if available)
@@ -213,7 +215,7 @@ def procesar_devolucion(
                     "DEVOLUCIÓN PROCESADA",
                     "devoluciones",
                     f"dev_id={dev_id} venta_id={venta_id} "
-                    f"importe={total_reembolso}€ "
+                    f"importe={divisas.formatear(total_reembolso)} "
                     f"forma={forma_reembolso} "
                     f"autorizado_por={autorizado_por or 'N/A'}"
                 ))
@@ -221,10 +223,10 @@ def procesar_devolucion(
             conn.commit()
 
         logger.info(
-            f"Devolución #{dev_id} procesada: {total_reembolso}€ "
+            f"Devolución #{dev_id} procesada: {divisas.formatear(total_reembolso)} "
             f"venta={venta_id} forma={forma_reembolso}"
         )
-        return True, f"Devolución #{dev_id} registrada. Importe: {total_reembolso:.2f} €", dev_id
+        return True, f"Devolución #{dev_id} registrada. Importe: {divisas.formatear(total_reembolso)}", dev_id
 
     except Exception as e:
         logger.error(f"procesar_devolucion: {e}")

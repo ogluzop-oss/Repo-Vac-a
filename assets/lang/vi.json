@@ -280,7 +280,7 @@
     "deactivate": "Vô hiệu hóa",
     "activate": "Kích hoạt",
     "title": "Quản lý Sản phẩm Bán lẻ theo Trọng lượng",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "Chỉnh sửa sản phẩm bán lẻ",
@@ -289,7 +289,7 @@
     "header_new": "SẢN PHẨM BÁN LẺ MỚI",
     "name": "Tên",
     "emoji": "Biểu tượng cảm xúc",
-    "price": "Giá €/kg",
+    "price": "Giá {sym}/kg",
     "category": "Danh mục",
     "err_title": "Không thể lưu"
   },
@@ -315,7 +315,7 @@
     "not_found_title": "Không tìm thấy",
     "not_found_msg": "Không tìm thấy sản phẩm: {termino}",
     "update_title": "Cập Nhật Giá",
-    "current_price": "Giá Hiện Tại: {precio} €",
+    "current_price": "Giá Hiện Tại: {precio}",
     "new_price_ph": "Giá mới (ví dụ: 12.50)",
     "new_price_lbl": "GIÁ MỚI:",
     "size_lbl": "KÍCH THƯỚC NHÃN:",

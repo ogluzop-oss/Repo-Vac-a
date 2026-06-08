@@ -280,7 +280,7 @@
     "deactivate": "Deaktivieren",
     "activate": "Aktivieren",
     "title": "Verwaltung von Schüttgütern",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "Massenprodukt bearbeiten",
@@ -288,7 +288,7 @@
     "header_edit": "MASSENPRODUKT BEARBEITEN",
     "header_new": "NEUES MASSENPRODUKT",
     "name": "Name",
-    "price": "Preis €/kg",
+    "price": "Preis {sym}/kg",
     "category": "Kategorie",
     "err_title": "Speichern fehlgeschlagen",
     "emoji": "Emoji"
@@ -315,7 +315,7 @@
     "not_found_title": "Nicht gefunden",
     "not_found_msg": "Artikel nicht gefunden: {termino}",
     "update_title": "Preis aktualisieren",
-    "current_price": "Aktueller Preis: {precio} €",
+    "current_price": "Aktueller Preis: {precio}",
     "new_price_ph": "Neuer Preis (z.B.: 12.50)",
     "new_price_lbl": "NEUER PREIS:",
     "size_lbl": "ETIKETTGRÖSSE:",

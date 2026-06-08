@@ -2,6 +2,8 @@
 import os
 from datetime import datetime
 
+from src.utils import divisas
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
@@ -42,11 +44,11 @@ def generar_safebag_pdf(path_destino, safebag_record):
     c.drawString(x, y, "Detalle SafeBag")
     c.setFont("Helvetica", 10)
     y -= 18
-    c.drawString(x, y, f"Total billetes: {safebag_record.get('billetes_total', 0):.2f} €")
+    c.drawString(x, y, f"Total billetes: {divisas.formatear(safebag_record.get('billetes_total', 0))}")
     y -= 14
-    c.drawString(x, y, f"Total monedas:   {safebag_record.get('monedas_total', 0):.2f} €")
+    c.drawString(x, y, f"Total monedas:   {divisas.formatear(safebag_record.get('monedas_total', 0))}")
     y -= 14
-    c.drawString(x, y, f"Importe total:   {safebag_record.get('importe_total', 0):.2f} €")
+    c.drawString(x, y, f"Importe total:   {divisas.formatear(safebag_record.get('importe_total', 0))}")
     y -= 24
     c.drawString(x, y, f"Empleado: {safebag_record.get('empleado', '-')}")
     y -= 14

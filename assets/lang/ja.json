@@ -280,7 +280,7 @@
     "deactivate": "無効化",
     "activate": "有効化",
     "title": "バルク製品管理",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "一括製品を編集",
@@ -289,7 +289,7 @@
     "header_new": "新しい一括製品",
     "name": "名前",
     "emoji": "絵文字",
-    "price": "価格 €/kg",
+    "price": "価格 {sym}/kg",
     "category": "カテゴリ",
     "err_title": "保存できませんでした"
   },
@@ -315,7 +315,7 @@
     "not_found_title": "見つかりません",
     "not_found_msg": "商品が見つかりません: {termino}",
     "update_title": "価格を更新",
-    "current_price": "現在の価格: {precio} €",
+    "current_price": "現在の価格: {precio}",
     "new_price_ph": "新しい価格 (例: 12.50)",
     "new_price_lbl": "新しい価格:",
     "size_lbl": "ラベルサイズ:",

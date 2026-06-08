@@ -2,6 +2,8 @@
 import os
 
 import cv2
+
+from src.utils import divisas
 from PyQt6.QtCore import QStringListModel, Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QImage, QPixmap
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -394,7 +396,7 @@ class _BuscarArticuloPage(QWidget):
                 if art.get("promo_activa")
                 else art.get("precio", 0)
             )
-            self.labels["PRECIO"].setText(f"{precio:.2f} €")
+            self.labels["PRECIO"].setText(f"{divisas.formatear(precio)}")
 
             self.labels["U_TIENDA"].setText(fmt(art.get("ubicacion_tienda")))
             self.labels["U_ALMACEN"].setText(fmt(art.get("ubicacion_almacen")))

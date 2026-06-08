@@ -280,7 +280,7 @@
     "deactivate": "Désactiver",
     "activate": "Activer",
     "title": "Gestion des Produits en Vrac",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "Modifier le produit en vrac",
@@ -288,7 +288,7 @@
     "header_edit": "MODIFIER LE PRODUIT EN VRAC",
     "header_new": "NOUVEAU PRODUIT EN VRAC",
     "name": "Nom",
-    "price": "Prix €/kg",
+    "price": "Prix {sym}/kg",
     "category": "Catégorie",
     "err_title": "Impossible d'enregistrer",
     "emoji": "Emoji"
@@ -315,7 +315,7 @@
     "not_found_title": "Non trouvé",
     "not_found_msg": "Article non trouvé : {termino}",
     "update_title": "Mettre à jour le Prix",
-    "current_price": "Prix Actuel : {precio} €",
+    "current_price": "Prix Actuel : {precio}",
     "new_price_ph": "Nouveau prix (ex : 12.50)",
     "new_price_lbl": "NOUVEAU PRIX :",
     "size_lbl": "TAILLE ÉTIQUETTE :",

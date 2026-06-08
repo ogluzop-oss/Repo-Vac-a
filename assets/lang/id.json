@@ -280,7 +280,7 @@
     "deactivate": "Nonaktifkan",
     "activate": "Aktifkan",
     "title": "Manajemen Produk Curah",
-    "col_price": "€/kg"
+    "col_price": "{sym}/kg"
   },
   "ed_granel": {
     "title_edit": "Mengedit produk curah",
@@ -288,7 +288,7 @@
     "header_edit": "MENGEDIT PRODUK CURAH",
     "header_new": "PRODUK CURAH BARU",
     "name": "Nama",
-    "price": "Harga €/kg",
+    "price": "Harga {sym}/kg",
     "category": "Kategori",
     "err_title": "Tidak dapat menyimpan",
     "emoji": "Emoji"
@@ -315,7 +315,7 @@
     "not_found_title": "Tidak ditemukan",
     "not_found_msg": "Artikel tidak ditemukan: {termino}",
     "update_title": "Perbarui Harga",
-    "current_price": "Harga Saat Ini: {precio} €",
+    "current_price": "Harga Saat Ini: {precio}",
     "new_price_ph": "Harga baru (contoh: 12.50)",
     "new_price_lbl": "HARGA BARU:",
     "size_lbl": "UKURAN LABEL:",
