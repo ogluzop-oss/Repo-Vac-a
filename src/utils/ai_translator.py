@@ -122,7 +122,7 @@ def _anthropic_backend():
     def _call(system_prompt, user_text):
         msg = cliente.messages.create(
             model=_MODEL,
-            max_tokens=2000,
+            max_tokens=8000,
             system=[{
                 "type": "text",
                 "text": system_prompt,
@@ -198,9 +198,27 @@ def traducir(texto, idioma, dominio=None):
     return texto
 
 
+# Máximo de cadenas por llamada al LLM. Lotes pequeños evitan que la respuesta
+# JSON se trunque por max_tokens (la causa de que secciones grandes no se tradujeran).
+_LOTE_MAX = 25
+
+
+def _parse_json_array(raw):
+    """Extrae un array JSON de la respuesta del modelo (tolera ```fences``` o texto)."""
+    s = (raw or "").strip()
+    if s.startswith("```"):
+        s = s.strip("`")
+        if s[:4].lower() == "json":
+            s = s[4:]
+    a, b = s.find("["), s.rfind("]")
+    if a != -1 and b != -1 and b > a:
+        s = s[a:b + 1]
+    return json.loads(s)
+
+
 def traducir_lote(textos, idioma, dominio=None):
-    """Traduce una lista de cadenas en UNA llamada (ideal para documentos).
-    Devuelve una lista del mismo tamaño; usa caché por elemento."""
+    """Traduce una lista de cadenas en sub-lotes pequeños. Devuelve una lista del
+    mismo tamaño; usa caché por elemento. Los fallos NO se cachean (se reintentan)."""
     if not textos:
         return []
     if idioma in (None, "es"):
@@ -218,33 +236,40 @@ def traducir_lote(textos, idioma, dominio=None):
         else:
             pendientes.append(t)
             idx_pendientes.append(i)
-    if pendientes:
-        backend = _obtener_backend()
-        if backend is None:
-            for i in idx_pendientes:
+    if not pendientes:
+        return resultado
+
+    backend = _obtener_backend()
+    if backend is None:
+        for i in idx_pendientes:
+            resultado[i] = textos[i]
+        return resultado
+
+    sp = _system_prompt(idioma, dominio) + (
+        " The user sends a JSON array of strings; return ONLY a JSON array with the "
+        "translations in the same order and the SAME length, nothing else."
+    )
+    algo_nuevo = False
+    # Procesa en sub-lotes para que la respuesta nunca se trunque.
+    for c0 in range(0, len(pendientes), _LOTE_MAX):
+        sub = pendientes[c0:c0 + _LOTE_MAX]
+        sub_idx = idx_pendientes[c0:c0 + _LOTE_MAX]
+        try:
+            with _lock:
+                raw = backend(sp, json.dumps(sub, ensure_ascii=False))
+            trad = _parse_json_array(raw)
+            if not (isinstance(trad, list) and len(trad) == len(sub)):
+                raise ValueError(f"tamaño distinto ({len(trad) if isinstance(trad,list) else '?'} vs {len(sub)})")
+            for j, i in enumerate(sub_idx):
+                resultado[i] = trad[j]
+                cache[_clave(textos[i], idioma, dominio)] = trad[j]
+                algo_nuevo = True
+        except Exception as e:
+            logger.debug("Sub-lote falló (%s): %s", idioma, e)
+            for i in sub_idx:
                 resultado[i] = textos[i]
-        else:
-            try:
-                # Pedimos un JSON array para mapear 1:1.
-                payload = json.dumps(pendientes, ensure_ascii=False)
-                sp = _system_prompt(idioma, dominio) + (
-                    " The user sends a JSON array of strings; return ONLY a JSON "
-                    "array with the translations in the same order and length."
-                )
-                with _lock:
-                    raw = backend(sp, payload)
-                trad = json.loads(raw)
-                if isinstance(trad, list) and len(trad) == len(pendientes):
-                    for j, i in enumerate(idx_pendientes):
-                        resultado[i] = trad[j]
-                        cache[_clave(textos[i], idioma, dominio)] = trad[j]
-                    _guardar_cache()
-                else:
-                    raise ValueError("respuesta de lote con tamaño distinto")
-            except Exception as e:
-                logger.debug("Traducción por lote falló (%s): %s", idioma, e)
-                for i in idx_pendientes:
-                    resultado[i] = textos[i]
+    if algo_nuevo:
+        _guardar_cache()
     return resultado
 
 

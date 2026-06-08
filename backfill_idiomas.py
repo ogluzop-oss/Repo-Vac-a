@@ -108,8 +108,11 @@ def backfill(idiomas=None, dry_run=False):
             textos = [v for _, v in pendientes]
             traducidos = ai_translator.traducir_lote(textos, code, dominio=dominio)
             for (k, original), trad in zip(pendientes, traducidos, strict=False):
-                # Solo escribir traducciones reales (distintas del original).
-                if trad and trad != original and not dry_run:
+                # Escribimos toda traducción no vacía, INCLUSO si coincide con el
+                # original: en idiomas próximos al español (pt, it) o en términos
+                # universales (códigos, marca, placeholders) la traducción correcta
+                # ES la misma, y debe figurar en el idioma para no caer a inglés.
+                if trad and not dry_run:
                     dseccion[k] = trad
                     añadidas += 1
         if añadidas and not dry_run:
