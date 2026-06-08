@@ -12,6 +12,8 @@ import logging
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
+from src.utils import divisas
+
 logger = logging.getLogger(__name__)
 
 
@@ -114,16 +116,16 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         nombre = nombres_tr[i] if i < len(nombres_tr) else item.get("nombre", "")
         cant = item.get("cantidad", 1)
         precio = item.get("precio", 0)
-        c.drawString(x, y, f"{nombre}  x{cant}  {precio}€"); y -= 0.18 * inch
+        c.drawString(x, y, f"{nombre}  x{cant}  {divisas.formatear(precio)}"); y -= 0.18 * inch
 
     y -= 0.04 * inch
     c.line(x, y, 2.8 * inch, y); y -= 0.18 * inch
 
     c.setFont(_FB, 10)
-    c.drawString(x, y, f"{L('total', 'Total')}: {datos.get('total', 0)}€"); y -= 0.2 * inch
+    c.drawString(x, y, f"{L('total', 'Total')}: {divisas.formatear(datos.get('total', 0))}"); y -= 0.2 * inch
     if datos.get("cambio"):
         c.setFont(_FN, 8)
-        c.drawString(x, y, f"{L('change', 'Cambio')}: {datos.get('cambio')}€"); y -= 0.18 * inch
+        c.drawString(x, y, f"{L('change', 'Cambio')}: {divisas.formatear(datos.get('cambio'))}"); y -= 0.18 * inch
     if forma_pago:
         c.setFont(_FN, 8)
         c.drawString(x, y, f"{L('payment', 'Forma de pago')}: {forma_pago}"); y -= 0.22 * inch
@@ -159,8 +161,8 @@ def imprimir_ticket_termico(datos: dict, idioma: str = None):
         printer.text(f"{L('date', 'Fecha')}: {datos.get('fecha')}\n")
         for i, item in enumerate(items):
             nombre = nombres_tr[i] if i < len(nombres_tr) else item.get("nombre", "")
-            printer.text(f"{nombre} x{item.get('cantidad', 1)} {item.get('precio', 0)}€\n")
-        printer.text(f"{L('total', 'Total')}: {datos.get('total')}€\n")
+            printer.text(f"{nombre} x{item.get('cantidad', 1)} {divisas.formatear(item.get('precio', 0))}\n")
+        printer.text(f"{L('total', 'Total')}: {divisas.formatear(datos.get('total'))}\n")
         printer.text(L("thanks", "¡Gracias por su compra!") + "\n")
         printer.cut()
         printer.close()

@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.db.conexion import obtener_conexion
-from src.utils import i18n
+from src.utils import divisas, i18n
 from src.utils.i18n import tr
 
 logger = logging.getLogger(__name__)
@@ -2377,8 +2377,8 @@ class VentasAnaliticaWindow(QWidget):
         # ── Fila 4: Rango de precios ──────────────────────────────────────────
         row4 = QHBoxLayout()
         row4.setSpacing(6)
-        self.inp_precio_min = _input_neon(tr("vta.ph_price_min", default="Importe mínimo (€)"))
-        self.inp_precio_max = _input_neon(tr("vta.ph_price_max", default="Importe máximo (€)"))
+        self.inp_precio_min = _input_neon(tr("vta.ph_price_min", default="Importe mínimo ({sym})"))
+        self.inp_precio_max = _input_neon(tr("vta.ph_price_max", default="Importe máximo ({sym})"))
         for lbl_txt, w in ((tr("vta.lbl_price_min", default="Precio mín."), self.inp_precio_min), (tr("vta.lbl_price_max", default="Precio máx."), self.inp_precio_max)):
             lbl = _filter_lbl(lbl_txt)
             lbl.setFixedWidth(80)
@@ -2422,7 +2422,7 @@ class VentasAnaliticaWindow(QWidget):
             tr("vta.col_employee", default="Empleado"),
             tr("vta.col_register", default="Caja"),
             tr("vta.col_payment", default="Forma de pago"),
-            tr("vta.col_total", default="Total (€)"),
+            tr("vta.col_total", default="Total ({sym})"),
         ])
         self.tbl_ventas.setStyleSheet(
             _SS_TABLE + "QTableWidget { alternate-background-color: #0D1117; }"
@@ -2505,7 +2505,7 @@ class VentasAnaliticaWindow(QWidget):
             t_num.setData(Qt.ItemDataRole.UserRole, vid)
             fecha_str = fecha.strftime("%d/%m/%Y  %H:%M") if hasattr(fecha, "strftime") else str(fecha)
             for c, val in enumerate(
-                [t_num, fecha_str, emp or "—", str(caja or 1), pago or "—", f"{float(total or 0):.2f} €"]
+                [t_num, fecha_str, emp or "—", str(caja or 1), pago or "—", f"{divisas.formatear(float(total or 0))}"]
             ):
                 if c == 0:
                     self.tbl_ventas.setItem(r, c, t_num)
@@ -2673,7 +2673,7 @@ class VentasAnaliticaWindow(QWidget):
             c.drawString(5 * mm, y, nombre_disp)
             c.drawCentredString(W / 2 + 10 * mm, y, str(qty))
             if con_precios:
-                c.drawRightString(W - 5 * mm, y, f"{float(sub or 0):.2f} €")
+                c.drawRightString(W - 5 * mm, y, f"{divisas.formatear(float(sub or 0))}")
             y -= 5 * mm
             if y < 30 * mm:
                 c.showPage()
@@ -2688,7 +2688,7 @@ class VentasAnaliticaWindow(QWidget):
             c.setFont(_FB, 10)
             c.setFillColorRGB(0, 1, 0.78)
             c.drawString(5 * mm, y, tr("vta.pdf_total", default="TOTAL:"))
-            c.drawRightString(W - 5 * mm, y, f"{float(venta[5] or 0):.2f} €")
+            c.drawRightString(W - 5 * mm, y, f"{divisas.formatear(float(venta[5] or 0))}")
             y -= 6 * mm
             c.setFont(_FN, 8)
             c.setFillColorRGB(0.7, 0.7, 0.7)
@@ -2865,10 +2865,10 @@ class VentasAnaliticaWindow(QWidget):
             ax.fill_between(range(len(fechas)), totales, alpha=0.15, color=CIAN)
         else:
             bars = ax.bar(fechas, totales, color=CIAN, alpha=0.85)
-            ax.bar_label(bars, fmt="%.0f€", fontsize=7, color="#8B949E")
+            ax.bar_label(bars, fmt=f"%.0f{divisas.simbolo()}", fontsize=7, color="#8B949E")
 
         ax.set_title(tr("vta.chart_title", default="Facturación  {desde} → {hasta}", desde=desde, hasta=hasta), color=CIAN, fontsize=10, pad=8)
-        ax.set_ylabel("€", color="#8B949E", fontsize=9)
+        ax.set_ylabel(divisas.simbolo(), color="#8B949E", fontsize=9)
         step = max(1, len(fechas) // 8)
         ax.set_xticks(range(0, len(fechas), step))
         ax.set_xticklabels(fechas[::step], rotation=30, ha="right", fontsize=7, color="#8B949E")
@@ -2983,7 +2983,7 @@ class VentasAnaliticaWindow(QWidget):
                 filas = cur.fetchall()
             self.tbl_historico.setRowCount(len(filas))
             for r, (anio, dias, total, fuente) in enumerate(filas):
-                for c, val in enumerate([str(anio), str(dias), f"{float(total or 0):,.2f} €", fuente]):
+                for c, val in enumerate([str(anio), str(dias), f"{divisas.formatear(float(total or 0))}", fuente]):
                     item = QTableWidgetItem(val)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     self.tbl_historico.setItem(r, c, item)
