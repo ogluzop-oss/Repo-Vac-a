@@ -3994,7 +3994,7 @@ class _SeleccionarCajaDialog(QDialog):
             hora = c.get("hora_apertura", "—")
             item = QListWidgetItem(
                 tr("cfg.caja_item", default="  {id}   ·   Responsable: {resp}   ·   Fondo: {x} €   ·   Apertura: {hora}",
-                   id=c['id'], resp=resp, x=f"{fondo:.2f}", hora=hora)
+                   id=c['id'], resp=resp, x=divisas.formatear(fondo), hora=hora)
             )
             item.setData(Qt.ItemDataRole.UserRole, c["id"])
             self._lista.addItem(item)
@@ -4198,9 +4198,9 @@ class _MovimientoDialog(QDialog):
         )
 
     def _opciones(self):
-        opts = ["EXTERNO (PROSEGUR, LOOMIS, etc)", f"CAJA FUERTE  [{self._fondo_fuerte:.2f} €]"]
+        opts = ["EXTERNO (PROSEGUR, LOOMIS, etc)", f"CAJA FUERTE  [{divisas.formatear(self._fondo_fuerte)}]"]
         for c in self._cajas:
-            opts.append(f"{c.get('id','?')}  [{c.get('responsable','?')}  ·  {c.get('fondo', 0.0):.2f} €]")
+            opts.append(f"{c.get('id','?')}  [{c.get('responsable','?')}  ·  {divisas.formatear(c.get('fondo', 0.0))}]")
         return opts
 
     def _build(self):
@@ -4384,13 +4384,13 @@ class _MovimientoDialog(QDialog):
             saldo = self._fondo_fuerte
             if importe > saldo:
                 self._lbl_error.setText(
-                    tr("cfg.saldo_fuerte", default="Saldo insuficiente en Caja Fuerte. Disponible: {x} €", x=f"{saldo:.2f}")
+                    tr("cfg.saldo_fuerte", default="Saldo insuficiente en Caja Fuerte. Disponible: {x} €", x=divisas.formatear(saldo))
                 ); return
         elif tipo_o == "CAJA":
             saldo = next((c.get("fondo", 0.0) for c in self._cajas if c["id"] == id_o), 0.0)
             if importe > saldo:
                 self._lbl_error.setText(
-                    tr("cfg.saldo_caja", default="Saldo insuficiente en {id}. Disponible: {x} €", id=id_o, x=f"{saldo:.2f}")
+                    tr("cfg.saldo_caja", default="Saldo insuficiente en {id}. Disponible: {x} €", id=id_o, x=divisas.formatear(saldo))
                 ); return
 
         if tipo_o == "EXTERNO":
@@ -6670,7 +6670,7 @@ class ConfiguracionWindow(QWidget):
         self._caja_status_lbl.setText(f"{emoji}  {texto}".strip())
         self._caja_status_lbl.setStyleSheet(f"color:{color};font-family:'Segoe UI';font-weight:900;font-size:14px;background:transparent;border:none;")
         fondo = est.get("fondo_caja_fuerte", 0.0)
-        self._caja_fondo_lbl.setText(tr("cfg.caja_fund", default="Fondo: {x} €", x=f"{fondo:.2f}") if fondo else "")
+        self._caja_fondo_lbl.setText(tr("cfg.caja_fund", default="Fondo: {x} €", x=divisas.formatear(fondo)) if fondo else "")
         hora = est.get("apertura_hora") or ""
         resp = est.get("responsable") or ""
         self._caja_hora_lbl.setText(f"{hora}  {resp}".strip())
@@ -6696,7 +6696,7 @@ class ConfiguracionWindow(QWidget):
             return True
         rol = "GERENTE" if descuadre <= 20.0 else "ADMINISTRADOR"
         sign = "+" if diff > 0 else ""
-        dlg = _PinDialog(rol, f"continuar con este descuadre de {sign}{diff:.2f} €", self)
+        dlg = _PinDialog(rol, f"continuar con este descuadre de {sign}{divisas.formatear(diff)}", self)
         dlg.exec()
         return dlg.verificado()
 
@@ -6729,7 +6729,7 @@ class ConfiguracionWindow(QWidget):
                     return
                 sign = "+" if diff > 0 else ""
                 dlg_m = _MotivoDialog(
-                    tr("cfg.motivo_apertura_fuerte", default="Descuadre de {x} € en apertura de Caja Fuerte.\nIndique el motivo:", x=f"{sign}{diff:.2f}"), self
+                    tr("cfg.motivo_apertura_fuerte", default="Descuadre de {x} € en apertura de Caja Fuerte.\nIndique el motivo:", x=f"{sign}{divisas.formatear(diff)}"), self
                 )
                 if dlg_m.exec() != QDialog.DialogCode.Accepted:
                     return
@@ -6752,13 +6752,13 @@ class ConfiguracionWindow(QWidget):
         self._generar_ticket_pdf("APERTURA CAJA FUERTE", total, usuario, detalle)
         diff = total - ultimo if ultimo > 0 else 0.0
         if abs(diff) < 0.005:
-            desc_line = tr("cfg.descuadre_cero", default="Descuadre: 0,00 €")
+            desc_line = tr("cfg.descuadre_val", x=divisas.formatear(0))
         else:
             sign = "+" if diff > 0 else ""
-            desc_line = tr("cfg.descuadre_val", default="Descuadre: {x} €", x=f"{sign}{diff:.2f}")
-        extra = "\n\n" + tr("cfg.contado_esperado", default="Contado: {c} €  ·  Esperado: {e} €", c=f"{total:.2f}", e=f"{ultimo:.2f}") + "\n" + desc_line if ultimo > 0 else ""
+            desc_line = tr("cfg.descuadre_val", default="Descuadre: {x} €", x=f"{sign}{divisas.formatear(diff)}")
+        extra = "\n\n" + tr("cfg.contado_esperado", default="Contado: {c} €  ·  Esperado: {e} €", c=divisas.formatear(total), e=divisas.formatear(ultimo)) + "\n" + desc_line if ultimo > 0 else ""
         mostrar_mensaje(self, tr("cfg.apertura_confirmada_title", default="Apertura confirmada"),
-                        tr("cfg.apertura_confirmada_msg", default="Caja fuerte abierta con fondo de {x} €.\nTicket de apertura generado.{extra}", x=f"{total:.2f}", extra=extra), "success")
+                        tr("cfg.apertura_confirmada_msg", default="Caja fuerte abierta con fondo de {x} €.\nTicket de apertura generado.{extra}", x=divisas.formatear(total), extra=extra), "success")
 
     def _fn_habilitar_caja(self):
         est = self._get_caja_estado()
@@ -6786,7 +6786,7 @@ class ConfiguracionWindow(QWidget):
                     return
                 sign = "+" if diff > 0 else ""
                 dlg_m = _MotivoDialog(
-                    tr("cfg.motivo_apertura_caja", default="Descuadre de {x} € en apertura de {id}.\nIndique el motivo:", x=f"{sign}{diff:.2f}", id=id_caja), self
+                    tr("cfg.motivo_apertura_caja", default="Descuadre de {x} € en apertura de {id}.\nIndique el motivo:", x=f"{sign}{divisas.formatear(diff)}", id=id_caja), self
                 )
                 if dlg_m.exec() != QDialog.DialogCode.Accepted:
                     return
@@ -6813,7 +6813,7 @@ class ConfiguracionWindow(QWidget):
         self._refresh_caja_ui()
         self._generar_ticket_pdf(f"APERTURA {id_caja}", fondo, responsable, detalle)
         mostrar_mensaje(self, tr("cfg.caja_habilitada_title", default="{id} habilitada", id=id_caja),
-                        tr("cfg.caja_habilitada_msg", default="{id} abierta con fondo de {x} €.\nResponsable: {resp}", id=id_caja, x=f"{fondo:.2f}", resp=responsable), "success")
+                        tr("cfg.caja_habilitada_msg", default="{id} abierta con fondo de {x} €.\nResponsable: {resp}", id=id_caja, x=divisas.formatear(fondo), resp=responsable), "success")
 
     def _fn_cierre_reg(self):
         est = self._get_caja_estado()
@@ -6858,7 +6858,7 @@ class ConfiguracionWindow(QWidget):
                 mostrar_mensaje(self, tr("cfg.cierre_cancelado_title", default="Cierre cancelado"), tr("cfg.descuadre_no_auth", default="No se pudo autorizar el descuadre."), "warning")
                 return
             dlg_m = _MotivoDialog(
-                tr("cfg.motivo_cierre_caja", default="Descuadre de {x} € en {id}.\nIndique el motivo:", x=f"{descuadre:.2f}", id=id_caja), self
+                tr("cfg.motivo_cierre_caja", default="Descuadre de {x} € en {id}.\nIndique el motivo:", x=divisas.formatear(descuadre), id=id_caja), self
             )
             if dlg_m.exec() != QDialog.DialogCode.Accepted:
                 return
@@ -6898,12 +6898,12 @@ class ConfiguracionWindow(QWidget):
             msg = tr("cfg.cierre_msg_rest", default="{id} cerrada. Quedan {n} caja(s) activa(s).", id=id_caja, n=n_restantes)
         diff = total_contado - fondo_esperado
         if abs(diff) < 0.005:
-            desc_line = tr("cfg.descuadre_cero", default="Descuadre: 0,00 €")
+            desc_line = tr("cfg.descuadre_val", x=divisas.formatear(0))
         else:
             sign = "+" if diff > 0 else ""
-            desc_line = tr("cfg.descuadre_val", default="Descuadre: {x} €", x=f"{sign}{diff:.2f}")
+            desc_line = tr("cfg.descuadre_val", default="Descuadre: {x} €", x=f"{sign}{divisas.formatear(diff)}")
         mostrar_mensaje(self, tr("cfg.cierre_title", default="Cierre {id}", id=id_caja),
-                        msg + "\n\n" + tr("cfg.contado_esperado", default="Contado: {c} €  ·  Esperado: {e} €", c=f"{total_contado:.2f}", e=f"{fondo_esperado:.2f}") + "\n" + desc_line,
+                        msg + "\n\n" + tr("cfg.contado_esperado", default="Contado: {c} €  ·  Esperado: {e} €", c=divisas.formatear(total_contado), e=divisas.formatear(fondo_esperado)) + "\n" + desc_line,
                         "success")
 
     def _fn_cierre_fuerte(self):
@@ -6932,7 +6932,7 @@ class ConfiguracionWindow(QWidget):
                 mostrar_mensaje(self, tr("cfg.cierre_cancelado_title", default="Cierre cancelado"), tr("cfg.descuadre_no_auth", default="No se pudo autorizar el descuadre."), "warning")
                 return
             dlg_m = _MotivoDialog(
-                tr("cfg.motivo_cierre_fuerte", default="Descuadre de {x} € en el cierre de caja fuerte.\nIndique el motivo:", x=f"{descuadre:.2f}"), self
+                tr("cfg.motivo_cierre_fuerte", default="Descuadre de {x} € en el cierre de caja fuerte.\nIndique el motivo:", x=divisas.formatear(descuadre)), self
             )
             if dlg_m.exec() != QDialog.DialogCode.Accepted:
                 return
@@ -6955,13 +6955,13 @@ class ConfiguracionWindow(QWidget):
         self._generar_ticket_pdf("CIERRE CAJA FUERTE", total, usuario, detalle)
         diff_f = total - fondo_fuerte_esp
         if abs(diff_f) < 0.005:
-            desc_line_f = tr("cfg.descuadre_cero", default="Descuadre: 0,00 €")
+            desc_line_f = tr("cfg.descuadre_val", x=divisas.formatear(0))
         else:
             sign_f = "+" if diff_f > 0 else ""
-            desc_line_f = tr("cfg.descuadre_val", default="Descuadre: {x} €", x=f"{sign_f}{diff_f:.2f}")
+            desc_line_f = tr("cfg.descuadre_val", default="Descuadre: {x} €", x=f"{sign_f}{divisas.formatear(diff_f)}")
         mostrar_mensaje(self, tr("cfg.cierre_completado_title", default="Cierre completado"),
-                        tr("cfg.cierre_fuerte_msg", default="Caja fuerte cerrada. Total final: {x} €.", x=f"{total:.2f}") + "\n\n"
-                        + tr("cfg.contado_esperado", default="Contado: {c} €  ·  Esperado: {e} €", c=f"{total:.2f}", e=f"{fondo_fuerte_esp:.2f}") + "\n" + desc_line_f,
+                        tr("cfg.cierre_fuerte_msg", default="Caja fuerte cerrada. Total final: {x} €.", x=divisas.formatear(total)) + "\n\n"
+                        + tr("cfg.contado_esperado", default="Contado: {c} €  ·  Esperado: {e} €", c=divisas.formatear(total), e=divisas.formatear(fondo_fuerte_esp)) + "\n" + desc_line_f,
                         "success")
 
     def _fn_movimiento(self):
@@ -7009,12 +7009,12 @@ class ConfiguracionWindow(QWidget):
         )
 
         # Construir mensaje informativo con saldos actualizados
-        lineas = [tr("cfg.mov_line1", default="{tipo} de {x} € registrado.", tipo=res['tipo'], x=f"{imp:.2f}") + "\n"]
+        lineas = [tr("cfg.mov_line1", default="{tipo} de {x} € registrado.", tipo=res['tipo'], x=divisas.formatear(imp)) + "\n"]
         lineas.append(tr("cfg.mov_origen", default="Origen:  {x}", x=res['origen_txt']))
         lineas.append(tr("cfg.mov_destino", default="Destino: {x}", x=res['destino_txt']) + "\n")
-        lineas.append(tr("cfg.mov_caja_fuerte", default="Caja Fuerte → {x} €", x=f"{est.get('fondo_caja_fuerte', 0.0):.2f}"))
+        lineas.append(tr("cfg.mov_caja_fuerte", default="Caja Fuerte → {x} €", x=divisas.formatear(est.get('fondo_caja_fuerte', 0.0))))
         for c in est.get("cajas_activas", []):
-            lineas.append(f"{c['id']} → {c.get('fondo', 0.0):.2f} €")
+            lineas.append(f"{c['id']} → {divisas.formatear(c.get('fondo', 0.0))}")
         mostrar_mensaje(self, tr("cfg.mov_registrado_title", default="Movimiento registrado"), "\n".join(lineas), "success")
 
     def _generar_ticket_pdf(self, tipo: str, importe: float, responsable: str, detalle: list = None):
@@ -7052,7 +7052,7 @@ class ConfiguracionWindow(QWidget):
             y -= 0.5*cm
             c.setStrokeColorRGB(0, 1, 0.78); c.line(1*cm, y, w - 1*cm, y); y -= 0.55*cm
             c.setFont("Helvetica-Bold", 11); c.setFillColorRGB(0, 1, 0.78)
-            c.drawString(1*cm, y, tr("cfg.tk_total", default="TOTAL:")); c.drawRightString(w - 1*cm, y, f"{importe:.2f} €")
+            c.drawString(1*cm, y, tr("cfg.tk_total", default="TOTAL:")); c.drawRightString(w - 1*cm, y, divisas.formatear(importe))
             y -= 2*cm
             c.setFont("Helvetica", 7); c.setFillColorRGB(0.5, 0.5, 0.5)
             c.drawString(1*cm, y, tr("cfg.tk_firma", default="Firma responsable: _______________________________"))
