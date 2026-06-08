@@ -78,6 +78,7 @@ try:
     _REPORTLAB_REAB_OK = True
 except ImportError:
     _REPORTLAB_REAB_OK = False
+from src.utils.i18n import tr
 from src.db.conexion import (
     formatear_nombre_centro,
     obtener_articulo,

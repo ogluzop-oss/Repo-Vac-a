@@ -48,6 +48,7 @@ from src.db.conexion import init_db, obtener_conexion
 from src.db.usuario import sesion_global, validar_login_empleado
 from src.gui.login import LoginWindow
 from src.gui.menu_principal import MenuPrincipal
+from src.utils.i18n import tr
 
 # SOMA voice assistant (lazy — worker only starts after login)
 try:
