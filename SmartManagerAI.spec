@@ -17,7 +17,7 @@ ROOT = os.path.abspath(os.getcwd())
 # ── Recursos a empaquetar (solo lectura) ────────────────────
 datas = []
 
-# Todo el árbol assets/ (lang, fuentes, denominaciones, logos, wavs, icono…)
+# Todo el árbol assets/ (lang, fuentes, currencies, logos, wavs, icono…)
 # excepto cachés de Python.
 for base, _dirs, files in os.walk(os.path.join(ROOT, "assets")):
     if "__pycache__" in base:
