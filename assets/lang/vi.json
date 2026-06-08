@@ -722,7 +722,7 @@
     "calib_mode_msg": "Hệ thống đo xa sẽ được khởi động.<br><br><b style=\"color: white;\">BƯỚC 1:</b> Chọn một <b style=\"color: #00F0FF;\">bức tường THẲNG ĐỨNG</b> từ bản đồ bằng cách nhấp vào các điểm cuối của nó (Bắt đầu và Kết thúc).",
     "env_config_title": "CẤU HÌNH MÔI TRƯỜNG",
     "env_config_msg": "<div style=\"line-height: 150%; text-align: center;\">Tỷ lệ và gốc tọa độ (0,0) đã được thiết lập chính xác.<br><br>Nhấn nút <b style=\"color: #00FFC6;\">🖌️ CHẾ ĐỘ VẼ</b> để kích hoạt chế độ vẽ tường.<br>Xác định các bức tường và chướng ngại vật trong địa điểm: điều này rất quan trọng để động cơ định tuyến tránh va chạm.</div>",
-    "map_adjusted": "BẢN ĐỒ ĐÃ ĐIỀU CHỈNH 100%: {arquivo}",
+    "map_adjusted": "BẢN ĐỒ ĐÃ ĐIỀU CHỈNH 100%: {archivo}",
     "sat_installed": "VỆ TINH '{nombre}' ĐÃ ĐƯỢC CÀI ĐẶT THÀNH CÔNG",
     "gps_dest_ready": "ĐIỂM ĐÓN GPS ĐANG CHỜ: {nombre}",
     "explorer_err": "Lỗi khi gọi trình khám phá gốc:<br>{e}",

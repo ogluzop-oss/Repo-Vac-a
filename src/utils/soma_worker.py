@@ -36,8 +36,13 @@ ESTADO_ERROR      = "error"
 # Greeting prefixes that may precede the name ("Ey SOMA", "Oye SOMA"...).
 # Añadidos EL/E/EX a partir de transcripciones reales: Google STT convierte el
 # "Ey" de "Ey SOMA" en "EL", "E" o "EX" con frecuencia.
+# La wake word "Ey SOMA" es UNIVERSAL, pero cada idioma activo cambia el locale de
+# Google STT, que transcribe el "Ey" con su fonética: ES "ey/el/e", PL "ej/hej",
+# DE/EN "hey/hi", etc. Incluimos esas variantes para que la wake funcione en los 20.
 _PREFIJOS = ("EY", "HEY", "OYE", "EI", "OK", "HOLA", "VALE", "OYES", "EH",
-             "EL", "E", "EX")
+             "EL", "E", "EX",
+             "EJ", "HEJ", "AJ", "HAJ", "OJ", "AY", "HI", "HE", "AH", "HA",
+             "HALO", "HALLO", "OLA", "ECO", "A")
 
 # STRICT name set: a bare token equal to one of these counts as the wake word
 # on its own. Kept tight so common Spanish words never cause false activations.
@@ -55,9 +60,16 @@ _NOMBRE_LAXO = frozenset((
     # "EL SO", "HEY SO", "E HIZO", "E ISO"... Solo cuentan precedidos de prefijo,
     # así que un "so"/"hizo" sueltos en una frase normal NO activan a SOMA.
     "SO", "HIZO", "ISO", "HISO", "SOMABA", "SOMI",
+    # Fonéticas de "SOMA" en otros idiomas (p. ej. polaco: "ej SAMA", "hej ZO").
+    "SAMA", "ZAMA", "ZOMA", "ZOMO", "ZO", "SA", "ZA", "SOM", "ZOM",
+    "SAM", "ZAM", "SAMO", "ZAMO", "SUMO",
 ))
+# Formas-objetivo de "SOMA" para el fuzzy multiidioma.
+_NOMBRE_OBJETIVOS = ("SOMA", "SOMMA", "SAMA", "ZOMA", "ZAMA", "SOMO", "ZOMO")
 # Strict fuzzy threshold vs "SOMA"/"SOMMA" only (SOMMA=0.80, SUMA=0.75<thr).
 _FUZZY_ESTRICTO = 0.80
+# Umbral más laxo (solo válido tras un prefijo) para fonéticas de otros idiomas.
+_FUZZY_LAXO = 0.60
 
 
 # Seconds to wait, after a bare wake word, for SOMA's greeting to finish
@@ -86,8 +98,14 @@ def _es_nombre_estricto(tok: str) -> bool:
 
 
 def _es_nombre_laxo(tok: str) -> bool:
-    """Loose name match — only valid right after a greeting prefix."""
-    return tok in _NOMBRE_LAXO or _es_nombre_estricto(tok)
+    """Loose name match — only valid right after a greeting prefix. Tolera fonéticas
+    de "SOMA" en cualquier idioma (fuzzy laxo contra SOMA/SAMA/ZOMA...)."""
+    if not tok:
+        return False
+    if tok in _NOMBRE_LAXO or _es_nombre_estricto(tok):
+        return True
+    best = max(difflib.SequenceMatcher(None, tok, v).ratio() for v in _NOMBRE_OBJETIVOS)
+    return best >= _FUZZY_LAXO
 
 
 def detectar_wake(texto: str) -> tuple[bool, str]:

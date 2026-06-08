@@ -831,7 +831,7 @@
     "col_diff": "差異",
     "fmt_unsupported": "サポートされていない形式です。Excel (.xlsx) または CSV を使用してください。",
     "need_columns": "ファイルに「fecha」および「total」列（または類似の列）が必要です。",
-    "hist_import_ok": "履歴をインポートしました: {ruta} から {n} 日間読み込みました",
+    "hist_import_ok": "履歴をインポートしました: {n} から {ruta} 日間読み込みました",
     "import_err": "インポートエラー: {e}"
   },
   "cfg": {
@@ -935,8 +935,8 @@
     "descuadre_no_auth": "差異の承認ができませんでした。",
     "cierre_cancelado_title": "締めキャンセル",
     "motivo_apertura_fuerte": "金庫開口時の差異 {x} €。\n理由を記入してください:",
-    "motivo_apertura_caja": "{id}開口時の差異 {x} €。\n理由を記入してください:",
-    "motivo_cierre_caja": "{id}における差異 {x} €。\n理由を記入してください:",
+    "motivo_apertura_caja": "{x}開口時の差異 {id} €。\n理由を記入してください:",
+    "motivo_cierre_caja": "{x}における差異 {id} €。\n理由を記入してください:",
     "motivo_cierre_fuerte": "金庫閉鎖時の差異 {x} €。\n理由を記入してください:",
     "descuadre_cero": "差異: 0,00 €",
     "descuadre_val": "差異: {x} €",
@@ -952,7 +952,7 @@
     "cierre_completado_title": "閉鎖完了",
     "cierre_fuerte_msg": "金庫が閉鎖されました。最終合計: {x} €。",
     "mov_registrado_title": "移動を記録しました",
-    "mov_line1": "{x} € の{tipo}を記録しました。",
+    "mov_line1": "{tipo} € の{x}を記録しました。",
     "mov_origen": "出所:  {x}",
     "mov_destino": "目的地: {x}",
     "mov_caja_fuerte": "金庫 → {x} €",

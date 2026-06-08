@@ -913,12 +913,16 @@ class SmartMessageDialog(QDialog):
         return color
 
     def _button_text(self, role):
-        mapping = {
-            "ok": "OK",
-            "yes": "Sí",
-            "no": "No",
-            "cancel": "Cancelar",
-        }
+        try:
+            from src.utils.i18n import tr
+            mapping = {
+                "ok": tr("common.accept", default="OK"),
+                "yes": tr("common.yes", default="Sí"),
+                "no": tr("common.no", default="No"),
+                "cancel": tr("common.cancel", default="Cancelar"),
+            }
+        except Exception:
+            mapping = {"ok": "OK", "yes": "Sí", "no": "No", "cancel": "Cancelar"}
         return mapping.get(str(role).lower(), str(role).upper())
 
     def _semantic_role(self, role):

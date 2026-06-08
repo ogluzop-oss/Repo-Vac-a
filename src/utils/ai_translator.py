@@ -25,9 +25,28 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 
 logger = logging.getLogger("ai.translator")
+
+# Marcadores de formato {asi}. NUNCA deben traducirse (rompen .format()).
+_PH = re.compile(r"\{[^{}]*\}")
+
+
+def _preservar_placeholders(origen, trad):
+    """Si la traducción alteró los {placeholders} (la IA a veces los traduce:
+    {nombre}->{nazwa}), los restaura por posición desde el original."""
+    if not trad or "{" not in (origen or ""):
+        return trad
+    src = _PH.findall(origen)
+    if not src:
+        return trad
+    cur = _PH.findall(trad)
+    if cur == src or len(cur) != len(src):
+        return trad
+    it = iter(src)
+    return _PH.sub(lambda m: next(it), trad)
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(_THIS_DIR))
@@ -162,8 +181,9 @@ def _system_prompt(idioma, dominio):
         f"You are a professional translator for Smart Manager AI, an enterprise "
         f"retail/warehouse management platform. Translate the user's text into "
         f"{destino}. Context: {hint} "
-        f"Preserve meaning, tone and any placeholders like {{nombre}} or {{modulo}} "
-        f"exactly as-is. Keep numbers, codes and proper nouns unchanged. "
+        f"Preserve meaning and tone. CRITICAL: copy any placeholder in curly braces "
+        f"(e.g. {{nombre}}, {{modulo}}, {{x}}) VERBATIM — never translate, rename or "
+        f"remove what is inside the braces. Keep numbers, codes and proper nouns unchanged. "
         f"Return ONLY the translation, with no quotes, no notes, no explanations."
     )
 
@@ -190,6 +210,7 @@ def traducir(texto, idioma, dominio=None):
         with _lock:
             resultado = backend(_system_prompt(idioma, dominio), texto)
         if resultado:
+            resultado = _preservar_placeholders(texto, resultado)
             cache[k] = resultado
             _guardar_cache()
             return resultado
@@ -261,8 +282,9 @@ def traducir_lote(textos, idioma, dominio=None):
             if not (isinstance(trad, list) and len(trad) == len(sub)):
                 raise ValueError(f"tamaño distinto ({len(trad) if isinstance(trad,list) else '?'} vs {len(sub)})")
             for j, i in enumerate(sub_idx):
-                resultado[i] = trad[j]
-                cache[_clave(textos[i], idioma, dominio)] = trad[j]
+                val = _preservar_placeholders(textos[i], trad[j])
+                resultado[i] = val
+                cache[_clave(textos[i], idioma, dominio)] = val
                 algo_nuevo = True
         except Exception as e:
             logger.debug("Sub-lote falló (%s): %s", idioma, e)
