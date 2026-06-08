@@ -5451,9 +5451,9 @@ class _WizardDocumentoFiscal(QDialog):
             ]
             if d.get("subtipo"): lineas.append((tr("cfg.pv_tipo", default="TIPO:"), d["subtipo"]))
             if d.get("trimestre"): lineas.append((tr("cfg.pv_periodo_fiscal", default="PERÍODO FISCAL:"), f"T{d['trimestre']} / {d.get('ejercicio','')}"))
-            if d.get("total_ingresos"): lineas.append((tr("cfg.pv_ingresos", default="INGRESOS:"), f"{d['total_ingresos']} €"))
-            if d.get("iva_repercutido"): lineas.append((tr("cfg.pv_iva_rep", default="IVA REPERCUTIDO:"), f"{d['iva_repercutido']} €"))
-            if d.get("iva_soportado"): lineas.append((tr("cfg.pv_iva_sop", default="IVA SOPORTADO:"), f"{d['iva_soportado']} €"))
+            if d.get("total_ingresos"): lineas.append((tr("cfg.pv_ingresos", default="INGRESOS:"), f"{divisas.formatear(d['total_ingresos'])}"))
+            if d.get("iva_repercutido"): lineas.append((tr("cfg.pv_iva_rep", default="IVA REPERCUTIDO:"), f"{divisas.formatear(d['iva_repercutido'])}"))
+            if d.get("iva_soportado"): lineas.append((tr("cfg.pv_iva_sop", default="IVA SOPORTADO:"), f"{divisas.formatear(d['iva_soportado'])}"))
         else:
             lineas = [
                 (tr("cfg.pv_documento", default="DOCUMENTO:"), label),
@@ -5464,11 +5464,11 @@ class _WizardDocumentoFiscal(QDialog):
             if d.get("categoria"): lineas.append((tr("cfg.pv_categoria", default="CATEGORÍA:"), d["categoria"]))
             if d.get("fecha"): lineas.append((tr("cfg.pv_fecha_efecto", default="FECHA EFECTO:"), d["fecha"]))
             if d.get("subtipo"): lineas.append((tr("cfg.pv_subtipo", default="SUBTIPO:"), d["subtipo"]))
-            if d.get("salario"): lineas.append((tr("cfg.pv_salario", default="SALARIO BRUTO:"), f"{d['salario']} €"))
+            if d.get("salario"): lineas.append((tr("cfg.pv_salario", default="SALARIO BRUTO:"), f"{divisas.formatear(d['salario'])}"))
             if d.get("puesto"): lineas.append((tr("cfg.pv_puesto", default="PUESTO:"), d["puesto"]))
             if d.get("tipo_jornada"): lineas.append((tr("cfg.pv_jornada", default="JORNADA:"), d["tipo_jornada"]))
             if d.get("convenio"): lineas.append((tr("cfg.pv_convenio", default="CONVENIO:"), d["convenio"]))
-            if d.get("indemnizacion"): lineas.append((tr("cfg.pv_indemnizacion", default="INDEMNIZACIÓN:"), f"{d['indemnizacion']} €"))
+            if d.get("indemnizacion"): lineas.append((tr("cfg.pv_indemnizacion", default="INDEMNIZACIÓN:"), f"{divisas.formatear(d['indemnizacion'])}"))
             if d.get("vacaciones_dias"): lineas.append((tr("cfg.pv_vac_pend", default="VACACIONES PEND.:"), f"{d['vacaciones_dias']} " + tr("cfg.unit_dias", default="días")))
 
         if d.get("observaciones"): lineas.append((tr("cfg.pv_notas", default="NOTAS:"), d["observaciones"][:80] + ("…" if len(d.get("observaciones","")) > 80 else "")))
