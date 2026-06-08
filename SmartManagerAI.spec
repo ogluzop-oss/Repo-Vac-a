@@ -45,6 +45,11 @@ for paquete in ("edge_tts",):
 hiddenimports = []
 hiddenimports += collect_submodules("src")
 hiddenimports += collect_submodules("assets")
+# unidecode carga submódulos de datos perezosamente (unidecode.x0XX) → recogerlos.
+try:
+    hiddenimports += collect_submodules("unidecode")
+except Exception:
+    pass
 hiddenimports += [
     "pymysql", "pymysql.cursors",
     "reportlab.graphics.barcode", "reportlab.graphics.barcode.code128",

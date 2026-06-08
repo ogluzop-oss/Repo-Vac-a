@@ -42,7 +42,8 @@ ESTADO_ERROR      = "error"
 _PREFIJOS = ("EY", "HEY", "OYE", "EI", "OK", "HOLA", "VALE", "OYES", "EH",
              "EL", "E", "EX",
              "EJ", "HEJ", "AJ", "HAJ", "OJ", "AY", "HI", "HE", "AH", "HA",
-             "HALO", "HALLO", "OLA", "ECO", "A")
+             "HALO", "HALLO", "OLA", "ECO", "A",
+             "ARE", "ARRE", "HII", "HEE", "AE", "AI", "EE")
 
 # STRICT name set: a bare token equal to one of these counts as the wake word
 # on its own. Kept tight so common Spanish words never cause false activations.
@@ -85,50 +86,78 @@ def _norm(s: str) -> str:
     return s.upper().strip().replace(",", " ").replace(".", " ")
 
 
-def _es_nombre_estricto(tok: str) -> bool:
-    """Bare-token name match: exact strict set OR very-close fuzzy to SOMA."""
+def _roman(tok: str) -> str:
+    """Romaniza un token a latino mayúsculas (devanagari/árabe/cirílico/CJK → latino).
+    Esencial para que la wake word sea UNIVERSAL: cada idioma cambia el alfabeto en
+    que Google transcribe 'Ey SOMA' (hi: सोम, ru: сома, ja: ソマ...)."""
+    try:
+        from unidecode import unidecode
+        tok = unidecode(tok)
+    except Exception:
+        pass
+    return "".join(c for c in tok.upper() if c.isalnum())
+
+
+_VOCALES = set("AEIOU")
+
+
+def _skel(tok: str) -> str:
+    """Esqueleto de consonantes (ignora vocales y la H). Hace el matching
+    INSENSIBLE A VOCALES: soma/sama/som/suma/somma → 'SM' (resuelve la confusión
+    de vocales del reconocedor de voz)."""
+    return "".join(c for c in tok if c.isalpha() and c not in _VOCALES and c != "H")
+
+
+_SKEL_SOMA = {"SM", "ZM", "SMM", "ZMM", "XM", "CM"}
+
+
+def _es_soma_estricto(tok: str) -> bool:
+    """¿El token ES "SOMA" (wake a secas)? Tolerante a alfabeto/vocales, pero
+    ACOTADO para no dispararse con cualquier palabra (somos, sombra... NO valen)."""
     if not tok:
         return False
     if tok in _NOMBRE_ESTRICTO:
         return True
-    best = max(
-        difflib.SequenceMatcher(None, tok, v).ratio() for v in ("SOMA", "SOMMA")
-    )
-    return best >= _FUZZY_ESTRICTO
+    if "SOMA" in tok or "ZOMA" in tok:                 # EISOMA, ASOMA, SOMA...
+        return True
+    # A secas exigimos primera vocal O (SO/ZO) para no confundir con suma/sama/sima.
+    if tok[:2] in ("SO", "ZO") and 3 <= len(tok) <= 5 and _skel(tok) in {"SM", "ZM", "SMM", "ZMM"}:
+        return True
+    return False
 
 
-def _es_nombre_laxo(tok: str) -> bool:
-    """Loose name match — only valid right after a greeting prefix. Tolera fonéticas
-    de "SOMA" en cualquier idioma (fuzzy laxo contra SOMA/SAMA/ZOMA...)."""
+def _es_soma_laxo(tok: str) -> bool:
+    """¿Suena a "SOMA"? Solo válido tras un prefijo, así que es más permisivo
+    (cubre fonéticas de los 20 idiomas: sam, som, sona, zoma...)."""
     if not tok:
         return False
-    if tok in _NOMBRE_LAXO or _es_nombre_estricto(tok):
+    if _es_soma_estricto(tok) or tok in _NOMBRE_LAXO:
+        return True
+    if tok[:1] in ("S", "Z", "X", "C") and _skel(tok) in _SKEL_SOMA:
         return True
     best = max(difflib.SequenceMatcher(None, tok, v).ratio() for v in _NOMBRE_OBJETIVOS)
     return best >= _FUZZY_LAXO
 
 
 def detectar_wake(texto: str) -> tuple[bool, str]:
-    """
-    Detects the wake word anywhere in the transcript.
-    Returns (found, comando_inline): comando_inline is whatever follows the
-    wake word in the same phrase ('' if only the wake word was said).
-
-    Rules (tuned to avoid false activations in a noisy retail floor):
-      * "<prefix> <name>"  → prefix in _PREFIJOS, name in loose set  → wake.
-      * "<strict-name>"     → bare strict name anywhere               → wake.
-    """
-    palabras = _norm(texto).split()
-    if not palabras:
+    """Detecta DOS wake words, UNIVERSALES en los 20 idiomas:
+       • "Ey SOMA"  → prefijo + nombre-soma
+       • "SOMA"     → nombre-soma a secas
+    Detecta sobre la versión ROMANIZADA (cualquier alfabeto) e insensible a vocales,
+    pero devuelve el comando en línea desde el texto ORIGINAL (para no degradar su
+    traducción posterior).
+    Returns (found, comando_inline)."""
+    orig = _norm(texto).split()
+    if not orig:
         return False, ""
-
-    for i, tok in enumerate(palabras):
-        # Form 1: prefix + (loose) name  →  "EY SOMA", "OYE ZONA"
-        if tok in _PREFIJOS and i + 1 < len(palabras) and _es_nombre_laxo(palabras[i + 1]):
-            return True, " ".join(palabras[i + 2:]).strip()
-        # Form 2: bare strict name  →  "SOMA ..."
-        if _es_nombre_estricto(tok):
-            return True, " ".join(palabras[i + 1:]).strip()
+    rom = [_roman(t) for t in orig]
+    for i, tok in enumerate(rom):
+        # Form 1: prefijo + nombre  →  "EY SOMA", "HE SAM", "ARE SOM"...
+        if tok in _PREFIJOS and i + 1 < len(rom) and _es_soma_laxo(rom[i + 1]):
+            return True, " ".join(orig[i + 2:]).strip()
+        # Form 2: "SOMA" a secas
+        if _es_soma_estricto(tok):
+            return True, " ".join(orig[i + 1:]).strip()
     return False, ""
 
 
@@ -228,7 +257,7 @@ class SomaWorker(QObject):
             return
 
         logger.info(
-            f"SOMA activo (umbral={rec.energy_threshold:.0f}). Di 'Ey SOMA'."
+            f"SOMA activo (umbral={rec.energy_threshold:.0f}). Di 'Ey SOMA' o 'SOMA'."
         )
         self.estado_cambiado.emit(ESTADO_ESCUCHANDO)
 

@@ -28,6 +28,7 @@ edge-tts==7.2.8              # síntesis de voz multivoz
 pyttsx3==2.99                # síntesis de voz offline (respaldo)
 SpeechRecognition==3.16.1    # reconocimiento de voz
 pygame==2.6.1                # reproducción de audio
+Unidecode==1.3.8             # romaniza la wake word en cualquier alfabeto (universal)
 
 # ── Hardware y periféricos (opcional según despliegue) ──────
 opencv-python==4.12.0.88     # cámara (escáner de códigos)
