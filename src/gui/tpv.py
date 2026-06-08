@@ -45,7 +45,7 @@ from PyQt6.QtWidgets import (
 
 from src.db.conexion import obtener_articulo, obtener_conexion, stock_signals
 from src.db.usuario import listar_usuarios, sesion_global, validar_login_empleado
-from src.utils import i18n
+from src.utils import divisas, i18n
 from src.utils.customer_display_bridge import customer_display_bridge
 from src.utils.i18n import tr
 
@@ -479,7 +479,7 @@ class _SeleccionCajaDialog(QDialog):
             cid   = caja.get("id", "?")
             resp  = caja.get("responsable", "?")
             fondo = float(caja.get("fondo", 0.0))
-            btn = QPushButton(tr("sel_caja.caja_btn", cid=cid, resp=resp, fondo=f"{fondo:.2f}"))
+            btn = QPushButton(tr("sel_caja.caja_btn", cid=cid, resp=resp, fondo=divisas.formatear(fondo)))
             btn.setFixedHeight(54)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(_btn_caja_ss)
@@ -1047,7 +1047,7 @@ class _RetenidasDialog(QDialog):
             header = QHBoxLayout()
             header.addWidget(_lbl(f"#{i+1}  {fecha_str}", bold=True))
             header.addStretch()
-            header.addWidget(_lbl(f"{total:.2f} €", bold=True, color=_CIAN))
+            header.addWidget(_lbl(f"{divisas.formatear(total)}", bold=True, color=_CIAN))
             cl.addLayout(header)
 
             resumen = ", ".join(f"{l['nombre']} x{l['cantidad']}" for l in lineas[:3])
@@ -1116,7 +1116,7 @@ class _PagoDialog(QDialog):
         lay.setSpacing(14)
         lay.setContentsMargins(28, 24, 28, 24)
 
-        lay.addWidget(_lbl(tr("pago.total_label", x=f"{total:.2f}"), bold=True, size=18, color=_CIAN))
+        lay.addWidget(_lbl(tr("pago.total_label", x=divisas.formatear(total)), bold=True, size=18, color=_CIAN))
         lay.addWidget(_sep())
 
         # Tabs forma de pago
@@ -1211,7 +1211,7 @@ class _PagoDialog(QDialog):
         grid = QGridLayout()
         grid.setSpacing(6)
         for i, val in enumerate([5, 10, 20, 50, 100, 200]):
-            b = _btn(f"{val} €", h=32)
+            b = _btn(f"{divisas.formatear(val)}", h=32)
             b.clicked.connect(lambda checked, v=float(val): self.inp_ef.setText(f"{v:.2f}"))
             grid.addWidget(b, i // 3, i % 3)
         lay.addLayout(grid)
@@ -1226,7 +1226,7 @@ class _PagoDialog(QDialog):
             entregado = float(self.inp_ef.text().replace(",", "."))
             cambio = entregado - self._total
             color = _VERDE if cambio >= 0 else _ROJO
-            self.lbl_cambio.setText(tr("pago.change", x=f"{cambio:.2f}"))
+            self.lbl_cambio.setText(tr("pago.change", x=divisas.formatear(cambio)))
             self.lbl_cambio.setStyleSheet(
                 f"color:{color};font-family:'{_FONT}';font-size:13px;"
                 f"font-weight:900;background:transparent;"
@@ -1241,7 +1241,7 @@ class _PagoDialog(QDialog):
         w.setStyleSheet("background:transparent;")
         lay = QVBoxLayout(w)
         lay.setSpacing(10)
-        lay.addWidget(_lbl(tr("pago.card_amount", x=f"{self._total:.2f}"), bold=True, size=14))
+        lay.addWidget(_lbl(tr("pago.card_amount", x=divisas.formatear(self._total)), bold=True, size=14))
         lay.addWidget(_lbl(tr("pago.card_hint"), size=12, color=_TEXT2))
         lay.addStretch()
         return w
@@ -1260,7 +1260,7 @@ class _PagoDialog(QDialog):
             f"QLineEdit:focus{{border-color:{_CIAN};}}"
         )
 
-        lay.addWidget(_lbl(tr("pago.mixed_total", x=f"{self._total:.2f}"), bold=True, size=14))
+        lay.addWidget(_lbl(tr("pago.mixed_total", x=divisas.formatear(self._total)), bold=True, size=14))
 
         fila = QHBoxLayout()
         fila.addWidget(_lbl(tr("pago.mixed_cash"), size=12))
@@ -1282,8 +1282,8 @@ class _PagoDialog(QDialog):
             ef = float(self.inp_mx_ef.text().replace(",", "."))
             tj = max(0.0, self._total - ef)
             cambio = max(0.0, ef - self._total)
-            self.lbl_mx_tj.setText(tr("pago.mixed_card", x=f"{tj:.2f}"))
-            self.lbl_mx_cambio.setText(tr("pago.mixed_change", x=f"{cambio:.2f}"))
+            self.lbl_mx_tj.setText(tr("pago.mixed_card", x=divisas.formatear(tj)))
+            self.lbl_mx_cambio.setText(tr("pago.mixed_change", x=divisas.formatear(cambio)))
         except ValueError:
             pass
 
@@ -1301,7 +1301,7 @@ class _PagoDialog(QDialog):
             if entregado < self._total - 0.005:
                 QMessageBox.warning(
                     self, tr("pago.err_insufficient_title"),
-                    tr("pago.err_insufficient_msg", e=f"{entregado:.2f}", t=f"{self._total:.2f}")
+                    tr("pago.err_insufficient_msg", e=divisas.formatear(entregado), t=divisas.formatear(self._total))
                 )
                 return
             self._resultado = {
@@ -1527,7 +1527,7 @@ class _BasculaDialog(QDialog):
         emoji = p.get("emoji", "🛒")
         nombre = p.get("nombre", "—")
         precio = float(p.get("precio_kg", 0) or 0)
-        btn = QPushButton(f"{emoji}\n{nombre}\n{precio:.2f} €/kg")
+        btn = QPushButton(f"{emoji}\n{nombre}\n{divisas.formatear(precio)}/kg")
         btn.setMinimumSize(150, 110)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setStyleSheet(
@@ -1541,7 +1541,7 @@ class _BasculaDialog(QDialog):
     def _seleccionar(self, p: dict):
         self._producto_sel = p
         self.lbl_prod.setText(f"{p.get('emoji','')} {p.get('nombre','—')}")
-        self.lbl_precio_kg.setText(tr("bascula.price", x=f"{float(p.get('precio_kg',0)):.2f}"))
+        self.lbl_precio_kg.setText(tr("bascula.price", x=divisas.formatear(float(p.get('precio_kg',0)))))
         self.btn_add.setEnabled(True)
         if not self._scale.has_hardware:
             self.spin_peso.setFocus()
@@ -1574,7 +1574,7 @@ class _BasculaDialog(QDialog):
             self.lbl_total.setText(tr("bascula.total", x="0,00"))
             return
         total = B.calcular_total(self.spin_peso.value(), float(self._producto_sel.get("precio_kg", 0) or 0))
-        self.lbl_total.setText(tr("bascula.total", x=f"{total:.2f}"))
+        self.lbl_total.setText(tr("bascula.total", x=divisas.formatear(total)))
 
     def _aceptar(self):
         from src.services.tpv import bulk_products_service as B
@@ -1598,7 +1598,7 @@ class _BasculaDialog(QDialog):
         codigo = self._producto_sel.get("codigo_interno") or f"GRANEL-{self._producto_sel.get('id','')}"
         self._linea_resultado = {
             "codigo": codigo,
-            "nombre": tr("bascula.line_name", nombre=nombre, peso=f"{peso:.3f}", precio=f"{precio:.2f}"),
+            "nombre": tr("bascula.line_name", nombre=nombre, peso=f"{peso:.3f}", precio=divisas.formatear(precio)),
             "seccion": self._producto_sel.get("categoria", "GRANEL"),
             "cantidad": 1, "precio": total, "descuento_pct": 0.0, "subtotal": total,
             "peso": peso, "precio_kg": precio, "modo_venta": "PESO",
@@ -2141,7 +2141,7 @@ class _DevolucionDialog(QDialog):
             self.cmb_reembolso.setEnabled(True)
         if self._eval["dentro_plazo"]:
             self.lbl_estado.setText(tr(
-                "devol.status_ok", id=venta['id'], total=f"{venta['total']:.2f}",
+                "devol.status_ok", id=venta['id'], total=divisas.formatear(venta['total']),
                 fp=venta['forma_pago'], limite=self._eval['fecha_limite'],
             ))
             self.lbl_estado.setStyleSheet(
@@ -2156,7 +2156,7 @@ class _DevolucionDialog(QDialog):
     def _mostrar_alerta_caducado(self, venta):
         self.lbl_estado.setText(tr(
             "devol.status_expired", msg=self._eval['mensaje'], id=venta['id'],
-            total=f"{venta['total']:.2f}", fecha=venta['fecha'], limite=self._eval['fecha_limite'],
+            total=divisas.formatear(venta['total']), fecha=venta['fecha'], limite=self._eval['fecha_limite'],
         ))
         self.lbl_estado.setStyleSheet(
             f"color:{_ROJO};background:{_BG2};border:2px solid {_ROJO};"
@@ -2168,7 +2168,7 @@ class _DevolucionDialog(QDialog):
         box.setWindowTitle(tr("devol.expired_box_title"))
         box.setText(tr("devol.expired_box_text"))
         box.setInformativeText(tr(
-            "devol.expired_box_info", total=f"{venta['total']:.2f}",
+            "devol.expired_box_info", total=divisas.formatear(venta['total']),
             fecha=venta['fecha'], limite=self._eval['fecha_limite'],
         ))
         box.addButton(tr("devol.btn_cancel"), QMessageBox.ButtonRole.RejectRole)
@@ -2208,10 +2208,10 @@ class _DevolucionDialog(QDialog):
             it_cant = QTableWidgetItem(str(it.get("cantidad", 0)))
             it_cant.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tabla.setItem(row, 2, it_cant)
-            it_pre = QTableWidgetItem(f"{float(it.get('precio_unitario',0)):.2f} €")
+            it_pre = QTableWidgetItem(f"{divisas.formatear(float(it.get('precio_unitario',0)))}")
             it_pre.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.tabla.setItem(row, 3, it_pre)
-            it_sub = QTableWidgetItem(f"{float(it.get('subtotal',0)):.2f} €")
+            it_sub = QTableWidgetItem(f"{divisas.formatear(float(it.get('subtotal',0)))}")
             it_sub.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.tabla.setItem(row, 4, it_sub)
 
@@ -2796,7 +2796,7 @@ class TPVWindow(QWidget):
         self._caja_actual = caja  # guardado para re-traducción en caliente
         self.lbl_caja_top.setText(f"{cid}  ·  {resp}")
         self.lbl_caja_id.setText(tr("tpv.register", cid=cid, resp=resp))
-        self.lbl_caja_fondo.setText(tr("tpv.fund", x=f"{fondo:.2f}"))
+        self.lbl_caja_fondo.setText(tr("tpv.fund", x=divisas.formatear(fondo)))
         self.inp_sku.setFocus()
 
     # ─────────────────── CARRITO ─────────────────────────────
@@ -2858,10 +2858,10 @@ class TPVWindow(QWidget):
             self.tabla.setItem(row, 0, _cell(str(l["codigo"])))
             self.tabla.setItem(row, 1, _cell(l["nombre"]))
             self.tabla.setItem(row, 2, _cell(str(l["cantidad"]), center))
-            self.tabla.setItem(row, 3, _cell(f"{l['precio']:.2f} €", right))
+            self.tabla.setItem(row, 3, _cell(f"{divisas.formatear(l['precio'])}", right))
             dto_txt = f"{l['descuento_pct']:.1f}%" if l["descuento_pct"] > 0 else "—"
             self.tabla.setItem(row, 4, _cell(dto_txt, center))
-            self.tabla.setItem(row, 5, _cell(f"{l['subtotal']:.2f} €", right))
+            self.tabla.setItem(row, 5, _cell(f"{divisas.formatear(l['subtotal'])}", right))
 
             codigo_fila = l["codigo"]
             # Iconos dibujados con QPainter (QIcon), independientes de las fuentes.
@@ -2938,7 +2938,7 @@ class TPVWindow(QWidget):
                 fondo = caja.get("fondo", 0.0)
                 self.lbl_caja_top.setText(f"{cid}  ·  {resp}")
                 self.lbl_caja_id.setText(tr("tpv.register", cid=cid, resp=resp))
-                self.lbl_caja_fondo.setText(tr("tpv.fund", x=f"{fondo:.2f}"))
+                self.lbl_caja_fondo.setText(tr("tpv.fund", x=divisas.formatear(fondo)))
             else:
                 if hasattr(self, "lbl_caja_top"):
                     self.lbl_caja_top.setText(tr("tpv.register_dash"))
@@ -2957,12 +2957,12 @@ class TPVWindow(QWidget):
         descuento   = subtotal_b - total
 
         self.lbl_n_items.setText(tr("tpv.items", n=n, uds=uds))
-        self.lbl_subtotal.setText(tr("tpv.subtotal", x=f"{subtotal_b:.2f}"))
+        self.lbl_subtotal.setText(tr("tpv.subtotal", x=divisas.formatear(subtotal_b)))
         self.lbl_dto.setText(
-            tr("tpv.discount", x=f"{descuento:.2f}") if descuento > 0.005
+            tr("tpv.discount", x=divisas.formatear(descuento)) if descuento > 0.005
             else tr("tpv.discount_zero")
         )
-        self.lbl_total.setText(tr("tpv.total", x=f"{total:.2f}"))
+        self.lbl_total.setText(tr("tpv.total", x=divisas.formatear(total)))
 
         tiene = n > 0
         self.btn_cobrar.setEnabled(tiene)
@@ -3224,11 +3224,11 @@ class TPVWindow(QWidget):
         self.inp_sku.setFocus()
 
         cambio = pago.get("cambio", 0.0)
-        msg_cambio = tr("tpv.change_suffix", x=f"{cambio:.2f}") if cambio > 0.005 else ""
+        msg_cambio = tr("tpv.change_suffix", x=divisas.formatear(cambio)) if cambio > 0.005 else ""
         # Feedback NO modal (evita el bloqueo de QMessageBox sobre ventana frameless)
         self._toast(
             tr("tpv.sale_done_title"),
-            tr("tpv.sale_done_msg", id=venta_id, total=f"{total:.2f}",
+            tr("tpv.sale_done_msg", id=venta_id, total=divisas.formatear(total),
                fp=forma_pago.capitalize(), cambio=msg_cambio),
             ms=2200,
         )

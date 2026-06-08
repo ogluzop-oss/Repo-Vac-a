@@ -152,6 +152,14 @@ class _GestorI18n(QObject):
             val = self._lookup(self._fallback, key)
         if val is None:
             val = default if default is not None else key
+        # Autoinyección del símbolo de divisa: cualquier plantilla puede usar {sym}
+        # (p. ej. "Importe ({sym}):") y se rellena con el símbolo de la divisa activa.
+        if isinstance(val, str) and "{sym}" in val and "sym" not in kwargs:
+            try:
+                from src.utils import divisas
+                kwargs = {**kwargs, "sym": divisas.simbolo()}
+            except Exception:
+                pass
         if kwargs and isinstance(val, str):
             try:
                 val = val.format(**kwargs)

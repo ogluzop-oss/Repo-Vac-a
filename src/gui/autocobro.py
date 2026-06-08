@@ -14,6 +14,7 @@ Características:
   * Báscula simulada por defecto (scale_service); driver listo para hardware.
 """
 from __future__ import annotations
+from src.utils import divisas
 from src.utils.i18n import tr
 
 import datetime
@@ -180,7 +181,7 @@ class AutocobroWindow(QWidget):
         ct = QVBoxLayout(card_total)
         ct.setContentsMargins(24, 18, 24, 18)
         ct.addWidget(_lbl("TOTAL A PAGAR", bold=True, size=18, color=_TEXT2))
-        self.lbl_total = _lbl("0,00 €", bold=True, size=48, color=_VERDE)
+        self.lbl_total = _lbl(divisas.formatear(0), bold=True, size=48, color=_VERDE)
         self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignRight)
         ct.addWidget(self.lbl_total)
         der.addWidget(card_total)
@@ -337,7 +338,7 @@ class AutocobroWindow(QWidget):
             it_c = QTableWidgetItem(str(l["cantidad"]))
             it_c.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.lista.setItem(row, 1, it_c)
-            it_s = QTableWidgetItem(f"{l['subtotal']:.2f} €")
+            it_s = QTableWidgetItem(f"{divisas.formatear(l['subtotal'])}")
             it_s.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.lista.setItem(row, 2, it_s)
             btn_del = QPushButton("🗑")
@@ -356,7 +357,7 @@ class AutocobroWindow(QWidget):
             hl.addWidget(btn_del)
             hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.lista.setCellWidget(row, 3, cont)
-        self.lbl_total.setText(f"{self._total():.2f} €")
+        self.lbl_total.setText(f"{divisas.formatear(self._total())}")
         self.btn_pagar.setEnabled(self._total() > 0.005 and not self.lbl_estado.isVisible())
 
     def _eliminar_linea(self, row: int):
@@ -392,7 +393,7 @@ class AutocobroWindow(QWidget):
         total = self._total()
         box = QMessageBox(self)
         box.setWindowTitle(tr("autocobro.forma_de_pago", default="Forma de pago"))
-        box.setText(f"Total: {total:.2f} €\n\n¿Cómo quieres pagar?")
+        box.setText(f"Total: {divisas.formatear(total)}\n\n¿Cómo quieres pagar?")
         b_tarj = box.addButton("TARJETA", QMessageBox.ButtonRole.AcceptRole)
         b_efe = box.addButton("EFECTIVO", QMessageBox.ButtonRole.AcceptRole)
         box.addButton("CANCELAR", QMessageBox.ButtonRole.RejectRole)
@@ -443,7 +444,7 @@ class AutocobroWindow(QWidget):
             except Exception:
                 pass
         QMessageBox.information(self, "¡Gracias por tu compra!",
-                               f"Compra #{venta_id} completada.\nTotal: {total:.2f} €")
+                               f"Compra #{venta_id} completada.\nTotal: {divisas.formatear(total)}")
         self._lineas = []
         self._bagging.reset()
         self.lbl_estado.hide()

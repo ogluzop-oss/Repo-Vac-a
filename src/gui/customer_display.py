@@ -1,5 +1,6 @@
 """Customer Display — Pantalla orientada al cliente para el TPV."""
 from __future__ import annotations
+from src.utils import divisas
 from src.utils.i18n import tr
 
 import os
@@ -333,7 +334,7 @@ class CustomerDisplayWindow(QWidget):
             _lbl("TOTAL", size=15, bold=True, color=_DIM,
                  align=Qt.AlignmentFlag.AlignRight)
         )
-        self._lbl_total = _lbl("0,00 €", size=52, bold=True, color=_CIAN,
+        self._lbl_total = _lbl(divisas.formatear(0), size=52, bold=True, color=_CIAN,
                                 align=Qt.AlignmentFlag.AlignRight)
         right.addWidget(self._lbl_total)
         lay.addLayout(right)
@@ -420,10 +421,10 @@ class CustomerDisplayWindow(QWidget):
         self._populate_table(items)
 
         subtotal = sum(l["cantidad"] * l["precio"] for l in items)
-        self._lbl_subtotal.setText(f"Subtotal: {subtotal:.2f} €")
+        self._lbl_subtotal.setText(f"Subtotal: {divisas.formatear(subtotal)}")
 
         if discount > 0.005:
-            self._lbl_dto.setText(f"Ahorro: -{discount:.2f} €")
+            self._lbl_dto.setText(f"Ahorro: -{divisas.formatear(discount)}")
             self._lbl_dto.setStyleSheet(
                 f"color:{_GRDN};font-family:'{_FONT}';font-size:18px;background:transparent;"
             )
@@ -433,7 +434,7 @@ class CustomerDisplayWindow(QWidget):
                 f"color:{_DIM};font-family:'{_FONT}';font-size:18px;background:transparent;"
             )
 
-        self._lbl_total.setText(f"{total:.2f} €")
+        self._lbl_total.setText(f"{divisas.formatear(total)}")
         n   = len(items)
         uds = sum(l["cantidad"] for l in items)
         self._lbl_status.setText(
@@ -487,10 +488,10 @@ class CustomerDisplayWindow(QWidget):
 
             self._table.setItem(row, 0, _cell(l["nombre"]))
             self._table.setItem(row, 1, _cell(str(l["cantidad"]), center, bold=True))
-            self._table.setItem(row, 2, _cell(f"{l['precio']:.2f} €", right))
+            self._table.setItem(row, 2, _cell(f"{divisas.formatear(l['precio'])}", right))
             dto_pct   = l.get("descuento_pct", 0)
             sub_color = _CIAN if dto_pct > 0 else _TEXT
-            self._table.setItem(row, 3, _cell(f"{l['subtotal']:.2f} €", right, True, sub_color))
+            self._table.setItem(row, 3, _cell(f"{divisas.formatear(l['subtotal'])}", right, True, sub_color))
 
         if items:
             last = len(items) - 1
@@ -528,9 +529,9 @@ class CustomerDisplayWindow(QWidget):
                 f"font-family:'{_FONT}';"
             )
 
-        self._res_total.setText(f"Total: {self._last_total:.2f} €")
+        self._res_total.setText(f"Total: {divisas.formatear(self._last_total)}")
         if cambio > 0.005:
-            self._res_cambio.setText(f"Cambio: {cambio:.2f} €")
+            self._res_cambio.setText(f"Cambio: {divisas.formatear(cambio)}")
             self._res_cambio.setVisible(True)
         else:
             self._res_cambio.setVisible(False)
@@ -561,7 +562,7 @@ class CustomerDisplayWindow(QWidget):
 
     def _show_idle(self) -> None:
         self._table.setRowCount(0)
-        self._lbl_total.setText("0,00 €")
+        self._lbl_total.setText(divisas.formatear(0))
         self._lbl_subtotal.setText(tr("cdisplay.subtotal", default="Subtotal: —"))
         self._lbl_dto.setText(tr("cdisplay.descuento_2", default="Descuento: —"))
         self._lbl_dto.setStyleSheet(
