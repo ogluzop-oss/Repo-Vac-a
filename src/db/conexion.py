@@ -178,7 +178,8 @@ def ensure_schema(force: bool = False):
                 cur.execute("""
                     ALTER TABLE configuraciones
                     ADD COLUMN IF NOT EXISTS ref_tienda  VARCHAR(100) NOT NULL DEFAULT '',
-                    ADD COLUMN IF NOT EXISTS ref_almacen VARCHAR(100) NOT NULL DEFAULT ''
+                    ADD COLUMN IF NOT EXISTS ref_almacen VARCHAR(100) NOT NULL DEFAULT '',
+                    ADD COLUMN IF NOT EXISTS moneda      VARCHAR(3)   NOT NULL DEFAULT 'EUR'
                 """)
                 conn.commit()
 
@@ -196,6 +197,9 @@ def ensure_schema(force: bool = False):
 def _aplicar_parches(cur):
     """Mantenimiento interno de columnas faltantes."""
     parches = {
+        "configuraciones": [
+            ("moneda", "VARCHAR(3) NOT NULL DEFAULT 'EUR'"),
+        ],
         "articulos": [
             ("estado", "VARCHAR(20) DEFAULT 'activo'"),
             ("Stock_esperado", "INT DEFAULT 0"),
@@ -284,6 +288,7 @@ def obtener_configuracion():
         "codigo_local": "ALMC",
         "tienda_codigo": "ALMC",
         "email": "info@smartmanagerai.local",
+        "moneda": "EUR",
     }
 
     try:
@@ -291,7 +296,7 @@ def obtener_configuracion():
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT id, nombre_empresa, codigo_local, email
+                    SELECT id, nombre_empresa, codigo_local, email, moneda
                     FROM configuraciones
                     ORDER BY id ASC
                     LIMIT 1
@@ -310,6 +315,9 @@ def obtener_configuracion():
                     config.get("nombre_empresa") or defaults["nombre_empresa"]
                 ).strip()
                 config["email"] = str(config.get("email") or defaults["email"]).strip()
+                config["moneda"] = str(
+                    config.get("moneda") or defaults["moneda"]
+                ).strip().upper()
                 return config
     except Exception as e:
         logger.error(f"Error en obtener_configuracion: {e}")

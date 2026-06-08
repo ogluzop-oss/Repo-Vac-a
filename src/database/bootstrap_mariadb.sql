@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS configuraciones (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     nombre_empresa VARCHAR(255) NOT NULL DEFAULT 'SMART MANAGER',
     codigo_local   VARCHAR(50)  NOT NULL DEFAULT 'ALMC',
-    email          VARCHAR(255)          DEFAULT 'info@smartmanagerai.local'
+    email          VARCHAR(255)          DEFAULT 'info@smartmanagerai.local',
+    moneda         VARCHAR(3)   NOT NULL DEFAULT 'EUR'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
