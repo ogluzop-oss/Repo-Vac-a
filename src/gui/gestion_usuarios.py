@@ -3875,7 +3875,7 @@ class _IdentificacionEmpleadoDialog(QDialog):
         self._combo_emp.addItem(tr("cfg.select_emp_combo", default="— Seleccionar empleado —"), None)
         try:
             for u in listar_usuarios():
-                self._combo_emp.addItem(f"{u['nombre']}  ({u['perfil']})", u["id"])
+                self._combo_emp.addItem(f"{u['nombre']}  ({tr('roles.' + str(u['perfil']).lower(), default=u['perfil']).upper()})", u["id"])
         except Exception:
             pass
         self._combo_emp.setFixedHeight(44)
@@ -4070,7 +4070,7 @@ class _MovimientoDialog(QDialog):
         self._combo_emp_mov.addItem(tr("cfg.select_emp_combo", default="— Seleccionar empleado —"), None)
         try:
             for u in listar_usuarios():
-                self._combo_emp_mov.addItem(f"{u['nombre']}  ({u['perfil']})", u["id"])
+                self._combo_emp_mov.addItem(f"{u['nombre']}  ({tr('roles.' + str(u['perfil']).lower(), default=u['perfil']).upper()})", u["id"])
         except Exception:
             pass
         self._combo_emp_mov.setFixedHeight(44)
