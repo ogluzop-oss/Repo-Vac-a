@@ -6299,18 +6299,13 @@ class ConfiguracionWindow(QWidget):
         ly.setContentsMargins(20, 0, 20, 0)
         lbl = QLabel(tr("cfg.divisa_empresa", default="💱  DIVISA DE LA EMPRESA:"))
         lbl.setStyleSheet("color:#6E7681;font-family:'Segoe UI';font-weight:900;font-size:12px;background:transparent;border:none;")
-        combo = QComboBox()
-        combo.setFixedHeight(36)
-        combo.setMinimumWidth(300)
-        combo.setMaxVisibleItems(8)
+        # _NeonComboBox: flecha PNG + popup + hover los aporta el estilado global
+        # de la app (igual que el resto de desplegables), y abre correctamente.
+        combo = _NeonComboBox()
+        combo.setFixedHeight(38)
+        combo.setMinimumWidth(320)
+        combo.setMaxVisibleItems(10)
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        combo.setStyleSheet(
-            f"QComboBox{{background:#0D1117;color:#E6EDF3;border:2px solid {_CIAN};"
-            "border-radius:10px;padding:4px 12px;font-family:'Segoe UI';font-weight:700;}"
-            "QComboBox::drop-down{border:none;width:22px;}"
-            f"QComboBox QAbstractItemView{{background:#0D1117;color:#E6EDF3;border:2px solid {_CIAN};"
-            "selection-background-color:#00FFC6;selection-color:#0D1117;outline:none;}}"
-        )
         for code in divisas.monedas_soportadas():
             inf = divisas.info(code)
             combo.addItem(f"{code} · {inf['nombre']} ({inf['simbolo']})", code)
@@ -6318,8 +6313,7 @@ class ConfiguracionWindow(QWidget):
         if idx >= 0:
             combo.setCurrentIndex(idx)
         nivel = getattr(sesion_global, "nivel", None) if sesion_global else None
-        puede = nivel in ("ADMINISTRADOR", "GERENTE")
-        combo.setEnabled(puede)
+        combo.setEnabled(nivel in ("ADMINISTRADOR", "GERENTE"))
         combo.currentIndexChanged.connect(
             lambda _i, c=combo: self._cambiar_divisa(c.currentData())
         )
@@ -6327,11 +6321,6 @@ class ConfiguracionWindow(QWidget):
         ly.addWidget(lbl)
         ly.addStretch()
         ly.addWidget(combo)
-        if not puede:
-            nota = QLabel(tr("cfg.divisa_solo_admin", default="Solo ADMINISTRADOR / GERENTE"))
-            nota.setStyleSheet("color:#484F58;font-family:'Segoe UI';font-size:11px;background:transparent;border:none;")
-            ly.addSpacing(10)
-            ly.addWidget(nota)
         return frame
 
     def _cambiar_divisa(self, code):
