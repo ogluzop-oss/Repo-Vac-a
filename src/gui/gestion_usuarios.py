@@ -247,10 +247,20 @@ _WZ_TR_EN = {
 
 
 def _wz_tr(txt):
-    """Traduce una etiqueta de formulario del wizard al idioma activo (es→en)."""
-    if not txt or i18n.current_language() == "es":
+    """Traduce una etiqueta de formulario del wizard al idioma activo (es→en) y
+    sustituye el símbolo de divisa (€) por el de la divisa de empresa activa, de
+    modo que TODAS las etiquetas de importe (nóminas, fiscal, contratos…) quedan
+    en la divisa correcta sin tocar cada cadena."""
+    if not txt:
         return txt
-    return _WZ_TR_EN.get(txt, txt)
+    out = txt if i18n.current_language() == "es" else _WZ_TR_EN.get(txt, txt)
+    try:
+        sym = divisas.simbolo()
+        if sym != "€" and "€" in out:
+            out = out.replace("€", sym)
+    except Exception:
+        pass
+    return out
 # Column layout per day: J. INICIO | J. FIN | TOTAL H.
 _H_COL_INI = 155   # px — J. INICIO comboboxes column
 _H_COL_FIN = 155   # px — J. FIN comboboxes column
@@ -4518,14 +4528,22 @@ class _WizardDocumentoFiscal(QDialog):
         original (degradación elegante: el PDF sale en español si no hay IA)."""
         if not texto or not isinstance(texto, str):
             return texto
-        if i18n.current_language() == "es":
-            return texto
+        out = texto
+        if i18n.current_language() != "es":
+            try:
+                from src.utils import ai_translator
+                dominio = self._PDF_DOMINIO.get(self._tipo, "laboral")
+                out = ai_translator.traducir(texto, i18n.current_language(), dominio=dominio)
+            except Exception:
+                out = texto
+        # Símbolo de divisa de empresa (p. ej. "IMPORTE (€)" -> "IMPORTE ($)").
         try:
-            from src.utils import ai_translator
-            dominio = self._PDF_DOMINIO.get(self._tipo, "laboral")
-            return ai_translator.traducir(texto, i18n.current_language(), dominio=dominio)
+            sym = divisas.simbolo()
+            if sym != "€" and "€" in out:
+                out = out.replace("€", sym)
         except Exception:
-            return texto
+            pass
+        return out
 
     def _doc_label(self, tipo=None):
         """Título de documento traducido (emoji + texto), por clave cfg.doc_<tipo>."""
@@ -5754,8 +5772,8 @@ class _WizardDocumentoFiscal(QDialog):
                 _conv_txt        = convenio or "el aplicable al sector de actividad"
                 _jornada_parcial = tipo_jornada == "TIEMPO PARCIAL"
                 _distancia_si    = trabajo_distancia == "SÍ"
-                _sal_mensual_fmt = f"{salario_mensual:,.2f} €" if salario_mensual > 0 else "—"
-                _sal_anual_fmt   = f"{salario:,.2f} €" if salario > 0 else "—"
+                _sal_mensual_fmt = f"{divisas.formatear(salario_mensual)}" if salario_mensual > 0 else "—"
+                _sal_anual_fmt   = f"{divisas.formatear(salario)}" if salario > 0 else "—"
 
                 story.append(_sec_header("DATOS DE LA EMPRESA"))
                 story.append(_data_val_row(("CIF/NIF/NIE", emp_cif)))
@@ -5988,19 +6006,19 @@ class _WizardDocumentoFiscal(QDialog):
                 th_c = _st("thc", fontName=_FB, fontSize=8, textColor=NEGRO, leading=10, alignment=TA_CENTER)
                 nom_data = [
                     [Paragraph(self._pdf_tr("CONCEPTO"), th), Paragraph(self._pdf_tr("DEVENGOS"), th_c), Paragraph(self._pdf_tr("DEDUCCIONES"), th_c)],
-                    ["Salario base", f"{sal_base:,.2f} €", ""],
-                    ["Plus convenio", f"{plus_conv:,.2f} €" if plus_conv else "—", ""],
-                    ["Horas extras", f"{horas_ext:,.2f} €" if horas_ext else "—", ""],
-                    [f"Retención IRPF ({irpf_pct:.1f}%)", "", f"{irpf_ret:,.2f} €"],
-                    [f"Cuota S.S. trabajador ({ss_emp_pct:.2f}%)", "", f"{ss_ret:,.2f} €"],
+                    ["Salario base", f"{divisas.formatear(sal_base)}", ""],
+                    ["Plus convenio", f"{divisas.formatear(plus_conv)}" if plus_conv else "—", ""],
+                    ["Horas extras", f"{divisas.formatear(horas_ext)}" if horas_ext else "—", ""],
+                    [f"Retención IRPF ({irpf_pct:.1f}%)", "", f"{divisas.formatear(irpf_ret)}"],
+                    [f"Cuota S.S. trabajador ({ss_emp_pct:.2f}%)", "", f"{divisas.formatear(ss_ret)}"],
                     [
                         Paragraph("<b>"+self._pdf_tr("TOTAL BRUTO / TOTAL DEDUCCIONES")+"</b>", _st("tb", fontName=_FB, fontSize=8, textColor=NEGRO, leading=10)),
-                        Paragraph(f"<b>{bruto_total:,.2f} €</b>", _st("tb2", fontName=_FB, fontSize=8, textColor=NEGRO, leading=10, alignment=TA_CENTER)),
-                        Paragraph(f"<b>{irpf_ret+ss_ret:,.2f} €</b>", _st("tb3", fontName=_FB, fontSize=8, textColor=NEGRO, leading=10, alignment=TA_CENTER)),
+                        Paragraph(f"<b>{divisas.formatear(bruto_total)}</b>", _st("tb2", fontName=_FB, fontSize=8, textColor=NEGRO, leading=10, alignment=TA_CENTER)),
+                        Paragraph(f"<b>{divisas.formatear(irpf_ret+ss_ret)}</b>", _st("tb3", fontName=_FB, fontSize=8, textColor=NEGRO, leading=10, alignment=TA_CENTER)),
                     ],
                     [
                         Paragraph("<b>"+self._pdf_tr("LÍQUIDO A PERCIBIR")+"</b>", _st("liq", fontName=_FB, fontSize=10, textColor=AZUL, leading=12)),
-                        Paragraph(f"<b>{neto:,.2f} €</b>", _st("liq2", fontName=_FB, fontSize=10, textColor=AZUL, leading=12, alignment=TA_CENTER)),
+                        Paragraph(f"<b>{divisas.formatear(neto)}</b>", _st("liq2", fontName=_FB, fontSize=10, textColor=AZUL, leading=12, alignment=TA_CENTER)),
                         "",
                     ],
                 ]
@@ -6116,7 +6134,7 @@ class _WizardDocumentoFiscal(QDialog):
                     "COTIZACIÓN": (
                         f"Que <b>{trab}</b> (NIF/NIE: {nif}), figura en los registros de cotización "
                         f"de esta empresa como trabajador/a en alta. El salario bruto mensual es de "
-                        f"{salario_mensual:,.2f} € con las retenciones de IRPF y cotizaciones a la "
+                        f"{divisas.formatear(salario_mensual)} con las retenciones de IRPF y cotizaciones a la "
                         f"Seguridad Social que legalmente corresponden."
                     ),
                     "EMPRESA": (
@@ -7047,7 +7065,7 @@ class ConfiguracionWindow(QWidget):
                     if y < 3*cm: c.showPage(); y = h - 2*cm
                     c.drawString(1*cm, y, str(item.get("denominacion", "")))
                     c.drawRightString(w - 2.5*cm, y, str(item.get("cantidad", "")))
-                    c.drawRightString(w - 1*cm, y, f"{item.get('subtotal', 0):.2f}€")
+                    c.drawRightString(w - 1*cm, y, f"{divisas.formatear(item.get('subtotal', 0))}")
                     y -= 0.42*cm
             y -= 0.5*cm
             c.setStrokeColorRGB(0, 1, 0.78); c.line(1*cm, y, w - 1*cm, y); y -= 0.55*cm
