@@ -6301,7 +6301,7 @@ class ConfiguracionWindow(QWidget):
         )
         side_ly = QVBoxLayout(sidebar)
 
-        lbl_tit = QLabel("SMART CONFIG")
+        lbl_tit = QLabel(tr("cfg.smart_config", default="SMART CONFIG"))
         lbl_tit.setStyleSheet(
             "color: white; font-weight: 900; font-size: 14px; margin: 30px; letter-spacing: 2px;"
         )
@@ -7580,7 +7580,7 @@ class ConfiguracionWindow(QWidget):
         fl.setSpacing(15)
         fl.addWidget(
             QLabel(
-                "DETALLES DEL EVENTO",
+                tr("cfg.detalles_del_evento", default="DETALLES DEL EVENTO"),
                 styleSheet=f"color: {_CIAN}; font-weight: 900; font-family: 'Segoe UI';",
             )
         )

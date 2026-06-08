@@ -2611,7 +2611,7 @@ class TPVWindow(QWidget):
             gl.addWidget(b, row, col, 1, span)
 
         # ENTER ocupa filas 2-3 en col 3
-        btn_enter = QPushButton("AGREGAR")
+        btn_enter = QPushButton(tr("tpv.agregar", default="AGREGAR"))
         btn_enter.setFixedHeight(H * 2 + 6)
         btn_enter.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_enter.setStyleSheet(_ss_enter)

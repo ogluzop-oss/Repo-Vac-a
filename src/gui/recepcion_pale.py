@@ -273,7 +273,7 @@ class ScannerDialog(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setObjectName("scanner_dialog")
         self.setFixedSize(650, 600)
-        self.setWindowTitle("Escáner Inteligente - Smart Manager")
+        self.setWindowTitle(tr("recep.escaner_inteligente_smart_ma", default="Escáner Inteligente - Smart Manager"))
         self.usuario = usuario
         self.cap = None
         self.codigo_detectado = None
@@ -289,7 +289,7 @@ class ScannerDialog(QDialog):
         content_layout.setContentsMargins(30, 30, 30, 30)
         content_layout.setSpacing(12)
 
-        self.lbl_titulo = QLabel("VISIÓN - LOGÍSTICA")
+        self.lbl_titulo = QLabel(tr("recep.vision_logistica", default="VISIÓN - LOGÍSTICA"))
         self.lbl_titulo.setObjectName("titulo_scan")
         self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         content_layout.addWidget(self.lbl_titulo)
@@ -297,18 +297,18 @@ class ScannerDialog(QDialog):
         # Reserve vertical space for the video label (300 px + two 12 px gaps)
         content_layout.addSpacing(324)
 
-        self.lbl_status = QLabel("ALINEE EL CÓDIGO CON EL SENSOR")
+        self.lbl_status = QLabel(tr("recep.alinee_el_codigo_con_el_sens", default="ALINEE EL CÓDIGO CON EL SENSOR"))
         self.lbl_status.setObjectName("lbl_info_scan")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         content_layout.addWidget(self.lbl_status)
 
-        self.btn_iniciar = QPushButton("🚀 INICIAR ESCANEO")
+        self.btn_iniciar = QPushButton(tr("recep.iniciar_escaneo", default="🚀 INICIAR ESCANEO"))
         self.btn_iniciar.setObjectName("btn_primario")
         self.btn_iniciar.setFixedHeight(50)
         self.btn_iniciar.setVisible(False)
         content_layout.addWidget(self.btn_iniciar)
 
-        self.btn_cancelar = QPushButton("ABORTAR OPERACIÓN")
+        self.btn_cancelar = QPushButton(tr("recep.abortar_operacion", default="ABORTAR OPERACIÓN"))
         self.btn_cancelar.setObjectName("btn_abortar_scan")
         self.btn_cancelar.setFixedHeight(45)
         content_layout.addWidget(self.btn_cancelar)
@@ -387,7 +387,7 @@ class ScannerDialog(QDialog):
     def inicializar_hardware_camara(self):
         self.btn_iniciar.setEnabled(False)
         self.btn_iniciar.setText(
-            "⌛ CONECTANDO..."
+            tr("recep.conectando", default="⌛ CONECTANDO...")
         )  # Cambiado para mostrar el estado de conexión
         QApplication.processEvents()
 
@@ -406,13 +406,13 @@ class ScannerDialog(QDialog):
             self.lbl_video.setProperty("activo", True)
             if aplicar_estilo_widget is not None:
                 aplicar_estilo_widget(self.lbl_video)
-            self.lbl_status.setText("ALINEE EL CÓDIGO CON EL SENSOR")
+            self.lbl_status.setText(tr("recep.alinee_el_codigo_con_el_sens_2", default="ALINEE EL CÓDIGO CON EL SENSOR"))
             self.btn_iniciar.hide()
             self.timer.start(30)
         else:
             self.mostrar_error_camara()
             self.btn_iniciar.setEnabled(True)
-            self.btn_iniciar.setText("🚀 REINTENTAR INICIO")
+            self.btn_iniciar.setText(tr("recep.reintentar_inicio", default="🚀 REINTENTAR INICIO"))
             self.btn_iniciar.show()
 
     def update_frame(self):
@@ -500,7 +500,7 @@ class ScannerDialog(QDialog):
                         items_recuperados.append([r[0], r[1], r[2]])
 
             if not items_recuperados:
-                self.lbl_status.setText("PALÉ SIN STOCK O NO EXISTE")
+                self.lbl_status.setText(tr("recep.pale_sin_stock_o_no_existe", default="PALÉ SIN STOCK O NO EXISTE"))
                 # Damos margen para que el usuario vea el error antes de reanudar
                 QTimer.singleShot(2000, lambda: self.timer.start(30))
                 return
@@ -516,9 +516,9 @@ class ScannerDialog(QDialog):
             self.reject()
 
     def mostrar_error_camara(self):
-        self.lbl_video.setText("ERROR DE HARDWARE\n\nCámara ocupada o no detectada")
+        self.lbl_video.setText(tr("recep.error_de_hardware_camara_ocu", default="ERROR DE HARDWARE\n\nCámara ocupada o no detectada"))
         self.lbl_video.setProperty("activo", False)
-        self.lbl_status.setText("ERROR DE HARDWARE")
+        self.lbl_status.setText(tr("recep.error_de_hardware", default="ERROR DE HARDWARE"))
         if aplicar_estilo_widget is not None:
             aplicar_estilo_widget(self.lbl_video)
 
@@ -548,7 +548,7 @@ class SelectorLogisticoExtras(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Añadir Equipamiento Logístico")
+        self.setWindowTitle(tr("recep.anadir_equipamiento_logistic", default="Añadir Equipamiento Logístico"))
         self.setObjectName("dlg_incidencia")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -569,7 +569,7 @@ class SelectorLogisticoExtras(QDialog):
         ly.setContentsMargins(28, 24, 28, 24)
         ly.setSpacing(18)
 
-        titulo = QLabel("¿AÑADIR BULTO EXTRA AL TRASPASO?")
+        titulo = QLabel(tr("recep.anadir_bulto_extra_al_traspa", default="¿AÑADIR BULTO EXTRA AL TRASPASO?"))
         titulo.setObjectName("titulo_cian")
         titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ly.addWidget(titulo)
@@ -593,7 +593,7 @@ class SelectorLogisticoExtras(QDialog):
         h_btns = QHBoxLayout()
         h_btns.setSpacing(12)
 
-        self.btn_skip = QPushButton("SEGUIR SIN BULTOS EXTRA")
+        self.btn_skip = QPushButton(tr("recep.seguir_sin_bultos_extra", default="SEGUIR SIN BULTOS EXTRA"))
         self.btn_skip.setObjectName("btn_secundario")
         self.btn_skip.setFixedHeight(46)
         self.btn_skip.setStyleSheet(
@@ -603,7 +603,7 @@ class SelectorLogisticoExtras(QDialog):
         self.btn_skip.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_skip.clicked.connect(self.reject)
 
-        self.btn_aceptar = QPushButton("ACEPTAR")
+        self.btn_aceptar = QPushButton(tr("recep.aceptar", default="ACEPTAR"))
         self.btn_aceptar.setObjectName("btn_primario")
         self.btn_aceptar.setFixedHeight(46)
         self.btn_aceptar.setEnabled(False)
@@ -1135,18 +1135,18 @@ class RecepcionStockPage(QWidget):
         self.lbl_icono.setObjectName("icono_hero")
         self.lbl_icono.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_titulo = QLabel("CENTRO DE RECEPCIÓN LOGÍSTICA")
+        self.lbl_titulo = QLabel(tr("recep.centro_de_recepcion_logistic", default="CENTRO DE RECEPCIÓN LOGÍSTICA"))
         self.lbl_titulo.setObjectName("titulo_cian")
         self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_info = QLabel(
-            "Presione el botón para abrir el escáner y\nvalidar la entrada de palés o artículos."
+            tr("recep.presione_el_boton_para_abrir", default="Presione el botón para abrir el escáner y\nvalidar la entrada de palés o artículos.")
         )
         self.lbl_info.setObjectName("texto_auxiliar")
         self.lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Botón Central de Acción (Estilo Global Neón)
-        self.btn_iniciar = QPushButton("🚀  INICIAR ESCANEO")
+        self.btn_iniciar = QPushButton(tr("recep.iniciar_escaneo_2", default="🚀  INICIAR ESCANEO"))
         self.btn_iniciar.setObjectName("btn_primario")
         self.btn_iniciar.setFixedWidth(320)
         self.btn_iniciar.setFixedHeight(60)
@@ -1296,13 +1296,13 @@ class RecepcionStockPage(QWidget):
         self.input_manual = QLineEdit()
         self.input_manual.setObjectName("input_buscador")
         self.input_manual.setPlaceholderText(
-            "O escriba el código manualmente y pulse Enter..."
+            tr("recep.o_escriba_el_codigo_manualme", default="O escriba el código manualmente y pulse Enter...")
         )
         self.input_manual.setFixedHeight(45)
         self.input_manual.returnPressed.connect(self.procesar_entrada_manual)
 
         # Botón Volver/Cancelar
-        self.btn_cancelar_cam = QPushButton("⬅ CANCELAR Y VOLVER")
+        self.btn_cancelar_cam = QPushButton(tr("recep.cancelar_y_volver", default="⬅ CANCELAR Y VOLVER"))
         self.btn_cancelar_cam.setObjectName("btn_peligro")
         self.btn_cancelar_cam.setFixedWidth(200)
         self.btn_cancelar_cam.clicked.connect(self.detener_camara)
@@ -1394,18 +1394,18 @@ class HistorialTraspasosPage(QWidget):
         header = QHBoxLayout()
         title_container = QVBoxLayout()
 
-        title = QLabel("Historial de Traspasos")
+        title = QLabel(tr("recep.historial_de_traspasos", default="Historial de Traspasos"))
         title.setFont(QFont("Segoe UI", 26, QFont.Weight.Bold))
         title.setObjectName("titulo_cian")
 
-        subtitle = QLabel("Consulta, trazabilidad y gestión de envíos realizados.")
+        subtitle = QLabel(tr("recep.consulta_trazabilidad_y_gest", default="Consulta, trazabilidad y gestión de envíos realizados."))
         subtitle.setObjectName("subtitulo_muted")
 
         title_container.addWidget(title)
         title_container.addWidget(subtitle)
 
         # Punto 4: Unificado a self.btn_actualizar con estilo corporativo
-        self.btn_actualizar = QPushButton("🔄 ACTUALIZAR")
+        self.btn_actualizar = QPushButton(tr("recep.actualizar", default="🔄 ACTUALIZAR"))
         self.btn_actualizar.setObjectName("btn_primario")
         self.btn_actualizar.setFixedSize(180, 45)
         self.btn_actualizar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1423,7 +1423,7 @@ class HistorialTraspasosPage(QWidget):
         self.input_busqueda = QLineEdit()
         self.input_busqueda.setObjectName("input_buscador")
         self.input_busqueda.setPlaceholderText(
-            "🔍 Filtrar por ID, Palé, Artículo, EAN, Destino o Fecha..."
+            tr("recep.filtrar_por_id_pale_articulo", default="🔍 Filtrar por ID, Palé, Artículo, EAN, Destino o Fecha...")
         )
         self.input_busqueda.setFixedHeight(50)
 
@@ -1432,7 +1432,7 @@ class HistorialTraspasosPage(QWidget):
 
         self.input_busqueda.textChanged.connect(self.cargar_datos)
 
-        self.btn_camara = QPushButton("📷 SCAN")
+        self.btn_camara = QPushButton(tr("recep.scan", default="📷 SCAN"))
         self.btn_camara.setObjectName("btn_secundario")
         self.btn_camara.setFixedSize(110, 50)
         self.btn_camara.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1587,7 +1587,7 @@ class HistorialTraspasosPage(QWidget):
             self.regenerar_pdf_desde_historial(id_documento)
 
     def agregar_boton_pdf(self, fila, id_doc):
-        btn = QPushButton("📄 VER ALBARÁN")
+        btn = QPushButton(tr("recep.ver_albaran", default="📄 VER ALBARÁN"))
         btn.setObjectName("btn_secundario")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         # Altura 44px: el QSS añade padding 10px + borde 2px (24px de chrome
@@ -1672,7 +1672,7 @@ class HistorialTraspasosPage(QWidget):
                 lambda e: _mensaje_ui(self, "Error", str(e), "error")
             )
 
-            self.btn_actualizar.setText("⏳ Generando...")
+            self.btn_actualizar.setText(tr("recep.generando", default="⏳ Generando..."))
             self.btn_actualizar.setEnabled(False)
             self.worker.start()
         except Exception as e:
@@ -1692,14 +1692,14 @@ class HistorialTraspasosPage(QWidget):
         actualiza los datos de la base de datos.
         """
         self.btn_actualizar.setEnabled(False)
-        self.btn_actualizar.setText("⌛ CARGANDO...")
+        self.btn_actualizar.setText(tr("recep.cargando", default="⌛ CARGANDO..."))
         QApplication.processEvents()
         QTimer.singleShot(300, self.finalizar_carga)
 
     def finalizar_carga(self):
         self.cargar_datos()
         self.btn_actualizar.setEnabled(True)
-        self.btn_actualizar.setText("🔄 ACTUALIZAR")
+        self.btn_actualizar.setText(tr("recep.actualizar_2", default="🔄 ACTUALIZAR"))
 
 
 # ============================================================
@@ -1724,12 +1724,12 @@ class LandingScannerPage(QWidget):
         self.lbl_icono.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Texto Informativo - Neón Corporativo
-        self.lbl_info = QLabel("RECEPCIÓN DE MERCANCÍA")
+        self.lbl_info = QLabel(tr("recep.recepcion_de_mercancia", default="RECEPCIÓN DE MERCANCÍA"))
         self.lbl_info.setObjectName("titulo_cian")
         self.lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Botón Central - Estilo Global Neón
-        self.btn_iniciar = QPushButton("🚀  ABRIR ESCÁNER DE ENTRADA")
+        self.btn_iniciar = QPushButton(tr("recep.abrir_escaner_de_entrada", default="🚀  ABRIR ESCÁNER DE ENTRADA"))
         self.btn_iniciar.setObjectName("btn_primario")
         self.btn_iniciar.setFixedSize(
             320, 65
@@ -2451,13 +2451,13 @@ class _BuscarArticuloDialogReab(QDialog):
         ly.setContentsMargins(24, 20, 24, 20)
         ly.setSpacing(14)
 
-        title = QLabel("AÑADIR ARTÍCULO AL CONTROL")
+        title = QLabel(tr("recep.anadir_articulo_al_control", default="AÑADIR ARTÍCULO AL CONTROL"))
         title.setFont(QFont("Segoe UI", 15, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {_REAB_CIAN}; background: transparent; border: none;")
         ly.addWidget(title)
 
         self.buscador = QLineEdit()
-        self.buscador.setPlaceholderText("Buscar por código o nombre…")
+        self.buscador.setPlaceholderText(tr("recep.buscar_por_codigo_o_nombre", default="Buscar por código o nombre…"))
         self.buscador.setStyleSheet(_REAB_NEON_INPUT_SS)
         self.buscador.setFixedHeight(44)
         self.buscador.textChanged.connect(self._filtrar)
@@ -2514,7 +2514,7 @@ class _BuscarArticuloDialogReab(QDialog):
         self.combo_origen.setFixedHeight(38)
         _row("Origen de reposición:", self.combo_origen)
 
-        self.chk_auto = QCheckBox("Activar reposición automática")
+        self.chk_auto = QCheckBox(tr("recep.activar_reposicion_automatic", default="Activar reposición automática"))
         self.chk_auto.setChecked(True)
         self.chk_auto.setStyleSheet("color: #FFF; font-size: 13px; background: transparent; border: none;")
         cfg_ly.addWidget(self.chk_auto)
@@ -2523,12 +2523,12 @@ class _BuscarArticuloDialogReab(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
-        btn_ok = QPushButton("AÑADIR")
+        btn_ok = QPushButton(tr("recep.anadir", default="AÑADIR"))
         btn_ok.setStyleSheet(_REAB_BTN_CIAN_SS)
         btn_ok.setFixedHeight(44)
         btn_ok.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_ok.clicked.connect(self._confirmar)
-        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel = QPushButton(tr("recep.cancelar", default="CANCELAR"))
         btn_cancel.setStyleSheet(_REAB_BTN_ROJO_SS)
         btn_cancel.setFixedHeight(44)
         btn_cancel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -2624,7 +2624,7 @@ class _EditarConfigDialogReab(QDialog):
         ly.setContentsMargins(24, 20, 24, 20)
         ly.setSpacing(14)
 
-        title = QLabel("EDITAR CONFIGURACIÓN")
+        title = QLabel(tr("recep.editar_configuracion", default="EDITAR CONFIGURACIÓN"))
         title.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {_REAB_CIAN}; background: transparent; border: none;")
         ly.addWidget(title)
@@ -2663,19 +2663,19 @@ class _EditarConfigDialogReab(QDialog):
         self.combo_origen.setFixedHeight(38)
         _row("Origen:", self.combo_origen)
 
-        self.chk_auto = QCheckBox("Reposición automática")
+        self.chk_auto = QCheckBox(tr("recep.reposicion_automatica", default="Reposición automática"))
         self.chk_auto.setChecked(cfg.get("automatico", True))
         self.chk_auto.setStyleSheet("color: #FFF; font-size: 13px; background: transparent; border: none;")
         ly.addWidget(self.chk_auto)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
-        btn_ok = QPushButton("GUARDAR")
+        btn_ok = QPushButton(tr("recep.guardar", default="GUARDAR"))
         btn_ok.setStyleSheet(_REAB_BTN_CIAN_SS)
         btn_ok.setFixedHeight(44)
         btn_ok.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_ok.clicked.connect(self._guardar)
-        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel = QPushButton(tr("recep.cancelar_2", default="CANCELAR"))
         btn_cancel.setStyleSheet(_REAB_BTN_ROJO_SS)
         btn_cancel.setFixedHeight(44)
         btn_cancel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -2720,7 +2720,7 @@ class _HistorialDialogReab(QDialog):
         ly.setContentsMargins(24, 20, 24, 20)
         ly.setSpacing(14)
 
-        title = QLabel("HISTORIAL DE PROPUESTAS")
+        title = QLabel(tr("recep.historial_de_propuestas", default="HISTORIAL DE PROPUESTAS"))
         title.setFont(QFont("Segoe UI", 15, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {_REAB_CIAN}; background: transparent; border: none;")
         ly.addWidget(title)
@@ -2747,7 +2747,7 @@ class _HistorialDialogReab(QDialog):
         """)
         ly.addWidget(self.tabla)
 
-        btn_cerrar = QPushButton("CERRAR")
+        btn_cerrar = QPushButton(tr("recep.cerrar", default="CERRAR"))
         btn_cerrar.setStyleSheet(_REAB_BTN_ROJO_SS)
         btn_cerrar.setFixedHeight(44)
         btn_cerrar.setFixedWidth(160)
@@ -2959,7 +2959,7 @@ class _ReabastecimientoPage(QWidget):
             return
         from PyQt6.QtWidgets import QApplication
         original = btn.text()
-        btn.setText("⟳  Cargando...")
+        btn.setText(tr("recep.cargando_2", default="⟳  Cargando..."))
         btn.setEnabled(False)
         QApplication.processEvents()
         try:
@@ -2978,7 +2978,7 @@ class _ReabastecimientoPage(QWidget):
         root.setContentsMargins(24, 24, 24, 16)
         root.setSpacing(14)
 
-        lbl = QLabel("Reabastecimiento")
+        lbl = QLabel(tr("recep.reabastecimiento", default="Reabastecimiento"))
         lbl.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         lbl.setStyleSheet(f"color: {_REAB_CIAN};")
         root.addWidget(lbl)
@@ -3015,7 +3015,7 @@ class _ReabastecimientoPage(QWidget):
         p0_ly.setSpacing(8)
 
         p0_hdr = QHBoxLayout()
-        btn_guardar_cfg = QPushButton("GUARDAR")
+        btn_guardar_cfg = QPushButton(tr("recep.guardar_2", default="GUARDAR"))
         btn_guardar_cfg.setStyleSheet(_SAVE_BTN_SS)
         btn_guardar_cfg.setFixedHeight(46)
         btn_guardar_cfg.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -3103,28 +3103,28 @@ class _ReabastecimientoPage(QWidget):
         p3_ly.setContentsMargins(32, 20, 32, 20)
         p3_ly.setSpacing(0)
 
-        lbl_sec1 = QLabel("Correo electrónico del responsable de logística")
+        lbl_sec1 = QLabel(tr("recep.correo_electronico_del_respo", default="Correo electrónico del responsable de logística"))
         lbl_sec1.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         lbl_sec1.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 4px;")
         p3_ly.addWidget(lbl_sec1)
 
         lbl_sec1_desc = QLabel(
-            "Se enviarán automáticamente los informes de artículos pendientes de reabastecimiento "
-            "a esta dirección según la programación definida a continuación."
+            tr("recep.se_enviaran_automaticamente_", default="Se enviarán automáticamente los informes de artículos pendientes de reabastecimiento "
+            "a esta dirección según la programación definida a continuación.")
         )
         lbl_sec1_desc.setWordWrap(True)
         lbl_sec1_desc.setStyleSheet("color: #8B949E; font-size: 11px; margin-bottom: 10px;")
         p3_ly.addWidget(lbl_sec1_desc)
 
         self._inp_email = QLineEdit()
-        self._inp_email.setPlaceholderText("logistica@miempresa.com")
+        self._inp_email.setPlaceholderText(tr("recep.logistica_miempresa_com", default="logistica@miempresa.com"))
         self._inp_email.setFixedHeight(46)
         self._inp_email.setStyleSheet(_EMAIL_INPUT_SS)
         p3_ly.addWidget(self._inp_email)
 
         p3_ly.addSpacing(24)
 
-        lbl_smtp = QLabel("Correo remitente (cuenta que envía los informes)")
+        lbl_smtp = QLabel(tr("recep.correo_remitente_cuenta_que_", default="Correo remitente (cuenta que envía los informes)"))
         lbl_smtp.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         lbl_smtp.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 4px;")
         p3_ly.addWidget(lbl_smtp)
@@ -3134,7 +3134,7 @@ class _ReabastecimientoPage(QWidget):
         smtp_row.setContentsMargins(0, 0, 0, 0)
 
         self._inp_smtp_user = QLineEdit()
-        self._inp_smtp_user.setPlaceholderText("remitente@gmail.com")
+        self._inp_smtp_user.setPlaceholderText(tr("recep.remitente_gmail_com", default="remitente@gmail.com"))
         self._inp_smtp_user.setFixedHeight(46)
         self._inp_smtp_user.setStyleSheet(_EMAIL_INPUT_SS)
         smtp_row.addWidget(self._inp_smtp_user, 1, Qt.AlignmentFlag.AlignTop)
@@ -3144,7 +3144,7 @@ class _ReabastecimientoPage(QWidget):
         pass_col.setContentsMargins(0, 0, 0, 0)
 
         self._inp_smtp_pass = QLineEdit()
-        self._inp_smtp_pass.setPlaceholderText("Contraseña de aplicación (16 caracteres)")
+        self._inp_smtp_pass.setPlaceholderText(tr("recep.contrasena_de_aplicacion_16_", default="Contraseña de aplicación (16 caracteres)"))
         self._inp_smtp_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self._inp_smtp_pass.setFixedHeight(46)
         self._inp_smtp_pass.setStyleSheet(_EMAIL_INPUT_SS)
@@ -3162,7 +3162,7 @@ class _ReabastecimientoPage(QWidget):
 
         p3_ly.addSpacing(8)
 
-        lbl_sec2 = QLabel("Días de envío (puede seleccionar varios)")
+        lbl_sec2 = QLabel(tr("recep.dias_de_envio_puede_seleccio", default="Días de envío (puede seleccionar varios)"))
         lbl_sec2.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         lbl_sec2.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 10px;")
         p3_ly.addWidget(lbl_sec2)
@@ -3185,7 +3185,7 @@ class _ReabastecimientoPage(QWidget):
 
         p3_ly.addSpacing(24)
 
-        lbl_sec3 = QLabel("Hora de envío")
+        lbl_sec3 = QLabel(tr("recep.hora_de_envio", default="Hora de envío"))
         lbl_sec3.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         lbl_sec3.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 10px;")
         p3_ly.addWidget(lbl_sec3)
@@ -3229,7 +3229,7 @@ class _ReabastecimientoPage(QWidget):
         save_row.addStretch()
         save_row.addWidget(self._lbl_save_ok)
         save_row.addSpacing(20)
-        btn_test = QPushButton("PROBAR ENVÍO")
+        btn_test = QPushButton(tr("recep.probar_envio", default="PROBAR ENVÍO"))
         btn_test.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {_REAB_CIAN}; border: 2px solid {_REAB_CIAN};"
             f" border-radius: 10px; font-size: 13px; font-weight: bold; padding: 0 18px; outline: none; }}"
@@ -3240,7 +3240,7 @@ class _ReabastecimientoPage(QWidget):
         btn_test.clicked.connect(self._probar_envio)
         save_row.addWidget(btn_test)
         save_row.addSpacing(12)
-        btn_save = QPushButton("GUARDAR")
+        btn_save = QPushButton(tr("recep.guardar_3", default="GUARDAR"))
         btn_save.setStyleSheet(_SAVE_BTN_SS)
         btn_save.setFixedHeight(46)
         btn_save.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -3650,14 +3650,14 @@ class _ReabastecimientoPage(QWidget):
             self._lbl_pass_saved.setText(
                 "✓  Contraseña guardada (déjalo vacío para conservarla)" if smtp_pass else ""
             )
-            self._lbl_save_ok.setText("✓ Configuración guardada correctamente")
+            self._lbl_save_ok.setText(tr("recep.configuracion_guardada_corre", default="✓ Configuración guardada correctamente"))
             self._lbl_save_ok.setStyleSheet(
                 "color: #1ED760; font-size: 13px; font-weight: bold; background: transparent;"
             )
             self._lbl_save_ok.setVisible(True)
             QTimer.singleShot(3000, self._hide_save_ok)
         else:
-            self._lbl_save_ok.setText("✕ Error al guardar la configuración")
+            self._lbl_save_ok.setText(tr("recep.error_al_guardar_la_configur", default="✕ Error al guardar la configuración"))
             self._lbl_save_ok.setStyleSheet(
                 "color: #FF4B4B; font-size: 13px; font-weight: bold; background: transparent;"
             )
@@ -3670,7 +3670,7 @@ class _ReabastecimientoPage(QWidget):
         smtp_user = cfg.get("smtp_user", "")
         smtp_pass = cfg.get("smtp_pass", "")
         if not email or not smtp_user or not smtp_pass:
-            self._lbl_save_ok.setText("✕ Completa y guarda email, remitente y contraseña antes de probar")
+            self._lbl_save_ok.setText(tr("recep.completa_y_guarda_email_remi", default="✕ Completa y guarda email, remitente y contraseña antes de probar"))
             self._lbl_save_ok.setStyleSheet(
                 "color: #FF4B4B; font-size: 12px; font-weight: bold; background: transparent;"
             )
@@ -3679,7 +3679,7 @@ class _ReabastecimientoPage(QWidget):
             return
         props = _reab_listar_propuestas(estados=("pendiente",))
         if not props:
-            self._lbl_save_ok.setText("⚠ No hay propuestas pendientes — se envía un artículo de ejemplo para verificar SMTP")
+            self._lbl_save_ok.setText(tr("recep.no_hay_propuestas_pendientes", default="⚠ No hay propuestas pendientes — se envía un artículo de ejemplo para verificar SMTP"))
             self._lbl_save_ok.setStyleSheet(
                 "color: #E3B341; font-size: 11px; font-weight: bold; background: transparent;"
             )
@@ -3703,7 +3703,7 @@ class _ReabastecimientoPage(QWidget):
         threading.Thread(target=_bg, daemon=True).start()
 
     def _on_prueba_ok(self):
-        self._lbl_save_ok.setText("✓ Correo de prueba enviado — revisa tu bandeja de entrada")
+        self._lbl_save_ok.setText(tr("recep.correo_de_prueba_enviado_rev", default="✓ Correo de prueba enviado — revisa tu bandeja de entrada"))
         self._lbl_save_ok.setStyleSheet(
             "color: #1ED760; font-size: 13px; font-weight: bold; background: transparent;"
         )
@@ -3711,7 +3711,7 @@ class _ReabastecimientoPage(QWidget):
 
     def _on_prueba_err(self):
         self._lbl_save_ok.setText(
-            "✕ Error al enviar. Gmail: usa Contraseña de Aplicación (no tu clave normal)")
+            tr("recep.error_al_enviar_gmail_usa_co", default="✕ Error al enviar. Gmail: usa Contraseña de Aplicación (no tu clave normal)"))
         self._lbl_save_ok.setStyleSheet(
             "color: #FF4B4B; font-size: 12px; font-weight: bold; background: transparent;"
         )
@@ -3907,15 +3907,15 @@ class PreparacionPage(QWidget):
 
         hdr = QHBoxLayout()
         vc = QVBoxLayout()
-        t = QLabel("Preparación de Envíos")
+        t = QLabel(tr("recep.preparacion_de_envios", default="Preparación de Envíos"))
         t.setObjectName("titulo_cian")
-        s = QLabel("Documentos en preparación activa y listos para expedir")
+        s = QLabel(tr("recep.documentos_en_preparacion_ac", default="Documentos en preparación activa y listos para expedir"))
         s.setObjectName("subtitulo_muted")
         vc.addWidget(t)
         vc.addWidget(s)
         hdr.addLayout(vc)
         hdr.addStretch()
-        self.btn_actualizar = QPushButton("🔄 ACTUALIZAR")
+        self.btn_actualizar = QPushButton(tr("recep.actualizar_3", default="🔄 ACTUALIZAR"))
         self.btn_actualizar.setObjectName("btn_primario")
         self.btn_actualizar.setFixedSize(180, 45)
         self.btn_actualizar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3926,7 +3926,7 @@ class PreparacionPage(QWidget):
         self.input_busqueda = QLineEdit()
         self.input_busqueda.setObjectName("input_buscador")
         self.input_busqueda.setPlaceholderText(
-            "🔍 Filtrar por ID, Origen, Destino o Estado..."
+            tr("recep.filtrar_por_id_origen_destin", default="🔍 Filtrar por ID, Origen, Destino o Estado...")
         )
         self.input_busqueda.setFixedHeight(50)
         self.input_busqueda.textChanged.connect(self._filtrar)
@@ -3953,14 +3953,14 @@ class PreparacionPage(QWidget):
 
     def ejecutar_actualizacion(self):
         self.btn_actualizar.setEnabled(False)
-        self.btn_actualizar.setText("⌛ ACTUALIZANDO...")
+        self.btn_actualizar.setText(tr("recep.actualizando", default="⌛ ACTUALIZANDO..."))
         self.btn_actualizar.repaint()
         QApplication.processEvents()
         try:
             self.cargar_datos()
         finally:
             self.btn_actualizar.setEnabled(True)
-            self.btn_actualizar.setText("🔄 ACTUALIZAR")
+            self.btn_actualizar.setText(tr("recep.actualizar_4", default="🔄 ACTUALIZAR"))
 
     def _filtrar(self):
         txt = (
@@ -4013,15 +4013,15 @@ class ExpedicionesPage(QWidget):
 
         hdr = QHBoxLayout()
         vc = QVBoxLayout()
-        t = QLabel("Expediciones y Tránsito")
+        t = QLabel(tr("recep.expediciones_y_transito", default="Expediciones y Tránsito"))
         t.setObjectName("titulo_cian")
-        s = QLabel("Seguimiento de envíos expedidos y en tránsito hacia destino")
+        s = QLabel(tr("recep.seguimiento_de_envios_expedi", default="Seguimiento de envíos expedidos y en tránsito hacia destino"))
         s.setObjectName("subtitulo_muted")
         vc.addWidget(t)
         vc.addWidget(s)
         hdr.addLayout(vc)
         hdr.addStretch()
-        self.btn_actualizar = QPushButton("🔄 ACTUALIZAR")
+        self.btn_actualizar = QPushButton(tr("recep.actualizar_5", default="🔄 ACTUALIZAR"))
         self.btn_actualizar.setObjectName("btn_primario")
         self.btn_actualizar.setFixedSize(180, 45)
         self.btn_actualizar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4032,7 +4032,7 @@ class ExpedicionesPage(QWidget):
         self.input_busqueda = QLineEdit()
         self.input_busqueda.setObjectName("input_buscador")
         self.input_busqueda.setPlaceholderText(
-            "🔍 Filtrar por ID, Origen, Destino o Estado..."
+            tr("recep.filtrar_por_id_origen_destin_2", default="🔍 Filtrar por ID, Origen, Destino o Estado...")
         )
         self.input_busqueda.setFixedHeight(50)
         self.input_busqueda.textChanged.connect(self._filtrar)
@@ -4059,14 +4059,14 @@ class ExpedicionesPage(QWidget):
 
     def ejecutar_actualizacion(self):
         self.btn_actualizar.setEnabled(False)
-        self.btn_actualizar.setText("⌛ ACTUALIZANDO...")
+        self.btn_actualizar.setText(tr("recep.actualizando_2", default="⌛ ACTUALIZANDO..."))
         self.btn_actualizar.repaint()
         QApplication.processEvents()
         try:
             self.cargar_datos()
         finally:
             self.btn_actualizar.setEnabled(True)
-            self.btn_actualizar.setText("🔄 ACTUALIZAR")
+            self.btn_actualizar.setText(tr("recep.actualizar_6", default="🔄 ACTUALIZAR"))
 
     def _filtrar(self):
         txt = (
@@ -4109,7 +4109,7 @@ class _NuevaIncidenciaDialog(QDialog):
             self._usuario_str = usuario.get("nombre", "Usuario")
         else:
             self._usuario_str = str(usuario or "Usuario")
-        self.setWindowTitle("Registrar Incidencia Logística")
+        self.setWindowTitle(tr("recep.registrar_incidencia_logisti", default="Registrar Incidencia Logística"))
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setObjectName("dlg_incidencia")
@@ -4128,7 +4128,7 @@ class _NuevaIncidenciaDialog(QDialog):
         ly.setContentsMargins(30, 25, 30, 25)
         ly.setSpacing(16)
 
-        lbl = QLabel("NUEVA INCIDENCIA LOGÍSTICA")
+        lbl = QLabel(tr("recep.nueva_incidencia_logistica", default="NUEVA INCIDENCIA LOGÍSTICA"))
         lbl.setObjectName("titulo_cian")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ly.addWidget(lbl)
@@ -4139,7 +4139,7 @@ class _NuevaIncidenciaDialog(QDialog):
 
         self.inp_doc = QLineEdit()
         self.inp_doc.setObjectName("input_buscador")
-        self.inp_doc.setPlaceholderText("ej. DOC-2024-001")
+        self.inp_doc.setPlaceholderText(tr("recep.ej_doc_2024_001", default="ej. DOC-2024-001"))
         form.addRow("ID Documento *:", self.inp_doc)
 
         self.cmb_tipo = QComboBox()
@@ -4148,12 +4148,12 @@ class _NuevaIncidenciaDialog(QDialog):
 
         self.inp_pale = QLineEdit()
         self.inp_pale.setObjectName("input_buscador")
-        self.inp_pale.setPlaceholderText("Opcional")
+        self.inp_pale.setPlaceholderText(tr("recep.opcional", default="Opcional"))
         form.addRow("ID Palé:", self.inp_pale)
 
         self.inp_codigo = QLineEdit()
         self.inp_codigo.setObjectName("input_buscador")
-        self.inp_codigo.setPlaceholderText("Opcional")
+        self.inp_codigo.setPlaceholderText(tr("recep.opcional_2", default="Opcional"))
         form.addRow("Código Artículo:", self.inp_codigo)
 
         self.spin_cant = QSpinBox()
@@ -4161,7 +4161,7 @@ class _NuevaIncidenciaDialog(QDialog):
         form.addRow("Cantidad Afectada:", self.spin_cant)
 
         self.txt_desc = QTextEdit()
-        self.txt_desc.setPlaceholderText("Descripción detallada de la incidencia...")
+        self.txt_desc.setPlaceholderText(tr("recep.descripcion_detallada_de_la_", default="Descripción detallada de la incidencia..."))
         self.txt_desc.setFixedHeight(90)
         form.addRow("Descripción:", self.txt_desc)
 
@@ -4169,11 +4169,11 @@ class _NuevaIncidenciaDialog(QDialog):
 
         btns = QHBoxLayout()
         btns.setSpacing(12)
-        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel = QPushButton(tr("recep.cancelar_3", default="CANCELAR"))
         btn_cancel.setObjectName("btn_secundario")
         btn_cancel.setFixedHeight(45)
         btn_cancel.clicked.connect(self.reject)
-        btn_ok = QPushButton("✅  REGISTRAR")
+        btn_ok = QPushButton(tr("recep.registrar", default="✅  REGISTRAR"))
         btn_ok.setObjectName("btn_primario")
         btn_ok.setFixedHeight(45)
         btn_ok.clicked.connect(self._registrar)
@@ -4253,22 +4253,22 @@ class IncidenciasPage(QWidget):
 
         hdr = QHBoxLayout()
         vc = QVBoxLayout()
-        t = QLabel("Incidencias Logísticas")
+        t = QLabel(tr("recep.incidencias_logisticas", default="Incidencias Logísticas"))
         t.setObjectName("titulo_cian")
-        s = QLabel("Registro y seguimiento de incidencias durante el proceso logístico")
+        s = QLabel(tr("recep.registro_y_seguimiento_de_in", default="Registro y seguimiento de incidencias durante el proceso logístico"))
         s.setObjectName("subtitulo_muted")
         vc.addWidget(t)
         vc.addWidget(s)
         hdr.addLayout(vc)
         hdr.addStretch()
-        btn_nueva = QPushButton("⚠️  NUEVA INCIDENCIA")
+        btn_nueva = QPushButton(tr("recep.nueva_incidencia", default="⚠️  NUEVA INCIDENCIA"))
         btn_nueva.setObjectName("btn_primario")
         btn_nueva.setFixedHeight(45)
         btn_nueva.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_nueva.clicked.connect(self._abrir_nueva)
         hdr.addWidget(btn_nueva)
         hdr.addSpacing(8)
-        self.btn_actualizar = QPushButton("🔄 ACTUALIZAR")
+        self.btn_actualizar = QPushButton(tr("recep.actualizar_7", default="🔄 ACTUALIZAR"))
         self.btn_actualizar.setObjectName("btn_secundario")
         self.btn_actualizar.setFixedSize(150, 45)
         self.btn_actualizar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4278,7 +4278,7 @@ class IncidenciasPage(QWidget):
 
         fil = QHBoxLayout()
         fil.setSpacing(12)
-        lbl_f = QLabel("Estado:")
+        lbl_f = QLabel(tr("recep.estado", default="Estado:"))
         lbl_f.setObjectName("label_campo")
         self.cmb_estado = QComboBox()
         self.cmb_estado.addItems(["TODAS", "ABIERTA", "CERRADA"])
@@ -4287,7 +4287,7 @@ class IncidenciasPage(QWidget):
         self.input_busqueda = QLineEdit()
         self.input_busqueda.setObjectName("input_buscador")
         self.input_busqueda.setPlaceholderText(
-            "🔍 Filtrar por ID, Documento, Tipo o Usuario..."
+            tr("recep.filtrar_por_id_documento_tip", default="🔍 Filtrar por ID, Documento, Tipo o Usuario...")
         )
         self.input_busqueda.setFixedHeight(50)
         self.input_busqueda.textChanged.connect(self._filtrar)
@@ -4315,7 +4315,7 @@ class IncidenciasPage(QWidget):
         self.tabla.doubleClicked.connect(self._accion_cerrar)
         ly.addWidget(self._cont)
 
-        hint = QLabel("Doble clic sobre una incidencia ABIERTA para cerrarla.")
+        hint = QLabel(tr("recep.doble_clic_sobre_una_inciden", default="Doble clic sobre una incidencia ABIERTA para cerrarla."))
         hint.setObjectName("subtitulo_muted")
         ly.addWidget(hint)
 
@@ -4329,14 +4329,14 @@ class IncidenciasPage(QWidget):
 
     def ejecutar_actualizacion(self):
         self.btn_actualizar.setEnabled(False)
-        self.btn_actualizar.setText("⌛ ACTUALIZANDO...")
+        self.btn_actualizar.setText(tr("recep.actualizando_3", default="⌛ ACTUALIZANDO..."))
         self.btn_actualizar.repaint()
         QApplication.processEvents()
         try:
             self.cargar_datos()
         finally:
             self.btn_actualizar.setEnabled(True)
-            self.btn_actualizar.setText("🔄 ACTUALIZAR")
+            self.btn_actualizar.setText(tr("recep.actualizar_8", default="🔄 ACTUALIZAR"))
 
     def _filtrar(self):
         txt = (
@@ -4477,15 +4477,15 @@ class HistorialUnificadoPage(QWidget):
         # Header row: title/subtitle left, refresh button right
         hdr = QHBoxLayout()
         vc = QVBoxLayout()
-        t = QLabel("Historial Logístico")
+        t = QLabel(tr("recep.historial_logistico", default="Historial Logístico"))
         t.setObjectName("titulo_cian")
-        s = QLabel("Consulta el historial de recepciones de palés y traspasos de stock")
+        s = QLabel(tr("recep.consulta_el_historial_de_rec", default="Consulta el historial de recepciones de palés y traspasos de stock"))
         s.setObjectName("subtitulo_muted")
         vc.addWidget(t)
         vc.addWidget(s)
         hdr.addLayout(vc)
         hdr.addStretch()
-        self.btn_refresh = QPushButton("🔄 ACTUALIZAR")
+        self.btn_refresh = QPushButton(tr("recep.actualizar_9", default="🔄 ACTUALIZAR"))
         self.btn_refresh.setObjectName("btn_primario")
         self.btn_refresh.setFixedSize(180, 45)
         self.btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4497,7 +4497,7 @@ class HistorialUnificadoPage(QWidget):
         pill_row = QHBoxLayout()
         pill_row.setSpacing(0)
 
-        self.btn_rec = QPushButton("📥  HISTORIAL RECEPCIONES")
+        self.btn_rec = QPushButton(tr("recep.historial_recepciones", default="📥  HISTORIAL RECEPCIONES"))
         self.btn_rec.setFixedHeight(44)
         self.btn_rec.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_rec.clicked.connect(lambda: self._cambiar(0))
@@ -4508,7 +4508,7 @@ class HistorialUnificadoPage(QWidget):
         div.setFixedHeight(44)
         div.setStyleSheet("background-color: #00FFC6;")
 
-        self.btn_tras = QPushButton("🚚  HISTORIAL TRASPASOS")
+        self.btn_tras = QPushButton(tr("recep.historial_traspasos", default="🚚  HISTORIAL TRASPASOS"))
         self.btn_tras.setFixedHeight(44)
         self.btn_tras.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tras.clicked.connect(lambda: self._cambiar(1))
@@ -4578,14 +4578,14 @@ class HistorialUnificadoPage(QWidget):
 
     def _actualizar(self):
         self.btn_refresh.setEnabled(False)
-        self.btn_refresh.setText("⌛ ACTUALIZANDO...")
+        self.btn_refresh.setText(tr("recep.actualizando_4", default="⌛ ACTUALIZANDO..."))
         self.btn_refresh.repaint()
         QApplication.processEvents()
         try:
             self.cargar_datos()
         finally:
             self.btn_refresh.setEnabled(True)
-            self.btn_refresh.setText("🔄 ACTUALIZAR")
+            self.btn_refresh.setText(tr("recep.actualizar_10", default="🔄 ACTUALIZAR"))
 
     def cargar_datos(self):
         pag = self._stack.currentWidget()
@@ -4639,7 +4639,7 @@ class RecepcionPaleWindow(QWidget):
         side_ly.setContentsMargins(0, 40, 0, 20)
         side_ly.setSpacing(0)
 
-        lbl_m = QLabel("LOGÍSTICA")
+        lbl_m = QLabel(tr("recep.logistica", default="LOGÍSTICA"))
         lbl_m.setObjectName("sidebar_title")
         side_ly.addWidget(lbl_m)
 
@@ -5103,7 +5103,7 @@ class DialogoNuevosArticulos(QDialog):
         super().__init__(parent)
         self.items_nuevos = items_nuevos
 
-        self.setWindowTitle("Gestión de Artículos Nuevos")
+        self.setWindowTitle(tr("recep.gestion_de_articulos_nuevos", default="Gestión de Artículos Nuevos"))
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setObjectName("dlg_entrada_cantidad")
@@ -5122,12 +5122,12 @@ class DialogoNuevosArticulos(QDialog):
         layout.setSpacing(15)
 
         # Encabezado informativo con acento neón
-        lbl = QLabel("⚠️ Se han detectado códigos EAN no registrados")
+        lbl = QLabel(tr("recep.se_han_detectado_codigos_ean", default="⚠️ Se han detectado códigos EAN no registrados"))
         lbl.setObjectName("titulo_cian")
         layout.addWidget(lbl)
 
         sub_lbl = QLabel(
-            "Los artículos listados a continuación se darán de alta con stock inicial."
+            tr("recep.los_articulos_listados_a_con", default="Los artículos listados a continuación se darán de alta con stock inicial.")
         )
         sub_lbl.setObjectName("subtitulo_muted")
         layout.addWidget(sub_lbl)
@@ -5169,13 +5169,13 @@ class DialogoNuevosArticulos(QDialog):
         btns_layout = QHBoxLayout()
         btns_layout.setSpacing(15)
 
-        self.btn_cancelar = QPushButton("❌ Cancelar Registro")
+        self.btn_cancelar = QPushButton(tr("recep.cancelar_registro", default="❌ Cancelar Registro"))
         self.btn_cancelar.setObjectName("btn_peligro")
         self.btn_cancelar.setFixedHeight(45)
         self.btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cancelar.clicked.connect(self.reject)
 
-        self.btn_confirmar = QPushButton("✅ Registrar y Finalizar")
+        self.btn_confirmar = QPushButton(tr("recep.registrar_y_finalizar", default="✅ Registrar y Finalizar"))
         self.btn_confirmar.setObjectName("btn_primario")
         self.btn_confirmar.setFixedHeight(45)
         self.btn_confirmar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -5262,18 +5262,18 @@ class _PesoDialog(QDialog):
         ly.addWidget(lbl_texto)
 
         self.input = QLineEdit()
-        self.input.setPlaceholderText("Ej: 18.5")
+        self.input.setPlaceholderText(tr("recep.ej_18_5", default="Ej: 18.5"))
         self.input.setFixedHeight(46)
         self.input.returnPressed.connect(self._aceptar)
         ly.addWidget(self.input)
 
         h = QHBoxLayout()
         h.setSpacing(12)
-        btn_skip = QPushButton("DEJAR PENDIENTE")
+        btn_skip = QPushButton(tr("recep.dejar_pendiente", default="DEJAR PENDIENTE"))
         btn_skip.setObjectName("btn_secundario")
         btn_skip.setFixedHeight(44)
         btn_skip.clicked.connect(self.accept)
-        btn_ok = QPushButton("GUARDAR PESO")
+        btn_ok = QPushButton(tr("recep.guardar_peso", default="GUARDAR PESO"))
         btn_ok.setObjectName("btn_primario")
         btn_ok.setFixedHeight(44)
         btn_ok.clicked.connect(self._aceptar)
@@ -5358,11 +5358,11 @@ class _EntradaCantidadDialog(QDialog):
 
         btns = QHBoxLayout()
         btns.setSpacing(12)
-        btn_cancel = QPushButton("CANCELAR")
+        btn_cancel = QPushButton(tr("recep.cancelar_4", default="CANCELAR"))
         btn_cancel.setObjectName("btn_secundario")
         btn_cancel.setFixedHeight(44)
         btn_cancel.clicked.connect(self.reject)
-        btn_ok = QPushButton("ACEPTAR")
+        btn_ok = QPushButton(tr("recep.aceptar_2", default="ACEPTAR"))
         btn_ok.setObjectName("btn_primario")
         btn_ok.setFixedHeight(44)
         btn_ok.clicked.connect(self._aceptar)
@@ -5508,7 +5508,7 @@ class TraspasoDialog(QDialog):
 
         # --- CABECERA ---
         header = QHBoxLayout()
-        lbl_titulo = QLabel("SALIDA LOGÍSTICA")
+        lbl_titulo = QLabel(tr("recep.salida_logistica", default="SALIDA LOGÍSTICA"))
         lbl_titulo.setObjectName("titulo_cian")
 
         self.btn_back = QPushButton("✕")
@@ -5533,19 +5533,19 @@ class TraspasoDialog(QDialog):
         self.input_codigo_manual = QLineEdit()
         self.input_codigo_manual.setObjectName("input_buscador")
         self.input_codigo_manual.setPlaceholderText(
-            "Escanee EAN o Código de Artículo..."
+            tr("recep.escanee_ean_o_codigo_de_arti", default="Escanee EAN o Código de Artículo...")
         )
         self.input_codigo_manual.setFixedHeight(55)
         self.input_codigo_manual.setCompleter(None)  # Blindaje
         self.input_codigo_manual.returnPressed.connect(self.agregar_articulo_manual)
 
-        btn_cam = QPushButton("📷 SCAN")
+        btn_cam = QPushButton(tr("recep.scan_2", default="📷 SCAN"))
         btn_cam.setObjectName("btn_secundario")
         btn_cam.setFixedSize(110, 55)
         btn_cam.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cam.clicked.connect(lambda: self.abrir_escaner_camara())
 
-        self.btn_add_manual = QPushButton("AÑADIR")
+        self.btn_add_manual = QPushButton(tr("recep.anadir_2", default="AÑADIR"))
         self.btn_add_manual.setObjectName("btn_primario")
         self.btn_add_manual.setFixedSize(110, 55)
         self.btn_add_manual.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -5569,7 +5569,7 @@ class TraspasoDialog(QDialog):
         self.global_pale_selector.addItems(_OPCIONES_PALE)
         self.global_pale_selector.setFixedSize(220, 46)
 
-        lbl_cargar = QLabel("CARGAR EN:")
+        lbl_cargar = QLabel(tr("recep.cargar_en", default="CARGAR EN:"))
         lbl_cargar.setObjectName("etiqueta_secundaria")
         lbl_cargar.setStyleSheet("font-size: 12px; font-weight: 900;")
 
@@ -5593,7 +5593,7 @@ class TraspasoDialog(QDialog):
         layout_principal.addWidget(scroll)
 
         # --- BOTÓN DE VALIDACIÓN (Paso 1) ---
-        self.btn_confirmar = QPushButton("PASO 1: VALIDAR ARTÍCULOS")
+        self.btn_confirmar = QPushButton(tr("recep.paso_1_validar_articulos", default="PASO 1: VALIDAR ARTÍCULOS"))
         self.btn_confirmar.setObjectName("btn_secundario")
         self.btn_confirmar.setFixedHeight(65)
         self.btn_confirmar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -5676,7 +5676,7 @@ class TraspasoDialog(QDialog):
         self.input_codigo_manual.setFocus()
 
         # Feedback visual opcional en el placeholder
-        self.input_codigo_manual.setPlaceholderText("Listo para siguiente escaneo...")
+        self.input_codigo_manual.setPlaceholderText(tr("recep.listo_para_siguiente_escaneo", default="Listo para siguiente escaneo..."))
 
     def eliminar_widget(self, frame_item, codigo):
         """
@@ -5698,7 +5698,7 @@ class TraspasoDialog(QDialog):
             # 3. Gestión del estado del botón de confirmación
             if not self.items_widgets:
                 # Si no hay ítems, el botón vuelve a su estado inicial de "Paso 1"
-                self.btn_confirmar.setText("PASO 1: VALIDAR ARTÍCULOS")
+                self.btn_confirmar.setText(tr("recep.paso_1_validar_articulos_2", default="PASO 1: VALIDAR ARTÍCULOS"))
                 self.btn_confirmar.setEnabled(True)
                 self.btn_confirmar.setStyleSheet("")
                 if aplicar_estilo_widget is not None:
@@ -5792,7 +5792,7 @@ class TraspasoDialog(QDialog):
         diag.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         diag.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         diag.setObjectName("dlg_entrada_cantidad")
-        diag.setWindowTitle("FINALIZAR ENVÍO LOGÍSTICO")
+        diag.setWindowTitle(tr("recep.finalizar_envio_logistico", default="FINALIZAR ENVÍO LOGÍSTICO"))
         diag.setFixedWidth(480)
         _diag_outer = QVBoxLayout(diag)
         _diag_outer.setContentsMargins(0, 0, 0, 0)
@@ -5805,7 +5805,7 @@ class TraspasoDialog(QDialog):
         ly.setContentsMargins(30, 20, 30, 20)
 
         # ORIGEN (Solo lectura)
-        ly.addWidget(QLabel("CENTRO ORIGEN"))
+        ly.addWidget(QLabel(tr("recep.centro_origen", default="CENTRO ORIGEN")))
         self.combo_origen_diag = QComboBox()
         nombre_origen = getattr(self, "tienda_id_formateado", "ALMC")
         self.combo_origen_diag.addItem(nombre_origen)
@@ -5814,7 +5814,7 @@ class TraspasoDialog(QDialog):
         ly.addWidget(self.combo_origen_diag)
 
         # DESTINO
-        ly.addWidget(QLabel("CENTRO DESTINO"))
+        ly.addWidget(QLabel(tr("recep.centro_destino", default="CENTRO DESTINO")))
         self.combo_destino_diag = QComboBox()
         self.combo_destino_diag.setEditable(True)
         self.combo_destino_diag.setFixedHeight(40)
@@ -5838,13 +5838,13 @@ class TraspasoDialog(QDialog):
         ly.addWidget(self.combo_agencia_diag)
 
         # OBSERVACIONES
-        ly.addWidget(QLabel("OBSERVACIONES"))
+        ly.addWidget(QLabel(tr("recep.observaciones", default="OBSERVACIONES")))
         self.input_obs_diag = QTextEdit()
-        self.input_obs_diag.setPlaceholderText("Notas sobre la carga...")
+        self.input_obs_diag.setPlaceholderText(tr("recep.notas_sobre_la_carga", default="Notas sobre la carga..."))
         self.input_obs_diag.setFixedHeight(70)
         ly.addWidget(self.input_obs_diag)
 
-        btn_final = QPushButton("REGISTRAR Y GENERAR DOCUMENTACIÓN")
+        btn_final = QPushButton(tr("recep.registrar_y_generar_document", default="REGISTRAR Y GENERAR DOCUMENTACIÓN"))
         btn_final.setObjectName("btn_primario")
         btn_final.setFixedHeight(50)
         btn_final.clicked.connect(diag.accept)
@@ -6326,11 +6326,11 @@ class TraspasoDialog(QDialog):
 
                     # Feedback visual en el placeholder por si añade más
                     self.input_codigo_manual.setPlaceholderText(
-                        "Código añadido. Escanee otro..."
+                        tr("recep.codigo_anadido_escanee_otro", default="Código añadido. Escanee otro...")
                     )
                 else:
                     self.input_codigo_manual.setPlaceholderText(
-                        "No se detectó contenido."
+                        tr("recep.no_se_detecto_contenido", default="No se detectó contenido.")
                     )
 
             # 3. Aseguramos el foco de vuelta al input principal
@@ -6415,7 +6415,7 @@ class TraspasoStockPage(QWidget):
         self.lbl_icono.setObjectName("icono_hero")
         self.lbl_icono.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_titulo = QLabel("GESTIÓN DE TRASPASOS")
+        self.lbl_titulo = QLabel(tr("recep.gestion_de_traspasos", default="GESTIÓN DE TRASPASOS"))
         self.lbl_titulo.setObjectName("titulo_cian")
         self.lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -6426,7 +6426,7 @@ class TraspasoStockPage(QWidget):
         self.lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # BOTÓN CRÍTICO: neón + texto e icono centrados (btn_traspaso_land en estilo_global)
-        self.btn_lanzar_dialogo = QPushButton("🚀 INICIAR TRASPASO")
+        self.btn_lanzar_dialogo = QPushButton(tr("recep.iniciar_traspaso", default="🚀 INICIAR TRASPASO"))
         self.btn_lanzar_dialogo.setObjectName("btn_traspaso_land")
         self.btn_lanzar_dialogo.setFixedSize(320, 60)
         self.btn_lanzar_dialogo.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -6551,14 +6551,14 @@ class HistorialRecepcionesPage(QWidget):
         header_layout.addStretch()
 
         # Botón Volver de nivel
-        self.btn_back_level = QPushButton("⬅ VOLVER")
+        self.btn_back_level = QPushButton(tr("recep.volver", default="⬅ VOLVER"))
         self.btn_back_level.setObjectName("btn_secundario")
         self.btn_back_level.setFixedSize(130, 45)
         self.btn_back_level.setVisible(False)
         self.btn_back_level.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # BOTÓN ACTUALIZAR: Unificado con el resto del sistema
-        btn_refresh = QPushButton("🔄 ACTUALIZAR")
+        btn_refresh = QPushButton(tr("recep.actualizar_11", default="🔄 ACTUALIZAR"))
         btn_refresh.setObjectName("btn_primario")
         btn_refresh.setFixedSize(180, 45)
         btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -6575,11 +6575,11 @@ class HistorialRecepcionesPage(QWidget):
         self.input_busqueda = QLineEdit()
         self.input_busqueda.setObjectName("input_buscador")
         self.input_busqueda.setPlaceholderText(
-            "🔍 Filtrar por ID, Palé, Artículo, EAN, Origen o Fecha..."
+            tr("recep.filtrar_por_id_pale_articulo_2", default="🔍 Filtrar por ID, Palé, Artículo, EAN, Origen o Fecha...")
         )
         self.input_busqueda.setFixedHeight(50)
 
-        self.btn_camara_filtro = QPushButton("📷 SCAN")
+        self.btn_camara_filtro = QPushButton(tr("recep.scan_3", default="📷 SCAN"))
         self.btn_camara_filtro.setObjectName("btn_secundario")
         self.btn_camara_filtro.setFixedSize(110, 50)
         self.btn_camara_filtro.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -6648,7 +6648,7 @@ class HistorialRecepcionesPage(QWidget):
         self.btn_refresh.setEnabled(False)
 
         # Estado visual de carga (Look industrial: fondo oscuro, borde neón)
-        self.btn_refresh.setText("⌛ CARGANDO...")
+        self.btn_refresh.setText(tr("recep.cargando_3", default="⌛ CARGANDO..."))
 
         # Forzamos a Qt a procesar el cambio de estilo antes de la carga pesada
         QApplication.processEvents()
@@ -6667,14 +6667,14 @@ class HistorialRecepcionesPage(QWidget):
         Devuelve el botón de actualización a su estado original neón.
         """
         self.btn_refresh.setEnabled(True)
-        self.btn_refresh.setText("🔄 ACTUALIZAR")
+        self.btn_refresh.setText(tr("recep.actualizar_12", default="🔄 ACTUALIZAR"))
 
     # MÉTODO 5: Configuración Tabla Nivel 1 (Documentos)
     # MÉTODO 5: Configuración Tabla Nivel 1 (Documentos de Traspaso)
     def configurar_tabla_nivel_1(self):
         """Prepara la vista principal de documentos de recepción."""
         self.btn_back_level.setVisible(False)
-        self.lbl_titulo.setText("Historial de Recepciones")
+        self.lbl_titulo.setText(tr("recep.historial_de_recepciones", default="Historial de Recepciones"))
 
         # Estética de cabecera para nivel raíz
         self.tabla.setColumnCount(5)
@@ -6937,7 +6937,7 @@ class HistorialRecepcionesPage(QWidget):
         else:
             # Notificación visual de proceso de reconstrucción
             original_title = self.lbl_titulo.text()
-            self.lbl_titulo.setText("⌛ RECONSTRUYENDO PDF...")
+            self.lbl_titulo.setText(tr("recep.reconstruyendo_pdf", default="⌛ RECONSTRUYENDO PDF..."))
             self.lbl_titulo.setProperty("tituloProcesando", True)
             if repolish_widget is not None:
                 repolish_widget(self.lbl_titulo)

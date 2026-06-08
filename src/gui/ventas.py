@@ -2238,7 +2238,7 @@ class VentasAnaliticaWindow(QWidget):
         ly.setContentsMargins(0, 40, 0, 40)
         ly.setSpacing(5)
 
-        titulo = QLabel("Smart VENTAS")
+        titulo = QLabel(tr("ventas.smart_ventas", default="Smart VENTAS"))
         titulo.setStyleSheet(
             "color: #ffffff; font-size: 16px; font-weight: 900; margin-left: 30px; "
             "margin-bottom: 35px; letter-spacing: 2px; border: none; background: transparent;"

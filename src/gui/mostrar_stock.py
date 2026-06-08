@@ -1185,7 +1185,7 @@ class MostrarStockWindow(QWidget):
         i18n.conectar_retraduccion(self, self._retraducir)
 
     def _setup_ui(self):
-        self.setWindowTitle("Smart Stock")
+        self.setWindowTitle(tr("stock.smart_stock", default="Smart Stock"))
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -1199,7 +1199,7 @@ class MostrarStockWindow(QWidget):
         side_ly.setContentsMargins(0, 40, 0, 20)
         side_ly.setSpacing(0)
 
-        lbl_titulo = QLabel("SMART STOCK")
+        lbl_titulo = QLabel(tr("stock.smart_stock_2", default="SMART STOCK"))
         lbl_titulo.setObjectName("sidebar_title")
         side_ly.addWidget(lbl_titulo)
 

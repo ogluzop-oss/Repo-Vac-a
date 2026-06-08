@@ -14,6 +14,7 @@ Características:
   * Báscula simulada por defecto (scale_service); driver listo para hardware.
 """
 from __future__ import annotations
+from src.utils.i18n import tr
 
 import datetime
 import logging
@@ -77,7 +78,7 @@ class AutocobroWindow(QWidget):
             pass
         self._bagging = BaggingAreaController()
 
-        self.setWindowTitle("Autocobro — Smart Manager")
+        self.setWindowTitle(tr("autocobro.autocobro_smart_manager", default="Autocobro — Smart Manager"))
         self.setStyleSheet(f"background:{_BG};")
         self._build_ui()
 
@@ -115,7 +116,7 @@ class AutocobroWindow(QWidget):
         izq.addWidget(_lbl("Escanea tus productos", bold=True, size=22, color=_TEXT))
 
         self.inp_scan = QLineEdit()
-        self.inp_scan.setPlaceholderText("Pasa el código de barras…")
+        self.inp_scan.setPlaceholderText(tr("autocobro.pasa_el_codigo_de_barras", default="Pasa el código de barras…"))
         self.inp_scan.setFixedHeight(60)
         self.inp_scan.setStyleSheet(
             f"QLineEdit{{background:{_BG2};color:{_TEXT};border:3px solid {_BORDE};"
@@ -196,7 +197,7 @@ class AutocobroWindow(QWidget):
 
         der.addStretch()
 
-        self.btn_pagar = QPushButton("PAGAR")
+        self.btn_pagar = QPushButton(tr("autocobro.pagar", default="PAGAR"))
         self.btn_pagar.setFixedHeight(92)
         self.btn_pagar.setEnabled(False)
         self.btn_pagar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -209,7 +210,7 @@ class AutocobroWindow(QWidget):
         self.btn_pagar.clicked.connect(self._pagar)
         der.addWidget(self.btn_pagar)
 
-        btn_ayuda = QPushButton("🔔  SOLICITAR AYUDA")
+        btn_ayuda = QPushButton(tr("autocobro.solicitar_ayuda", default="🔔  SOLICITAR AYUDA"))
         btn_ayuda.setFixedHeight(78)
         btn_ayuda.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_ayuda.setStyleSheet(
@@ -220,7 +221,7 @@ class AutocobroWindow(QWidget):
         btn_ayuda.clicked.connect(self._solicitar_ayuda)
         der.addWidget(btn_ayuda)
 
-        btn_cancelar = QPushButton("CANCELAR COMPRA")
+        btn_cancelar = QPushButton(tr("autocobro.cancelar_compra", default="CANCELAR COMPRA"))
         btn_cancelar.setFixedHeight(60)
         btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cancelar.setStyleSheet(
@@ -307,8 +308,8 @@ class AutocobroWindow(QWidget):
         from src.services.tpv import self_checkout_service as SC
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Producto restringido")
-        box.setText("Este producto requiere verificación de edad.")
+        box.setWindowTitle(tr("autocobro.producto_restringido", default="Producto restringido"))
+        box.setText(tr("autocobro.este_producto_requiere_verif", default="Este producto requiere verificación de edad."))
         box.setInformativeText("Un responsable debe autorizar la venta.")
         box.addButton("CANCELAR", QMessageBox.ButtonRole.RejectRole)
         b_auth = box.addButton("LLAMAR RESPONSABLE", QMessageBox.ButtonRole.AcceptRole)
@@ -364,8 +365,8 @@ class AutocobroWindow(QWidget):
         linea = self._lineas[row]
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Question)
-        box.setWindowTitle("Eliminar artículo")
-        box.setText("¿Desea eliminar este artículo de la compra?")
+        box.setWindowTitle(tr("autocobro.eliminar_articulo", default="Eliminar artículo"))
+        box.setText(tr("autocobro.desea_eliminar_este_articulo", default="¿Desea eliminar este artículo de la compra?"))
         box.setInformativeText(linea.get("nombre", ""))
         box.addButton("CANCELAR", QMessageBox.ButtonRole.RejectRole)
         b_del = box.addButton("ELIMINAR", QMessageBox.ButtonRole.AcceptRole)
@@ -390,7 +391,7 @@ class AutocobroWindow(QWidget):
             return
         total = self._total()
         box = QMessageBox(self)
-        box.setWindowTitle("Forma de pago")
+        box.setWindowTitle(tr("autocobro.forma_de_pago", default="Forma de pago"))
         box.setText(f"Total: {total:.2f} €\n\n¿Cómo quieres pagar?")
         b_tarj = box.addButton("TARJETA", QMessageBox.ButtonRole.AcceptRole)
         b_efe = box.addButton("EFECTIVO", QMessageBox.ButtonRole.AcceptRole)
@@ -454,8 +455,8 @@ class AutocobroWindow(QWidget):
         SC.registrar_solicitud_ayuda(self._id_caja, "AYUDA GENERAL")
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Information)
-        box.setWindowTitle("Ayuda en camino")
-        box.setText("🔔  Un responsable ha sido avisado.\nEspera un momento, por favor.")
+        box.setWindowTitle(tr("autocobro.ayuda_en_camino", default="Ayuda en camino"))
+        box.setText(tr("autocobro.un_responsable_ha_sido_avisa", default="🔔  Un responsable ha sido avisado.\nEspera un momento, por favor."))
         box.exec()
 
     def _cancelar(self):
@@ -473,7 +474,7 @@ class AutocobroWindow(QWidget):
     def _aviso(self, texto: str):
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Aviso")
+        box.setWindowTitle(tr("autocobro.aviso", default="Aviso"))
         box.setText(texto)
         box.exec()
         self.inp_scan.setFocus()

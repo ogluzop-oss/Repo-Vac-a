@@ -249,7 +249,7 @@ class SmartManagerApp(QStackedWidget):
         self._soma_thread = None
         self._soma_tts = None  # initialized lazily in _iniciar_soma()
 
-        self.setWindowTitle("Smart Manager - Sistema de Control Logistico")
+        self.setWindowTitle(tr("app.smart_manager_sistema_de_con", default="Smart Manager - Sistema de Control Logistico"))
         self.setMinimumSize(1200, 800)
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
 

@@ -292,7 +292,7 @@ class MenuPrincipal(QWidget):
         center_vbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Título de la APLICACIÓN (marca del software, centrado).
-        title = QLabel("SMART MANAGER")
+        title = QLabel(tr("menu.smart_manager", default="SMART MANAGER"))
         title.setObjectName("titulo_principal")
         title.setFont(QFont("Segoe UI", 32, QFont.Weight.Black))
         title.setStyleSheet("""

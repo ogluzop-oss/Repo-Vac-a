@@ -709,7 +709,7 @@ class InformeReposicionWindow(QWidget):
         side_ly.setContentsMargins(0, 40, 0, 20)
         side_ly.setSpacing(0)
 
-        lbl_m = QLabel("SMART REPOSICIÓN")
+        lbl_m = QLabel(tr("repo.smart_reposicion", default="SMART REPOSICIÓN"))
         lbl_m.setStyleSheet(
             "color: #ffffff; font-size: 16px; font-weight: 900; margin-left: 30px; "
             "margin-bottom: 35px; letter-spacing: 2px; border: none; background: transparent;"

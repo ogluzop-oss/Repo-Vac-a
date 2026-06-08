@@ -1,5 +1,6 @@
 """Customer Display — Pantalla orientada al cliente para el TPV."""
 from __future__ import annotations
+from src.utils.i18n import tr
 
 import os
 from datetime import datetime
@@ -427,7 +428,7 @@ class CustomerDisplayWindow(QWidget):
                 f"color:{_GRDN};font-family:'{_FONT}';font-size:18px;background:transparent;"
             )
         else:
-            self._lbl_dto.setText("Descuento: —")
+            self._lbl_dto.setText(tr("cdisplay.descuento", default="Descuento: —"))
             self._lbl_dto.setStyleSheet(
                 f"color:{_DIM};font-family:'{_FONT}';font-size:18px;background:transparent;"
             )
@@ -561,12 +562,12 @@ class CustomerDisplayWindow(QWidget):
     def _show_idle(self) -> None:
         self._table.setRowCount(0)
         self._lbl_total.setText("0,00 €")
-        self._lbl_subtotal.setText("Subtotal: —")
-        self._lbl_dto.setText("Descuento: —")
+        self._lbl_subtotal.setText(tr("cdisplay.subtotal", default="Subtotal: —"))
+        self._lbl_dto.setText(tr("cdisplay.descuento_2", default="Descuento: —"))
         self._lbl_dto.setStyleSheet(
             f"color:{_DIM};font-family:'{_FONT}';font-size:18px;background:transparent;"
         )
-        self._lbl_status.setText("Escanea un artículo para comenzar")
+        self._lbl_status.setText(tr("cdisplay.escanea_un_articulo_para_com", default="Escanea un artículo para comenzar"))
         self._lbl_status.setStyleSheet(
             f"color:{_DIM};font-family:'{_FONT}';font-size:14px;background:transparent;"
         )

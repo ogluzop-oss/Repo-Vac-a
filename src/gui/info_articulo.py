@@ -849,7 +849,7 @@ class InfoArticuloWindow(QWidget):
         side_ly.setContentsMargins(0, 40, 0, 20)
         side_ly.setSpacing(0)
 
-        lbl_m = QLabel("SMART INFO")
+        lbl_m = QLabel(tr("info.smart_info", default="SMART INFO"))
         lbl_m.setStyleSheet(
             "color: #ffffff; font-size: 16px; font-weight: 900; margin-left: 30px; "
             "margin-bottom: 35px; letter-spacing: 2px; border: none; background: transparent;"

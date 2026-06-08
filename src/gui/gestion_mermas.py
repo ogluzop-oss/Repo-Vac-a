@@ -868,7 +868,7 @@ class GestionMermasWindow(QWidget):
         side_ly = QVBoxLayout(sidebar)
         side_ly.setContentsMargins(0, 40, 0, 20)
 
-        lbl_m = QLabel("SMART LOSSES")
+        lbl_m = QLabel(tr("merma.smart_losses", default="SMART LOSSES"))
         lbl_m.setStyleSheet(  # Sidebar title
             "color: white; font-size: 16px; font-weight: 900; margin-left: 30px; margin-bottom: 35px; letter-spacing: 2px;"
         )

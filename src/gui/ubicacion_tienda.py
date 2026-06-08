@@ -1559,7 +1559,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt_sidebar.setContentsMargins(0, 40, 0, 40)
         lyt_sidebar.setSpacing(5)
 
-        lbl_modulo = QLabel("Smart LOGISTICS")
+        lbl_modulo = QLabel(tr("ubic.smart_logistics", default="Smart LOGISTICS"))
         lbl_modulo.setStyleSheet(
             "color: #ffffff; font-size: 16px; font-weight: 900; margin-left: 30px; "
             "margin-bottom: 35px; letter-spacing: 2px; border:none; background: transparent;"
@@ -3745,7 +3745,7 @@ class UbicacionTiendaWindow(QMainWindow):
             msg = QMessageBox(self)
             msg.setWindowTitle("⚠️ " + tr("ubic.err_coords_title", default="ERROR DE COORDENADAS"))
             msg.setText(
-                "No se detectó un punto de anclaje válido en el mapa.\nPor favor, marque la ubicación primero."
+                tr("ubic.no_se_detecto_un_punto_de_an", default="No se detectó un punto de anclaje válido en el mapa.\nPor favor, marque la ubicación primero.")
             )
             msg.setIcon(QMessageBox.Icon.Critical)
             msg.setStyleSheet(
@@ -5046,7 +5046,7 @@ class UbicacionTiendaWindow(QMainWindow):
         layout_interno.addWidget(lbl_titulo)
 
         lbl_msg = QLabel(
-            "Has modificado el mapa. ¿Deseas guardar los\ncambios antes de salir de esta sección?"
+            tr("ubic.has_modificado_el_mapa_desea", default="Has modificado el mapa. ¿Deseas guardar los\ncambios antes de salir de esta sección?")
         )
         lbl_msg.setFont(fuente_segoe_bold)
         lbl_msg.setStyleSheet("color: #C9D1D9; border: none; background: transparent;")
@@ -7969,7 +7969,7 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
-        lbl_titulo = QLabel("🗑️  ELIMINAR PLANO")
+        lbl_titulo = QLabel(tr("ubic.eliminar_plano", default="🗑️  ELIMINAR PLANO"))
         lbl_titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_titulo.setFont(self._crear_fuente_segoe(13))
         lbl_titulo.setStyleSheet("color: #FF7B72; border: none;")
@@ -8135,7 +8135,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt.addWidget(lbl_head)
 
         lbl_info = QLabel(
-            "Introduzca codigo, nombre o ubicacion. Si el articulo existe en lineal y almacen, el sistema mostrara ambas opciones con su distancia real."
+            tr("ubic.introduzca_codigo_nombre_o_u", default="Introduzca codigo, nombre o ubicacion. Si el articulo existe en lineal y almacen, el sistema mostrara ambas opciones con su distancia real.")
         )
         lbl_info.setWordWrap(True)
         lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -8145,7 +8145,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         search_input = QLineEdit()
         search_input.setPlaceholderText(
-            "Codigo, nombre o ubicacion (ej: PASILLO BEBIDAS 09)"
+            tr("ubic.codigo_nombre_o_ubicacion_ej", default="Codigo, nombre o ubicacion (ej: PASILLO BEBIDAS 09)")
         )
         search_input.setFont(self._crear_fuente_segoe(10))
         search_input.setStyleSheet(
@@ -11889,7 +11889,7 @@ class VistaMapa(QGraphicsView):
 
         menu.addSeparator()
 
-        accion_del = QAction("🗑️ Eliminar permanentemente", menu)
+        accion_del = QAction(tr("ubic.eliminar_permanentemente", default="🗑️ Eliminar permanentemente"), menu)
         accion_del.setObjectName("accion_borrar_id")
         accion_del.setFont(fuente_segoe)
         menu.addAction(accion_del)

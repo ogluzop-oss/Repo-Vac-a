@@ -1,5 +1,6 @@
 # src/gui/importar_stock.py
 import os
+from src.utils.i18n import tr
 
 import pandas as pd
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -25,7 +26,7 @@ class ImportarStock:
 
         progreso = QProgressDialog("Importación en curso...", None, 0, 0)
         progreso.setWindowModality(Qt.WindowModality.ApplicationModal)
-        progreso.setWindowTitle("Importando stock")
+        progreso.setWindowTitle(tr("importar.importando_stock", default="Importando stock"))
         progreso.setCancelButton(None)
         progreso.show()
 
