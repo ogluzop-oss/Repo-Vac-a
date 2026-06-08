@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Smart VERKOOP"
+  },
+  "roles": {
+    "administrador": "Beheerder",
+    "gerente": "Manager",
+    "operario": "Operator"
   }
 }

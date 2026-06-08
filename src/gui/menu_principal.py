@@ -327,7 +327,8 @@ class MenuPrincipal(QWidget):
         right_hbox.addStretch()
 
         self._user_info_lbl = user_info = QLabel(
-            tr("menu.user_info", nombre=self.nombre_usuario.upper(), perfil=self.perfil)
+            tr("menu.user_info", nombre=self.nombre_usuario.upper(),
+               perfil=self._perfil_traducido())
         )
         user_info.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         user_info.setStyleSheet("""
@@ -451,7 +452,7 @@ class MenuPrincipal(QWidget):
             if hasattr(self, "_user_info_lbl"):
                 self._user_info_lbl.setText(
                     tr("menu.user_info",
-                       nombre=self.nombre_usuario.upper(), perfil=self.perfil)
+                       nombre=self.nombre_usuario.upper(), perfil=self._perfil_traducido())
                 )
             if hasattr(self, "_version_lbl"):
                 self._version_lbl.setText(f"v2.4.0 - {tr('menu.powered_by')}")
@@ -668,6 +669,12 @@ class MenuPrincipal(QWidget):
         except Exception:
             self.ref_label.hide()
         self._actualizar_logo_label()
+
+    def _perfil_traducido(self):
+        """Tipo de perfil traducido SOLO para mostrar (ADMINISTRADOR/GERENTE/OPERARIO →
+        idioma activo). self.perfil se mantiene en español como valor de lógica
+        (control de acceso por rol), por eso no se traduce esa variable."""
+        return tr("roles." + self.perfil.lower(), default=self.perfil).upper()
 
     def _actualizar_logo_label(self):
         # Logo CORPORATIVO del cliente, a la IZQUIERDA junto a la referencia de

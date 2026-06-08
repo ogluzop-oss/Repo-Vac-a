@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Smart VENTAS"
+  },
+  "roles": {
+    "administrador": "Quản trị viên",
+    "gerente": "Quản lý",
+    "operario": "Người vận hành"
   }
 }

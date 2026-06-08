@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Smart विक्रय"
+  },
+  "roles": {
+    "administrador": "प्रशासक",
+    "gerente": "प्रबंधक",
+    "operario": "ऑपरेटर"
   }
 }

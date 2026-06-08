@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Smart SATIŞLAR"
+  },
+  "roles": {
+    "administrador": "Yönetici",
+    "gerente": "Müdür",
+    "operario": "Operatör"
   }
 }

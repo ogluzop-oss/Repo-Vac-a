@@ -394,7 +394,10 @@ def parsear_comando(texto: str) -> tuple[str, dict]:
         return "mostrar_ayuda", {"texto": texto}
 
     # 0c — close current/other module ("cierra X"), but NOT "cerrar sesión".
-    _close_verbs = ("CIERRA", "CERRAR")
+    # Verbo de cierre en sus variantes habituales (y erratas de Google):
+    # cierra/cierre/cierro/cierren, cerrar/cerra/cerre, ciérrame...
+    _close_verbs = ("CIERRA", "CIERRE", "CIERRO", "CIERREN", "CIERRES",
+                    "CERRAR", "CERRA", "CERRE", "CERRO", "CIERR")
     if any(v in normalizado for v in _close_verbs) and "SESION" not in normalizado:
         modulo = _detectar_modulo(normalizado)
         logger.info(f"Comando de cierre de módulo detectado (modulo={modulo}).")

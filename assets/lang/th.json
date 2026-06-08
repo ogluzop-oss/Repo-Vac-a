@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Smart ขายหน้าร้าน"
+  },
+  "roles": {
+    "administrador": "ผู้ดูแลระบบ",
+    "gerente": "ผู้จัดการ",
+    "operario": "ผู้ปฏิบัติการ"
   }
 }

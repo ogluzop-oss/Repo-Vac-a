@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Smart FÖRSÄLJNING"
+  },
+  "roles": {
+    "administrador": "Administratör",
+    "gerente": "Chef",
+    "operario": "Operatör"
   }
 }

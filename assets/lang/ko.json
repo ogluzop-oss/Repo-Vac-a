@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Smart 판매"
+  },
+  "roles": {
+    "administrador": "관리자",
+    "gerente": "관리자",
+    "operario": "작업자"
   }
 }

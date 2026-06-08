@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Smart 销售"
+  },
+  "roles": {
+    "administrador": "管理员",
+    "gerente": "经理",
+    "operario": "操作员"
   }
 }

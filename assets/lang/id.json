@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Smart PENJUALAN"
+  },
+  "roles": {
+    "administrador": "Administrator",
+    "gerente": "Manajer",
+    "operario": "Operator"
   }
 }

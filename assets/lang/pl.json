@@ -1382,5 +1382,10 @@
   },
   "ventas": {
     "smart_ventas": "Inteligentna SPRZEDAŻ"
+  },
+  "roles": {
+    "administrador": "Administrator",
+    "gerente": "Menedżer",
+    "operario": "Operator"
   }
 }
