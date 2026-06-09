@@ -338,6 +338,8 @@ class CorreoCorporativoWindow(QWidget):
                           gridline-color:{_BORDE};font-family:'Segoe UI';font-size:13px;outline:none;}}
             QHeaderView::section{{background:{_BG};color:{_CIAN};border:none;
                                   border-bottom:2px solid {_BORDE};padding:10px;font-weight:900;font-size:11px;}}
+            QHeaderView::section:first{{border-top-left-radius:10px;}}
+            QHeaderView::section:last{{border-top-right-radius:10px;}}
             QHeaderView::section:hover{{background:{_CIAN};color:{_BG};}}
             QTableWidget::item{{padding:8px;}}
             QTableWidget::item:selected{{background:#00FFC622;color:white;}}
