@@ -7,7 +7,9 @@
     "access_button": "TRUY CẬP HỆ THỐNG",
     "language_tooltip": "Ngôn ngữ",
     "error_empty": "Nhập tên và mật khẩu của bạn",
-    "loading_ai": "⚡ ĐANG KHỞI ĐỘNG AI VÀ ĐỒNG BỘ HÓA..."
+    "loading_ai": "⚡ ĐANG KHỞI ĐỘNG AI VÀ ĐỒNG BỘ HÓA...",
+    "denied_title": "Truy cập bị từ chối",
+    "denied_msg": "Thông tin đăng nhập không chính xác."
   },
   "common": {
     "accept": "Đồng ý",

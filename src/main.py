@@ -459,8 +459,8 @@ class SmartManagerApp(QStackedWidget):
             self.overlay.hide()
             mostrar_mensaje(
                 self,
-                "Acceso Denegado",
-                "Credenciales incorrectas.",
+                tr("login.denied_title", default="Acceso Denegado"),
+                tr("login.denied_msg", default="Credenciales incorrectas."),
                 nivel="error",
             )
             self.ventana_login.txt_password.clear()

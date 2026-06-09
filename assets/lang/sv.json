@@ -7,7 +7,9 @@
     "access_button": "GÅ IN I SYSTEMET",
     "language_tooltip": "Språk",
     "error_empty": "Ange ditt namn och lösenord",
-    "loading_ai": "⚡ STARTAR AI OCH SYNKRONISERAR..."
+    "loading_ai": "⚡ STARTAR AI OCH SYNKRONISERAR...",
+    "denied_title": "Åtkomst nekad",
+    "denied_msg": "Felaktiga autentiseringsuppgifter."
   },
   "common": {
     "accept": "Acceptera",

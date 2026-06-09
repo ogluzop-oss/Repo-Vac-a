@@ -7,7 +7,9 @@
     "access_button": "AUF DAS SYSTEM ZUGREIFEN",
     "language_tooltip": "Sprache",
     "error_empty": "Geben Sie Ihren Namen und Ihr Passwort ein",
-    "loading_ai": "⚡ KI WIRD GESTARTET UND SYNCHRONISIERT..."
+    "loading_ai": "⚡ KI WIRD GESTARTET UND SYNCHRONISIERT...",
+    "denied_title": "Zugriff verweigert",
+    "denied_msg": "Anmeldedaten sind falsch."
   },
   "common": {
     "accept": "Akzeptieren",

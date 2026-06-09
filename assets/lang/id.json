@@ -7,7 +7,9 @@
     "access_button": "MASUK KE SISTEM",
     "language_tooltip": "Bahasa",
     "error_empty": "Masukkan nama dan kata sandi Anda",
-    "loading_ai": "⚡ MEMULAI AI DAN MENYINKRONKAN..."
+    "loading_ai": "⚡ MEMULAI AI DAN MENYINKRONKAN...",
+    "denied_title": "Akses Ditolak",
+    "denied_msg": "Kredensial tidak benar."
   },
   "common": {
     "accept": "Terima",

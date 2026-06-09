@@ -7,7 +7,9 @@
     "access_button": "进入系统",
     "language_tooltip": "语言",
     "error_empty": "请输入您的姓名和密码",
-    "loading_ai": "⚡ 正在启动AI并同步中..."
+    "loading_ai": "⚡ 正在启动AI并同步中...",
+    "denied_title": "访问被拒绝",
+    "denied_msg": "凭证不正确。"
   },
   "common": {
     "accept": "确定",

@@ -7,7 +7,9 @@
     "access_button": "시스템 접속",
     "language_tooltip": "언어",
     "error_empty": "이름과 비밀번호를 입력하세요",
-    "loading_ai": "⚡ AI 초기화 및 동기화 중..."
+    "loading_ai": "⚡ AI 초기화 및 동기화 중...",
+    "denied_title": "액세스 거부됨",
+    "denied_msg": "자격증명이 올바르지 않습니다."
   },
   "common": {
     "accept": "확인",

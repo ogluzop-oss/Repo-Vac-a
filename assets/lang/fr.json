@@ -7,7 +7,9 @@
     "access_button": "ACCÉDER AU SYSTÈME",
     "language_tooltip": "Langue",
     "error_empty": "Saisissez votre nom et votre mot de passe",
-    "loading_ai": "⚡ DÉMARRAGE DE L'IA ET SYNCHRONISATION..."
+    "loading_ai": "⚡ DÉMARRAGE DE L'IA ET SYNCHRONISATION...",
+    "denied_title": "Accès refusé",
+    "denied_msg": "Identifiants incorrects."
   },
   "common": {
     "accept": "Accepter",

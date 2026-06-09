@@ -7,7 +7,9 @@
     "access_button": "ACCESS THE SYSTEM",
     "language_tooltip": "Language",
     "error_empty": "Enter your name and password",
-    "loading_ai": "⚡ STARTING AI AND SYNCING..."
+    "loading_ai": "⚡ STARTING AI AND SYNCING...",
+    "denied_title": "Access Denied",
+    "denied_msg": "Incorrect credentials."
   },
   "common": {
     "accept": "Accept",

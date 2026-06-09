@@ -1,0 +1,31 @@
+src\gui\autocobro.py:312: Un responsable debe autorizar la venta.
+src\gui\autocobro.py:382: Retire el artículo
+src\gui\autocobro.py:446: ¡Gracias por tu compra!
+src\gui\autocobro.py:464: Cancelar compra
+src\gui\etiquetas_precios.py:556: CAMBIAR PRECIO
+src\gui\gestion_mermas.py:922: REGISTRAR MERMA
+src\gui\gestion_usuarios.py:6244: GESTIÓN CAJA
+src\gui\importar_stock.py:41: Resultado de la importación
+src\gui\informe_reposicion.py:1084: ESTADO REPOSICIÓN
+src\gui\info_articulo.py:912: BUSCAR ARTÍCULO
+src\gui\recepcion_pale.py:2581: Artículo no encontrado.
+src\gui\recepcion_pale.py:3598: Sin propuestas
+src\gui\recepcion_pale.py:3612: Error PDF
+src\gui\ubicacion_tienda.py:2132: Planos (*.png *.jpg *.jpeg *.pdf)
+src\gui\ubicacion_tienda.py:3087: Fallo de Persistencia
+src\gui\ubicacion_tienda.py:3955: QMessageBox { background-color: #0D1117; } QLabel { color: white; }
+src\gui\ubicacion_tienda.py:3980: DATOS INCOMPLETOS
+src\gui\ubicacion_tienda.py:4095: ERROR DE PERSISTENCIA
+src\gui\ubicacion_tienda.py:4154: REPORTAR INCIDENCIA
+src\gui\ubicacion_tienda.py:4199: No se pudo conectar con la base de datos para reportar la incidencia.
+src\gui\ubicacion_tienda.py:4974: Cambios sin guardar
+src\gui\ubicacion_tienda.py:5248: Búsqueda sin resultados.
+src\gui\ubicacion_tienda.py:6171: Error de Interfaz
+src\gui\ubicacion_tienda.py:7203: EXPORTACIÓN VACÍA
+src\gui\ubicacion_tienda.py:7350: ERROR DE REPORTE
+src\gui\ubicacion_tienda.py:7464: No hay etiquetas nuevas en la cola de impresión.
+src\gui\ubicacion_tienda.py:7564: Error PDF
+src\gui\ubicacion_tienda.py:7857: QMessageBox { background-color: #0A0A0A; border: 1px solid #FF5555; } QLabel { color: white; font-family: 'Segoe UI'; }
+src\gui\ubicacion_tienda.py:8460: No hay artículos con coordenadas mapeadas para exportar.
+src\gui\ubicacion_tienda.py:8514: EXPORTACIÓN EXITOSA
+src\gui\ubicacion_tienda.py:8526: ERROR CRÍTICO

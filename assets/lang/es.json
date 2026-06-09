@@ -7,7 +7,9 @@
     "access_button": "ACCEDER AL SISTEMA",
     "language_tooltip": "Idioma",
     "error_empty": "Introduce tu nombre y contraseña",
-    "loading_ai": "⚡ INICIANDO IA Y SINCRONIZANDO..."
+    "loading_ai": "⚡ INICIANDO IA Y SINCRONIZANDO...",
+    "denied_title": "Acceso Denegado",
+    "denied_msg": "Credenciales incorrectas."
   },
   "common": {
     "accept": "Aceptar",

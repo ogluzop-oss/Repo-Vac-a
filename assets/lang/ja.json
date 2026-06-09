@@ -7,7 +7,9 @@
     "access_button": "システムにアクセス",
     "language_tooltip": "言語",
     "error_empty": "名前とパスワードを入力してください",
-    "loading_ai": "⚡ AIを起動し同期中..."
+    "loading_ai": "⚡ AIを起動し同期中...",
+    "denied_title": "アクセスが拒否されました",
+    "denied_msg": "認証情報が正しくありません。"
   },
   "common": {
     "accept": "確定",

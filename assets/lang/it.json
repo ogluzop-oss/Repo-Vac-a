@@ -7,7 +7,9 @@
     "access_button": "ACCEDI AL SISTEMA",
     "language_tooltip": "Lingua",
     "error_empty": "Inserisci il tuo nome e la password",
-    "loading_ai": "⚡ AVVIO IA E SINCRONIZZAZIONE..."
+    "loading_ai": "⚡ AVVIO IA E SINCRONIZZAZIONE...",
+    "denied_title": "Accesso Negato",
+    "denied_msg": "Credenziali non corrette."
   },
   "common": {
     "accept": "Accetta",

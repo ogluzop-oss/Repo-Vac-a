@@ -625,6 +625,36 @@ def _apply_native_dialog_chrome(widget):
         pass
 
 
+def _traducir_dialogo_nativo(widget):
+    """Traduce en caliente el texto de un QMessageBox nativo al idioma activo.
+    Muchos QMessageBox del código llevan el texto en español hardcodeado (no pasan
+    por tr); aquí se traducen vía el traductor IA cacheado (Nivel 2). En español o
+    sin backend no hace nada (degradación elegante: queda en español)."""
+    try:
+        from src.utils import i18n
+        lang = i18n.current_language()
+        if not lang or lang == "es":
+            return
+
+        def _t(s):
+            s = (s or "").strip()
+            if not s:
+                return s
+            try:
+                return i18n.ai_translate(s, lang, dominio="ui") or s
+            except Exception:
+                return s
+
+        if widget.windowTitle():
+            widget.setWindowTitle(_t(widget.windowTitle()))
+        if hasattr(widget, "text") and widget.text():
+            widget.setText(_t(widget.text()))
+        if hasattr(widget, "informativeText") and widget.informativeText():
+            widget.setInformativeText(_t(widget.informativeText()))
+    except Exception:
+        pass
+
+
 def _apply_windows_dark_title_bar(widget):
     if widget is None or sys.platform != "win32":
         return
@@ -670,6 +700,7 @@ class _SmartGlobalFilter(QObject):
                 # Windows keeps rejecting the recalculated positions, freezing the UI.
                 # The global QSS already applies the dark theme to QInputDialog correctly.
                 _apply_native_dialog_chrome(watched)
+                _traducir_dialogo_nativo(watched)
             # QComboBoxPrivateContainer: clip OS window to rounded rect (SetWindowRgn)
             # so the QAbstractItemView's QSS border-radius + neon border shows correctly.
             try:

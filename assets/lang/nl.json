@@ -7,7 +7,9 @@
     "access_button": "TOEGANG TOT SYSTEEM",
     "language_tooltip": "Taal",
     "error_empty": "Voer uw naam en wachtwoord in",
-    "loading_ai": "⚡ AI STARTEN EN SYNCHRONISEREN..."
+    "loading_ai": "⚡ AI STARTEN EN SYNCHRONISEREN...",
+    "denied_title": "Toegang Geweigerd",
+    "denied_msg": "Onjuiste aanmeldingsgegevens."
   },
   "common": {
     "accept": "Accepteren",

@@ -7,7 +7,9 @@
     "access_button": "SİSTEME GİRİŞ",
     "language_tooltip": "Dil",
     "error_empty": "Adınızı ve parolanızı girin",
-    "loading_ai": "⚡ YAP BAŞLATILIYOR VE SİNKRONİZE EDİLİYOR..."
+    "loading_ai": "⚡ YAP BAŞLATILIYOR VE SİNKRONİZE EDİLİYOR...",
+    "denied_title": "Erişim Reddedildi",
+    "denied_msg": "Yanlış kimlik bilgileri."
   },
   "common": {
     "accept": "Tamam",

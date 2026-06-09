@@ -7,7 +7,9 @@
     "access_button": "WEJDŹ DO SYSTEMU",
     "language_tooltip": "Język",
     "error_empty": "Wprowadź imię i hasło",
-    "loading_ai": "⚡ URUCHAMIANIE AI I SYNCHRONIZACJA..."
+    "loading_ai": "⚡ URUCHAMIANIE AI I SYNCHRONIZACJA...",
+    "denied_title": "Dostęp Odrzucony",
+    "denied_msg": "Nieprawidłowe poświadczenia."
   },
   "common": {
     "accept": "Akceptuj",
