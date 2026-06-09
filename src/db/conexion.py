@@ -137,6 +137,12 @@ def init_db():
 
 _schema_ready = False
 
+# Identidad raíz multiempresa (multi-tenant). En esta fase la app sigue siendo de
+# escritorio mono-empresa: todas las filas existentes pertenecen a esta empresa por
+# defecto, así nada se rompe. Las nuevas empresas usarán UUID propios (uuid4).
+EMPRESA_DEFAULT_ID = "00000000-0000-0000-0000-000000000001"
+EMPRESA_DEFAULT_CODIGO = "EMP-001"
+
 
 def ensure_schema(force: bool = False):
     """Asegura el esquema mínimo global, el de logística y el de stock.
@@ -181,6 +187,60 @@ def ensure_schema(force: bool = False):
                     ADD COLUMN IF NOT EXISTS ref_almacen VARCHAR(100) NOT NULL DEFAULT '',
                     ADD COLUMN IF NOT EXISTS moneda      VARCHAR(3)   NOT NULL DEFAULT 'EUR'
                 """)
+
+                # ── Fundación MULTIEMPRESA (multi-tenant), aditiva y no disruptiva ──
+                # Entidad raíz 'empresas' + enlace de tiendas/usuarios/config a la
+                # empresa. Todo lo existente queda bajo la empresa por defecto, así
+                # las consultas actuales (sin filtro) siguen devolviendo lo mismo.
+                _emp = EMPRESA_DEFAULT_ID
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS empresas (
+                        id_empresa          CHAR(36)     NOT NULL PRIMARY KEY,
+                        codigo_empresa      VARCHAR(20)  NOT NULL UNIQUE,
+                        nombre_empresa      VARCHAR(255) NOT NULL DEFAULT 'SMART MANAGER',
+                        razon_social        VARCHAR(255)          DEFAULT NULL,
+                        cif_nif             VARCHAR(50)           DEFAULT NULL,
+                        direccion_fiscal    VARCHAR(255)          DEFAULT NULL,
+                        telefono            VARCHAR(50)           DEFAULT NULL,
+                        email_principal     VARCHAR(255)          DEFAULT NULL,
+                        estado              VARCHAR(20)  NOT NULL DEFAULT 'activa',
+                        plan_licencia       VARCHAR(50)  NOT NULL DEFAULT 'base',
+                        fecha_alta          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        fecha_actualizacion DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    ALTER TABLE tiendas
+                    ADD COLUMN IF NOT EXISTS id_empresa          CHAR(36)    NOT NULL DEFAULT '{_emp}',
+                    ADD COLUMN IF NOT EXISTS codigo_tienda       VARCHAR(20) NOT NULL DEFAULT '',
+                    ADD COLUMN IF NOT EXISTS fecha_alta          DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS fecha_actualizacion DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                """)
+                cur.execute(f"""
+                    ALTER TABLE usuarios
+                    ADD COLUMN IF NOT EXISTS id_empresa CHAR(36) NOT NULL DEFAULT '{_emp}'
+                """)
+                cur.execute(f"""
+                    ALTER TABLE configuraciones
+                    ADD COLUMN IF NOT EXISTS id_empresa CHAR(36) NOT NULL DEFAULT '{_emp}'
+                """)
+                # Siembra de la empresa por defecto (a partir de configuraciones si existe).
+                cur.execute(f"""
+                    INSERT IGNORE INTO empresas (id_empresa, codigo_empresa, nombre_empresa, email_principal)
+                    SELECT '{_emp}', '{EMPRESA_DEFAULT_CODIGO}',
+                           COALESCE(NULLIF(nombre_empresa,''), 'SMART MANAGER'),
+                           COALESCE(NULLIF(email,''), NULL)
+                    FROM configuraciones ORDER BY id ASC LIMIT 1
+                """)
+                cur.execute(f"""
+                    INSERT IGNORE INTO empresas (id_empresa, codigo_empresa, nombre_empresa)
+                    VALUES ('{_emp}', '{EMPRESA_DEFAULT_CODIGO}', 'SMART MANAGER')
+                """)
+                # Backfill de filas existentes hacia la empresa por defecto + códigos visibles.
+                cur.execute(f"UPDATE tiendas SET id_empresa='{_emp}' WHERE id_empresa IS NULL OR id_empresa=''")
+                cur.execute("UPDATE tiendas SET codigo_tienda=CONCAT('TND-', LPAD(id,3,'0')) WHERE codigo_tienda IS NULL OR codigo_tienda=''")
+                cur.execute(f"UPDATE usuarios SET id_empresa='{_emp}' WHERE id_empresa IS NULL OR id_empresa=''")
+                cur.execute(f"UPDATE configuraciones SET id_empresa='{_emp}' WHERE id_empresa IS NULL OR id_empresa=''")
                 conn.commit()
 
         from src.db.logistica import ensure_schema_logistica

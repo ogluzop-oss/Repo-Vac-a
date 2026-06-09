@@ -35,8 +35,32 @@ CREATE TABLE IF NOT EXISTS almacen (
 CREATE TABLE IF NOT EXISTS tiendas (
     id     INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL UNIQUE,
-    activo TINYINT(1)   NOT NULL DEFAULT 1
+    activo TINYINT(1)   NOT NULL DEFAULT 1,
+    -- Multiempresa (multi-tenant): toda tienda pertenece a una empresa.
+    id_empresa    CHAR(36)    NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+    codigo_tienda VARCHAR(20) NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================
+-- 1b. EMPRESAS (entidad RAÍZ del modelo multiempresa / multi-tenant)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS empresas (
+    id_empresa          CHAR(36)     NOT NULL PRIMARY KEY,
+    codigo_empresa      VARCHAR(20)  NOT NULL UNIQUE,
+    nombre_empresa      VARCHAR(255) NOT NULL DEFAULT 'SMART MANAGER',
+    razon_social        VARCHAR(255)          DEFAULT NULL,
+    cif_nif             VARCHAR(50)           DEFAULT NULL,
+    direccion_fiscal    VARCHAR(255)          DEFAULT NULL,
+    telefono            VARCHAR(50)           DEFAULT NULL,
+    email_principal     VARCHAR(255)          DEFAULT NULL,
+    estado              VARCHAR(20)  NOT NULL DEFAULT 'activa',
+    plan_licencia       VARCHAR(50)  NOT NULL DEFAULT 'base',
+    fecha_alta          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fecha_actualizacion DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT IGNORE INTO empresas (id_empresa, codigo_empresa, nombre_empresa)
+VALUES ('00000000-0000-0000-0000-000000000001', 'EMP-001', 'SMART MANAGER');
 
 -- ============================================================
 -- 3. USUARIOS Y ACCESO
