@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Questo è un invio di prova da Smart Manager AI.",
     "envio_titulo": "Invio",
     "eliminar_titulo": "Elimina email",
-    "eliminar_msg": "Eliminare {dir}? I suoi token verranno revocati."
+    "eliminar_msg": "Eliminare {dir}? I suoi token verranno revocati.",
+    "env_titulo": "INVIA DOCUMENTO PER EMAIL",
+    "env_adjunto": "DOCUMENTO ALLEGATO",
+    "env_buzon": "INVIA DA (CASELLA POSTALE)",
+    "env_destinatario": "DESTINATARIO",
+    "env_asunto": "OGGETTO",
+    "env_enviar": "INVIA",
+    "env_cuerpo": "Documento allegato generato da Smart Manager AI.",
+    "env_sin_buzones": "Nessuna casella postale aziendale attiva. Creane una nella sezione Posta.",
+    "env_falta_dest": "Inserisci un destinatario valido."
   }
 }

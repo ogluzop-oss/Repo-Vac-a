@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Ceci est un envoi de test depuis Smart Manager AI.",
     "envio_titulo": "Envoi",
     "eliminar_titulo": "Supprimer l'e-mail",
-    "eliminar_msg": "Supprimer {dir} ? Ses tokens seront révoqués."
+    "eliminar_msg": "Supprimer {dir} ? Ses tokens seront révoqués.",
+    "env_titulo": "ENVOYER LE DOCUMENT PAR COURRIER",
+    "env_adjunto": "DOCUMENT JOINT",
+    "env_buzon": "ENVOYER DEPUIS (BOÎTE AUX LETTRES)",
+    "env_destinatario": "DESTINATAIRE",
+    "env_asunto": "OBJET",
+    "env_enviar": "ENVOYER",
+    "env_cuerpo": "Document joint généré par Smart Manager AI.",
+    "env_sin_buzones": "Aucune boîte aux lettres d'entreprise active. En créez une dans la section Courrier.",
+    "env_falta_dest": "Veuillez entrer un destinataire valide."
   }
 }

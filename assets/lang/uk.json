@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Це тестовий звіт від Smart Manager AI.",
     "envio_titulo": "Відправити",
     "eliminar_titulo": "Видалити email",
-    "eliminar_msg": "Видалити {dir}? Його токени будуть відкликані."
+    "eliminar_msg": "Видалити {dir}? Його токени будуть відкликані.",
+    "env_titulo": "НАДІСЛАТИ ДОКУМЕНТ ПОШТОЮ",
+    "env_adjunto": "附ДОКУМЕНТ",
+    "env_buzon": "НАДІСЛАТИ ВІД ({BUZÓN})",
+    "env_destinatario": "ОДЕРЖУВАЧ",
+    "env_asunto": "ТЕМА",
+    "env_enviar": "НАДІСЛАТИ",
+    "env_cuerpo": "Документ у додатку згенерований Smart Manager AI.",
+    "env_sin_buzones": "Немає активних корпоративних поштових скриньок. Створіть одну в розділі Пошта.",
+    "env_falta_dest": "Введіть дійсного одержувача."
   }
 }

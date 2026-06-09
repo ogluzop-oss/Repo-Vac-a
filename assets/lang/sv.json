@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "This is a test delivery from Smart Manager AI.",
     "envio_titulo": "Send",
     "eliminar_titulo": "Delete email",
-    "eliminar_msg": "Delete {dir}? Its tokens will be revoked."
+    "eliminar_msg": "Delete {dir}? Its tokens will be revoked.",
+    "env_titulo": "SKICKA DOKUMENT VIA E-POST",
+    "env_adjunto": "BIFOGAT DOKUMENT",
+    "env_buzon": "SKICKA FRÅN (POSTLÅDA)",
+    "env_destinatario": "MOTTAGARE",
+    "env_asunto": "ÄMNE",
+    "env_enviar": "SKICKA",
+    "env_cuerpo": "Bifogat dokument genererat av Smart Manager AI.",
+    "env_sin_buzones": "Ingen aktiv företagspostlåda. Skapa en i avsnittet E-post.",
+    "env_falta_dest": "Ange en giltig mottagare."
   }
 }

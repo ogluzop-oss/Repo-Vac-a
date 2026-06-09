@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Ini adalah pengiriman pengujian dari Smart Manager AI.",
     "envio_titulo": "Kirim",
     "eliminar_titulo": "Hapus email",
-    "eliminar_msg": "Hapus {dir}? Token-nya akan dicabut."
+    "eliminar_msg": "Hapus {dir}? Token-nya akan dicabut.",
+    "env_titulo": "KIRIM DOKUMEN MELALUI EMAIL",
+    "env_adjunto": "DOKUMEN TERLAMPIR",
+    "env_buzon": "KIRIM DARI (KOTAK SURAT)",
+    "env_destinatario": "PENERIMA",
+    "env_asunto": "SUBJEK",
+    "env_enviar": "KIRIM",
+    "env_cuerpo": "Dokumen terlampir yang dihasilkan oleh Smart Manager AI.",
+    "env_sin_buzones": "Tidak ada kotak surat perusahaan yang aktif. Buat satu di bagian Email.",
+    "env_falta_dest": "Masukkan penerima yang valid."
   }
 }

@@ -158,6 +158,100 @@ class _NuevoCorreoDialog(QDialog):
         self.accept()
 
 
+class EnviarDocumentoDialog(QDialog):
+    """Diálogo reutilizable: enviar un documento generado (PDF, etc.) desde un
+    buzón corporativo de la empresa. Lo usan los módulos que generan documentos
+    (albaranes, facturas, nóminas, informes...) para 'enviar desde el correo de
+    la tienda'."""
+
+    def __init__(self, ruta_documento: str, asunto: str = "", destinatario: str = "", parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._ruta = ruta_documento
+        self._buzones = [c for c in correo_db.listar_correos() if c.get("estado") == "activo"]
+        self._build(asunto, destinatario)
+
+    def _build(self, asunto, destinatario):
+        import os
+        card = QFrame(self)
+        card.setStyleSheet(f"QFrame{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(26, 22, 26, 22); ly.setSpacing(10)
+
+        t = QLabel("📤  " + tr("correo.env_titulo", default="ENVIAR DOCUMENTO POR CORREO"))
+        t.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:15px;background:transparent;border:none;")
+        ly.addWidget(t)
+
+        def _lbl(x):
+            q = QLabel(x); q.setStyleSheet(f"color:{_DIM};font-family:'Segoe UI';font-weight:900;font-size:11px;background:transparent;border:none;")
+            return q
+
+        adj = QLabel("📎  " + os.path.basename(self._ruta or ""))
+        adj.setStyleSheet(f"color:{_TEXT};font-family:'Segoe UI';font-size:12px;background:{_BG2};border:1px solid {_BORDE};border-radius:8px;padding:8px 10px;")
+        ly.addWidget(_lbl(tr("correo.env_adjunto", default="DOCUMENTO ADJUNTO")))
+        ly.addWidget(adj)
+
+        ly.addWidget(_lbl(tr("correo.env_buzon", default="ENVIAR DESDE (BUZÓN)")))
+        self.cb_buzon = _NeonComboBox(); self.cb_buzon.setFixedHeight(38)
+        self.cb_buzon.setCursor(Qt.CursorShape.PointingHandCursor)
+        for b in self._buzones:
+            etq = b["direccion"] + (f"  ·  {b.get('tienda_nombre')}" if b.get("tienda_nombre") else "")
+            self.cb_buzon.addItem(etq, b["id_correo"])
+        ly.addWidget(self.cb_buzon)
+
+        ly.addWidget(_lbl(tr("correo.env_destinatario", default="DESTINATARIO")))
+        self.inp_dest = QLineEdit(destinatario); self.inp_dest.setFixedHeight(38)
+        self.inp_dest.setPlaceholderText("destinatario@ejemplo.com")
+        ly.addWidget(self.inp_dest)
+
+        ly.addWidget(_lbl(tr("correo.env_asunto", default="ASUNTO")))
+        self.inp_asunto = QLineEdit(asunto); self.inp_asunto.setFixedHeight(38)
+        ly.addWidget(self.inp_asunto)
+
+        botones = QHBoxLayout(); botones.addStretch()
+        bc = QPushButton(tr("correo.cancelar", default="CANCELAR")); bc.setFixedSize(130, 40)
+        bc.setCursor(Qt.CursorShape.PointingHandCursor)
+        bc.setStyleSheet(f"QPushButton{{background:{_BG};color:#F85149;border:2px solid #F85149;border-radius:10px;font-weight:900;}}QPushButton:hover{{background:#F85149;color:{_BG};}}")
+        bc.clicked.connect(self.reject)
+        bk = QPushButton("📤  " + tr("correo.env_enviar", default="ENVIAR")); bk.setFixedSize(180, 40)
+        bk.setCursor(Qt.CursorShape.PointingHandCursor)
+        bk.setStyleSheet(f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};border-radius:10px;font-weight:900;}}QPushButton:hover{{background:{_CIAN};color:{_BG};}}")
+        bk.clicked.connect(self._enviar)
+        botones.addWidget(bc); botones.addWidget(bk)
+        ly.addLayout(botones)
+        self.setFixedWidth(560)
+
+    def _enviar(self):
+        if not self._buzones:
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("correo.aviso", default="Aviso"),
+                                tr("correo.env_sin_buzones", default="No hay buzones corporativos activos. Crea uno en la sección Correo."), "warning")
+            return
+        dest = self.inp_dest.text().strip()
+        if "@" not in dest:
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("correo.error_titulo", default="Datos incompletos"),
+                                tr("correo.env_falta_dest", default="Introduce un destinatario válido."), "warning")
+            return
+        ok, msg = correo_svc.enviar_documento(
+            self.cb_buzon.currentData(), dest, self.inp_asunto.text().strip(),
+            tr("correo.env_cuerpo", default="Documento adjunto generado por Smart Manager AI."),
+            [self._ruta] if self._ruta else None,
+        )
+        if mostrar_mensaje:
+            mostrar_mensaje(self, tr("correo.envio_titulo", default="Envío"), msg, "info" if ok else "error")
+        if ok:
+            self.accept()
+
+
+def enviar_documento_por_correo(parent, ruta_documento: str, asunto: str = "", destinatario: str = "") -> bool:
+    """Punto de entrada reutilizable para 'enviar documento desde el correo de la
+    tienda'. Lo pueden llamar albaranes, facturas, nóminas, informes, etc."""
+    dlg = EnviarDocumentoDialog(ruta_documento, asunto, destinatario, parent)
+    return dlg.exec() == QDialog.DialogCode.Accepted
+
+
 class CorreoCorporativoWindow(QWidget):
     """Pantalla de gestión de correos corporativos de la empresa activa."""
 

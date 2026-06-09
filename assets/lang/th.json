@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "นี่คือการส่งทดสอบจาก Smart Manager AI",
     "envio_titulo": "ส่ง",
     "eliminar_titulo": "ลบอีเมล",
-    "eliminar_msg": "ลบ {dir} หรือไม่ โทเค็นของบัญชีจะถูกเพิกถอน"
+    "eliminar_msg": "ลบ {dir} หรือไม่ โทเค็นของบัญชีจะถูกเพิกถอน",
+    "env_titulo": "ส่งเอกสารทางอีเมล",
+    "env_adjunto": "เอกสารแนบ",
+    "env_buzon": "ส่งจาก (กล่องจดหมาย)",
+    "env_destinatario": "ผู้รับ",
+    "env_asunto": "หัวเรื่อง",
+    "env_enviar": "ส่ง",
+    "env_cuerpo": "เอกสารแนบที่สร้างโดย Smart Manager AI",
+    "env_sin_buzones": "ไม่มีกล่องจดหมายระดับองค์กรที่ใช้งานอยู่ สร้างหนึ่งในส่วนอีเมล",
+    "env_falta_dest": "กรุณาป้อนผู้รับที่ถูกต้อง"
   }
 }

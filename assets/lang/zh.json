@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "这是来自Smart Manager AI的测试发送。",
     "envio_titulo": "发送",
     "eliminar_titulo": "删除邮件",
-    "eliminar_msg": "删除 {dir}？将撤销其令牌。"
+    "eliminar_msg": "删除 {dir}？将撤销其令牌。",
+    "env_titulo": "发送文档至邮件",
+    "env_adjunto": "附件文档",
+    "env_buzon": "从 {BUZÓN} 发送",
+    "env_destinatario": "收件人",
+    "env_asunto": "主题",
+    "env_enviar": "发送",
+    "env_cuerpo": "由 Smart Manager AI 生成的附件文档。",
+    "env_sin_buzones": "没有活跃的企业邮箱。请在邮件部分创建一个。",
+    "env_falta_dest": "请输入有效的收件人。"
   }
 }

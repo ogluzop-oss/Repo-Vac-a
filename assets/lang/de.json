@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Dies ist eine Test-Nachricht von Smart Manager AI.",
     "envio_titulo": "Versand",
     "eliminar_titulo": "E-Mail löschen",
-    "eliminar_msg": "Löschen Sie {dir}? Seine Token werden widerrufen."
+    "eliminar_msg": "Löschen Sie {dir}? Seine Token werden widerrufen.",
+    "env_titulo": "DOKUMENT PER E-MAIL SENDEN",
+    "env_adjunto": "DOKUMENT ANGEHÄNGT",
+    "env_buzon": "SENDEN VON (POSTFACH)",
+    "env_destinatario": "EMPFÄNGER",
+    "env_asunto": "BETREFF",
+    "env_enviar": "SENDEN",
+    "env_cuerpo": "Dokument erstellt von Smart Manager AI.",
+    "env_sin_buzones": "Keine aktiven Unternehmenspostfächer vorhanden. Erstellen Sie eines im Abschnitt E-Mail.",
+    "env_falta_dest": "Geben Sie einen gültigen Empfänger ein."
   }
 }

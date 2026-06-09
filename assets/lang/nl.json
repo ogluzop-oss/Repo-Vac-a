@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Dit is een test-verzending van Smart Manager AI.",
     "envio_titulo": "Verzenden",
     "eliminar_titulo": "E-mail verwijderen",
-    "eliminar_msg": "Wil je {dir} verwijderen? De tokens worden ingetrokken."
+    "eliminar_msg": "Wil je {dir} verwijderen? De tokens worden ingetrokken.",
+    "env_titulo": "DOCUMENT PER E-MAIL VERSTUREN",
+    "env_adjunto": "BIJGEVOEGD DOCUMENT",
+    "env_buzon": "VERSTUREN VANAF (POSTVAK)",
+    "env_destinatario": "ONTVANGER",
+    "env_asunto": "ONDERWERP",
+    "env_enviar": "VERSTUREN",
+    "env_cuerpo": "Document gegenereerd door Smart Manager AI.",
+    "env_sin_buzones": "Er zijn geen actieve bedrijfspostvakken. Maak er een aan in de sectie E-mail.",
+    "env_falta_dest": "Voer een geldige ontvanger in."
   }
 }

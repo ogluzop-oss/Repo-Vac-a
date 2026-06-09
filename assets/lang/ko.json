@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Smart Manager AI에서 보낸 테스트 발송입니다.",
     "envio_titulo": "발송",
     "eliminar_titulo": "이메일 삭제",
-    "eliminar_msg": "{dir}을(를) 삭제하시겠습니까? 토큰이 해지됩니다."
+    "eliminar_msg": "{dir}을(를) 삭제하시겠습니까? 토큰이 해지됩니다.",
+    "env_titulo": "문서를 이메일로 전송",
+    "env_adjunto": "첨부 문서",
+    "env_buzon": "{BUZÓN}에서 전송",
+    "env_destinatario": "수신자",
+    "env_asunto": "제목",
+    "env_enviar": "전송",
+    "env_cuerpo": "Smart Manager AI에서 생성한 첨부 문서입니다.",
+    "env_sin_buzones": "활성화된 회사 사서함이 없습니다. 메일 섹션에서 새로 만드세요.",
+    "env_falta_dest": "유효한 수신자를 입력하세요."
   }
 }

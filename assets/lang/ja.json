@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "これは Smart Manager AI からのテスト送信です。",
     "envio_titulo": "送信",
     "eliminar_titulo": "メールを削除",
-    "eliminar_msg": "{dir} を削除しますか？そのトークンは取り消されます。"
+    "eliminar_msg": "{dir} を削除しますか？そのトークンは取り消されます。",
+    "env_titulo": "ドキュメントをメールで送信",
+    "env_adjunto": "添付ドキュメント",
+    "env_buzon": "{BUZÓN}から送信",
+    "env_destinatario": "宛先",
+    "env_asunto": "件名",
+    "env_enviar": "送信",
+    "env_cuerpo": "Smart Manager AIによって生成された添付ドキュメント。",
+    "env_sin_buzones": "アクティブな企業メールボックスがありません。メールセクションで作成してください。",
+    "env_falta_dest": "有効な宛先を入力してください。"
   }
 }

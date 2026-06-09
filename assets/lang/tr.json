@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Bu, Smart Manager AI'dan bir test gönderimidir.",
     "envio_titulo": "Gönder",
     "eliminar_titulo": "E-postayı Sil",
-    "eliminar_msg": "Sil {dir}? Tokenleri iptal edilecek."
+    "eliminar_msg": "Sil {dir}? Tokenleri iptal edilecek.",
+    "env_titulo": "BELGEYI E-POSTAYLA GÖNDER",
+    "env_adjunto": "EKLİ BELGE",
+    "env_buzon": "GÖNDER ({BUZÓN})",
+    "env_destinatario": "ALICI",
+    "env_asunto": "KONU",
+    "env_enviar": "GÖNDER",
+    "env_cuerpo": "Smart Manager AI tarafından oluşturulan ekli belge.",
+    "env_sin_buzones": "Etkin kurumsal posta kutusu yok. Posta bölümünde bir tane oluşturun.",
+    "env_falta_dest": "Geçerli bir alıcı girin."
   }
 }

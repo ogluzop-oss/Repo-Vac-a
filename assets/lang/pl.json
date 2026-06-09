@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "To jest wiadomość testowa z Smart Manager AI.",
     "envio_titulo": "Wyślij",
     "eliminar_titulo": "Usuń wiadomość",
-    "eliminar_msg": "Usunąć {dir}? Jego tokeny zostaną unieważnione."
+    "eliminar_msg": "Usunąć {dir}? Jego tokeny zostaną unieważnione.",
+    "env_titulo": "WYŚLIJ DOKUMENT PRZEZ POCZTĘ",
+    "env_adjunto": "DOKUMENT ZAŁĄCZONY",
+    "env_buzon": "WYŚLIJ Z (SKRZYNKA)",
+    "env_destinatario": "ADRESAT",
+    "env_asunto": "TEMAT",
+    "env_enviar": "WYŚLIJ",
+    "env_cuerpo": "Dokument załączony wygenerowany przez Smart Manager AI.",
+    "env_sin_buzones": "Brak aktywnych skrzynek korporacyjnych. Utwórz jedną w sekcji Poczta.",
+    "env_falta_dest": "Wprowadź prawidłowego adresata."
   }
 }

@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "هذا إرسال اختبار من Smart Manager AI.",
     "envio_titulo": "إرسال",
     "eliminar_titulo": "حذف البريد",
-    "eliminar_msg": "حذف {dir}؟ سيتم إلغاء رموزك."
+    "eliminar_msg": "حذف {dir}؟ سيتم إلغاء رموزك.",
+    "env_titulo": "إرسال المستند عبر البريد",
+    "env_adjunto": "المستند المرفق",
+    "env_buzon": "الإرسال من (صندوق البريد)",
+    "env_destinatario": "المستقبل",
+    "env_asunto": "الموضوع",
+    "env_enviar": "إرسال",
+    "env_cuerpo": "تم إنشاء المستند المرفق بواسطة Smart Manager AI.",
+    "env_sin_buzones": "لا توجد صناديق بريد شركات نشطة. أنشئ واحدة في قسم البريد.",
+    "env_falta_dest": "أدخل مستقبلاً صالحاً."
   }
 }

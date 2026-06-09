@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "यह Smart Manager AI से एक परीक्षण भेजना है।",
     "envio_titulo": "भेजें",
     "eliminar_titulo": "ईमेल हटाएं",
-    "eliminar_msg": "क्या {dir} को हटाएं? इसके टोकन को रद्द किया जाएगा।"
+    "eliminar_msg": "क्या {dir} को हटाएं? इसके टोकन को रद्द किया जाएगा।",
+    "env_titulo": "दस्तावेज़ ईमेल द्वारा भेजें",
+    "env_adjunto": "संलग्न दस्तावेज़",
+    "env_buzon": "भेजें (मेलबॉक्स) से",
+    "env_destinatario": "प्राप्तकर्ता",
+    "env_asunto": "विषय",
+    "env_enviar": "भेजें",
+    "env_cuerpo": "Smart Manager AI द्वारा उत्पन्न दस्तावेज़।",
+    "env_sin_buzones": "कोई सक्रिय कॉर्पोरेट मेलबॉक्स नहीं है। मेल सेक्शन में एक बनाएं।",
+    "env_falta_dest": "एक वैध प्राप्तकर्ता दर्ज करें।"
   }
 }

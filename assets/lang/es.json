@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Este es un envío de prueba desde Smart Manager AI.",
     "envio_titulo": "Envío",
     "eliminar_titulo": "Eliminar correo",
-    "eliminar_msg": "¿Eliminar {dir}? Se revocarán sus tokens."
+    "eliminar_msg": "¿Eliminar {dir}? Se revocarán sus tokens.",
+    "env_titulo": "ENVIAR DOCUMENTO POR CORREO",
+    "env_adjunto": "DOCUMENTO ADJUNTO",
+    "env_buzon": "ENVIAR DESDE (BUZÓN)",
+    "env_destinatario": "DESTINATARIO",
+    "env_asunto": "ASUNTO",
+    "env_enviar": "ENVIAR",
+    "env_cuerpo": "Documento adjunto generado por Smart Manager AI.",
+    "env_sin_buzones": "No hay buzones corporativos activos. Crea uno en la sección Correo.",
+    "env_falta_dest": "Introduce un destinatario válido."
   }
 }

@@ -1437,6 +1437,15 @@
     "prueba_cuerpo": "Đây là một lần gửi thử nghiệm từ Smart Manager AI.",
     "envio_titulo": "Gửi",
     "eliminar_titulo": "Xóa email",
-    "eliminar_msg": "Xóa {dir}? Các token của nó sẽ bị thu hồi."
+    "eliminar_msg": "Xóa {dir}? Các token của nó sẽ bị thu hồi.",
+    "env_titulo": "GỬI TÀI LIỆU Qнакopa EMAIL",
+    "env_adjunto": "TÀI LIỆU ĐÍNH KÈM",
+    "env_buzon": "GỬI TỪ (HỘP THƯ)",
+    "env_destinatario": "NGƯỜI NHẬN",
+    "env_asunto": "CHỦ ĐỀ",
+    "env_enviar": "GỬI",
+    "env_cuerpo": "Tài liệu đính kèm được tạo bởi Smart Manager AI.",
+    "env_sin_buzones": "Không có hộp thư công ty nào hoạt động. Hãy tạo một hộp thư trong phần Email.",
+    "env_falta_dest": "Nhập người nhận hợp lệ."
   }
 }
