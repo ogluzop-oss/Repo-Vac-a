@@ -47,6 +47,15 @@ _CIAN = "#00FFC6"
 _BORDE = "#30363D"
 _TEXT = "#E6EDF3"
 _DIM = "#8B949E"
+_ROJO = "#F85149"
+
+# QSS inline estable para combos: el borde neón se conserva tras abrir/cerrar el
+# popup (el filtro global guarda/restaura el QSS inline; sin él, lo perdían).
+_COMBO_NEON = (
+    f"QComboBox{{border:2px solid {_CIAN};border-radius:10px;}}"
+    "QComboBox:on{border:2px solid transparent;}"
+    f"QComboBox:disabled{{border:2px solid {_BORDE};}}"
+)
 
 
 def _listar_tiendas() -> list[dict]:
@@ -98,6 +107,7 @@ class _NuevoCorreoDialog(QDialog):
         fila = QHBoxLayout(); fila.setSpacing(12)
         col1 = QVBoxLayout(); col1.addWidget(_lbl(tr("correo.col_proveedor", default="PROVEEDOR")))
         self.cb_prov = _NeonComboBox(); self.cb_prov.setFixedHeight(38)
+        self.cb_prov.setStyleSheet(_COMBO_NEON)
         self.cb_prov.setCursor(Qt.CursorShape.PointingHandCursor)
         for p in correo_db.PROVEEDORES:
             self.cb_prov.addItem(p.capitalize(), p)
@@ -105,6 +115,7 @@ class _NuevoCorreoDialog(QDialog):
 
         col2 = QVBoxLayout(); col2.addWidget(_lbl(tr("correo.col_tipo", default="TIPO")))
         self.cb_tipo = _NeonComboBox(); self.cb_tipo.setFixedHeight(38)
+        self.cb_tipo.setStyleSheet(_COMBO_NEON)
         self.cb_tipo.setCursor(Qt.CursorShape.PointingHandCursor)
         for t_ in correo_db.TIPOS_CORREO:
             self.cb_tipo.addItem(t_.capitalize(), t_)
@@ -114,6 +125,7 @@ class _NuevoCorreoDialog(QDialog):
         fila2 = QHBoxLayout(); fila2.setSpacing(12)
         col3 = QVBoxLayout(); col3.addWidget(_lbl(tr("correo.col_tienda", default="TIENDA")))
         self.cb_tienda = _NeonComboBox(); self.cb_tienda.setFixedHeight(38)
+        self.cb_tienda.setStyleSheet(_COMBO_NEON)
         self.cb_tienda.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cb_tienda.addItem(tr("correo.sin_tienda", default="— Empresa (sin tienda) —"), None)
         for t_ in _listar_tiendas():
@@ -122,6 +134,7 @@ class _NuevoCorreoDialog(QDialog):
 
         col4 = QVBoxLayout(); col4.addWidget(_lbl(tr("correo.col_licencia", default="LICENCIA")))
         self.cb_lic = _NeonComboBox(); self.cb_lic.setFixedHeight(38)
+        self.cb_lic.setStyleSheet(_COMBO_NEON)
         self.cb_lic.setCursor(Qt.CursorShape.PointingHandCursor)
         for lt in correo_db.TIPOS_LICENCIA:
             self.cb_lic.addItem(lt.replace("correo_", "").capitalize(), lt)
@@ -194,6 +207,7 @@ class EnviarDocumentoDialog(QDialog):
 
         ly.addWidget(_lbl(tr("correo.env_buzon", default="ENVIAR DESDE (BUZÓN)")))
         self.cb_buzon = _NeonComboBox(); self.cb_buzon.setFixedHeight(38)
+        self.cb_buzon.setStyleSheet(_COMBO_NEON)
         self.cb_buzon.setCursor(Qt.CursorShape.PointingHandCursor)
         for b in self._buzones:
             etq = b["direccion"] + (f"  ·  {b.get('tienda_nombre')}" if b.get("tienda_nombre") else "")
@@ -271,25 +285,30 @@ class CorreoCorporativoWindow(QWidget):
         titulo.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:22px;background:transparent;")
         cab.addWidget(titulo); cab.addStretch()
         if self._volver:
-            bvol = QPushButton("←  " + tr("correo.volver", default="VOLVER AL MENÚ"))
+            bvol = QPushButton(tr("correo.volver", default="VOLVER AL MENÚ"))
             bvol.setCursor(Qt.CursorShape.PointingHandCursor); bvol.setFixedHeight(38)
-            bvol.setStyleSheet(f"QPushButton{{background:transparent;color:{_DIM};border:1px solid {_BORDE};border-radius:9px;font-weight:900;padding:0 14px;}}QPushButton:hover{{border-color:{_CIAN};color:{_CIAN};}}")
+            bvol.setStyleSheet(f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};border-radius:9px;font-weight:900;padding:0 18px;}}QPushButton:hover{{background:{_CIAN};color:{_BG};}}")
             bvol.clicked.connect(self._volver_menu)
             cab.addWidget(bvol)
         root.addLayout(cab)
 
         # Barra de acciones
         acc = QHBoxLayout(); acc.setSpacing(10)
-        def _btn(txt, slot, primary=False):
+        def _btn(txt, slot, primary=False, danger=False):
             b = QPushButton(txt); b.setFixedHeight(40); b.setCursor(Qt.CursorShape.PointingHandCursor)
-            c = _CIAN if primary else _DIM
-            b.setStyleSheet(f"QPushButton{{background:{_BG2};color:{c};border:2px solid {c if primary else _BORDE};border-radius:10px;font-weight:900;font-size:12px;padding:0 16px;}}QPushButton:hover{{background:{c};color:{_BG};border-color:{c};}}")
+            if danger:
+                c, bg, borde = _ROJO, _BG, _ROJO
+            elif primary:
+                c, bg, borde = _CIAN, _BG2, _CIAN
+            else:
+                c, bg, borde = _DIM, _BG2, _BORDE
+            b.setStyleSheet(f"QPushButton{{background:{bg};color:{c};border:2px solid {borde};border-radius:10px;font-weight:900;font-size:12px;padding:0 16px;}}QPushButton:hover{{background:{c};color:{_BG};border-color:{c};}}")
             b.clicked.connect(slot); return b
         acc.addWidget(_btn("✉️  " + tr("correo.nuevo", default="NUEVO CORREO"), self._nuevo, primary=True))
         acc.addWidget(_btn("🔗  " + tr("correo.conectar", default="CONECTAR (OAuth)"), self._conectar))
         acc.addWidget(_btn("📤  " + tr("correo.enviar_prueba", default="ENVIAR PRUEBA"), self._enviar_prueba))
         acc.addStretch()
-        acc.addWidget(_btn("🗑  " + tr("correo.eliminar", default="ELIMINAR"), self._eliminar))
+        acc.addWidget(_btn("🗑  " + tr("correo.eliminar", default="ELIMINAR"), self._eliminar, danger=True))
         root.addLayout(acc)
 
         # Tabla
@@ -311,16 +330,25 @@ class CorreoCorporativoWindow(QWidget):
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.verticalHeader().setVisible(False)
-        self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr = self.tabla.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)   # todas las columnas iguales
+        hdr.setHighlightSections(False)
         self.tabla.setStyleSheet(f"""
-            QTableWidget{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};
-                          border-radius:12px;gridline-color:{_BORDE};font-family:'Segoe UI';font-size:13px;}}
-            QHeaderView::section{{background:{_BG};color:{_CIAN};border:none;border-bottom:2px solid {_BORDE};
-                                  padding:10px;font-weight:900;font-size:11px;}}
+            QTableWidget{{background:transparent;color:{_TEXT};border:none;
+                          gridline-color:{_BORDE};font-family:'Segoe UI';font-size:13px;outline:none;}}
+            QHeaderView::section{{background:{_BG};color:{_CIAN};border:none;
+                                  border-bottom:2px solid {_BORDE};padding:10px;font-weight:900;font-size:11px;}}
+            QHeaderView::section:hover{{background:{_CIAN};color:{_BG};}}
             QTableWidget::item{{padding:8px;}}
             QTableWidget::item:selected{{background:#00FFC622;color:white;}}
         """)
-        root.addWidget(self.tabla, 1)
+        # Contenedor con borde neón turquesa + esquinas redondeadas. La tabla va
+        # dentro con un pequeño margen para que sus esquinas cuadradas no corten
+        # el contorno redondeado.
+        wrap = QFrame(); wrap.setObjectName("tablaWrap")
+        wrap.setStyleSheet(f"QFrame#tablaWrap{{background:{_BG2};border:2px solid {_CIAN};border-radius:14px;}}")
+        wl = QVBoxLayout(wrap); wl.setContentsMargins(5, 5, 5, 5); wl.addWidget(self.tabla)
+        root.addWidget(wrap, 1)
 
         self.lbl_estado = QLabel("")
         self.lbl_estado.setStyleSheet(f"color:{_DIM};font-family:'Segoe UI';font-size:11px;background:transparent;")
