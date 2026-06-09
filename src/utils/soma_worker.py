@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import difflib
 import logging
+import re
 import time
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -110,20 +111,21 @@ def _skel(tok: str) -> str:
 
 _SKEL_SOMA = {"SM", "ZM", "SMM", "ZMM", "XM", "CM"}
 
+# Fonética de "SOMA" tras romanizar CUALQUIER alfabeto (universal). Exige:
+# onset S/Z, una "H" opcional (pinyin chino "sh"), un grupo vocálico con AL MENOS
+# una O (excluye "suma"/"sama"), una M, y final M/MA (excluye "somos"/"sombra").
+# Cubre: soma, som, zoma, somma, shuoma (说嘛/cn), suoma (索玛/cn), souma, eisoma...
+_RE_SOMA = re.compile(r"[SZ]H?[OU]*O[OU]*M+A?$")
+
 
 def _es_soma_estricto(tok: str) -> bool:
     """¿El token ES "SOMA" (wake a secas)? Tolerante a alfabeto/vocales, pero
-    ACOTADO para no dispararse con cualquier palabra (somos, sombra... NO valen)."""
+    ACOTADO para no dispararse con cualquier palabra (somos, sombra, suma... NO)."""
     if not tok:
         return False
     if tok in _NOMBRE_ESTRICTO:
         return True
-    if "SOMA" in tok or "ZOMA" in tok:                 # EISOMA, ASOMA, SOMA...
-        return True
-    # A secas exigimos primera vocal O (SO/ZO) para no confundir con suma/sama/sima.
-    if tok[:2] in ("SO", "ZO") and 3 <= len(tok) <= 5 and _skel(tok) in {"SM", "ZM", "SMM", "ZMM"}:
-        return True
-    return False
+    return bool(_RE_SOMA.search(tok))
 
 
 def _es_soma_laxo(tok: str) -> bool:
