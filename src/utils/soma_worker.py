@@ -117,6 +117,10 @@ _SKEL_SOMA = {"SM", "ZM", "SMM", "ZMM", "XM", "CM"}
 # Cubre: soma, som, zoma, somma, shuoma (说嘛/cn), suoma (索玛/cn), souma, eisoma...
 _RE_SOMA = re.compile(r"[SZ]H?[OU]*O[OU]*M+A?$")
 
+# Idiomas (no latinos) cuyo STT fuerza el sonido de la wake a sílabas nativas y
+# falla a menudo: para ellos reintentamos la detección de la wake con en-US.
+_WAKE_FALLBACK_LANGS = frozenset(("zh", "ja", "ko", "ar", "hi", "ru", "uk", "th", "el", "he"))
+
 
 def _es_soma_estricto(tok: str) -> bool:
     """¿El token ES "SOMA" (wake a secas)? Tolerante a alfabeto/vocales, pero
@@ -160,6 +164,10 @@ def detectar_wake(texto: str) -> tuple[bool, str]:
         # Form 2: "SOMA" a secas
         if _es_soma_estricto(tok):
             return True, " ".join(orig[i + 1:]).strip()
+    # Form 3: wake PARTIDA por el STT en dos tokens (en-US "so ma", cn "说 嘛").
+    # Probamos la unión de los 2 primeros tokens; si suena a SOMA, wake a secas.
+    if len(rom) >= 2 and _es_soma_estricto(rom[0] + rom[1]):
+        return True, " ".join(orig[2:]).strip()
     return False, ""
 
 
@@ -320,6 +328,22 @@ class SomaWorker(QObject):
                 found = True
                 if c:
                     candidatos_inline.append(c)
+        if not found and self._idioma_stt()[:2] in _WAKE_FALLBACK_LANGS:
+            # Fallback de WAKE con locale fonéticamente estable (en-US): los STT de
+            # alfabetos no latinos (zh/ja/ko/ar/hi/ru/th...) fuerzan el sonido de
+            # "soma" a sílabas nativas y fallan casi siempre. en-US lo transcribe de
+            # forma consistente; reintentamos la MISMA grabación buscando la wake.
+            # (El COMANDO se sigue capturando en el idioma de la app.)
+            alt_en = self._transcribir(rec, audio, idioma="en-US")
+            for alt in alt_en:
+                f, c = detectar_wake(alt)
+                if f:
+                    found = True
+                    if c:
+                        candidatos_inline.append(c)
+            if found and self._debug:
+                logger.info(f"[SOMA-DEBUG] WAKE via en-US fallback: {alt_en!r}")
+
         if not found:
             # Diagnóstico: deja constancia de lo que oyó cuando NO hubo wake.
             logger.info("SOMA oyó (sin wake): '%s' (%.0f ms)", texto, dt)
@@ -398,13 +422,14 @@ class SomaWorker(QObject):
         except Exception:
             return "es-ES"
 
-    def _transcribir(self, rec, audio) -> list[str]:
+    def _transcribir(self, rec, audio, idioma=None) -> list[str]:
         """Devuelve VARIAS hipótesis de Google (no solo la mejor), en orden de
         confianza. Probarlas todas mejora muchísimo el reconocimiento: la frase
         correcta suele estar entre las alternativas aunque la primera sea errónea
-        (p. ej. 'abre ubicación' → top 'MAL', alternativa 'ABRE UBICACIÓN')."""
+        (p. ej. 'abre ubicación' → top 'MAL', alternativa 'ABRE UBICACIÓN').
+        `idioma` permite forzar un locale (p. ej. 'en-US' para detectar la wake)."""
         import speech_recognition as sr
-        idioma = self._idioma_stt()
+        idioma = idioma or self._idioma_stt()
         try:
             res = rec.recognize_google(audio, language=idioma, show_all=True)
             if isinstance(res, dict):
