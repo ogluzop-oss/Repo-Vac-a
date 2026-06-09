@@ -296,6 +296,44 @@ def ensure_schema(force: bool = False):
                         UNIQUE KEY uq_token_correo (id_correo)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+
+                # ── Fase 0b: id_empresa (+id_tienda) en las TABLAS OPERATIVAS ──
+                # Aditivo y no disruptivo: ADD COLUMN ... DEFAULT rellena las filas
+                # existentes con la empresa por defecto, así las consultas actuales
+                # (sin filtro) siguen devolviendo lo mismo. Prepara el scoping por
+                # tenant que activaremos módulo a módulo (Punto 3).
+                _tablas_op = (
+                    "articulos", "ventas", "venta_items", "ventas_errores",
+                    "facturacion_diaria_log", "prevision_historico", "prevision_objetivos",
+                    "documentos_logisticos", "documentos_logisticos_pales",
+                    "documentos_logisticos_lineas", "recepciones_logisticas",
+                    "incidencias_logisticas", "movimientos_stock", "configuracion_mapa",
+                    "ubicaciones", "etiquetas", "mermas", "pedidos", "fichajes",
+                    "reab_config", "reab_propuestas", "reab_schedule", "auditoria_logs",
+                    "productos_granel", "devoluciones", "devolucion_items",
+                    "mostrar_stock", "caja_config",
+                )
+                for _t in _tablas_op:
+                    try:
+                        cur.execute(
+                            f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS "
+                            f"id_empresa CHAR(36) NOT NULL DEFAULT '{_emp}'"
+                        )
+                    except Exception as _e:
+                        logger.warning("Fase 0b: id_empresa en %s: %s", _t, _e)
+                # id_tienda (NULL = aún no asignada) en las tablas por-tienda.
+                _tablas_tienda = (
+                    "ventas", "mermas", "movimientos_stock", "recepciones_logisticas",
+                    "documentos_logisticos", "pedidos", "etiquetas", "fichajes",
+                    "devoluciones", "auditoria_logs", "productos_granel",
+                )
+                for _t in _tablas_tienda:
+                    try:
+                        cur.execute(
+                            f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS id_tienda INT DEFAULT NULL"
+                        )
+                    except Exception as _e:
+                        logger.warning("Fase 0b: id_tienda en %s: %s", _t, _e)
                 conn.commit()
 
         from src.db.logistica import ensure_schema_logistica
