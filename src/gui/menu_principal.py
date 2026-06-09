@@ -402,6 +402,11 @@ class MenuPrincipal(QWidget):
         else:
             footer_actions.addSpacing(210)
 
+        # Correo corporativo (multiempresa) — solo ADMINISTRADOR / GERENTE.
+        if self.perfil in ("ADMINISTRADOR", "GERENTE"):
+            btn_correo = self.crear_tarjeta_menu("Correo", "correo", "#22F4E6", "mail")
+            footer_actions.addWidget(btn_correo, alignment=Qt.AlignmentFlag.AlignLeft)
+
         footer_actions.addStretch()
 
         btn_tpv = self.crear_tarjeta_menu("TPV", "tpv", "#22F4E6", "shopping_bag")
@@ -478,6 +483,7 @@ class MenuPrincipal(QWidget):
         "reposicion": "menu.card_reposicion",
         "ventas": "menu.card_ventas",
         "configuracion": "menu.card_config",
+        "correo": "menu.card_correo",
         "tpv": "menu.card_tpv",
         "logout": "menu.card_salir",
     }
@@ -606,6 +612,14 @@ class MenuPrincipal(QWidget):
                   <g fill="none" stroke="{color}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M22 46h84l-10 66H32L22 46z"/>
                     <path d="M46 46c0-14 8-24 18-24s18 10 18 24"/>
+                  </g>
+                </svg>
+            """,
+            "mail": f"""
+                <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+                  <g fill="none" stroke="{color}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="20" y="32" width="88" height="64" rx="8"/>
+                    <path d="M24 38l40 30 40-30"/>
                   </g>
                 </svg>
             """,
@@ -756,6 +770,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.etiquetas_precios import EtiquetasPreciosWindow
 
                 self.manejar_apertura(v_id, EtiquetasPreciosWindow, **kwargs)
+            elif v_id == "correo":
+                from src.gui.correo_corporativo import CorreoCorporativoWindow
+
+                self.manejar_apertura(v_id, CorreoCorporativoWindow, **kwargs)
             elif v_id == "tpv":
                 from src.gui.tpv import TPVWindow
 
