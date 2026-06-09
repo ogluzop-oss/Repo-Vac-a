@@ -8388,7 +8388,7 @@ class ConfiguracionWindow(QWidget):
         wrap.setStyleSheet(f"QFrame#banWrap{{background:#0D1117;border:2px solid {_CIAN};border-radius:14px;}}")
         wl = QVBoxLayout(wrap); wl.setContentsMargins(5, 5, 5, 5); wl.addWidget(self.tabla_ban)
         v.addWidget(wrap, 1)
-        v.addWidget(self._btn_guardar_verde(self._guardar_devol), alignment=Qt.AlignmentFlag.AlignRight)
+        # Sin botón GUARDAR CAMBIOS: los baneos se guardan al instante (banear/desbanear).
         self._refrescar_tabla_baneados()
         return w
 
