@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -331,8 +331,11 @@ class CorreoCorporativoWindow(QWidget):
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.verticalHeader().setVisible(False)
         hdr = self.tabla.horizontalHeader()
-        hdr.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)   # todas las columnas iguales
+        # Anchos por PESOS: la 1ª columna (CORREO) un 45% más ancha que el resto;
+        # ese extra se reparte proporcionalmente entre las demás (ver _ajustar_columnas).
+        hdr.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         hdr.setHighlightSections(False)
+        self.tabla.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.tabla.setStyleSheet(f"""
             QTableWidget{{background:transparent;color:{_TEXT};border:none;
                           gridline-color:{_BORDE};font-family:'Segoe UI';font-size:13px;outline:none;}}
@@ -355,6 +358,32 @@ class CorreoCorporativoWindow(QWidget):
         self.lbl_estado = QLabel("")
         self.lbl_estado.setStyleSheet(f"color:{_DIM};font-family:'Segoe UI';font-size:11px;background:transparent;")
         root.addWidget(self.lbl_estado)
+        QTimer.singleShot(0, self._ajustar_columnas)
+
+    _PESO_COL0 = 1.45  # la 1ª columna es un 45% más ancha que cada una de las demás
+
+    def _ajustar_columnas(self):
+        """Reparte el ancho del viewport por pesos: CORREO con peso 1.45 y el resto
+        con peso 1.0 (el extra de la 1ª se descuenta a partes iguales de las demás)."""
+        try:
+            n = self.tabla.columnCount()
+            w = self.tabla.viewport().width()
+            if n <= 1 or w <= 0:
+                return
+            unidad = w / (self._PESO_COL0 + (n - 1))
+            ancho0 = int(unidad * self._PESO_COL0)
+            resto = int(unidad)
+            self.tabla.setColumnWidth(0, ancho0)
+            for c in range(1, n - 1):
+                self.tabla.setColumnWidth(c, resto)
+            # Última columna: remanente exacto para llenar el ancho sin hueco ni scroll.
+            self.tabla.setColumnWidth(n - 1, max(resto, w - ancho0 - resto * (n - 2)))
+        except Exception:
+            pass
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._ajustar_columnas()
 
     def _volver_menu(self):
         if self._volver:
