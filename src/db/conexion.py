@@ -241,6 +241,61 @@ def ensure_schema(force: bool = False):
                 cur.execute("UPDATE tiendas SET codigo_tienda=CONCAT('TND-', LPAD(id,3,'0')) WHERE codigo_tienda IS NULL OR codigo_tienda=''")
                 cur.execute(f"UPDATE usuarios SET id_empresa='{_emp}' WHERE id_empresa IS NULL OR id_empresa=''")
                 cur.execute(f"UPDATE configuraciones SET id_empresa='{_emp}' WHERE id_empresa IS NULL OR id_empresa=''")
+
+                # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
+                # Identidad: empresa → tienda → correo. El correo es un SERVICIO
+                # asociado, nunca la clave principal. Preparado para licenciamiento
+                # (SaaS) y OAuth 2.0 (tokens cifrados, NUNCA contraseñas).
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS licencias_correo (
+                        id_licencia          CHAR(36)     NOT NULL PRIMARY KEY,
+                        id_empresa           CHAR(36)     NOT NULL,
+                        id_tienda            INT                   DEFAULT NULL,
+                        id_usuario           INT                   DEFAULT NULL,
+                        tipo_licencia        VARCHAR(30)  NOT NULL DEFAULT 'correo_tienda',
+                        estado               VARCHAR(20)  NOT NULL DEFAULT 'activa',
+                        numero_buzon         VARCHAR(50)           DEFAULT NULL,
+                        limite_almacenamiento INT         NOT NULL DEFAULT 5120,
+                        fecha_alta           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        fecha_baja           DATETIME              DEFAULT NULL,
+                        observaciones        TEXT                  DEFAULT NULL,
+                        fecha_actualizacion  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_lic_empresa (id_empresa)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS correos_corporativos (
+                        id_correo            CHAR(36)     NOT NULL PRIMARY KEY,
+                        id_empresa           CHAR(36)     NOT NULL,
+                        id_tienda            INT                   DEFAULT NULL,
+                        id_usuario           INT                   DEFAULT NULL,
+                        direccion            VARCHAR(255) NOT NULL,
+                        proveedor            VARCHAR(30)  NOT NULL DEFAULT 'simulado',
+                        tipo                 VARCHAR(30)  NOT NULL DEFAULT 'general',
+                        estado               VARCHAR(20)  NOT NULL DEFAULT 'activo',
+                        id_licencia          CHAR(36)              DEFAULT NULL,
+                        ultima_sincronizacion DATETIME             DEFAULT NULL,
+                        observaciones        TEXT                  DEFAULT NULL,
+                        fecha_alta           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        fecha_actualizacion  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_correo_empresa (id_empresa, direccion),
+                        INDEX idx_correo_empresa (id_empresa),
+                        INDEX idx_correo_tienda (id_tienda)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS oauth_tokens (
+                        id_token             CHAR(36)     NOT NULL PRIMARY KEY,
+                        id_correo            CHAR(36)     NOT NULL,
+                        proveedor            VARCHAR(30)  NOT NULL,
+                        access_token_cifrado  TEXT                 DEFAULT NULL,
+                        refresh_token_cifrado TEXT                 DEFAULT NULL,
+                        scope                VARCHAR(500)          DEFAULT NULL,
+                        expira_en            DATETIME              DEFAULT NULL,
+                        fecha_actualizacion  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_token_correo (id_correo)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
                 conn.commit()
 
         from src.db.logistica import ensure_schema_logistica
