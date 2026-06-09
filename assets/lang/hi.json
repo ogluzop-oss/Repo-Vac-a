@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "कारण (TPV में दिखाया जाएगा):",
     "ban_dlg_motivo_def": "कंपनी की नीति के अनुसार लेख गैर-वापसी योग्य है।",
-    "ban_dlg_aceptar": "स्वीकार करें"
+    "ban_dlg_aceptar": "स्वीकार करें",
+    "mod_periodo": "वापसी की अवधि",
+    "mod_baneados": "प्रतिबंधित आइटम",
+    "guardado_t": "सहेजा गया",
+    "guardado_msg": "परिवर्तन सफलतापूर्वक सहेजे गए।"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "स्मार्ट स्कैनर - Smart Manager",

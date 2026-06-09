@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "GRUND (wird am POS angezeigt):",
     "ban_dlg_motivo_def": "Artikel nicht rückgabefähig gemäß Unternehmensrichtlinie.",
-    "ban_dlg_aceptar": "AKZEPTIEREN"
+    "ban_dlg_aceptar": "AKZEPTIEREN",
+    "mod_periodo": "RÜCKGABEZEITRAUM",
+    "mod_baneados": "VERBOTENE ARTIKEL",
+    "guardado_t": "Gespeichert",
+    "guardado_msg": "Änderungen erfolgreich gespeichert."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",

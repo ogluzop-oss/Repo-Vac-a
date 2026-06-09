@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "เหตุผล (จะแสดงในระบบ TPV):",
     "ban_dlg_motivo_def": "สินค้าไม่สามารถคืนได้ตามนโยบายของบริษัท",
-    "ban_dlg_aceptar": "ยอมรับ"
+    "ban_dlg_aceptar": "ยอมรับ",
+    "mod_periodo": "ระยะเวลาการคืนสินค้า",
+    "mod_baneados": "รายการที่ถูกห้าม",
+    "guardado_t": "บันทึกแล้ว",
+    "guardado_msg": "บันทึกการเปลี่ยนแปลงสำเร็จแล้ว"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "สแกนเนอร์อัจฉริยะ - Smart Manager",

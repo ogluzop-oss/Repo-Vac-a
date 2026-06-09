@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "사유 (POS에 표시됨):",
     "ban_dlg_motivo_def": "회사 정책상 반품 불가 상품입니다.",
-    "ban_dlg_aceptar": "확인"
+    "ban_dlg_aceptar": "확인",
+    "mod_periodo": "반품 기간",
+    "mod_baneados": "금지된 항목",
+    "guardado_t": "저장됨",
+    "guardado_msg": "변경사항이 올바르게 저장되었습니다."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "스마트 스캐너 - Smart Manager",

@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "ANLEDNING (visas i POS):",
     "ban_dlg_motivo_def": "Artikeln kan inte returneras enligt företagspolicy.",
-    "ban_dlg_aceptar": "ACCEPTERA"
+    "ban_dlg_aceptar": "ACCEPTERA",
+    "mod_periodo": "RETURPERIOD",
+    "mod_baneados": "BANNÅDE ARTIKLAR",
+    "guardado_t": "Sparad",
+    "guardado_msg": "Ändringar sparades korrekt."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

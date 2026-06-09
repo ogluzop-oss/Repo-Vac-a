@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "MOTIF (s'affichera au TPV):",
     "ban_dlg_motivo_def": "Article non retournable par politique de l'entreprise.",
-    "ban_dlg_aceptar": "ACCEPTER"
+    "ban_dlg_aceptar": "ACCEPTER",
+    "mod_periodo": "PÉRIODE DE RETOUR",
+    "mod_baneados": "ARTICLES INTERDITS",
+    "guardado_t": "Enregistré",
+    "guardado_msg": "Modifications enregistrées avec succès."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanneur Intelligent - Smart Manager",

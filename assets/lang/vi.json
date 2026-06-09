@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "LÝ DO (sẽ hiển thị tại TPV):",
     "ban_dlg_motivo_def": "Sản phẩm không thể hoàn trả theo chính sách của công ty.",
-    "ban_dlg_aceptar": "CHẤP NHẬN"
+    "ban_dlg_aceptar": "CHẤP NHẬN",
+    "mod_periodo": "THỜI KỲ ĐỔI TRẢ",
+    "mod_baneados": "SẢN PHẨM BỊ CẤMM",
+    "guardado_t": "Đã lưu",
+    "guardado_msg": "Những thay đổi đã được lưu thành công."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Máy Quét Thông Minh - Smart Manager",

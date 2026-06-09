@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "REASON (shown at the POS):",
     "ban_dlg_motivo_def": "Item not returnable per company policy.",
-    "ban_dlg_aceptar": "ACCEPT"
+    "ban_dlg_aceptar": "ACCEPT",
+    "mod_periodo": "RETURN PERIOD",
+    "mod_baneados": "BANNED ITEMS",
+    "guardado_t": "Saved",
+    "guardado_msg": "Changes saved successfully."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

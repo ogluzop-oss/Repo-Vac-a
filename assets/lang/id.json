@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "ALASAN (akan ditampilkan di TPV):",
     "ban_dlg_motivo_def": "Artikel tidak dapat dikembalikan sesuai kebijakan perusahaan.",
-    "ban_dlg_aceptar": "TERIMA"
+    "ban_dlg_aceptar": "TERIMA",
+    "mod_periodo": "PERIODE PENGEMBALIAN",
+    "mod_baneados": "ARTIKEL YANG DILARANG",
+    "guardado_t": "Tersimpan",
+    "guardado_msg": "Perubahan berhasil disimpan."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",

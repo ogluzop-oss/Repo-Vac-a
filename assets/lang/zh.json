@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "原因（将在收银系统中显示）：",
     "ban_dlg_motivo_def": "根据公司政策，该商品不可退货。",
-    "ban_dlg_aceptar": "确认"
+    "ban_dlg_aceptar": "确认",
+    "mod_periodo": "退货期",
+    "mod_baneados": "禁止商品",
+    "guardado_t": "已保存",
+    "guardado_msg": "更改已正确保存。"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "智能扫描仪 - Smart Manager",

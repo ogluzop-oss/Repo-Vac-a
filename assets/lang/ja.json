@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "理由（POSに表示されます）:",
     "ban_dlg_motivo_def": "企業ポリシーにより返品不可の商品です。",
-    "ban_dlg_aceptar": "確認"
+    "ban_dlg_aceptar": "確認",
+    "mod_periodo": "返却期間",
+    "mod_baneados": "禁止商品",
+    "guardado_t": "保存済み",
+    "guardado_msg": "変更が正常に保存されました。"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

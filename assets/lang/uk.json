@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "ПРИЧИНА (буде показана в касі):",
     "ban_dlg_motivo_def": "Товар не підлягає поверненню згідно з політикою компанії.",
-    "ban_dlg_aceptar": "ПРИЙНЯТИ"
+    "ban_dlg_aceptar": "ПРИЙНЯТИ",
+    "mod_periodo": "ПЕРІОД ПОВЕРНЕННЯ",
+    "mod_baneados": "ЗАБОРОНЕНІ ТОВАРИ",
+    "guardado_t": "Збережено",
+    "guardado_msg": "Зміни збережені успішно."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Розумний сканер - Smart Manager",

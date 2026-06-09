@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "NEDEN (POS'ta gösterilecektir):",
     "ban_dlg_motivo_def": "Şirket politikası gereği ürün iade edilmez.",
-    "ban_dlg_aceptar": "KABUL ET"
+    "ban_dlg_aceptar": "KABUL ET",
+    "mod_periodo": "İADE DÖNEMİ",
+    "mod_baneados": "YASAKLI ÜRÜNLER",
+    "guardado_t": "Kaydedildi",
+    "guardado_msg": "Değişiklikler başarıyla kaydedildi."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Akıllı Tarayıcı - Smart Manager",

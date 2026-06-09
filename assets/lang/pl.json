@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "PRZYCZYNA (wyświetlana w punkcie sprzedaży):",
     "ban_dlg_motivo_def": "Artykuł nie podlega zwrotowi zgodnie z polityką firmy.",
-    "ban_dlg_aceptar": "AKCEPTUJ"
+    "ban_dlg_aceptar": "AKCEPTUJ",
+    "mod_periodo": "OKRES ZWROTU",
+    "mod_baneados": "ARTYKUŁY ZABLOKOWANE",
+    "guardado_t": "Zapisano",
+    "guardado_msg": "Zmiany zapisane poprawnie."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

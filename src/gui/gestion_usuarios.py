@@ -8249,95 +8249,93 @@ class ConfiguracionWindow(QWidget):
     def _crear_page_plazo_devolucion(self):
         page = QWidget()
         ly = QVBoxLayout(page)
-        ly.setContentsMargins(50, 50, 50, 50)
+        ly.setContentsMargins(50, 40, 50, 30)
+        ly.setSpacing(18)
 
         title = QLabel(tr("cfg.plazo_title", default="CONFIGURACIÓN DE PLAZOS Y TICKETS"))
-        title.setStyleSheet(
-            f"color: {_CIAN}; font-size: 22px; font-weight: 900; margin-bottom: 20px;"
-        )
+        title.setStyleSheet(f"color: {_CIAN}; font-size: 22px; font-weight: 900;")
         ly.addWidget(title)
 
-        form = QFrame()
-        form.setStyleSheet(
-            f"background: {_PANEL_BG}; border-radius: 20px; padding: 30px; border: 2px solid {_BORDE};"
-        )
-        form_ly = QFormLayout(form)
-        form_ly.setSpacing(15)
+        # Conmutador de módulos (justo debajo del título): separa "Periodo de
+        # devolución" de "Artículos baneados" para no saturar la pestaña.
+        toggle = QHBoxLayout(); toggle.setSpacing(12)
+        self._btn_mod_periodo = self._toggle_btn_devol(tr("cfg.mod_periodo", default="PERIODO DE DEVOLUCIÓN"))
+        self._btn_mod_baneados = self._toggle_btn_devol(tr("cfg.mod_baneados", default="ARTÍCULOS BANEADOS"))
+        self._btn_mod_periodo.clicked.connect(lambda: self._cambiar_mod_devol(0))
+        self._btn_mod_baneados.clicked.connect(lambda: self._cambiar_mod_devol(1))
+        toggle.addWidget(self._btn_mod_periodo)
+        toggle.addWidget(self._btn_mod_baneados)
+        toggle.addStretch()
+        ly.addLayout(toggle)
 
-        # Punto 2: Eliminar recuadros vacíos de la izquierda y ajustar layout
-        # Usamos un QVBoxLayout para apilar los controles de plazo
-        plazo_layout = QVBoxLayout()
-        plazo_layout.setSpacing(15)
+        self._stack_devol = QStackedWidget()
+        self._stack_devol.addWidget(self._modulo_periodo())    # 0
+        self._stack_devol.addWidget(self._modulo_baneados())   # 1
+        ly.addWidget(self._stack_devol, 1)
+        self._cambiar_mod_devol(0)
+        return page
 
-        self.spin_dias, self.layout_dias = self._crear_input_plazo_con_botones(tr("cfg.unit_days", default="DÍAS"))
-        self.spin_meses, self.layout_meses = self._crear_input_plazo_con_botones(
-            tr("cfg.unit_months", default="MESES")
-        )
-        self.spin_anios, self.layout_anios = self._crear_input_plazo_con_botones(tr("cfg.unit_years", default="AÑOS"))
+    def _toggle_btn_devol(self, texto):
+        b = QPushButton(texto)
+        b.setCheckable(True); b.setFixedHeight(44); b.setMinimumWidth(240)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        return b
 
-        plazo_layout.addLayout(self.layout_dias)
-        plazo_layout.addLayout(self.layout_meses)
-        plazo_layout.addLayout(self.layout_anios)
-        form_ly.addRow(plazo_layout)  # Añadir el layout de plazos al QFormLayout
+    def _cambiar_mod_devol(self, idx):
+        self._stack_devol.setCurrentIndex(idx)
+        for i, b in enumerate((self._btn_mod_periodo, self._btn_mod_baneados)):
+            if i == idx:
+                b.setChecked(True)
+                b.setStyleSheet(f"QPushButton{{background:{_CIAN};color:#0E1117;border:2px solid {_CIAN};"
+                                "border-radius:12px;font-family:'Segoe UI';font-weight:900;font-size:13px;padding:0 22px;}")
+            else:
+                b.setChecked(False)
+                b.setStyleSheet(f"QPushButton{{background:{_PANEL_BG};color:{_CIAN};border:2px solid {_BORDE};"
+                                "border-radius:12px;font-family:'Segoe UI';font-weight:900;font-size:13px;padding:0 22px;}"
+                                f"QPushButton:hover{{border-color:{_CIAN};}}")
 
-        ly.addSpacing(20)
-        ly.addWidget(
-            QLabel(
-                tr("cfg.legal_text_label", default="TEXTO LEGAL PARA PIE DE TICKET:"),
-                styleSheet="color: white; font-weight: 900;",
-            )
-        )
+    def _btn_guardar_verde(self, slot):
+        b = QPushButton(tr("cfg.save_changes", default="GUARDAR CAMBIOS"))
+        b.setFixedSize(200, 45); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setStyleSheet("QPushButton{background:#238636;color:#0E1117;border:2px solid #238636;border-radius:10px;"
+                        "font-family:'Segoe UI';font-weight:bold;font-size:13px;}"
+                        "QPushButton:hover{background:#FFFFFF;color:#0E1117;}")
+        b.clicked.connect(slot)
+        return b
 
+    def _guardar_devol(self):
+        if mostrar_mensaje:
+            mostrar_mensaje(self, tr("cfg.guardado_t", default="Guardado"),
+                            tr("cfg.guardado_msg", default="Cambios guardados correctamente."), "info")
+
+    # ── Módulo 1: periodo de devolución + texto legal ────────────────────────
+    def _modulo_periodo(self):
+        w = QWidget(); ly = QVBoxLayout(w); ly.setContentsMargins(0, 0, 0, 0); ly.setSpacing(14)
+        ly.addWidget(QLabel(tr("cfg.legal_text_label", default="TEXTO LEGAL PARA PIE DE TICKET:"),
+                            styleSheet="color: white; font-weight: 900;"))
         self.text_ticket = QTextEdit()
         self.text_ticket.setPlaceholderText(
-            tr("cfg.legal_text_ph", default="Redacte aquí el texto legal y el mensaje de despedida...")
-        )
-        self.text_ticket.setStyleSheet(  # Use existing _NEON_INPUT_STYLE for QTextEdit
-            f"border: 2px solid {_CIAN}; border-radius: 15px; padding: 15px; color: white; background: #0D1117; font-family: 'Segoe UI';"
-        )
+            tr("cfg.legal_text_ph", default="Redacte aquí el texto legal y el mensaje de despedida..."))
+        self.text_ticket.setMaximumHeight(150)
+        self.text_ticket.setStyleSheet(
+            f"border: 2px solid {_CIAN}; border-radius: 15px; padding: 15px; color: white; background: #0D1117; font-family: 'Segoe UI';")
         ly.addWidget(self.text_ticket)
 
+        form = QFrame()
+        form.setStyleSheet(f"background: {_PANEL_BG}; border-radius: 20px; padding: 24px; border: 2px solid {_BORDE};")
+        form_ly = QVBoxLayout(form); form_ly.setSpacing(15)
+        self.spin_dias, self.layout_dias = self._crear_input_plazo_con_botones(tr("cfg.unit_days", default="DÍAS"))
+        self.spin_meses, self.layout_meses = self._crear_input_plazo_con_botones(tr("cfg.unit_months", default="MESES"))
+        self.spin_anios, self.layout_anios = self._crear_input_plazo_con_botones(tr("cfg.unit_years", default="AÑOS"))
+        form_ly.addLayout(self.layout_dias); form_ly.addLayout(self.layout_meses); form_ly.addLayout(self.layout_anios)
         ly.addWidget(form)
-        ly.addWidget(self._crear_seccion_baneo_devolucion())
         ly.addStretch()
+        ly.addWidget(self._btn_guardar_verde(self._guardar_devol), alignment=Qt.AlignmentFlag.AlignRight)
+        return w
 
-        btn_save = QPushButton(tr("cfg.save_changes", default="GUARDAR CAMBIOS"))
-        btn_save.setFixedSize(200, 45)
-        # Point 1: Hover swap para el botón de guardar cambios
-        btn_save.setStyleSheet("""
-            QPushButton {
-                background: #238636;
-                color: #0E1117;
-                border: 2px solid #238636;
-                border-radius: 10px;
-                font-family: 'Segoe UI';
-                font-weight: bold;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background: #FFFFFF;
-                color: #0E1117;
-            }
-        """)
-        ly.addWidget(btn_save, alignment=Qt.AlignmentFlag.AlignRight)
-
-        # La pestaña puede crecer (plazos + ticket + baneados): scroll seguro.
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(
-            "QScrollArea{border:none;background:transparent;}"
-            "QScrollBar:vertical{background:#0D1117;width:10px;margin:2px;}"
-            "QScrollBar::handle:vertical{background:#30363D;border-radius:5px;min-height:30px;}"
-            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0px;}"
-        )
-        scroll.setWidget(page)
-        return scroll
-
-    # ── Módulo: artículos baneados para devolución ───────────────────────────
-    def _crear_seccion_baneo_devolucion(self):
-        cont = QFrame()
-        cont.setStyleSheet(f"background:{_PANEL_BG};border-radius:20px;border:2px solid {_BORDE};")
-        v = QVBoxLayout(cont); v.setContentsMargins(24, 20, 24, 20); v.setSpacing(12)
+    # ── Módulo 2: artículos baneados para devolución ─────────────────────────
+    def _modulo_baneados(self):
+        w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(12)
 
         t = QLabel("🚫  " + tr("cfg.ban_titulo", default="ARTÍCULOS BANEADOS PARA DEVOLUCIÓN"))
         t.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:16px;background:transparent;border:none;")
@@ -8372,16 +8370,27 @@ class ConfiguracionWindow(QWidget):
         _h = self.tabla_ban.horizontalHeader()
         _h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         _h.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        _h.setHighlightSections(False)
         self.tabla_ban.setColumnWidth(0, 160); self.tabla_ban.setColumnWidth(3, 150); self.tabla_ban.setColumnWidth(4, 140)
+        # Tabla sin borde propio; el contorno neón + esquinas redondeadas los aporta
+        # el contenedor (la tabla va con margen para no cortar el contorno). Cabeceras
+        # con hover-swap y esquinas superiores redondeadas (1ª/última columna).
         self.tabla_ban.setStyleSheet(f"""
-            QTableWidget{{background:#0D1117;color:#E6EDF3;border:2px solid {_BORDE};
-                          border-radius:12px;gridline-color:{_BORDE};font-family:'Segoe UI';font-size:12px;}}
+            QTableWidget{{background:transparent;color:#E6EDF3;border:none;
+                          gridline-color:{_BORDE};font-family:'Segoe UI';font-size:12px;outline:none;}}
             QHeaderView::section{{background:#0E1117;color:{_CIAN};border:none;border-bottom:2px solid {_BORDE};
                                   padding:8px;font-weight:900;font-size:11px;}}
+            QHeaderView::section:first{{border-top-left-radius:10px;}}
+            QHeaderView::section:last{{border-top-right-radius:10px;}}
+            QHeaderView::section:hover{{background:{_CIAN};color:#0E1117;}}
         """)
-        v.addWidget(self.tabla_ban)
+        wrap = QFrame(); wrap.setObjectName("banWrap")
+        wrap.setStyleSheet(f"QFrame#banWrap{{background:#0D1117;border:2px solid {_CIAN};border-radius:14px;}}")
+        wl = QVBoxLayout(wrap); wl.setContentsMargins(5, 5, 5, 5); wl.addWidget(self.tabla_ban)
+        v.addWidget(wrap, 1)
+        v.addWidget(self._btn_guardar_verde(self._guardar_devol), alignment=Qt.AlignmentFlag.AlignRight)
         self._refrescar_tabla_baneados()
-        return cont
+        return w
 
     def _buscar_para_banear(self):
         term = self.inp_ban.text().strip()

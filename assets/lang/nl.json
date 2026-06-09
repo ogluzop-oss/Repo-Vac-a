@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "REDEN (weergegeven in het POS-systeem):",
     "ban_dlg_motivo_def": "Artikel niet retourneerbaar volgens bedrijfsbeleid.",
-    "ban_dlg_aceptar": "ACCEPTEREN"
+    "ban_dlg_aceptar": "ACCEPTEREN",
+    "mod_periodo": "RETOURPERIODE",
+    "mod_baneados": "VERBANNEN ARTIKELEN",
+    "guardado_t": "Opgeslagen",
+    "guardado_msg": "Wijzigingen correct opgeslagen."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligente Scanner - Smart Manager",

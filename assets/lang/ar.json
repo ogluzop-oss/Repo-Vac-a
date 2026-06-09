@@ -1249,7 +1249,11 @@
     "ban_dlg_art": "{cod}  ·  {nom}",
     "ban_dlg_motivo": "السبب (سيتم عرضه في نقطة البيع):",
     "ban_dlg_motivo_def": "المقال غير قابل للإرجاع بموجب سياسة الشركة.",
-    "ban_dlg_aceptar": "قبول"
+    "ban_dlg_aceptar": "قبول",
+    "mod_periodo": "فترة الإرجاع",
+    "mod_baneados": "المقالات المحظورة",
+    "guardado_t": "تم الحفظ",
+    "guardado_msg": "تم حفظ التغييرات بنجاح."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "ماسح ذكي - Smart Manager",
