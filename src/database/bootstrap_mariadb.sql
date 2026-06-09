@@ -29,7 +29,14 @@ CREATE TABLE IF NOT EXISTS configuraciones (
 CREATE TABLE IF NOT EXISTS almacen (
     id     INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL UNIQUE,
-    activo TINYINT(1)   NOT NULL DEFAULT 1
+    activo TINYINT(1)   NOT NULL DEFAULT 1,
+    -- Multiempresa: todo almacén pertenece a una empresa, con código y tipo.
+    -- tipo_almacen: central | regional | tienda | logistico | temporal
+    id_empresa     CHAR(36)    NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+    codigo_almacen VARCHAR(20) NOT NULL DEFAULT '',
+    tipo_almacen   VARCHAR(30) NOT NULL DEFAULT 'central',
+    estado         VARCHAR(20) NOT NULL DEFAULT 'activo',
+    fecha_creacion DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS tiendas (

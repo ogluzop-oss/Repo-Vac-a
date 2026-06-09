@@ -334,6 +334,40 @@ def ensure_schema(force: bool = False):
                         )
                     except Exception as _e:
                         logger.warning("Fase 0b: id_tienda en %s: %s", _t, _e)
+
+                # ── Entidad ALMACÉN adaptada al modelo multiempresa (aditivo) ──
+                # Cada almacén pertenece a una empresa y tiene código/tipo/estado.
+                # Se mantiene el PK INT existente (compatibilidad con el código que
+                # consulta `almacen`), igual que en `tiendas`.
+                try:
+                    cur.execute(f"""
+                        ALTER TABLE almacen
+                        ADD COLUMN IF NOT EXISTS id_empresa     CHAR(36)    NOT NULL DEFAULT '{_emp}',
+                        ADD COLUMN IF NOT EXISTS codigo_almacen VARCHAR(20) NOT NULL DEFAULT '',
+                        ADD COLUMN IF NOT EXISTS tipo_almacen   VARCHAR(30) NOT NULL DEFAULT 'central',
+                        ADD COLUMN IF NOT EXISTS estado         VARCHAR(20) NOT NULL DEFAULT 'activo',
+                        ADD COLUMN IF NOT EXISTS fecha_creacion DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    """)
+                    cur.execute("UPDATE almacen SET codigo_almacen=CONCAT('ALM-', LPAD(id,3,'0')) WHERE codigo_almacen IS NULL OR codigo_almacen=''")
+                    cur.execute("UPDATE almacen SET tipo_almacen='central' WHERE UPPER(nombre) LIKE '%CENTRAL%'")
+                except Exception as _e:
+                    logger.warning("Almacén multiempresa: %s", _e)
+
+                # Relaciones de movimiento preparadas (NULL = aún no asignadas).
+                # Permiten en el futuro: id_empresa → id_almacen_origen → id_almacen_destino.
+                _alm_od = ("movimientos_stock", "documentos_logisticos", "recepciones_logisticas")
+                for _t in _alm_od:
+                    try:
+                        cur.execute(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS id_almacen_origen INT DEFAULT NULL")
+                        cur.execute(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS id_almacen_destino INT DEFAULT NULL")
+                    except Exception as _e:
+                        logger.warning("Almacén orig/dest en %s: %s", _t, _e)
+                # Almacén destino preparado en reabastecimiento y pedidos.
+                for _t in ("reab_propuestas", "pedidos"):
+                    try:
+                        cur.execute(f"ALTER TABLE {_t} ADD COLUMN IF NOT EXISTS id_almacen INT DEFAULT NULL")
+                    except Exception as _e:
+                        logger.warning("Almacén en %s: %s", _t, _e)
                 conn.commit()
 
         from src.db.logistica import ensure_schema_logistica
