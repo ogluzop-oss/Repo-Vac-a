@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "관리자",
     "gerente": "관리자",
-    "operario": "작업자"
+    "operario": "작업자",
+    "superadmin": "슈퍼관리자"
   },
   "correo": {
     "titulo": "회사 이메일",

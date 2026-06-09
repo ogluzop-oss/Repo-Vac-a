@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "ผู้ดูแลระบบ",
     "gerente": "ผู้จัดการ",
-    "operario": "ผู้ปฏิบัติการ"
+    "operario": "ผู้ปฏิบัติการ",
+    "superadmin": "ผู้ดูแลระบบสูงสุด"
   },
   "correo": {
     "titulo": "อีเมลองค์กร",

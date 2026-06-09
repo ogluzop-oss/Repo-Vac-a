@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "管理员",
     "gerente": "经理",
-    "operario": "操作员"
+    "operario": "操作员",
+    "superadmin": "超级管理员"
   },
   "correo": {
     "titulo": "企业邮箱",

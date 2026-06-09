@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "Yönetici",
     "gerente": "Müdür",
-    "operario": "Operatör"
+    "operario": "Operatör",
+    "superadmin": "Süper Yönetici"
   },
   "correo": {
     "titulo": "KURUMSAL E-POSTA",

@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "مسؤول",
     "gerente": "مدير",
-    "operario": "عامل"
+    "operario": "عامل",
+    "superadmin": "مسؤول فائق"
   },
   "correo": {
     "titulo": "البريد الإلكتروني للشركة",

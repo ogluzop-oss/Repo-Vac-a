@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "Administrator",
     "gerente": "Manager",
-    "operario": "Operator"
+    "operario": "Operator",
+    "superadmin": "Super Administrator"
   },
   "correo": {
     "titulo": "CORPORATE EMAIL",

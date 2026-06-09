@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "Amministratore",
     "gerente": "Gestore",
-    "operario": "Operatore"
+    "operario": "Operatore",
+    "superadmin": "Superamministratore"
   },
   "correo": {
     "titulo": "POSTA AZIENDALE",

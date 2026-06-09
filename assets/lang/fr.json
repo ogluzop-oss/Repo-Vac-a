@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "Administrateur",
     "gerente": "Gestionnaire",
-    "operario": "Opérateur"
+    "operario": "Opérateur",
+    "superadmin": "Superadministrateur"
   },
   "correo": {
     "titulo": "COURRIER PROFESSIONNEL",

@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "Quản trị viên",
     "gerente": "Quản lý",
-    "operario": "Người vận hành"
+    "operario": "Người vận hành",
+    "superadmin": "Siêu quản trị viên"
   },
   "correo": {
     "titulo": "EMAIL CỤA CÔNG TY",

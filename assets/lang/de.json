@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "Administrator",
     "gerente": "Manager",
-    "operario": "Operär"
+    "operario": "Operär",
+    "superadmin": "Superadministrator"
   },
   "correo": {
     "titulo": "UNTERNEHMENS-E-MAIL",

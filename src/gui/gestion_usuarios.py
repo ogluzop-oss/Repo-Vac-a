@@ -8359,7 +8359,7 @@ class ConfiguracionWindow(QWidget):
         self.input_pass2.setMaxLength(4)
         self.input_pass2.setStyleSheet(input_css)
 
-        self.combo_perfil = _PerfilDropdown(["OPERARIO", "GERENTE", "ADMINISTRADOR"])
+        self.combo_perfil = _PerfilDropdown(["OPERARIO", "GERENTE", "ADMINISTRADOR", "SUPERADMIN"])
 
         form_layout.addWidget(self.input_nombre)
         form_layout.addWidget(self.input_pass)

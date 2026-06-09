@@ -32,9 +32,10 @@ def validar_login(perfil_ui, password):
                 ]
                 col_usuario = "nombre" if "nombre" in columnas else "usuario"
 
+                col_emp = ", id_empresa" if "id_empresa" in columnas else ""
                 sql = f"""
-                    SELECT id, {col_usuario}, perfil, tienda_id 
-                    FROM usuarios 
+                    SELECT id, {col_usuario}, perfil, tienda_id{col_emp}
+                    FROM usuarios
                     WHERE UPPER(perfil) = %s AND password = %s
                 """
                 cur.execute(sql, (valor_busqueda, password_hash))
@@ -46,6 +47,7 @@ def validar_login(perfil_ui, password):
                         "nombre": fila[1],
                         "perfil": fila[2],
                         "tienda_id": fila[3],
+                        "id_empresa": fila[4] if col_emp else None,
                     }
                     logger.info(f"Acceso concedido para perfil: {valor_busqueda}")
                     return usuario
@@ -69,15 +71,17 @@ def validar_login_empleado(nombre: str, password: str) -> dict | None:
                     for col in cur.fetchall()
                 ]
                 col_name = "nombre" if "nombre" in columnas else "usuario"
+                col_emp = ", id_empresa" if "id_empresa" in columnas else ""
                 sql = f"""
-                    SELECT id, {col_name}, perfil, tienda_id
+                    SELECT id, {col_name}, perfil, tienda_id{col_emp}
                     FROM usuarios
                     WHERE UPPER({col_name}) = UPPER(%s) AND password = %s
                 """
                 cur.execute(sql, (nombre.strip(), password_hash))
                 fila = cur.fetchone()
                 if fila:
-                    return {"id": fila[0], "nombre": fila[1], "perfil": fila[2], "tienda_id": fila[3]}
+                    return {"id": fila[0], "nombre": fila[1], "perfil": fila[2],
+                            "tienda_id": fila[3], "id_empresa": fila[4] if col_emp else None}
     except Exception as e:
         logger.error(f"Error en validación TPV por nombre: {e}")
     return None
@@ -96,18 +100,37 @@ class SesionUsuario:
         return cls._instancia
 
     def iniciar_sesion(self, datos_usuario: dict):
-        """Almacena los datos del usuario y marca la hora de entrada."""
+        """Almacena los datos del usuario, marca la hora de entrada y FIJA el
+        contexto de tenant (empresa/tienda) del usuario para el aislamiento de
+        datos multiempresa."""
         self.usuario_actual = datos_usuario
         self.hora_inicio = datetime.now()
+        try:
+            from src.db.empresa import (
+                EMPRESA_DEFAULT_ID, set_empresa_actual, set_tienda_actual,
+            )
+            set_empresa_actual(datos_usuario.get("id_empresa") or EMPRESA_DEFAULT_ID)
+            set_tienda_actual(datos_usuario.get("tienda_id"))
+        except Exception as e:
+            logger.debug("No se pudo fijar el contexto de empresa: %s", e)
         logger.info(
             f"Sesión iniciada: {self.obtener_nombre()} ({datos_usuario.get('perfil')})"
         )
 
     def cerrar_sesion(self):
-        """Limpia la sesión. Crucial para que main.py detecte el logout."""
+        """Limpia la sesión y restablece el contexto de tenant a la empresa por
+        defecto. Crucial para que main.py detecte el logout."""
         nombre = self.obtener_nombre()
         self.usuario_actual = None
         self.hora_inicio = None
+        try:
+            from src.db.empresa import (
+                EMPRESA_DEFAULT_ID, set_empresa_actual, set_tienda_actual,
+            )
+            set_empresa_actual(EMPRESA_DEFAULT_ID)
+            set_tienda_actual(None)
+        except Exception:
+            pass
         logger.info(f"Sesión destruida para: {nombre}")
 
     def obtener_nombre(self):
@@ -125,7 +148,25 @@ class SesionUsuario:
         if not self.usuario_actual:
             return False
         perfil = str(self.usuario_actual.get("perfil", "")).upper()
-        return perfil in ["ADMINISTRADOR", "GERENTE"]
+        return perfil in ["SUPERADMIN", "ADMINISTRADOR", "GERENTE"]
+
+    def es_superadmin(self):
+        """SUPERADMIN: rol por encima de la empresa (visión de todas las empresas
+        en un futuro modelo SaaS). Hoy, en escritorio mono-empresa, equivale a un
+        administrador global."""
+        if not self.usuario_actual:
+            return False
+        return str(self.usuario_actual.get("perfil", "")).upper() == "SUPERADMIN"
+
+    def empresa_id(self):
+        """ID de empresa del usuario activo (o la empresa por defecto)."""
+        if self.usuario_actual and self.usuario_actual.get("id_empresa"):
+            return self.usuario_actual["id_empresa"]
+        try:
+            from src.db.empresa import EMPRESA_DEFAULT_ID
+            return EMPRESA_DEFAULT_ID
+        except Exception:
+            return None
 
 
 # Instancia única exportada

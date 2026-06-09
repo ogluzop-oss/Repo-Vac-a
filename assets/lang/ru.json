@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "Администратор",
     "gerente": "Менеджер",
-    "operario": "Оператор"
+    "operario": "Оператор",
+    "superadmin": "Суперадминистратор"
   },
   "correo": {
     "titulo": "КОРПОРАТИВНАЯ ПОЧТА",

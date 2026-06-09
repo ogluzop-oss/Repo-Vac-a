@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "प्रशासक",
     "gerente": "प्रबंधक",
-    "operario": "ऑपरेटर"
+    "operario": "ऑपरेटर",
+    "superadmin": "सुपर व्यवस्थापक"
   },
   "correo": {
     "titulo": "कॉर्पोरेट ईमेल",

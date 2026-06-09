@@ -1397,7 +1397,8 @@
   "roles": {
     "administrador": "管理者",
     "gerente": "マネージャー",
-    "operario": "オペレーター"
+    "operario": "オペレーター",
+    "superadmin": "スーパー管理者"
   },
   "correo": {
     "titulo": "企業メール",
