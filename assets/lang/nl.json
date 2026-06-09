@@ -228,7 +228,9 @@
     "terminal_title": "Betaalterminal",
     "terminal_rejected": "Retour afgewezen:\n{msg}",
     "refund_done_title": "Retour voltooid",
-    "error_title": "Fout"
+    "error_title": "Fout",
+    "ban_intro": "De volgende artikelen zijn NIET retourneerbaar volgens het bedrijfsbeleid:",
+    "ban_titulo": "🚫 Retournering niet toegestaan"
   },
   "sel_caja": {
     "header": "🏧  SELECTEER JE KASSA",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Alleen BEHEERDER / MANAGER",
     "divisa_title": "Munt bijgewerkt",
     "divisa_msg": "De bedrijfsmunt is nu {code}. De contant- en bedragtabellen worden in deze munt weergegeven.",
-    "divisa_error": "De munt kon niet worden gewijzigd."
+    "divisa_error": "De munt kon niet worden gewijzigd.",
+    "ban_titulo": "GEBLOKKEERDE ARTIKELEN VOOR RETOUR",
+    "ban_sub": "Deze artikelen kunnen NIET in het POS-systeem worden geretourneerd (bedrijfsbeleid).",
+    "ban_ph": "Zoeken op EAN of artikelnaam…",
+    "ban_buscar": "ZOEKEN / BLOKKEREN",
+    "ban_col_cod": "CODE",
+    "ban_col_art": "ARTIKEL",
+    "ban_col_motivo": "REDEN",
+    "ban_col_fecha": "DATUM",
+    "ban_col_acc": "ACTIES",
+    "ban_nores_t": "Geen resultaten",
+    "ban_nores": "Geen artikel gevonden met '{t}'.",
+    "ban_ya_t": "Reeds geblokkeerd",
+    "ban_ya": "Artikel {c} is reeds geblokkeerd.",
+    "ban_desbanear": "DEBLOKKEREN",
+    "ban_desb_t": "Artikel deblokkeren",
+    "ban_desb_msg": "Retour van dit artikel opnieuw toestaan?",
+    "ban_dlg_titulo": "ARTIKEL VOOR RETOUR BLOKKEREN",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "REDEN (weergegeven in het POS-systeem):",
+    "ban_dlg_motivo_def": "Artikel niet retourneerbaar volgens bedrijfsbeleid.",
+    "ban_dlg_aceptar": "ACCEPTEREN"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligente Scanner - Smart Manager",

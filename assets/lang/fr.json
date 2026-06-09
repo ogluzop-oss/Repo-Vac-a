@@ -228,7 +228,9 @@
     "terminal_rejected": "Retour rejeté:\n{msg}",
     "refund_done_title": "Retour complété",
     "error_title": "Erreur",
-    "ticket_num": "Nº Ticket:"
+    "ticket_num": "Nº Ticket:",
+    "ban_intro": "Les articles suivants n'acceptent PAS les retours selon la politique de l'entreprise:",
+    "ban_titulo": "🚫 Retour non autorisé"
   },
   "sel_caja": {
     "header": "🏧  SÉLECTIONNE TA CAISSE",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Administrateur/Gérant uniquement",
     "divisa_title": "Devise mise à jour",
     "divisa_msg": "La devise de l'entreprise est maintenant {code}. Les tableaux de caisse et les montants s'afficheront dans cette devise.",
-    "divisa_error": "Impossible de modifier la devise."
+    "divisa_error": "Impossible de modifier la devise.",
+    "ban_titulo": "ARTICLES BANNIS POUR RETOUR",
+    "ban_sub": "Ces articles NE pourront PAS être retournés au TPV (politique de l'entreprise).",
+    "ban_ph": "Rechercher par EAN ou nom de l'article…",
+    "ban_buscar": "RECHERCHER / BANNIR",
+    "ban_col_cod": "CODE",
+    "ban_col_art": "ARTICLE",
+    "ban_col_motivo": "MOTIF",
+    "ban_col_fecha": "DATE",
+    "ban_col_acc": "ACTIONS",
+    "ban_nores_t": "Aucun résultat",
+    "ban_nores": "Aucun article trouvé avec '{t}'.",
+    "ban_ya_t": "Déjà bannie",
+    "ban_ya": "L'article {c} est déjà bannie.",
+    "ban_desbanear": "DÉBANNIR",
+    "ban_desb_t": "Débannir l'article",
+    "ban_desb_msg": "Autoriser à nouveau le retour de cet article?",
+    "ban_dlg_titulo": "BANNIR L'ARTICLE POUR RETOUR",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "MOTIF (s'affichera au TPV):",
+    "ban_dlg_motivo_def": "Article non retournable par politique de l'entreprise.",
+    "ban_dlg_aceptar": "ACCEPTER"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanneur Intelligent - Smart Manager",

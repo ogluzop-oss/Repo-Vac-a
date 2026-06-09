@@ -228,7 +228,9 @@
     "terminal_title": "カードリーダー",
     "terminal_rejected": "返品が拒否されました:\n{msg}",
     "refund_done_title": "返品が完了しました",
-    "error_title": "エラー"
+    "error_title": "エラー",
+    "ban_intro": "次の商品は企業のポリシーにより返品を受け付けていません:",
+    "ban_titulo": "🚫 返品は許可されていません"
   },
   "sel_caja": {
     "header": "🏧  レジを選択してください",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "管理者/マネージャーのみ",
     "divisa_title": "通貨が更新されました",
     "divisa_msg": "会社の通貨は現在{code}です。現金テーブルと金額がこの通貨で表示されます。",
-    "divisa_error": "通貨を変更できませんでした。"
+    "divisa_error": "通貨を変更できませんでした。",
+    "ban_titulo": "返品禁止商品",
+    "ban_sub": "これらの商品はPOS（企業ポリシー）で返品することはできません。",
+    "ban_ph": "EANまたは商品名で検索…",
+    "ban_buscar": "検索 / 禁止",
+    "ban_col_cod": "コード",
+    "ban_col_art": "商品",
+    "ban_col_motivo": "理由",
+    "ban_col_fecha": "日付",
+    "ban_col_acc": "アクション",
+    "ban_nores_t": "結果がありません",
+    "ban_nores": "'{t}'に該当する商品が見つかりませんでした。",
+    "ban_ya_t": "既に禁止済み",
+    "ban_ya": "商品{c}は既に禁止されています。",
+    "ban_desbanear": "禁止を解除",
+    "ban_desb_t": "商品禁止を解除",
+    "ban_desb_msg": "この商品の返品を再び許可しますか?",
+    "ban_dlg_titulo": "返品禁止商品の設定",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "理由（POSに表示されます）:",
+    "ban_dlg_motivo_def": "企業ポリシーにより返品不可の商品です。",
+    "ban_dlg_aceptar": "確認"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

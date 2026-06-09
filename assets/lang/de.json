@@ -228,7 +228,9 @@
     "terminal_title": "Kartenterminal",
     "terminal_rejected": "Rückgabe abgelehnt:\n{msg}",
     "refund_done_title": "Rückgabe abgeschlossen",
-    "error_title": "Fehler"
+    "error_title": "Fehler",
+    "ban_intro": "Die folgenden Artikel sind gemäß Unternehmensrichtlinie NICHT zurückgabefähig:",
+    "ban_titulo": "🚫 Rückgabe nicht gestattet"
   },
   "sel_caja": {
     "header": "🏧  WÄHLE DEINE KASSE",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Nur ADMINISTRATOR / MANAGER",
     "divisa_title": "Währung aktualisiert",
     "divisa_msg": "Die Unternehmenswährung ist jetzt {code}. Kassentabellen und Beträge werden in dieser Währung angezeigt.",
-    "divisa_error": "Die Währung konnte nicht geändert werden."
+    "divisa_error": "Die Währung konnte nicht geändert werden.",
+    "ban_titulo": "GESPERRTE ARTIKEL FÜR RÜCKGABE",
+    "ban_sub": "Diese Artikel können NICHT am POS zurückgegeben werden (Unternehmensrichtlinie).",
+    "ban_ph": "Nach EAN oder Artikelname suchen…",
+    "ban_buscar": "SUCHEN / SPERREN",
+    "ban_col_cod": "CODE",
+    "ban_col_art": "ARTIKEL",
+    "ban_col_motivo": "GRUND",
+    "ban_col_fecha": "DATUM",
+    "ban_col_acc": "AKTIONEN",
+    "ban_nores_t": "Keine Ergebnisse",
+    "ban_nores": "Kein Artikel mit '{t}' gefunden.",
+    "ban_ya_t": "Bereits gesperrt",
+    "ban_ya": "Der Artikel {c} ist bereits gesperrt.",
+    "ban_desbanear": "ENTSPERREN",
+    "ban_desb_t": "Artikel entsperren",
+    "ban_desb_msg": "Rückgabe dieses Artikels wieder zulassen?",
+    "ban_dlg_titulo": "ARTIKEL FÜR RÜCKGABE SPERREN",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "GRUND (wird am POS angezeigt):",
+    "ban_dlg_motivo_def": "Artikel nicht rückgabefähig gemäß Unternehmensrichtlinie.",
+    "ban_dlg_aceptar": "AKZEPTIEREN"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",

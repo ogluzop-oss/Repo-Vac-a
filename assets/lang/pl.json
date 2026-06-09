@@ -228,7 +228,9 @@
     "terminal_title": "Terminal płatniczy",
     "terminal_rejected": "Zwrot odrzucony:\n{msg}",
     "refund_done_title": "Zwrot ukończony",
-    "error_title": "Błąd"
+    "error_title": "Błąd",
+    "ban_intro": "Następujące artykuły NIE podlegają zwrotowi zgodnie z polityką firmy:",
+    "ban_titulo": "🚫 Zwrot niedozwolony"
   },
   "sel_caja": {
     "header": "🏧  WYBIERZ SWOJĄ KASĘ",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Tylko ADMINISTRATOR / KIEROWNIK",
     "divisa_title": "Waluta zaktualizowana",
     "divisa_msg": "Waluta firmy to teraz {code}. Tabele gotówkowe i kwoty będą wyświetlane w tej walucie.",
-    "divisa_error": "Nie udało się zmienić waluty."
+    "divisa_error": "Nie udało się zmienić waluty.",
+    "ban_titulo": "ARTYKUŁY ZBANOWANE Z MOŻLIWOŚCI ZWROTU",
+    "ban_sub": "Tych artykułów NIE można zwracać w punkcie sprzedaży (polityka firmy).",
+    "ban_ph": "Szukaj po kodzie EAN lub nazwie artykułu…",
+    "ban_buscar": "SZUKAJ / ZBANUJ",
+    "ban_col_cod": "KOD",
+    "ban_col_art": "ARTYKUŁ",
+    "ban_col_motivo": "PRZYCZYNA",
+    "ban_col_fecha": "DATA",
+    "ban_col_acc": "DZIAŁANIA",
+    "ban_nores_t": "Brak wyników",
+    "ban_nores": "Nie znaleziono artykułu z '{t}'.",
+    "ban_ya_t": "Już zbanowany",
+    "ban_ya": "Artykuł {c} jest już zbanowany.",
+    "ban_desbanear": "ODBANUJ",
+    "ban_desb_t": "Odbanuj artykuł",
+    "ban_desb_msg": "Zezwolić ponownie na zwrot tego artykułu?",
+    "ban_dlg_titulo": "ZBANUJ ARTYKUŁ Z MOŻLIWOŚCI ZWROTU",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "PRZYCZYNA (wyświetlana w punkcie sprzedaży):",
+    "ban_dlg_motivo_def": "Artykuł nie podlega zwrotowi zgodnie z polityką firmy.",
+    "ban_dlg_aceptar": "AKCEPTUJ"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

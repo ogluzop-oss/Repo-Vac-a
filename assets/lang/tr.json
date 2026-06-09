@@ -228,7 +228,9 @@
     "terminal_rejected": "İade reddedildi:\n{msg}",
     "refund_done_title": "İade tamamlandı",
     "error_title": "Hata",
-    "ticket_num": "Nº Ticket:"
+    "ticket_num": "Nº Ticket:",
+    "ban_intro": "Aşağıdaki ürünler şirket politikası gereğince iade kabul etmez:",
+    "ban_titulo": "🚫 İade izin verilmez"
   },
   "sel_caja": {
     "header": "🏧  KASANIZI SEÇİN",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Yalnızca YÖNETİCİ / MÜDÜR",
     "divisa_title": "Parabirimi güncellendi",
     "divisa_msg": "Şirket parabirimi şu anda {code}. Nakit ve tutar tabloları bu parabiriminde gösterilecektir.",
-    "divisa_error": "Parabirimi değiştirilemedi."
+    "divisa_error": "Parabirimi değiştirilemedi.",
+    "ban_titulo": "IADE İÇİN YASAKLANMIŞ ÜRÜNLER",
+    "ban_sub": "Bu ürünler POS'ta iade edilemez (şirket politikası).",
+    "ban_ph": "EAN veya ürün adına göre ara…",
+    "ban_buscar": "ARA / YASAK",
+    "ban_col_cod": "KOD",
+    "ban_col_art": "ÜRÜN",
+    "ban_col_motivo": "NEDEN",
+    "ban_col_fecha": "TARİH",
+    "ban_col_acc": "İŞLEMLER",
+    "ban_nores_t": "Sonuç yok",
+    "ban_nores": "'{t}' ile eşleşen ürün bulunamadı.",
+    "ban_ya_t": "Zaten yasaklı",
+    "ban_ya": "{c} ürünü zaten yasaklı.",
+    "ban_desbanear": "YASAĞINI KAL",
+    "ban_desb_t": "Ürünün yasağını kaldır",
+    "ban_desb_msg": "Bu ürünün iadesine izin verilsin mi?",
+    "ban_dlg_titulo": "İADE İÇİN ÜRÜN YASAĞINI BELİRLE",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "NEDEN (POS'ta gösterilecektir):",
+    "ban_dlg_motivo_def": "Şirket politikası gereği ürün iade edilmez.",
+    "ban_dlg_aceptar": "KABUL ET"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Akıllı Tarayıcı - Smart Manager",

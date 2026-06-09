@@ -228,7 +228,9 @@
     "terminal_title": "جهاز الدفع",
     "terminal_rejected": "تم رفض الاسترجاع:\n{msg}",
     "refund_done_title": "اكتمل الاسترجاع",
-    "error_title": "خطأ"
+    "error_title": "خطأ",
+    "ban_intro": "العناصر التالية لا تقبل الإرجاع وفقاً لسياسة الشركة:",
+    "ban_titulo": "🚫 الإرجاع غير مسموح"
   },
   "sel_caja": {
     "header": "🏧  اختر صندوقك",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "مسؤول/مدير فقط",
     "divisa_title": "تم تحديث العملة",
     "divisa_msg": "عملة الشركة هي الآن {code}. سيتم عرض جداول النقد والمبالغ بهذه العملة.",
-    "divisa_error": "تعذر تغيير العملة."
+    "divisa_error": "تعذر تغيير العملة.",
+    "ban_titulo": "المقالات المحظورة للعودة",
+    "ban_sub": "لا يمكن إرجاع هذه المقالات في نقطة البيع (سياسة الشركة).",
+    "ban_ph": "البحث حسب الرمز الشريطي أو اسم المقال...",
+    "ban_buscar": "بحث / حظر",
+    "ban_col_cod": "الكود",
+    "ban_col_art": "المقال",
+    "ban_col_motivo": "السبب",
+    "ban_col_fecha": "التاريخ",
+    "ban_col_acc": "الإجراءات",
+    "ban_nores_t": "لا توجد نتائج",
+    "ban_nores": "لم يتم العثور على أي مقال باسم '{t}'.",
+    "ban_ya_t": "محظور بالفعل",
+    "ban_ya": "المقال {c} محظور بالفعل.",
+    "ban_desbanear": "إلغاء الحظر",
+    "ban_desb_t": "إلغاء حظر المقال",
+    "ban_desb_msg": "السماح من جديد بإرجاع هذا المقال؟",
+    "ban_dlg_titulo": "حظر المقال للعودة",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "السبب (سيتم عرضه في نقطة البيع):",
+    "ban_dlg_motivo_def": "المقال غير قابل للإرجاع بموجب سياسة الشركة.",
+    "ban_dlg_aceptar": "قبول"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "ماسح ذكي - Smart Manager",

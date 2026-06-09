@@ -228,7 +228,9 @@
     "terminal_rejected": "Pengembalian ditolak:\n{msg}",
     "refund_done_title": "Pengembalian selesai",
     "error_title": "Kesalahan",
-    "col_subtotal": "Subtotal"
+    "col_subtotal": "Subtotal",
+    "ban_intro": "Artikel berikut TIDAK diterima pengembalian menurut kebijakan perusahaan:",
+    "ban_titulo": "🚫 Pengembalian tidak diizinkan"
   },
   "sel_caja": {
     "header": "🏧  PILIH KASIRMU",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Hanya ADMINISTRATOR / MANAJER",
     "divisa_title": "Mata uang diperbarui",
     "divisa_msg": "Mata uang perusahaan sekarang adalah {code}. Tabel kas dan jumlah akan ditampilkan dalam mata uang ini.",
-    "divisa_error": "Tidak dapat mengubah mata uang."
+    "divisa_error": "Tidak dapat mengubah mata uang.",
+    "ban_titulo": "ARTIKEL DILARANG UNTUK PENGEMBALIAN",
+    "ban_sub": "Artikel-artikel ini TIDAK dapat dikembalikan di TPV (kebijakan perusahaan).",
+    "ban_ph": "Cari berdasarkan EAN atau nama artikel…",
+    "ban_buscar": "CARI / LARANG",
+    "ban_col_cod": "KODE",
+    "ban_col_art": "ARTIKEL",
+    "ban_col_motivo": "ALASAN",
+    "ban_col_fecha": "TANGGAL",
+    "ban_col_acc": "TINDAKAN",
+    "ban_nores_t": "Tidak ada hasil",
+    "ban_nores": "Tidak ditemukan artikel dengan '{t}'.",
+    "ban_ya_t": "Sudah dilarang",
+    "ban_ya": "Artikel {c} sudah dilarang.",
+    "ban_desbanear": "BUKA LARANGAN",
+    "ban_desb_t": "Buka larangan artikel",
+    "ban_desb_msg": "Izinkan kembali pengembalian artikel ini?",
+    "ban_dlg_titulo": "LARANG ARTIKEL UNTUK PENGEMBALIAN",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "ALASAN (akan ditampilkan di TPV):",
+    "ban_dlg_motivo_def": "Artikel tidak dapat dikembalikan sesuai kebijakan perusahaan.",
+    "ban_dlg_aceptar": "TERIMA"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",

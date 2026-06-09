@@ -228,7 +228,9 @@
     "terminal_title": "Máy đầu cuối thanh toán",
     "terminal_rejected": "Hoàn trả bị từ chối:\n{msg}",
     "refund_done_title": "Hoàn trả hoàn tất",
-    "error_title": "Lỗi"
+    "error_title": "Lỗi",
+    "ban_intro": "Các mặt hàng sau đây KHÔNG chấp nhận hoàn trả theo chính sách công ty:",
+    "ban_titulo": "🚫 Không cho phép hoàn trả"
   },
   "sel_caja": {
     "header": "🏧  CHỌN TỦ TIỀN CỦA BẠN",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Chỉ QUẢN TRỊ VIÊN / QUẢN LÝ",
     "divisa_title": "Tiền tệ đã được cập nhật",
     "divisa_msg": "Tiền tệ của công ty hiện là {code}. Các bảng tiền mặt và số tiền sẽ được hiển thị bằng tiền tệ này.",
-    "divisa_error": "Không thể thay đổi tiền tệ."
+    "divisa_error": "Không thể thay đổi tiền tệ.",
+    "ban_titulo": "SẢN PHẨM BỊ CẤM HOÀN TRẢ",
+    "ban_sub": "Các sản phẩm này KHÔNG thể hoàn trả tại TPV (chính sách công ty).",
+    "ban_ph": "Tìm kiếm theo EAN hoặc tên sản phẩm…",
+    "ban_buscar": "TÌM KIẾM / CẤM",
+    "ban_col_cod": "MÃ",
+    "ban_col_art": "SẢN PHẨM",
+    "ban_col_motivo": "LÝ DO",
+    "ban_col_fecha": "NGÀY",
+    "ban_col_acc": "HÀNH ĐỘNG",
+    "ban_nores_t": "Không có kết quả",
+    "ban_nores": "Không tìm thấy sản phẩm nào với '{t}'.",
+    "ban_ya_t": "Đã bị cấm",
+    "ban_ya": "Sản phẩm {c} đã bị cấm.",
+    "ban_desbanear": "BỎ CẤM",
+    "ban_desb_t": "Bỏ cấm sản phẩm",
+    "ban_desb_msg": "Cho phép hoàn trả sản phẩm này lại?",
+    "ban_dlg_titulo": "CẤM SẢN PHẨM HOÀN TRẢ",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "LÝ DO (sẽ hiển thị tại TPV):",
+    "ban_dlg_motivo_def": "Sản phẩm không thể hoàn trả theo chính sách của công ty.",
+    "ban_dlg_aceptar": "CHẤP NHẬN"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Máy Quét Thông Minh - Smart Manager",

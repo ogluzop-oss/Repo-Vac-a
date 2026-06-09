@@ -70,6 +70,7 @@ from src.db.usuario import (
     sesion_global,
     validar_pin_fichaje,
 )
+from src.db import devoluciones_baneados
 from src.utils import divisas, i18n, pdf_fonts
 from src.utils.i18n import tr
 from src.utils.logger import LOG_DOCUMENTOS
@@ -6129,6 +6130,52 @@ class _WizardDocumentoFiscal(QDialog):
         self._paso = max(0, min(3, self._paso + d)); self._render()
 
 
+class _BanearDialog(QDialog):
+    """Confirmación para banear un artículo de devolución, con motivo editable."""
+
+    def __init__(self, codigo, nombre, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._build(codigo, nombre)
+
+    def _build(self, codigo, nombre):
+        card = QFrame(self)
+        card.setStyleSheet(f"QFrame{{background:#0E1117;border:2px solid {_CIAN};border-radius:18px;}}")
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(26, 22, 26, 22); ly.setSpacing(12)
+
+        t = QLabel("🚫  " + tr("cfg.ban_dlg_titulo", default="BANEAR ARTÍCULO PARA DEVOLUCIÓN"))
+        t.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:15px;background:transparent;border:none;")
+        ly.addWidget(t)
+        info = QLabel(tr("cfg.ban_dlg_art", default="{cod}  ·  {nom}", cod=codigo, nom=nombre or ""))
+        info.setStyleSheet("color:#E6EDF3;font-family:'Segoe UI';font-size:13px;font-weight:700;background:#161B22;border:1px solid #30363D;border-radius:8px;padding:9px 11px;")
+        info.setWordWrap(True); ly.addWidget(info)
+
+        lbl = QLabel(tr("cfg.ban_dlg_motivo", default="MOTIVO (se mostrará en el TPV):"))
+        lbl.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-weight:900;font-size:11px;background:transparent;border:none;")
+        ly.addWidget(lbl)
+        self.inp_motivo = QLineEdit(tr("cfg.ban_dlg_motivo_def", default="Artículo no retornable por política de la empresa."))
+        self.inp_motivo.setFixedHeight(38)
+        self.inp_motivo.setStyleSheet(f"QLineEdit{{background:#0D1117;color:white;border:2px solid {_CIAN};border-radius:10px;padding:0 12px;}}")
+        ly.addWidget(self.inp_motivo)
+
+        botones = QHBoxLayout(); botones.addStretch()
+        bc = QPushButton(tr("cfg.cancel", default="CANCELAR")); bc.setFixedSize(140, 42)
+        bc.setCursor(Qt.CursorShape.PointingHandCursor)
+        bc.setStyleSheet(f"QPushButton{{background:#0E1117;color:#F85149;border:2px solid #F85149;border-radius:10px;font-weight:900;}}QPushButton:hover{{background:#F85149;color:#0E1117;}}")
+        bc.clicked.connect(self.reject)
+        bk = QPushButton("✔  " + tr("cfg.ban_dlg_aceptar", default="ACEPTAR")); bk.setFixedSize(180, 42)
+        bk.setCursor(Qt.CursorShape.PointingHandCursor)
+        bk.setStyleSheet(f"QPushButton{{background:#0E1117;color:{_CIAN};border:2px solid {_CIAN};border-radius:10px;font-weight:900;}}QPushButton:hover{{background:{_CIAN};color:#0E1117;}}")
+        bk.clicked.connect(self.accept)
+        botones.addWidget(bc); botones.addWidget(bk); ly.addLayout(botones)
+        self.setFixedWidth(540)
+
+    def motivo(self) -> str:
+        return self.inp_motivo.text().strip()
+
+
 class ConfiguracionWindow(QWidget):
     def __init__(self, callback_vuelta=None, usuario=None, **kwargs):
         super().__init__()
@@ -8251,6 +8298,7 @@ class ConfiguracionWindow(QWidget):
         ly.addWidget(self.text_ticket)
 
         ly.addWidget(form)
+        ly.addWidget(self._crear_seccion_baneo_devolucion())
         ly.addStretch()
 
         btn_save = QPushButton(tr("cfg.save_changes", default="GUARDAR CAMBIOS"))
@@ -8272,7 +8320,113 @@ class ConfiguracionWindow(QWidget):
             }
         """)
         ly.addWidget(btn_save, alignment=Qt.AlignmentFlag.AlignRight)
-        return page
+
+        # La pestaña puede crecer (plazos + ticket + baneados): scroll seguro.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(
+            "QScrollArea{border:none;background:transparent;}"
+            "QScrollBar:vertical{background:#0D1117;width:10px;margin:2px;}"
+            "QScrollBar::handle:vertical{background:#30363D;border-radius:5px;min-height:30px;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0px;}"
+        )
+        scroll.setWidget(page)
+        return scroll
+
+    # ── Módulo: artículos baneados para devolución ───────────────────────────
+    def _crear_seccion_baneo_devolucion(self):
+        cont = QFrame()
+        cont.setStyleSheet(f"background:{_PANEL_BG};border-radius:20px;border:2px solid {_BORDE};")
+        v = QVBoxLayout(cont); v.setContentsMargins(24, 20, 24, 20); v.setSpacing(12)
+
+        t = QLabel("🚫  " + tr("cfg.ban_titulo", default="ARTÍCULOS BANEADOS PARA DEVOLUCIÓN"))
+        t.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:16px;background:transparent;border:none;")
+        v.addWidget(t)
+        sub = QLabel(tr("cfg.ban_sub", default="Estos artículos NO se podrán devolver en el TPV (política de empresa)."))
+        sub.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:11px;background:transparent;border:none;")
+        v.addWidget(sub)
+
+        fila = QHBoxLayout(); fila.setSpacing(10)
+        self.inp_ban = QLineEdit(); self.inp_ban.setFixedHeight(40)
+        self.inp_ban.setPlaceholderText(tr("cfg.ban_ph", default="Buscar por EAN o nombre del artículo…"))
+        self.inp_ban.setStyleSheet(f"QLineEdit{{background:#0D1117;color:white;border:2px solid {_CIAN};border-radius:10px;padding:0 14px;font-size:14px;}}")
+        self.inp_ban.returnPressed.connect(self._buscar_para_banear)
+        bb = QPushButton("🔍  " + tr("cfg.ban_buscar", default="BUSCAR / BANEAR")); bb.setFixedHeight(40)
+        bb.setCursor(Qt.CursorShape.PointingHandCursor)
+        bb.setStyleSheet(f"QPushButton{{background:#161B22;color:{_CIAN};border:2px solid {_CIAN};border-radius:10px;font-weight:900;font-size:12px;padding:0 16px;}}QPushButton:hover{{background:{_CIAN};color:#0E1117;}}")
+        bb.clicked.connect(self._buscar_para_banear)
+        fila.addWidget(self.inp_ban, 1); fila.addWidget(bb)
+        v.addLayout(fila)
+
+        self.tabla_ban = QTableWidget(0, 5)
+        self.tabla_ban.setHorizontalHeaderLabels([
+            tr("cfg.ban_col_cod", default="CÓDIGO"), tr("cfg.ban_col_art", default="ARTÍCULO"),
+            tr("cfg.ban_col_motivo", default="MOTIVO"), tr("cfg.ban_col_fecha", default="FECHA"),
+            tr("cfg.ban_col_acc", default="ACCIONES"),
+        ])
+        self.tabla_ban.verticalHeader().setVisible(False)
+        self.tabla_ban.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla_ban.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.tabla_ban.setMinimumHeight(220)
+        self.tabla_ban.verticalHeader().setDefaultSectionSize(46)
+        _h = self.tabla_ban.horizontalHeader()
+        _h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        _h.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.tabla_ban.setColumnWidth(0, 160); self.tabla_ban.setColumnWidth(3, 150); self.tabla_ban.setColumnWidth(4, 140)
+        self.tabla_ban.setStyleSheet(f"""
+            QTableWidget{{background:#0D1117;color:#E6EDF3;border:2px solid {_BORDE};
+                          border-radius:12px;gridline-color:{_BORDE};font-family:'Segoe UI';font-size:12px;}}
+            QHeaderView::section{{background:#0E1117;color:{_CIAN};border:none;border-bottom:2px solid {_BORDE};
+                                  padding:8px;font-weight:900;font-size:11px;}}
+        """)
+        v.addWidget(self.tabla_ban)
+        self._refrescar_tabla_baneados()
+        return cont
+
+    def _buscar_para_banear(self):
+        term = self.inp_ban.text().strip()
+        if not term:
+            return
+        res = devoluciones_baneados.buscar_articulo(term)
+        if not res:
+            mostrar_mensaje(self, tr("cfg.ban_nores_t", default="Sin resultados"),
+                            tr("cfg.ban_nores", default="No se encontró ningún artículo con '{t}'.", t=term), "info")
+            return
+        art = res[0]
+        if devoluciones_baneados.esta_baneado(art.get("codigo")):
+            mostrar_mensaje(self, tr("cfg.ban_ya_t", default="Ya baneado"),
+                            tr("cfg.ban_ya", default="El artículo {c} ya está baneado.", c=art.get("codigo")), "info")
+            return
+        dlg = _BanearDialog(art.get("codigo"), art.get("nombre"), self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            usuario = sesion_global.obtener_nombre() if sesion_global else ""
+            devoluciones_baneados.banear_articulo(art["codigo"], art.get("nombre", ""), dlg.motivo(), usuario)
+            self.inp_ban.clear()
+            self._refrescar_tabla_baneados()
+
+    def _refrescar_tabla_baneados(self):
+        filas = devoluciones_baneados.listar_baneados()
+        self.tabla_ban.setRowCount(len(filas))
+        for r, b in enumerate(filas):
+            for col, val in enumerate([b.get("codigo", ""), b.get("nombre") or "—",
+                                       b.get("motivo") or "—", str(b.get("fecha") or "")]):
+                it = QTableWidgetItem("  " + str(val))
+                if col == 0:
+                    it.setForeground(QColor("#E3B341"))
+                self.tabla_ban.setItem(r, col, it)
+            btn = QPushButton("🗑  " + tr("cfg.ban_desbanear", default="DESBANEAR"))
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet("QPushButton{background:#0E1117;color:#F85149;border:2px solid #F85149;border-radius:8px;font-weight:900;font-size:10px;padding:4px 8px;}QPushButton:hover{background:#F85149;color:#0E1117;}")
+            btn.clicked.connect(lambda _=False, bid=b.get("id"): self._desbanear(bid))
+            self.tabla_ban.setCellWidget(r, 4, btn)
+
+    def _desbanear(self, id_ban):
+        if mostrar_confirmacion and not mostrar_confirmacion(
+            self, tr("cfg.ban_desb_t", default="Desbanear artículo"),
+            tr("cfg.ban_desb_msg", default="¿Permitir de nuevo la devolución de este artículo?")):
+            return
+        devoluciones_baneados.desbanear_articulo(id_ban=id_ban)
+        self._refrescar_tabla_baneados()
 
     def _crear_input_plazo_con_botones(self, sufijo):
         """Crea un layout con botones +/- neón a la izquierda y el spinbox sin flechas."""

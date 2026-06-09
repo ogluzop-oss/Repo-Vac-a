@@ -228,7 +228,9 @@
     "terminal_title": "카드단말기",
     "terminal_rejected": "반품 거절:\n{msg}",
     "refund_done_title": "반품 완료",
-    "error_title": "오류"
+    "error_title": "오류",
+    "ban_intro": "다음 항목은 회사 정책상 반품을 허용하지 않습니다:",
+    "ban_titulo": "🚫 반품 불가"
   },
   "sel_caja": {
     "header": "🏧  계산대를 선택하세요",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "관리자 / 매니저만",
     "divisa_title": "통화 업데이트됨",
     "divisa_msg": "회사 통화는 이제 {code}입니다. 현금 및 금액 테이블이 이 통화로 표시됩니다.",
-    "divisa_error": "통화를 변경할 수 없습니다."
+    "divisa_error": "통화를 변경할 수 없습니다.",
+    "ban_titulo": "반품 금지 상품",
+    "ban_sub": "이 상품은 POS(회사 정책)에서 반품할 수 없습니다.",
+    "ban_ph": "EAN 또는 상품명으로 검색…",
+    "ban_buscar": "검색 / 금지",
+    "ban_col_cod": "코드",
+    "ban_col_art": "상품",
+    "ban_col_motivo": "사유",
+    "ban_col_fecha": "날짜",
+    "ban_col_acc": "조치",
+    "ban_nores_t": "결과 없음",
+    "ban_nores": "'{t}'와 일치하는 상품을 찾을 수 없습니다.",
+    "ban_ya_t": "이미 금지됨",
+    "ban_ya": "상품 {c}은(는) 이미 금지되어 있습니다.",
+    "ban_desbanear": "금지 해제",
+    "ban_desb_t": "상품 금지 해제",
+    "ban_desb_msg": "이 상품의 반품을 다시 허용하시겠습니까?",
+    "ban_dlg_titulo": "반품 금지 상품으로 설정",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "사유 (POS에 표시됨):",
+    "ban_dlg_motivo_def": "회사 정책상 반품 불가 상품입니다.",
+    "ban_dlg_aceptar": "확인"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "스마트 스캐너 - Smart Manager",

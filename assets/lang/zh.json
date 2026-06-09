@@ -228,7 +228,9 @@
     "terminal_title": "收款机",
     "terminal_rejected": "退货被拒：\n{msg}",
     "refund_done_title": "退货已完成",
-    "error_title": "错误"
+    "error_title": "错误",
+    "ban_intro": "以下物品根据公司政策不接受退货:",
+    "ban_titulo": "🚫 不允许退货"
   },
   "sel_caja": {
     "header": "🏧  选择收银台",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "仅限管理员/经理",
     "divisa_title": "货币已更新",
     "divisa_msg": "公司货币现为 {code}。现金表和金额将以此货币显示。",
-    "divisa_error": "无法更改货币。"
+    "divisa_error": "无法更改货币。",
+    "ban_titulo": "禁止退货的商品",
+    "ban_sub": "这些商品不能在收银系统中退货（公司政策）。",
+    "ban_ph": "按EAN码或商品名称搜索...",
+    "ban_buscar": "搜索/禁止",
+    "ban_col_cod": "代码",
+    "ban_col_art": "商品",
+    "ban_col_motivo": "原因",
+    "ban_col_fecha": "日期",
+    "ban_col_acc": "操作",
+    "ban_nores_t": "无结果",
+    "ban_nores": "未找到名称为'{t}'的商品。",
+    "ban_ya_t": "已禁止",
+    "ban_ya": "商品{c}已被禁止退货。",
+    "ban_desbanear": "取消禁止",
+    "ban_desb_t": "取消商品禁止退货",
+    "ban_desb_msg": "允许该商品重新退货吗？",
+    "ban_dlg_titulo": "禁止商品退货",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "原因（将在收银系统中显示）：",
+    "ban_dlg_motivo_def": "根据公司政策，该商品不可退货。",
+    "ban_dlg_aceptar": "确认"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "智能扫描仪 - Smart Manager",

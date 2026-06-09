@@ -228,7 +228,9 @@
     "terminal_title": "Datáfono",
     "terminal_rejected": "Devolución rechazada:\n{msg}",
     "refund_done_title": "Devolución completada",
-    "error_title": "Error"
+    "error_title": "Error",
+    "ban_intro": "Los siguientes artículos NO admiten devolución por política de la empresa:",
+    "ban_titulo": "🚫 Devolución no permitida"
   },
   "sel_caja": {
     "header": "🏧  SELECCIONA TU CAJA",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Solo ADMINISTRADOR / GERENTE",
     "divisa_title": "Divisa actualizada",
     "divisa_msg": "La divisa de la empresa es ahora {code}. Las tablas de efectivo e importes se mostrarán en esta divisa.",
-    "divisa_error": "No se pudo cambiar la divisa."
+    "divisa_error": "No se pudo cambiar la divisa.",
+    "ban_titulo": "ARTÍCULOS BANEADOS PARA DEVOLUCIÓN",
+    "ban_sub": "Estos artículos NO se podrán devolver en el TPV (política de empresa).",
+    "ban_ph": "Buscar por EAN o nombre del artículo…",
+    "ban_buscar": "BUSCAR / BANEAR",
+    "ban_col_cod": "CÓDIGO",
+    "ban_col_art": "ARTÍCULO",
+    "ban_col_motivo": "MOTIVO",
+    "ban_col_fecha": "FECHA",
+    "ban_col_acc": "ACCIONES",
+    "ban_nores_t": "Sin resultados",
+    "ban_nores": "No se encontró ningún artículo con '{t}'.",
+    "ban_ya_t": "Ya baneado",
+    "ban_ya": "El artículo {c} ya está baneado.",
+    "ban_desbanear": "DESBANEAR",
+    "ban_desb_t": "Desbanear artículo",
+    "ban_desb_msg": "¿Permitir de nuevo la devolución de este artículo?",
+    "ban_dlg_titulo": "BANEAR ARTÍCULO PARA DEVOLUCIÓN",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "MOTIVO (se mostrará en el TPV):",
+    "ban_dlg_motivo_def": "Artículo no retornable por política de la empresa.",
+    "ban_dlg_aceptar": "ACEPTAR"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Escáner Inteligente - Smart Manager",

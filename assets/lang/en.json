@@ -228,7 +228,9 @@
     "terminal_title": "Card terminal",
     "terminal_rejected": "Refund rejected:\n{msg}",
     "refund_done_title": "Refund completed",
-    "error_title": "Error"
+    "error_title": "Error",
+    "ban_intro": "The following items cannot be returned per company policy:",
+    "ban_titulo": "🚫 Return not allowed"
   },
   "sel_caja": {
     "header": "🏧  SELECT YOUR REGISTER",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Only ADMINISTRATOR / MANAGER",
     "divisa_title": "Currency updated",
     "divisa_msg": "The company currency is now {code}. Cash tables and amounts will be shown in this currency.",
-    "divisa_error": "Could not change the currency."
+    "divisa_error": "Could not change the currency.",
+    "ban_titulo": "ITEMS BANNED FROM RETURNS",
+    "ban_sub": "These items CANNOT be returned at the POS (company policy).",
+    "ban_ph": "Search by EAN or item name…",
+    "ban_buscar": "SEARCH / BAN",
+    "ban_col_cod": "CODE",
+    "ban_col_art": "ITEM",
+    "ban_col_motivo": "REASON",
+    "ban_col_fecha": "DATE",
+    "ban_col_acc": "ACTIONS",
+    "ban_nores_t": "No results",
+    "ban_nores": "No item found matching '{t}'.",
+    "ban_ya_t": "Already banned",
+    "ban_ya": "Item {c} is already banned.",
+    "ban_desbanear": "UNBAN",
+    "ban_desb_t": "Unban item",
+    "ban_desb_msg": "Allow returns of this item again?",
+    "ban_dlg_titulo": "BAN ITEM FROM RETURNS",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "REASON (shown at the POS):",
+    "ban_dlg_motivo_def": "Item not returnable per company policy.",
+    "ban_dlg_aceptar": "ACCEPT"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

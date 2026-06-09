@@ -2190,12 +2190,23 @@ class _DevolucionDialog(QDialog):
 
     def _cargar_items(self, venta):
         from PyQt6.QtWidgets import QCheckBox
+
+        from src.db import devoluciones_baneados as _ban
         items = venta.get("items", [])
         self.tabla.setRowCount(len(items))
         self._checks = []
+        baneados = []
         for row, it in enumerate(items):
+            cod = str(it.get("codigo_articulo") or it.get("codigo") or "")
+            ban = _ban.esta_baneado(cod) if cod else None
             chk = QCheckBox()
-            chk.setChecked(True)
+            if ban:
+                # Artículo NO retornable por política de empresa: bloqueado.
+                chk.setChecked(False)
+                chk.setEnabled(False)
+                baneados.append((str(it.get("nombre", "—")), ban.get("motivo") or ""))
+            else:
+                chk.setChecked(True)
             self._checks.append(chk)
             cont = QWidget()
             cont.setStyleSheet("background:transparent;")
@@ -2204,7 +2215,10 @@ class _DevolucionDialog(QDialog):
             hl.addWidget(chk)
             hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tabla.setCellWidget(row, 0, cont)
-            self.tabla.setItem(row, 1, QTableWidgetItem(str(it.get("nombre", "—"))))
+            it_nom = QTableWidgetItem(("🚫  " if ban else "") + str(it.get("nombre", "—")))
+            if ban:
+                it_nom.setForeground(QColor(_ROJO))
+            self.tabla.setItem(row, 1, it_nom)
             it_cant = QTableWidgetItem(str(it.get("cantidad", 0)))
             it_cant.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tabla.setItem(row, 2, it_cant)
@@ -2214,6 +2228,22 @@ class _DevolucionDialog(QDialog):
             it_sub = QTableWidgetItem(f"{divisas.formatear(float(it.get('subtotal',0)))}")
             it_sub.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.tabla.setItem(row, 4, it_sub)
+
+        if baneados:
+            self._avisar_baneados(baneados)
+
+    def _avisar_baneados(self, baneados):
+        """Mensaje centrado: el ticket contiene artículos no devolubles (baneados)."""
+        lineas = "\n".join(f"•  {nombre}: {motivo}" for nombre, motivo in baneados)
+        cuerpo = tr("devol.ban_intro",
+                    default="Los siguientes artículos NO admiten devolución por política de la empresa:") \
+            + "\n\n" + lineas
+        titulo = tr("devol.ban_titulo", default="🚫 Devolución no permitida")
+        try:
+            from assets.estilo_global import mostrar_mensaje as _mm
+            _mm(self, titulo, cuerpo, "warning")
+        except Exception:
+            QMessageBox.warning(self, titulo, cuerpo)
 
     def _procesar(self):
         from src.services.tpv import refund_service as R

@@ -228,7 +228,9 @@
     "terminal_title": "Terminale POS",
     "terminal_rejected": "Reso rifiutato:\n{msg}",
     "refund_done_title": "Reso completato",
-    "error_title": "Errore"
+    "error_title": "Errore",
+    "ban_intro": "I seguenti articoli NON ammettono reso secondo la politica aziendale:",
+    "ban_titulo": "🚫 Reso non consentito"
   },
   "sel_caja": {
     "header": "🏧  SELEZIONA LA TUA CASSA",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Solo AMMINISTRATORE / MANAGER",
     "divisa_title": "Valuta aggiornata",
     "divisa_msg": "La valuta aziendale è ora {code}. Le tabelle di cassa e gli importi verranno visualizzati in questa valuta.",
-    "divisa_error": "Non è stato possibile modificare la valuta."
+    "divisa_error": "Non è stato possibile modificare la valuta.",
+    "ban_titulo": "ARTICOLI VIETATI PER LA RESTITUZIONE",
+    "ban_sub": "Questi articoli NON potranno essere restituiti al POS (politica aziendale).",
+    "ban_ph": "Cerca per EAN o nome dell'articolo…",
+    "ban_buscar": "CERCA / VIETA",
+    "ban_col_cod": "CODICE",
+    "ban_col_art": "ARTICOLO",
+    "ban_col_motivo": "MOTIVO",
+    "ban_col_fecha": "DATA",
+    "ban_col_acc": "AZIONI",
+    "ban_nores_t": "Nessun risultato",
+    "ban_nores": "Nessun articolo trovato con '{t}'.",
+    "ban_ya_t": "Già vietato",
+    "ban_ya": "L'articolo {c} è già vietato.",
+    "ban_desbanear": "RIMUOVI DIVIETO",
+    "ban_desb_t": "Rimuovi divieto articolo",
+    "ban_desb_msg": "Consentire nuovamente la restituzione di questo articolo?",
+    "ban_dlg_titulo": "VIETA ARTICOLO PER LA RESTITUZIONE",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "MOTIVO (verrà visualizzato al POS):",
+    "ban_dlg_motivo_def": "Articolo non restituibile per politica aziendale.",
+    "ban_dlg_aceptar": "ACCETTA"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Intelligente - Smart Manager",

@@ -228,7 +228,9 @@
     "terminal_title": "Betalningsterminalen",
     "terminal_rejected": "Återbetalning avvisad:\n{msg}",
     "refund_done_title": "Återbetalning slutförd",
-    "error_title": "Fel"
+    "error_title": "Fel",
+    "ban_intro": "Följande artiklar tillåter INTE returer enligt företagspolicy:",
+    "ban_titulo": "🚫 Retur inte tillåten"
   },
   "sel_caja": {
     "header": "🏧  VÄLJ DIN KASSA",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Endast ADMINISTRATÖR / CHEF",
     "divisa_title": "Valuta uppdaterad",
     "divisa_msg": "Företagets valuta är nu {code}. Kassatabeller och belopp visas i denna valuta.",
-    "divisa_error": "Det gick inte att ändra valutan."
+    "divisa_error": "Det gick inte att ändra valutan.",
+    "ban_titulo": "FÖRBJUDNA ARTIKLAR FÖR RETUR",
+    "ban_sub": "Dessa artiklar kan INTE returneras i POS (företagspolicy).",
+    "ban_ph": "Sök efter EAN eller artikelnamn…",
+    "ban_buscar": "SÖK / FÖRBJUD",
+    "ban_col_cod": "KOD",
+    "ban_col_art": "ARTIKEL",
+    "ban_col_motivo": "ANLEDNING",
+    "ban_col_fecha": "DATUM",
+    "ban_col_acc": "ÅTGÄRDER",
+    "ban_nores_t": "Inga resultat",
+    "ban_nores": "Ingen artikel hittades med '{t}'.",
+    "ban_ya_t": "Redan förbjuden",
+    "ban_ya": "Artikeln {c} är redan förbjuden.",
+    "ban_desbanear": "TILLÅT RETUR",
+    "ban_desb_t": "Tillåt retur för artikel",
+    "ban_desb_msg": "Tillåta retur av denna artikel igen?",
+    "ban_dlg_titulo": "FÖRBJUD ARTIKEL FÖR RETUR",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "ANLEDNING (visas i POS):",
+    "ban_dlg_motivo_def": "Artikeln kan inte returneras enligt företagspolicy.",
+    "ban_dlg_aceptar": "ACCEPTERA"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

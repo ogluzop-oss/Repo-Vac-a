@@ -297,6 +297,22 @@ def ensure_schema(force: bool = False):
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
 
+                # Artículos BANEADOS para devolución (no admiten devolución por
+                # política de empresa, p. ej. ropa interior). Multi-tenant.
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS devoluciones_baneados (
+                        id          INT AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        codigo      VARCHAR(100) NOT NULL,
+                        nombre      VARCHAR(255)          DEFAULT NULL,
+                        motivo      VARCHAR(500)          DEFAULT NULL,
+                        usuario     VARCHAR(100)          DEFAULT NULL,
+                        fecha       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_ban_empresa (id_empresa, codigo),
+                        INDEX idx_ban_empresa (id_empresa)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+
                 # ── Fase 0b: id_empresa (+id_tienda) en las TABLAS OPERATIVAS ──
                 # Aditivo y no disruptivo: ADD COLUMN ... DEFAULT rellena las filas
                 # existentes con la empresa por defecto, así las consultas actuales

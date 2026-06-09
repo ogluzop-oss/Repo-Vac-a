@@ -228,7 +228,9 @@
     "col_subtotal": "Subtotal",
     "refund_method": "Forma de reembolso",
     "btn_cancel": "CANCELAR",
-    "authorized_by": "✔ Autorizado por {nombre}"
+    "authorized_by": "✔ Autorizado por {nombre}",
+    "ban_intro": "Os seguintes artigos NÃO permitem devolução conforme política da empresa:",
+    "ban_titulo": "🚫 Devolução não permitida"
   },
   "sel_caja": {
     "header": "🏧  SELECIONE SEU CAIXA",
@@ -1226,7 +1228,28 @@
     "divisa_solo_admin": "Apenas ADMINISTRADOR / GERENTE",
     "divisa_title": "Moeda atualizada",
     "divisa_msg": "A moeda da empresa é agora {code}. As tabelas de caixa e valores serão exibidos nesta moeda.",
-    "divisa_error": "Não foi possível alterar a moeda."
+    "divisa_error": "Não foi possível alterar a moeda.",
+    "ban_titulo": "ARTIGOS BANIDOS PARA DEVOLUÇÃO",
+    "ban_sub": "Estes artigos NÃO poderão ser devolvidos no PDV (política da empresa).",
+    "ban_ph": "Pesquisar por EAN ou nome do artigo…",
+    "ban_buscar": "PESQUISAR / BANIR",
+    "ban_col_cod": "CÓDIGO",
+    "ban_col_art": "ARTIGO",
+    "ban_col_motivo": "MOTIVO",
+    "ban_col_fecha": "DATA",
+    "ban_col_acc": "AÇÕES",
+    "ban_nores_t": "Sem resultados",
+    "ban_nores": "Nenhum artigo encontrado com '{t}'.",
+    "ban_ya_t": "Já banido",
+    "ban_ya": "O artigo {c} já está banido.",
+    "ban_desbanear": "DESBANIR",
+    "ban_desb_t": "Desbanir artigo",
+    "ban_desb_msg": "Permitir novamente a devolução deste artigo?",
+    "ban_dlg_titulo": "BANIR ARTIGO PARA DEVOLUÇÃO",
+    "ban_dlg_art": "{cod}  ·  {nom}",
+    "ban_dlg_motivo": "MOTIVO (será exibido no PDV):",
+    "ban_dlg_motivo_def": "Artigo não retornável por política da empresa.",
+    "ban_dlg_aceptar": "ACEITAR"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Inteligente - Smart Manager",
