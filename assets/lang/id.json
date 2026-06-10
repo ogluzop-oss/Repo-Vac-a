@@ -62,7 +62,11 @@
     "user_info": "👤 {nombre} | {perfil}",
     "card_tpv": "TPV",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "Email"
+    "card_correo": "Email",
+    "cita_titulo": "PENGINGAT HARI INI",
+    "cita_sub": "Anda memiliki acara yang dijadwalkan untuk hari ini:",
+    "cita_entendido": "MENGERTI",
+    "cita_ver": "LIHAT JANJI"
   },
   "ticket": {
     "date": "Tanggal",

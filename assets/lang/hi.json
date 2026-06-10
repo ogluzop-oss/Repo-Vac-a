@@ -62,7 +62,11 @@
     "card_tpv": "TPV",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "ईमेल"
+    "card_correo": "ईमेल",
+    "cita_titulo": "आज की याद दिलाना",
+    "cita_sub": "आपके लिए आज के लिए निर्धारित इवेंट हैं:",
+    "cita_entendido": "ठीक है",
+    "cita_ver": "अपॉइंटमेंट देखें"
   },
   "ticket": {
     "date": "तारीख",

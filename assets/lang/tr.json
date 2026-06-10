@@ -62,7 +62,11 @@
     "card_salir": "Çıkış",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "E-posta"
+    "card_correo": "E-posta",
+    "cita_titulo": "BUGÜNÜN HATIRLATMASI",
+    "cita_sub": "Bugün için planlanmış etkinlikleriniz var:",
+    "cita_entendido": "ANLAŞILDI",
+    "cita_ver": "RANDEVUYU GÖR"
   },
   "ticket": {
     "date": "Tarih",

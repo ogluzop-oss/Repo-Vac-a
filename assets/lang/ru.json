@@ -62,7 +62,11 @@
     "card_salir": "Выход",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "Электронная почта"
+    "card_correo": "Электронная почта",
+    "cita_titulo": "НАПОМИНАНИЕ НА СЕГОДНЯ",
+    "cita_sub": "У вас запланированы события на сегодня:",
+    "cita_entendido": "ПОНЯЛ",
+    "cita_ver": "ПОКАЗАТЬ ВСТРЕЧУ"
   },
   "ticket": {
     "date": "Дата",

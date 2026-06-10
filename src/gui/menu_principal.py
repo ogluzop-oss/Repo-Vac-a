@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -230,6 +231,9 @@ class MenuPrincipal(QWidget):
 
         # Verificación diferida para no alterar el arranque visual
         QTimer.singleShot(2000, self.verificar_stock_bajo)
+
+        # Recordatorio de citas/eventos programados PARA HOY (notificación flotante).
+        QTimer.singleShot(2600, self._comprobar_citas_hoy)
 
         # Pre-carga diferida del módulo de Configuración (su import tarda ~450 ms
         # la primera vez). Al calentarlo durante el reposo del menú, la primera
@@ -930,7 +934,7 @@ class MenuPrincipal(QWidget):
         self.mostrar_menu_principal()
         return cerro_alguna
 
-    def abrir_modulo_configuracion(self):
+    def abrir_modulo_configuracion(self, tab_inicial=None):
         try:
             from src.gui.gestion_usuarios import ConfiguracionWindow
 
@@ -938,6 +942,8 @@ class MenuPrincipal(QWidget):
                 "callback_vuelta": self.mostrar_menu_principal,
                 "usuario": sesion_global.usuario_actual,
             }
+            if tab_inicial is not None:
+                kwargs["tab_inicial"] = tab_inicial
 
             logger.info(
                 f"Navegación: Usuario '{self.nombre_usuario}' entrando a CONFIGURACIÓN."
@@ -953,6 +959,144 @@ class MenuPrincipal(QWidget):
             else:
                 QMessageBox.critical(self, tr("menu.error_module_title"), _det)
             self.mostrar_menu_principal()
+
+    # ============================================================
+    # BLOQUE RECORDATORIO DE CITAS (notificación flotante)
+    # ============================================================
+    def _comprobar_citas_hoy(self):
+        """Si hay eventos programados PARA HOY aún no vistos, muestra una
+        notificación flotante. Solo el día del evento; nunca antes."""
+        if getattr(self, "_citas_aviso_mostrado", False):
+            return  # ya se mostró en esta sesión
+        try:
+            from src.utils import citas
+
+            fecha, pendientes = citas.pendientes_hoy()
+        except Exception as e:
+            logger.debug("No se pudieron comprobar las citas de hoy: %s", e)
+            return
+        if not pendientes:
+            return
+        self._citas_aviso_mostrado = True
+        self._mostrar_notif_citas(fecha, pendientes)
+
+    def _mostrar_notif_citas(self, fecha, eventos):
+        self._cerrar_notif_citas()
+        card = QFrame(self)
+        card.setObjectName("notifCita")
+        card.setStyleSheet(
+            "QFrame#notifCita{background:#0E1117;border:2px solid #00FFC6;border-radius:16px;}"
+        )
+        sombra = QGraphicsDropShadowEffect(card)
+        sombra.setBlurRadius(45)
+        sombra.setColor(QColor(0, 255, 198, 150))
+        sombra.setOffset(0, 0)
+        card.setGraphicsEffect(sombra)
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(24, 18, 24, 18)
+        lay.setSpacing(10)
+
+        titulo = QLabel("📅  " + tr("menu.cita_titulo", default="RECORDATORIO DE HOY"))
+        titulo.setStyleSheet(
+            "color:#00FFC6;font-family:'Segoe UI';font-weight:900;font-size:16px;"
+            "background:transparent;border:none;"
+        )
+        lay.addWidget(titulo)
+
+        sub = QLabel(tr("menu.cita_sub", default="Tienes eventos programados para hoy:"))
+        sub.setStyleSheet(
+            "color:#8B949E;font-family:'Segoe UI';font-size:12px;font-weight:700;"
+            "background:transparent;border:none;"
+        )
+        lay.addWidget(sub)
+
+        for ev in eventos[:6]:
+            asunto = ev.get("asunto", "")
+            hi = (ev.get("hora_inicio") or "").strip()
+            hf = (ev.get("hora_fin") or "").strip()
+            horas = f"{hi} – {hf}" if (hi or hf) else ""
+            txt = f"•  <b>{asunto}</b>"
+            if horas:
+                txt += f"&nbsp;&nbsp;<span style='color:#8B949E;'>{horas}</span>"
+            linea = QLabel(txt)
+            linea.setTextFormat(Qt.TextFormat.RichText)
+            linea.setWordWrap(True)
+            linea.setStyleSheet(
+                "color:#E6EDF3;font-family:'Segoe UI';font-size:13px;"
+                "background:transparent;border:none;"
+            )
+            lay.addWidget(linea)
+
+        fila = QHBoxLayout()
+        fila.setSpacing(10)
+        fila.addStretch()
+        btn_ent = QPushButton(tr("menu.cita_entendido", default="ENTENDIDO"))
+        btn_ent.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_ent.setFixedHeight(40)
+        btn_ent.setStyleSheet(
+            "QPushButton{background:#0E1117;color:#00FFC6;border:2px solid #00FFC6;"
+            "border-radius:10px;font-weight:900;font-size:12px;padding:0 18px;}"
+            "QPushButton:hover{background:#00FFC6;color:#0E1117;}"
+        )
+        btn_ent.clicked.connect(self._notif_entendido)
+        btn_ver = QPushButton(tr("menu.cita_ver", default="VER CITA"))
+        btn_ver.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_ver.setFixedHeight(40)
+        btn_ver.setStyleSheet(
+            "QPushButton{background:#00FFC6;color:#0E1117;border:none;"
+            "border-radius:10px;font-weight:900;font-size:12px;padding:0 22px;}"
+            "QPushButton:hover{background:#0E1117;color:#00FFC6;border:2px solid #00FFC6;}"
+        )
+        btn_ver.clicked.connect(self._notif_ver_cita)
+        fila.addWidget(btn_ent)
+        fila.addWidget(btn_ver)
+        lay.addLayout(fila)
+
+        self._notif_cita_widget = card
+        self._notif_cita_fecha = fecha
+        self._notif_cita_eventos = eventos
+
+        card.adjustSize()
+        card.setFixedWidth(max(440, card.sizeHint().width()))
+        self._posicionar_notif_citas()
+        card.show()
+        card.raise_()
+
+    def _posicionar_notif_citas(self):
+        card = getattr(self, "_notif_cita_widget", None)
+        if not card:
+            return
+        x = (self.width() - card.width()) // 2
+        card.move(max(20, x), 24)
+
+    def _notif_entendido(self):
+        """ENTENDIDO: marca los eventos como vistos para no volver a avisar."""
+        try:
+            from src.utils import citas
+
+            citas.marcar_vistos(
+                getattr(self, "_notif_cita_fecha", ""),
+                getattr(self, "_notif_cita_eventos", []),
+            )
+        except Exception as e:
+            logger.debug("No se pudo marcar la cita como vista: %s", e)
+        self._cerrar_notif_citas()
+
+    def _notif_ver_cita(self):
+        """VER CITA: abre Configuración directamente en PLANIFICAR CITAS (índice 6)."""
+        self._cerrar_notif_citas()
+        self.abrir_modulo_configuracion(tab_inicial=6)
+
+    def _cerrar_notif_citas(self):
+        card = getattr(self, "_notif_cita_widget", None)
+        if card is not None:
+            card.hide()
+            card.deleteLater()
+            self._notif_cita_widget = None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._posicionar_notif_citas()
 
     # ============================================================
     # BLOQUE ALERTAS Y CIERRE DE SESIÓN

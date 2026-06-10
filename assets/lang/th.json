@@ -62,7 +62,11 @@
     "card_tpv": "TPV",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "อีเมล"
+    "card_correo": "อีเมล",
+    "cita_titulo": "เตือนความจำของวันนี้",
+    "cita_sub": "คุณมีกิจกรรมที่กำหนดไว้สำหรับวันนี้:",
+    "cita_entendido": "เข้าใจแล้ว",
+    "cita_ver": "ดูการนัดหมาย"
   },
   "ticket": {
     "date": "วันที่",

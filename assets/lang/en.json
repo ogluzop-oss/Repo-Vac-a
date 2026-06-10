@@ -62,7 +62,11 @@
     "card_salir": "Exit",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "Email"
+    "card_correo": "Email",
+    "cita_titulo": "TODAY'S REMINDER",
+    "cita_sub": "You have events scheduled for today:",
+    "cita_entendido": "GOT IT",
+    "cita_ver": "VIEW APPOINTMENT"
   },
   "ticket": {
     "title": "SMART MANAGER",

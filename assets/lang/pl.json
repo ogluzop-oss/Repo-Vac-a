@@ -62,7 +62,11 @@
     "card_salir": "Wyjście",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "Email"
+    "card_correo": "Email",
+    "cita_titulo": "PRZYPOMNIENIE NA DZISIAJ",
+    "cita_sub": "Masz zaplanowane wydarzenia na dzisiaj:",
+    "cita_entendido": "ROZUMIEM",
+    "cita_ver": "ZOBACZ WIZYTĘ"
   },
   "ticket": {
     "date": "Data",

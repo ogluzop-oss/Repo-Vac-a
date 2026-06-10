@@ -62,7 +62,11 @@
     "card_salir": "Esci",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "Email"
+    "card_correo": "Email",
+    "cita_titulo": "PROMEMORIA DI OGGI",
+    "cita_sub": "Hai eventi programmati per oggi:",
+    "cita_entendido": "CAPITO",
+    "cita_ver": "VISUALIZZA APPUNTAMENTO"
   },
   "ticket": {
     "title": "SMART MANAGER",

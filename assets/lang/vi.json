@@ -62,7 +62,11 @@
     "card_tpv": "TPV",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "Email"
+    "card_correo": "Email",
+    "cita_titulo": "NHẮC NHỞ HÔM NAY",
+    "cita_sub": "Bạn có các sự kiện được lên lịch cho hôm nay:",
+    "cita_entendido": "ĐÃ HIỂU",
+    "cita_ver": "XEM CUỘC HẸN"
   },
   "ticket": {
     "date": "Ngày",

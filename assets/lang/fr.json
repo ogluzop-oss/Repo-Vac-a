@@ -62,7 +62,11 @@
     "card_salir": "Quitter",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "E-mail"
+    "card_correo": "E-mail",
+    "cita_titulo": "RAPPEL AUJOURD'HUI",
+    "cita_sub": "Vous avez des événements programmés pour aujourd'hui:",
+    "cita_entendido": "D'ACCORD",
+    "cita_ver": "VOIR RENDEZ-VOUS"
   },
   "ticket": {
     "title": "SMART MANAGER",

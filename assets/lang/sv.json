@@ -62,7 +62,11 @@
     "card_salir": "Avsluta",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "E-post"
+    "card_correo": "E-post",
+    "cita_titulo": "PÅMINNELSE IDAG",
+    "cita_sub": "Du har schemalagda händelser idag:",
+    "cita_entendido": "FÖRSTÅDD",
+    "cita_ver": "SE MÖTE"
   },
   "ticket": {
     "date": "Datum",

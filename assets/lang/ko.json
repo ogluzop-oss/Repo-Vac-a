@@ -62,7 +62,11 @@
     "card_salir": "종료",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "이메일"
+    "card_correo": "이메일",
+    "cita_titulo": "오늘의 알림",
+    "cita_sub": "오늘 예정된 이벤트가 있습니다:",
+    "cita_entendido": "확인",
+    "cita_ver": "약속 보기"
   },
   "ticket": {
     "date": "날짜",

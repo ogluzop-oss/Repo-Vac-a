@@ -62,7 +62,11 @@
     "card_salir": "退出",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "电子邮件"
+    "card_correo": "电子邮件",
+    "cita_titulo": "今日提醒",
+    "cita_sub": "你有今天的计划事件:",
+    "cita_entendido": "我明白了",
+    "cita_ver": "查看预约"
   },
   "ticket": {
     "date": "日期",

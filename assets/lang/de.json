@@ -62,7 +62,11 @@
     "card_salir": "Beenden",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "E-Mail"
+    "card_correo": "E-Mail",
+    "cita_titulo": "ERINNERUNG FÜR HEUTE",
+    "cita_sub": "Du hast heute geplante Ereignisse:",
+    "cita_entendido": "VERSTANDEN",
+    "cita_ver": "TERMIN ANZEIGEN"
   },
   "ticket": {
     "title": "SMART MANAGER",

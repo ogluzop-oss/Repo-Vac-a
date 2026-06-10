@@ -62,7 +62,11 @@
     "card_salir": "خروج",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "البريد الإلكتروني"
+    "card_correo": "البريد الإلكتروني",
+    "cita_titulo": "تذكير اليوم",
+    "cita_sub": "لديك أحداث مجدولة لهذا اليوم:",
+    "cita_entendido": "فهمت",
+    "cita_ver": "عرض الموعد"
   },
   "ticket": {
     "date": "التاريخ",

@@ -62,7 +62,11 @@
     "card_salir": "Afsluiten",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "E-mail"
+    "card_correo": "E-mail",
+    "cita_titulo": "HERINNERING VAN VANDAAG",
+    "cita_sub": "Je hebt evenementen ingepland voor vandaag:",
+    "cita_entendido": "BEGREPEN",
+    "cita_ver": "AFSPRAAK BEKIJKEN"
   },
   "ticket": {
     "date": "Datum",

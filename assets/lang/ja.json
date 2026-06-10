@@ -62,7 +62,11 @@
     "card_salir": "終了",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_correo": "メール"
+    "card_correo": "メール",
+    "cita_titulo": "今日のリマインダー",
+    "cita_sub": "今日の予定されたイベント:",
+    "cita_entendido": "了解しました",
+    "cita_ver": "予約を見る"
   },
   "ticket": {
     "date": "日付",

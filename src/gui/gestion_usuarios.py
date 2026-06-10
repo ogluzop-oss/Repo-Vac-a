@@ -6188,6 +6188,13 @@ class ConfiguracionWindow(QWidget):
         # (lazy load) y _cerrar_cal_popup puede llamarse antes de visitarla.
         self._cal_popup = None
         self.setup_ui()
+        # Abrir directamente en una pestaña concreta (p. ej. desde "VER CITA").
+        ti = kwargs.get("tab_inicial")
+        if ti is not None and hasattr(self, "btns") and 0 <= ti < len(self.btns):
+            try:
+                self.btns[ti].click()
+            except Exception:
+                pass
 
     def setup_ui(self):
         main_layout = QHBoxLayout(self)
