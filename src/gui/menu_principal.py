@@ -1043,9 +1043,9 @@ class MenuPrincipal(QWidget):
         btn_ver.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_ver.setFixedHeight(40)
         btn_ver.setStyleSheet(
-            "QPushButton{background:#00FFC6;color:#0E1117;border:2px solid transparent;"
+            "QPushButton{background:#0E1117;color:#00FFC6;border:2px solid #00FFC6;"
             "border-radius:10px;font-weight:900;font-size:12px;padding:0 22px;}"
-            "QPushButton:hover{background:#0E1117;color:#00FFC6;border:2px solid #00FFC6;}"
+            "QPushButton:hover{background:#00FFC6;color:#0E1117;}"
         )
         btn_ver.clicked.connect(self._notif_ver_cita)
         fila.addWidget(btn_ent)
