@@ -8366,12 +8366,19 @@ class ConfiguracionWindow(QWidget):
         self.tabla_ban.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla_ban.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.tabla_ban.setMinimumHeight(220)
-        self.tabla_ban.verticalHeader().setDefaultSectionSize(46)
+        # Filas más altas para que quepa el botón DESBANEAR (centrado en su celda).
+        self.tabla_ban.verticalHeader().setDefaultSectionSize(58)
         _h = self.tabla_ban.horizontalHeader()
-        _h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        _h.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         _h.setHighlightSections(False)
-        self.tabla_ban.setColumnWidth(0, 160); self.tabla_ban.setColumnWidth(3, 150); self.tabla_ban.setColumnWidth(4, 140)
+        # MOTIVO se estira (ocupa el espacio libre → más ancho); el resto fijas.
+        # ARTÍCULO se reduce para ceder ese ancho a MOTIVO.
+        for _c in (0, 1, 3, 4):
+            _h.setSectionResizeMode(_c, QHeaderView.ResizeMode.Fixed)
+        _h.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.tabla_ban.setColumnWidth(0, 150)   # CÓDIGO
+        self.tabla_ban.setColumnWidth(1, 200)   # ARTÍCULO (reducido)
+        self.tabla_ban.setColumnWidth(3, 150)   # FECHA
+        self.tabla_ban.setColumnWidth(4, 150)   # ACCIONES
         # Tabla sin borde propio; el contorno neón + esquinas redondeadas los aporta
         # el contenedor (la tabla va con margen para no cortar el contorno). Cabeceras
         # con hover-swap y esquinas superiores redondeadas (1ª/última columna).
@@ -8425,9 +8432,15 @@ class ConfiguracionWindow(QWidget):
                 self.tabla_ban.setItem(r, col, it)
             btn = QPushButton("🗑  " + tr("cfg.ban_desbanear", default="DESBANEAR"))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet("QPushButton{background:#0E1117;color:#F85149;border:2px solid #F85149;border-radius:8px;font-weight:900;font-size:10px;padding:4px 8px;}QPushButton:hover{background:#F85149;color:#0E1117;}")
+            btn.setFixedHeight(38)
+            btn.setStyleSheet("QPushButton{background:#0E1117;color:#F85149;border:2px solid #F85149;border-radius:8px;font-weight:900;font-size:11px;padding:0 14px;}QPushButton:hover{background:#F85149;color:#0E1117;}")
             btn.clicked.connect(lambda _=False, bid=b.get("id"): self._desbanear(bid))
-            self.tabla_ban.setCellWidget(r, 4, btn)
+            # Contenedor que centra el botón vertical y horizontalmente en la celda
+            # (así, al subir la altura de fila, el botón queda a media altura).
+            cont = QWidget(); cont.setStyleSheet("background:transparent;")
+            hl = QHBoxLayout(cont); hl.setContentsMargins(6, 0, 6, 0)
+            hl.addWidget(btn); hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tabla_ban.setCellWidget(r, 4, cont)
 
     def _desbanear(self, id_ban):
         if mostrar_confirmacion and not mostrar_confirmacion(
