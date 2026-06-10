@@ -2189,6 +2189,7 @@ class _DevolucionDialog(QDialog):
             self.btn_procesar.setEnabled(True)
 
     def _cargar_items(self, venta):
+        from PyQt6.QtGui import QFont
         from PyQt6.QtWidgets import QCheckBox
 
         from src.db import devoluciones_baneados as _ban
@@ -2201,7 +2202,8 @@ class _DevolucionDialog(QDialog):
             ban = _ban.esta_baneado(cod) if cod else None
             chk = QCheckBox()
             if ban:
-                # Artículo NO retornable por política de empresa: bloqueado.
+                # Solo ESTE artículo queda excluido de la devolución; el resto del
+                # ticket se puede devolver con normalidad.
                 chk.setChecked(False)
                 chk.setEnabled(False)
                 baneados.append((str(it.get("nombre", "—")), ban.get("motivo") or ""))
@@ -2215,18 +2217,23 @@ class _DevolucionDialog(QDialog):
             hl.addWidget(chk)
             hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tabla.setCellWidget(row, 0, cont)
+
             it_nom = QTableWidgetItem(("🚫  " if ban else "") + str(it.get("nombre", "—")))
-            if ban:
-                it_nom.setForeground(QColor(_ROJO))
-            self.tabla.setItem(row, 1, it_nom)
             it_cant = QTableWidgetItem(str(it.get("cantidad", 0)))
             it_cant.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.tabla.setItem(row, 2, it_cant)
             it_pre = QTableWidgetItem(f"{divisas.formatear(float(it.get('precio_unitario',0)))}")
             it_pre.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            self.tabla.setItem(row, 3, it_pre)
             it_sub = QTableWidgetItem(f"{divisas.formatear(float(it.get('subtotal',0)))}")
             it_sub.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            if ban:
+                # TACHADO en rojo en toda la fila (solo afecta a este artículo).
+                fuente = QFont(); fuente.setStrikeOut(True)
+                for celda in (it_nom, it_cant, it_pre, it_sub):
+                    celda.setForeground(QColor(_ROJO))
+                    celda.setFont(fuente)
+            self.tabla.setItem(row, 1, it_nom)
+            self.tabla.setItem(row, 2, it_cant)
+            self.tabla.setItem(row, 3, it_pre)
             self.tabla.setItem(row, 4, it_sub)
 
         if baneados:
@@ -2236,9 +2243,10 @@ class _DevolucionDialog(QDialog):
         """Mensaje centrado: el ticket contiene artículos no devolubles (baneados)."""
         lineas = "\n".join(f"•  {nombre}: {motivo}" for nombre, motivo in baneados)
         cuerpo = tr("devol.ban_intro",
-                    default="Los siguientes artículos NO admiten devolución por política de la empresa:") \
+                    default="Estos artículos quedan EXCLUIDOS de la devolución (aparecen tachados). "
+                            "El resto del ticket sí se puede devolver:") \
             + "\n\n" + lineas
-        titulo = tr("devol.ban_titulo", default="🚫 Devolución no permitida")
+        titulo = tr("devol.ban_titulo", default="🚫 Artículos no devolubles")
         try:
             from assets.estilo_global import mostrar_mensaje as _mm
             _mm(self, titulo, cuerpo, "warning")

@@ -229,8 +229,8 @@
     "refund_done_title": "İade tamamlandı",
     "error_title": "Hata",
     "ticket_num": "Nº Ticket:",
-    "ban_intro": "Aşağıdaki ürünler şirket politikası gereğince iade kabul etmez:",
-    "ban_titulo": "🚫 İade izin verilmez"
+    "ban_intro": "Bu ürünler İADE dışında tutulmuştur (üzeri çizili görünür). Biletin geri kalanı iade edilebilir:",
+    "ban_titulo": "🚫 İade edilemeyen ürünler"
   },
   "sel_caja": {
     "header": "🏧  KASANIZI SEÇİN",

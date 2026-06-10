@@ -229,8 +229,8 @@
     "terminal_rejected": "退货被拒：\n{msg}",
     "refund_done_title": "退货已完成",
     "error_title": "错误",
-    "ban_intro": "以下物品根据公司政策不接受退货:",
-    "ban_titulo": "🚫 不允许退货"
+    "ban_intro": "这些商品被排除在退货范围外（显示为删除线）。票据上的其他商品可以退货：",
+    "ban_titulo": "🚫 不可退货商品"
   },
   "sel_caja": {
     "header": "🏧  选择收银台",

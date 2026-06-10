@@ -229,8 +229,8 @@
     "terminal_rejected": "Återbetalning avvisad:\n{msg}",
     "refund_done_title": "Återbetalning slutförd",
     "error_title": "Fel",
-    "ban_intro": "Följande artiklar tillåter INTE returer enligt företagspolicy:",
-    "ban_titulo": "🚫 Retur inte tillåten"
+    "ban_intro": "Dessa artiklar är UTESLUTNA från returen (visas genomstrukna). Resten av kvittot kan returneras:",
+    "ban_titulo": "🚫 Icke-returerbara artiklar"
   },
   "sel_caja": {
     "header": "🏧  VÄLJ DIN KASSA",

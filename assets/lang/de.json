@@ -229,8 +229,8 @@
     "terminal_rejected": "Rückgabe abgelehnt:\n{msg}",
     "refund_done_title": "Rückgabe abgeschlossen",
     "error_title": "Fehler",
-    "ban_intro": "Die folgenden Artikel sind gemäß Unternehmensrichtlinie NICHT zurückgabefähig:",
-    "ban_titulo": "🚫 Rückgabe nicht gestattet"
+    "ban_intro": "Diese Artikel sind VON DER RÜCKGABE AUSGESCHLOSSEN (durchgestrichen). Der Rest des Belegs kann zurückgegeben werden:",
+    "ban_titulo": "🚫 Nicht zurückgebbare Artikel"
   },
   "sel_caja": {
     "header": "🏧  WÄHLE DEINE KASSE",

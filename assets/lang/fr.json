@@ -229,8 +229,8 @@
     "refund_done_title": "Retour complété",
     "error_title": "Erreur",
     "ticket_num": "Nº Ticket:",
-    "ban_intro": "Les articles suivants n'acceptent PAS les retours selon la politique de l'entreprise:",
-    "ban_titulo": "🚫 Retour non autorisé"
+    "ban_intro": "Ces articles sont EXCLUS du retour (ils apparaissent barrés). Le reste du ticket peut être retourné :",
+    "ban_titulo": "🚫 Articles non retournables"
   },
   "sel_caja": {
     "header": "🏧  SÉLECTIONNE TA CAISSE",

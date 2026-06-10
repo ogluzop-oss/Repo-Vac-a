@@ -229,8 +229,8 @@
     "terminal_rejected": "Reso rifiutato:\n{msg}",
     "refund_done_title": "Reso completato",
     "error_title": "Errore",
-    "ban_intro": "I seguenti articoli NON ammettono reso secondo la politica aziendale:",
-    "ban_titulo": "🚫 Reso non consentito"
+    "ban_intro": "Questi articoli sono ESCLUSI dalla restituzione (risultano barrati). Il resto dello scontrino è possibile restituirlo:",
+    "ban_titulo": "🚫 Articoli non restituibili"
   },
   "sel_caja": {
     "header": "🏧  SELEZIONA LA TUA CASSA",

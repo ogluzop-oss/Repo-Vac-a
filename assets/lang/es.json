@@ -229,8 +229,8 @@
     "terminal_rejected": "Devolución rechazada:\n{msg}",
     "refund_done_title": "Devolución completada",
     "error_title": "Error",
-    "ban_intro": "Los siguientes artículos NO admiten devolución por política de la empresa:",
-    "ban_titulo": "🚫 Devolución no permitida"
+    "ban_intro": "Estos artículos quedan EXCLUIDOS de la devolución (aparecen tachados). El resto del ticket sí se puede devolver:",
+    "ban_titulo": "🚫 Artículos no devolubles"
   },
   "sel_caja": {
     "header": "🏧  SELECCIONA TU CAJA",

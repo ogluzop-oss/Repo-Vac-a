@@ -229,8 +229,8 @@
     "refund_method": "Forma de reembolso",
     "btn_cancel": "CANCELAR",
     "authorized_by": "✔ Autorizado por {nombre}",
-    "ban_intro": "Os seguintes artigos NÃO permitem devolução conforme política da empresa:",
-    "ban_titulo": "🚫 Devolução não permitida"
+    "ban_intro": "Estes artigos ficam EXCLUÍDOS da devolução (aparecem riscados). O restante do ticket pode ser devolvido:",
+    "ban_titulo": "🚫 Artigos não devolvíveis"
   },
   "sel_caja": {
     "header": "🏧  SELECIONE SEU CAIXA",

@@ -229,8 +229,8 @@
     "terminal_rejected": "Zwrot odrzucony:\n{msg}",
     "refund_done_title": "Zwrot ukończony",
     "error_title": "Błąd",
-    "ban_intro": "Następujące artykuły NIE podlegają zwrotowi zgodnie z polityką firmy:",
-    "ban_titulo": "🚫 Zwrot niedozwolony"
+    "ban_intro": "Te artykuły są WYKLUCZONE ze zwrotu (są przekreślone). Resztę paragonu można zwrócić:",
+    "ban_titulo": "🚫 Artykuły niemożliwe do zwrotu"
   },
   "sel_caja": {
     "header": "🏧  WYBIERZ SWOJĄ KASĘ",

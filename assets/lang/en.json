@@ -229,8 +229,8 @@
     "terminal_rejected": "Refund rejected:\n{msg}",
     "refund_done_title": "Refund completed",
     "error_title": "Error",
-    "ban_intro": "The following items cannot be returned per company policy:",
-    "ban_titulo": "🚫 Return not allowed"
+    "ban_intro": "These items are EXCLUDED from the return (shown struck through). The rest of the ticket can still be returned:",
+    "ban_titulo": "🚫 Non-returnable items"
   },
   "sel_caja": {
     "header": "🏧  SELECT YOUR REGISTER",

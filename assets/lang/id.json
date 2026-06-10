@@ -229,8 +229,8 @@
     "refund_done_title": "Pengembalian selesai",
     "error_title": "Kesalahan",
     "col_subtotal": "Subtotal",
-    "ban_intro": "Artikel berikut TIDAK diterima pengembalian menurut kebijakan perusahaan:",
-    "ban_titulo": "🚫 Pengembalian tidak diizinkan"
+    "ban_intro": "Artikel-artikel ini DIKECUALIKAN dari pengembalian (ditampilkan dengan coret). Sisa dari tiket dapat dikembalikan:",
+    "ban_titulo": "🚫 Artikel yang tidak dapat dikembalikan"
   },
   "sel_caja": {
     "header": "🏧  PILIH KASIRMU",

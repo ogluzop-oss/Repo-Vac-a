@@ -229,8 +229,8 @@
     "terminal_rejected": "Retour afgewezen:\n{msg}",
     "refund_done_title": "Retour voltooid",
     "error_title": "Fout",
-    "ban_intro": "De volgende artikelen zijn NIET retourneerbaar volgens het bedrijfsbeleid:",
-    "ban_titulo": "🚫 Retournering niet toegestaan"
+    "ban_intro": "Deze artikelen zijn UITGESLOTEN van retour (doorgestreept weergegeven). De rest van het bon kan wel worden geretourneerd:",
+    "ban_titulo": "🚫 Niet-retourneerbare artikelen"
   },
   "sel_caja": {
     "header": "🏧  SELECTEER JE KASSA",

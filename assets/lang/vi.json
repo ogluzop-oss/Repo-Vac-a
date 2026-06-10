@@ -229,8 +229,8 @@
     "terminal_rejected": "Hoàn trả bị từ chối:\n{msg}",
     "refund_done_title": "Hoàn trả hoàn tất",
     "error_title": "Lỗi",
-    "ban_intro": "Các mặt hàng sau đây KHÔNG chấp nhận hoàn trả theo chính sách công ty:",
-    "ban_titulo": "🚫 Không cho phép hoàn trả"
+    "ban_intro": "Những mặt hàng này bị LOẠI TRỪ khỏi hoàn lại (hiển thị bị gạch ngang). Phần còn lại của hóa đơn có thể hoàn lại:",
+    "ban_titulo": "🚫 Mặt hàng không thể hoàn lại"
   },
   "sel_caja": {
     "header": "🏧  CHỌN TỦ TIỀN CỦA BẠN",
