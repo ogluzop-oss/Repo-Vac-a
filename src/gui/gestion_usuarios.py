@@ -6280,6 +6280,58 @@ class _BanearDialog(QDialog):
         return self.inp_motivo.text().strip()
 
 
+class _FormDialogCorp(QDialog):
+    """Diálogo genérico de alta/edición para datos corporativos
+    (representantes legales y centros de trabajo)."""
+
+    def __init__(self, titulo, campos, valores=None, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._campos = campos
+        self._inps = {}
+        self._build(titulo, valores or {})
+
+    def _build(self, titulo, valores):
+        card = QFrame(self)
+        card.setStyleSheet(f"QFrame{{background:#0E1117;border:2px solid {_CIAN};border-radius:18px;}}")
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(26, 22, 26, 22); ly.setSpacing(10)
+        t = QLabel(titulo)
+        t.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:15px;background:transparent;border:none;")
+        ly.addWidget(t)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
+        inner = QWidget(); inner.setStyleSheet("background:transparent;")
+        gl = QVBoxLayout(inner); gl.setContentsMargins(0, 0, 8, 0); gl.setSpacing(6)
+        for key, label in self._campos:
+            lb = QLabel(label)
+            lb.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:11px;font-weight:700;background:transparent;border:none;")
+            gl.addWidget(lb)
+            val = valores.get(key, "")
+            if not val and key == "pais":
+                val = "ESPAÑA"
+            e = QLineEdit(str(val or "")); e.setFixedHeight(36)
+            e.setStyleSheet(f"QLineEdit{{background:#161B22;color:white;border:2px solid {_BORDE};border-radius:8px;padding:0 12px;font-size:12px;}}QLineEdit:focus{{border-color:{_CIAN};}}")
+            self._inps[key] = e; gl.addWidget(e)
+        scroll.setWidget(inner); ly.addWidget(scroll, 1)
+        br = QHBoxLayout(); br.addStretch()
+        bc = QPushButton(tr("cfg.ban_cancelar", default="CANCELAR")); bc.setFixedHeight(38)
+        bc.setCursor(Qt.CursorShape.PointingHandCursor)
+        bc.setStyleSheet("QPushButton{background:#0E1117;color:#F85149;border:2px solid #F85149;border-radius:8px;font-weight:900;font-size:12px;padding:0 18px;}QPushButton:hover{background:#F85149;color:#0E1117;}")
+        bc.clicked.connect(self.reject)
+        bg = QPushButton(tr("cfg.de_guardar_corto", default="GUARDAR")); bg.setFixedHeight(38)
+        bg.setCursor(Qt.CursorShape.PointingHandCursor)
+        bg.setStyleSheet("QPushButton{background:#0E1117;color:#3FB950;border:2px solid #3FB950;border-radius:8px;font-weight:900;font-size:12px;padding:0 18px;}QPushButton:hover{background:#3FB950;color:#0E1117;}")
+        bg.clicked.connect(self.accept)
+        br.addWidget(bc); br.addWidget(bg); ly.addLayout(br)
+        self.setFixedSize(560, min(640, 200 + 64 * len(self._campos)))
+
+    def valores(self):
+        return {k: e.text().strip() for k, e in self._inps.items()}
+
+
 class ConfiguracionWindow(QWidget):
     def __init__(self, callback_vuelta=None, usuario=None, **kwargs):
         super().__init__()
@@ -6330,12 +6382,13 @@ class ConfiguracionWindow(QWidget):
         self._tab_keys = [
             "cfg.tab_caja", "cfg.tab_plazo", "cfg.tab_perfil", "cfg.tab_horario",
             "cfg.tab_fichajes", "cfg.tab_logo", "cfg.tab_citas", "cfg.tab_fiscalidad",
-            "cfg.tab_referencia",
+            "cfg.tab_referencia", "cfg.tab_datos_empresa",
         ]
         _tab_def = [
             "GESTIÓN CAJA", "PLAZO DEVOLUCIÓN", "GENERAR PERFIL EMPLEADO",
             "HORARIO EMPLEADOS", "FICHAJES", "LOGO CORPORATIVO",
             "PLANIFICAR CITAS", "FISCALIDAD", "ASIGNAR REFERENCIA",
+            "DATOS DE EMPRESA",
         ]
 
         self.btns = []
@@ -6383,6 +6436,7 @@ class ConfiguracionWindow(QWidget):
             6: self._crear_page_citas,
             7: self._crear_page_fiscalidad,
             8: self._crear_page_referencia,
+            9: self._crear_page_datos_empresa,
         }
         self._loaded_pages = set()
         for i in range(len(self._page_builders)):
@@ -6442,6 +6496,249 @@ class ConfiguracionWindow(QWidget):
         elif index == 6:  # Citas — refresh calendar markers
             if hasattr(self, "_cal_widget"):
                 self._cal_widget.update()
+
+    # ============================================================
+    # PESTAÑA 10: DATOS DE EMPRESA (fuente única de datos corporativos)
+    # ============================================================
+    _CAMPOS_REP = [
+        ("nombre", "Nombre"), ("apellidos", "Apellidos"), ("dni_nie", "DNI / NIE"),
+        ("cargo", "Cargo"), ("telefono", "Teléfono"), ("email", "Email"),
+    ]
+    _CAMPOS_CT = [
+        ("nombre_centro", "Nombre del centro"), ("direccion", "Dirección"),
+        ("codigo_postal", "Código postal"), ("municipio", "Municipio"),
+        ("provincia", "Provincia"), ("comunidad_autonoma", "Comunidad autónoma"),
+        ("pais", "País"), ("telefono", "Teléfono"), ("email", "Email"),
+        ("codigo_cuenta_cotizacion", "Cuenta de cotización (CCC)"),
+        ("codigo_centro_trabajo", "Código de centro de trabajo"),
+        ("actividad_economica", "Actividad económica"),
+    ]
+
+    def _de_lbl(self, t):
+        l = QLabel(t)
+        l.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:11px;font-weight:700;background:transparent;")
+        return l
+
+    def _de_inp(self, val=""):
+        e = QLineEdit(str(val or "")); e.setFixedHeight(38)
+        e.setStyleSheet(f"QLineEdit{{background:#161B22;color:white;border:2px solid {_BORDE};border-radius:8px;padding:0 12px;font-size:12px;}}QLineEdit:focus{{border-color:{_CIAN};}}")
+        return e
+
+    def _de_sec(self, t):
+        l = QLabel("  " + t)
+        l.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:12px;background:#161B22;border-radius:6px;padding:7px 10px;")
+        return l
+
+    def _de_btn_verde(self, txt, slot):
+        b = QPushButton(txt); b.setFixedHeight(40); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setStyleSheet("QPushButton{background:#0E1117;color:#3FB950;border:2px solid #3FB950;border-radius:10px;font-weight:900;font-size:12px;padding:0 18px;}QPushButton:hover{background:#3FB950;color:#0E1117;}")
+        b.clicked.connect(slot); return b
+
+    def _de_btn_cian(self, txt, slot):
+        b = QPushButton(txt); b.setFixedHeight(36); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setStyleSheet(f"QPushButton{{background:#0E1117;color:{_CIAN};border:2px solid {_CIAN};border-radius:10px;font-weight:900;font-size:11px;padding:0 14px;}}QPushButton:hover{{background:{_CIAN};color:#0E1117;}}")
+        b.clicked.connect(slot); return b
+
+    def _de_mini(self, txt, color, slot):
+        b = QPushButton(txt); b.setFixedSize(30, 30); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setStyleSheet(f"QPushButton{{background:#0E1117;color:{color};border:2px solid {color};border-radius:8px;font-weight:900;font-size:13px;}}QPushButton:hover{{background:{color};color:#0E1117;}}")
+        b.clicked.connect(slot); return b
+
+    def _de_tabla(self, headers):
+        t = QTableWidget(0, len(headers)); t.setHorizontalHeaderLabels(headers)
+        t.verticalHeader().setVisible(False)
+        t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        t.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        t.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        t.verticalHeader().setDefaultSectionSize(46)
+        t.setMinimumHeight(150)
+        t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        t.setStyleSheet(
+            f"QTableWidget{{background:#0D1117;color:#E6EDF3;border:none;gridline-color:#21262D;font-size:12px;}}"
+            f"QHeaderView::section{{background:#161B22;color:{_CIAN};border:none;padding:8px;font-weight:900;font-size:11px;}}"
+            f"QTableWidget::item{{padding:6px;border-bottom:1px solid #21262D;}}"
+        )
+        return t
+
+    def _de_wrap(self, tabla):
+        wrap = QFrame()
+        wrap.setStyleSheet(f"QFrame{{background:#0D1117;border:2px solid {_BORDE};border-radius:12px;}}")
+        wl = QVBoxLayout(wrap); wl.setContentsMargins(5, 5, 5, 5); wl.addWidget(tabla)
+        return wrap
+
+    def _crear_page_datos_empresa(self):
+        from src.db import centros as _cts
+        from src.db import empresa as _emp
+        from src.db import representantes as _reps
+        self._de_emp_mod, self._de_reps_mod, self._de_cts_mod = _emp, _reps, _cts
+
+        page = QWidget(); page.setStyleSheet(f"background:{_FONDO};")
+        root = QVBoxLayout(page); root.setContentsMargins(40, 28, 40, 18); root.setSpacing(12)
+        titulo = QLabel("🏢  " + tr("cfg.de_titulo", default="DATOS CORPORATIVOS DE LA EMPRESA"))
+        titulo.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:22px;background:transparent;")
+        root.addWidget(titulo)
+        sub = QLabel(tr("cfg.de_sub", default="Fuente única de datos. Se reutilizan automáticamente en todos los documentos (contratos, facturas, certificados, informes…)."))
+        sub.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:12px;font-weight:700;background:transparent;")
+        sub.setWordWrap(True); root.addWidget(sub)
+
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
+        inner = QWidget(); inner.setStyleSheet("background:transparent;")
+        il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 12, 0); il.setSpacing(10)
+
+        self._de_admin = bool(sesion_global and sesion_global.es_admin())
+
+        # ── BLOQUE EMPRESA ──
+        il.addWidget(self._de_sec(tr("cfg.de_sec_empresa", default="EMPRESA")))
+        emp = _emp.obtener_empresa() or {}
+        self._de_fields = {}
+        filas = [
+            [("razon_social", "Razón social:"), ("nombre_comercial", "Nombre comercial:")],
+            [("cif_nif", "CIF / NIF:"), ("telefono", "Teléfono:")],
+            [("email_principal", "Correo corporativo:"), ("direccion_fiscal", "Domicilio social:")],
+            [("municipio", "Municipio:"), ("provincia", "Provincia:")],
+            [("comunidad_autonoma", "Comunidad autónoma:"), ("cp", "Código postal:")],
+            [("pais", "País:"), ("regimen_ss", "Régimen SS:")],
+            [("ccc", "Cuenta de cotización (CCC):"), ("cnae", "CNAE:")],
+            [("actividad_economica", "Actividad económica:"), ("convenio_colectivo", "Convenio colectivo:")],
+        ]
+        for fila in filas:
+            rl = QHBoxLayout(); rl.setSpacing(8)
+            for key, label in fila:
+                col = QVBoxLayout(); col.addWidget(self._de_lbl(label))
+                inp = self._de_inp(emp.get(key, "") or ("ESPAÑA" if key == "pais" else ""))
+                self._de_fields[key] = inp; col.addWidget(inp)
+                rl.addLayout(col)
+            il.addLayout(rl)
+        bg = QHBoxLayout(); bg.addStretch()
+        self._de_btn_guardar = self._de_btn_verde(
+            tr("cfg.de_guardar", default="GUARDAR DATOS DE EMPRESA"), self._de_guardar_empresa)
+        self._de_btn_guardar.setEnabled(self._de_admin); bg.addWidget(self._de_btn_guardar)
+        il.addLayout(bg)
+
+        # ── BLOQUE REPRESENTANTES LEGALES ──
+        hr = QHBoxLayout(); hr.addWidget(self._de_sec(tr("cfg.de_sec_reps", default="REPRESENTANTES LEGALES")), 1)
+        self._de_btn_add_rep = self._de_btn_cian(tr("cfg.de_add_rep", default="➕  AÑADIR REPRESENTANTE"), self._de_add_rep)
+        self._de_btn_add_rep.setEnabled(self._de_admin); hr.addWidget(self._de_btn_add_rep)
+        il.addLayout(hr)
+        self._tabla_reps = self._de_tabla(["NOMBRE", "DNI / NIE", "CARGO", "PRINCIPAL", "ACCIONES"])
+        il.addWidget(self._de_wrap(self._tabla_reps))
+
+        # ── BLOQUE CENTROS DE TRABAJO ──
+        hc = QHBoxLayout(); hc.addWidget(self._de_sec(tr("cfg.de_sec_centros", default="CENTROS DE TRABAJO")), 1)
+        self._de_btn_add_ct = self._de_btn_cian(tr("cfg.de_add_ct", default="➕  AÑADIR CENTRO"), self._de_add_centro)
+        self._de_btn_add_ct.setEnabled(self._de_admin); hc.addWidget(self._de_btn_add_ct)
+        il.addLayout(hc)
+        self._tabla_cts = self._de_tabla(["CÓDIGO", "NOMBRE", "MUNICIPIO", "CCC", "PRINCIPAL", "ACCIONES"])
+        il.addWidget(self._de_wrap(self._tabla_cts))
+
+        il.addStretch()
+        scroll.setWidget(inner); root.addWidget(scroll, 1)
+        self._de_refrescar_reps(); self._de_refrescar_centros()
+        return page
+
+    def _de_guardar_empresa(self):
+        if not getattr(self, "_de_admin", False):
+            return
+        campos = {k: e.text().strip() for k, e in self._de_fields.items()}
+        self._de_emp_mod.actualizar_empresa(self._de_emp_mod.empresa_actual_id(), **campos)
+        mostrar_mensaje(
+            self, tr("cfg.de_ok_t", default="Datos guardados"),
+            tr("cfg.de_ok_msg", default="Los datos de empresa se han guardado y se usarán automáticamente en todos los documentos."),
+            "info")
+
+    def _de_refrescar_reps(self):
+        reps = self._de_reps_mod.listar_representantes()
+        t = self._tabla_reps; t.setRowCount(len(reps))
+        for r, rep in enumerate(reps):
+            nom = " ".join(x for x in [rep.get("nombre"), rep.get("apellidos")] if x) or "—"
+            t.setItem(r, 0, QTableWidgetItem(nom))
+            t.setItem(r, 1, QTableWidgetItem(rep.get("dni_nie") or "—"))
+            t.setItem(r, 2, QTableWidgetItem(rep.get("cargo") or "—"))
+            pr = QTableWidgetItem("★ SÍ" if rep.get("es_principal") else "—")
+            pr.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if rep.get("es_principal"):
+                pr.setForeground(QColor("#D29922"))
+            t.setItem(r, 3, pr)
+            cont = QWidget(); cont.setStyleSheet("background:transparent;")
+            hl = QHBoxLayout(cont); hl.setContentsMargins(4, 0, 4, 0); hl.setSpacing(6)
+            hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            if self._de_admin:
+                if not rep.get("es_principal"):
+                    hl.addWidget(self._de_mini("★", "#D29922",
+                        lambda _=0, i=rep.get("id_representante"): self._de_principal_rep(i)))
+                hl.addWidget(self._de_mini("✎", _CIAN, lambda _=0, d=rep: self._de_edit_rep(d)))
+                hl.addWidget(self._de_mini("🗑", "#F85149",
+                    lambda _=0, i=rep.get("id_representante"): self._de_baja_rep(i)))
+            t.setCellWidget(r, 4, cont)
+
+    def _de_refrescar_centros(self):
+        cts = self._de_cts_mod.listar_centros()
+        t = self._tabla_cts; t.setRowCount(len(cts))
+        for r, ct in enumerate(cts):
+            t.setItem(r, 0, QTableWidgetItem(ct.get("codigo_centro") or "—"))
+            t.setItem(r, 1, QTableWidgetItem(ct.get("nombre_centro") or "—"))
+            t.setItem(r, 2, QTableWidgetItem(ct.get("municipio") or "—"))
+            t.setItem(r, 3, QTableWidgetItem(ct.get("codigo_cuenta_cotizacion") or "—"))
+            pr = QTableWidgetItem("★ SÍ" if ct.get("es_principal") else "—")
+            pr.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if ct.get("es_principal"):
+                pr.setForeground(QColor("#D29922"))
+            t.setItem(r, 4, pr)
+            cont = QWidget(); cont.setStyleSheet("background:transparent;")
+            hl = QHBoxLayout(cont); hl.setContentsMargins(4, 0, 4, 0); hl.setSpacing(6)
+            hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            if self._de_admin:
+                if not ct.get("es_principal"):
+                    hl.addWidget(self._de_mini("★", "#D29922",
+                        lambda _=0, i=ct.get("id_centro"): self._de_principal_centro(i)))
+                hl.addWidget(self._de_mini("✎", _CIAN, lambda _=0, d=ct: self._de_edit_centro(d)))
+                hl.addWidget(self._de_mini("🗑", "#F85149",
+                    lambda _=0, i=ct.get("id_centro"): self._de_baja_centro(i)))
+            t.setCellWidget(r, 5, cont)
+
+    def _de_add_rep(self):
+        if not self._de_admin:
+            return
+        dlg = _FormDialogCorp(tr("cfg.de_nuevo_rep", default="NUEVO REPRESENTANTE LEGAL"), self._CAMPOS_REP, {}, self)
+        if dlg.exec():
+            self._de_reps_mod.crear_representante(**dlg.valores()); self._de_refrescar_reps()
+
+    def _de_edit_rep(self, rep):
+        if not self._de_admin:
+            return
+        dlg = _FormDialogCorp(tr("cfg.de_edit_rep", default="EDITAR REPRESENTANTE"), self._CAMPOS_REP, rep, self)
+        if dlg.exec():
+            self._de_reps_mod.actualizar_representante(rep.get("id_representante"), **dlg.valores())
+            self._de_refrescar_reps()
+
+    def _de_principal_rep(self, i):
+        self._de_reps_mod.marcar_principal(i); self._de_refrescar_reps()
+
+    def _de_baja_rep(self, i):
+        self._de_reps_mod.baja_representante(i); self._de_refrescar_reps()
+
+    def _de_add_centro(self):
+        if not self._de_admin:
+            return
+        dlg = _FormDialogCorp(tr("cfg.de_nuevo_ct", default="NUEVO CENTRO DE TRABAJO"), self._CAMPOS_CT, {}, self)
+        if dlg.exec():
+            self._de_cts_mod.crear_centro(**dlg.valores()); self._de_refrescar_centros()
+
+    def _de_edit_centro(self, ct):
+        if not self._de_admin:
+            return
+        dlg = _FormDialogCorp(tr("cfg.de_edit_ct", default="EDITAR CENTRO DE TRABAJO"), self._CAMPOS_CT, ct, self)
+        if dlg.exec():
+            self._de_cts_mod.actualizar_centro(ct.get("id_centro"), **dlg.valores())
+            self._de_refrescar_centros()
+
+    def _de_principal_centro(self, i):
+        self._de_cts_mod.marcar_principal(i); self._de_refrescar_centros()
+
+    def _de_baja_centro(self, i):
+        self._de_cts_mod.baja_centro(i); self._de_refrescar_centros()
 
     # --- PESTAÑA 1: GESTIÓN CAJA ---
     def _crear_selector_divisa(self):
