@@ -6534,7 +6534,7 @@ class _FormDialogCorp(QDialog):
         gl = QVBoxLayout(inner); gl.setContentsMargins(0, 0, 8, 0); gl.setSpacing(6)
         for key, label in self._campos:
             lb = QLabel(label)
-            lb.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:11px;font-weight:700;background:transparent;border:none;")
+            lb.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:14px;font-weight:700;background:transparent;border:none;")
             gl.addWidget(lb)
             val = valores.get(key, "")
             if not val and key == "pais":
