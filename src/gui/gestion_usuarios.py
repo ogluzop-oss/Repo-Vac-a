@@ -4361,8 +4361,7 @@ class _WizardDocumentoFiscal(QDialog):
 
     # Logos institucionales (cofinanciación). Si faltan, se usa banner de texto.
     _FSE_LOGOS = [
-        "ue_cofinanciado.png", "ministerio_sepe.png",
-        "fondos_europeos.png", "fse_plus.png",
+        "ue_cofinanciado.png", "ministerio_sepe.png", "fondos_europeos.png",
     ]
 
     def _fse_logos_flowable(self, usable_w):
@@ -5622,9 +5621,10 @@ class _WizardDocumentoFiscal(QDialog):
             rep_nombre_full = " ".join(x for x in [_rep.get("nombre"), _rep.get("apellidos")] if x).strip()
             rep_nif         = _rep.get("dni_nie") or ""
             rep_cargo       = _rep.get("cargo") or "REPRESENTANTE LEGAL"
-            # Centro de trabajo
+            # Centro de trabajo (la dirección manual del asistente, si se rellenó,
+            # alimenta el DOMICILIO de la sección del centro).
             ct_nombre    = _centro.get("nombre_centro") or ""
-            ct_dir       = _centro.get("direccion") or ""
+            ct_dir       = _centro.get("direccion") or self._datos.get("centro_trabajo", "") or ""
             ct_municipio = _centro.get("municipio") or ""
             ct_provincia = _centro.get("provincia") or ""
             ct_cp        = _centro.get("codigo_postal") or ""
@@ -5748,9 +5748,7 @@ class _WizardDocumentoFiscal(QDialog):
                     _lp = os.path.join(_lbase, _lf)
                     if os.path.exists(_lp):
                         _logos_hdr.append(_lp)
-                _fse_plus_path = os.path.join(_lbase, "fse_plus.png")
-                if not os.path.exists(_fse_plus_path):
-                    _fse_plus_path = None
+                _fse_plus_path = None  # logo FSE+ retirado (cabecera y pie)
             else:
                 _fse_plus_path = None
 
@@ -5763,21 +5761,25 @@ class _WizardDocumentoFiscal(QDialog):
                     if _logos_hdr:
                         n = len(_logos_hdr)
                         cell = usable_w / n
-                        lh = 1.15*cm
+                        _maxlh = 1.65*cm  # altura máxima (Fondos Europeos, algo mayor)
+                        _cy = page_h - 1.0*cm - _maxlh / 2  # centro vertical común
                         for i, lp in enumerate(_logos_hdr):
                             try:
                                 img = ImageReader(lp)
                                 iw, ih = img.getSize()
                                 ratio = (iw / ih) if ih else 1.0
+                                # Fondos Europeos un poco más grande que el resto.
+                                lh = 1.55*cm if "fondos_europeos" in lp else 1.15*cm
                                 w = lh * ratio
                                 if w > cell - 0.3*cm:
                                     w = cell - 0.3*cm
+                                    lh = w / ratio if ratio else lh
                                 cx = 1.5*cm + i*cell + (cell - w) / 2
-                                c.drawImage(img, cx, page_h - 1.0*cm - lh, w, lh,
+                                c.drawImage(img, cx, _cy - lh / 2, w, lh,
                                             preserveAspectRatio=True, mask="auto")
                             except Exception:
                                 pass
-                        y_title = page_h - 1.0*cm - lh - 0.55*cm
+                        y_title = page_h - 1.0*cm - _maxlh - 0.45*cm
                     else:
                         y_title = page_h - 1.7*cm
                 else:
