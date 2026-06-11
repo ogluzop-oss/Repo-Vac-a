@@ -2620,6 +2620,13 @@ class VentasAnaliticaWindow(QWidget):
         except Exception:
             _nombres_tr = [str(it[1] or it[0] or "") for it in items]
 
+        # Datos corporativos reales (fuente única, FASE 2c).
+        try:
+            from src.db.empresa import info_documento
+            _emp_info = info_documento()
+        except Exception:
+            _emp_info = {}
+
         buf = io.BytesIO()
         W, H = 80 * mm, 200 * mm
         c = rl_canvas.Canvas(buf, pagesize=(W, H))
@@ -2628,8 +2635,16 @@ class VentasAnaliticaWindow(QWidget):
         c.setFillColorRGB(0.05, 0.07, 0.09)
         c.rect(0, H - 30 * mm, W, 30 * mm, fill=1, stroke=0)
         c.setFillColorRGB(0, 1, 0.78)
-        c.setFont(_FB, 14)
-        c.drawCentredString(W / 2, H - 16 * mm, tr("ticket.title", default="SMART MANAGER"))
+        _tit = str(_emp_info.get("nombre") or tr("ticket.title", default="SMART MANAGER"))
+        _ts = 14
+        while _ts > 8 and c.stringWidth(_tit, _FB, _ts) > (W - 8 * mm):
+            _ts -= 0.5
+        c.setFont(_FB, _ts)
+        c.drawCentredString(W / 2, H - 14 * mm, _tit)
+        if _emp_info.get("cif"):
+            c.setFont(_FN, 6)
+            c.setFillColorRGB(0.7, 0.7, 0.7)
+            c.drawCentredString(W / 2, H - 18 * mm, f"CIF: {_emp_info.get('cif')}")
         c.setFont(_FN, 9)
         c.setFillColorRGB(1, 1, 1)
         if con_precios:

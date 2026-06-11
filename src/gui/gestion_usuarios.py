@@ -8462,26 +8462,27 @@ class ConfiguracionWindow(QWidget):
         return os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "documentos", "datos_empresa.json"))
 
     def _fis_cargar_empresa(self):
+        # Fuente única: lee de la BD (empresas), no del JSON legacy (FASE 2c).
         try:
-            p = self._fis_empresa_path()
-            if os.path.exists(p):
-                with open(p, encoding="utf-8") as f:
-                    data = json.load(f)
-                vals = list(data.values())
-                for i, inp in enumerate(getattr(self, "_fis_emp_inps", [])):
-                    if i < len(vals): inp.setText(str(vals[i]))
+            from src.db import empresa as _emp
+            e = _emp.obtener_empresa() or {}
+            vals = [e.get("razon_social") or "", e.get("cif_nif") or "",
+                    e.get("direccion_fiscal") or "", e.get("email_principal") or "",
+                    e.get("telefono") or "", ""]
+            for i, inp in enumerate(getattr(self, "_fis_emp_inps", [])):
+                if i < len(vals):
+                    inp.setText(str(vals[i]))
         except Exception:
             pass
 
     def _fis_guardar_empresa(self):
-        keys = ["razon_social", "cif", "direccion", "email", "telefono", "iban"]
-        data = {k: getattr(self, "_fis_emp_inps", [None]*6)[i].text().strip()
-                for i, k in enumerate(keys) if i < len(getattr(self, "_fis_emp_inps", []))}
+        # Fuente única: guarda en la BD (empresas); se refleja en todos los documentos.
+        inps = getattr(self, "_fis_emp_inps", [])
+        cols = ["razon_social", "cif_nif", "direccion_fiscal", "email_principal", "telefono"]
+        sets = {cols[i]: inps[i].text().strip() for i in range(min(len(cols), len(inps)))}
         try:
-            p = self._fis_empresa_path()
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            from src.db import empresa as _emp
+            _emp.actualizar_empresa(_emp.empresa_actual_id(), **sets)
             mostrar_mensaje(self, tr("cfg.saved_title", default="Guardado"), tr("cfg.emp_saved", default="Datos de empresa guardados correctamente."), "success")
         except Exception as e:
             mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.emp_save_err", default="No se pudieron guardar los datos: {e}", e=e), "error")

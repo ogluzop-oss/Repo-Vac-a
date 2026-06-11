@@ -2135,15 +2135,16 @@ def _reab_get_articulo_stock(codigo: str):
 
 
 def _reab_obtener_info_empresa() -> dict:
+    # Fuente única de datos corporativos (FASE 2c).
     try:
-        with obtener_conexion() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT nombre_empresa, codigo_local FROM configuraciones LIMIT 1"
-                )
-                r = cur.fetchone()
-                if r:
-                    return {"nombre": r[0] or "SMART MANAGER", "codigo": r[1] or ""}
+        from src.db.empresa import info_documento
+        info = info_documento()
+        return {
+            "nombre": info.get("nombre") or "SMART MANAGER",
+            "codigo": info.get("centro_codigo") or "",
+            "cif": info.get("cif") or "",
+            "direccion": info.get("direccion_completa") or "",
+        }
     except Exception:
         pass
     return {"nombre": "SMART MANAGER", "codigo": ""}

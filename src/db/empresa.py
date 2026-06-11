@@ -274,3 +274,47 @@ def datos_corporativos(id_empresa=None, id_tienda=None, id_centro=None,
 
     _refrescar_cache_json(empresa, centro, representante)
     return {"empresa": empresa, "representante": representante, "centro": centro}
+
+
+def info_documento(id_empresa=None, id_centro=None, id_representante=None) -> dict:
+    """Vista PLANA de los datos corporativos para los generadores de documentos
+    (facturas, albaranes, pedidos, traspasos, certificados, tickets, informes…).
+    Una sola fuente de verdad; claves estables y retrocompatibles."""
+    dc = datos_corporativos(id_empresa=id_empresa, id_centro=id_centro,
+                            id_representante=id_representante)
+    e = dc.get("empresa") or {}
+    rep = dc.get("representante") or {}
+    c = dc.get("centro") or {}
+    nombre = e.get("razon_social") or e.get("nombre_comercial") or e.get("nombre_empresa") or "SMART MANAGER"
+    partes_dir = [e.get("direccion_fiscal"), e.get("cp"), e.get("municipio")]
+    direccion_completa = ", ".join(x for x in partes_dir if x)
+    if e.get("provincia"):
+        direccion_completa = (direccion_completa + f" ({e.get('provincia')})").strip()
+    return {
+        "nombre": nombre,
+        "razon_social": e.get("razon_social") or "",
+        "nombre_comercial": e.get("nombre_comercial") or "",
+        "cif": e.get("cif_nif") or "",
+        "direccion": e.get("direccion_fiscal") or "",
+        "direccion_completa": direccion_completa or (e.get("direccion_fiscal") or ""),
+        "municipio": e.get("municipio") or "",
+        "provincia": e.get("provincia") or "",
+        "cp": e.get("cp") or "",
+        "pais": e.get("pais") or "ESPAÑA",
+        "telefono": e.get("telefono") or "",
+        "email": e.get("email_principal") or "",
+        "ccc": e.get("ccc") or "",
+        "cnae": e.get("cnae") or "",
+        "actividad": e.get("actividad_economica") or "",
+        "convenio": e.get("convenio_colectivo") or "",
+        "regimen": e.get("regimen_ss") or "0111",
+        "rep_nombre": " ".join(x for x in [rep.get("nombre"), rep.get("apellidos")] if x).strip(),
+        "rep_nif": rep.get("dni_nie") or "",
+        "rep_cargo": rep.get("cargo") or "",
+        "centro_nombre": c.get("nombre_centro") or "",
+        "centro_codigo": c.get("codigo_centro") or "",
+        "centro_direccion": c.get("direccion") or "",
+        "centro_municipio": c.get("municipio") or "",
+        "centro_cp": c.get("codigo_postal") or "",
+        "centro_ccc": c.get("codigo_cuenta_cotizacion") or "",
+    }

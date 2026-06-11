@@ -91,14 +91,26 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
     else:
         forma_pago = datos.get("forma_pago", "")
 
-    # Altura dinámica para que quepan todas las líneas.
-    alto = (3.4 + 0.22 * max(len(items), 1)) * inch
+    # Altura dinámica para que quepan todas las líneas (+ cabecera de empresa).
+    _extra = 0.4 if (datos.get("cif") or datos.get("empresa_dir")) else 0
+    alto = (3.4 + _extra + 0.22 * max(len(items), 1)) * inch
     c = canvas.Canvas(archivo, pagesize=(3 * inch, alto))
     x = 0.2 * inch
     y = alto - 0.3 * inch
 
-    c.setFont(_FB, 12)
-    c.drawString(x, y, L("title", "SMART MANAGER")); y -= 0.3 * inch
+    _titulo = str(datos.get("empresa") or L("title", "SMART MANAGER"))
+    _ts = 12
+    while _ts > 7 and c.stringWidth(_titulo, _FB, _ts) > (2.8 * inch - x):
+        _ts -= 0.5
+    c.setFont(_FB, _ts)
+    c.drawString(x, y, _titulo); y -= 0.26 * inch
+    _subt = [s for s in [(f"CIF: {datos.get('cif')}" if datos.get("cif") else ""),
+                         datos.get("empresa_dir") or ""] if s]
+    if _subt:
+        c.setFont(_FN, 7)
+        for s in _subt:
+            c.drawString(x, y, str(s)); y -= 0.14 * inch
+        y -= 0.04 * inch
 
     c.setFont(_FN, 8)
     c.drawString(x, y, f"{L('date', 'Fecha')}: {datos.get('fecha', '-')}"); y -= 0.18 * inch

@@ -90,11 +90,16 @@ def _empresa() -> dict:
         "codigo_local": "ALMC",
     }
     try:
-        from src.db.conexion import obtener_configuracion
-        c = obtener_configuracion()
-        d["nombre"] = c.get("nombre_empresa", d["nombre"])
-        d["email"] = c.get("email", d["email"])
-        d["codigo_local"] = c.get("codigo_local", d["codigo_local"])
+        # Fuente única de datos corporativos (FASE 2c).
+        from src.db.empresa import info_documento
+        info = info_documento()
+        d["nombre"] = info.get("nombre") or d["nombre"]
+        d["razon_social"] = info.get("razon_social") or info.get("nombre") or d["razon_social"]
+        d["cif"] = info.get("cif") or d["cif"]
+        d["direccion"] = info.get("direccion_completa") or d["direccion"]
+        d["telefono"] = info.get("telefono") or d["telefono"]
+        d["email"] = info.get("email") or d["email"]
+        d["codigo_local"] = info.get("centro_codigo") or d["codigo_local"]
     except Exception:
         pass
     return d

@@ -3311,6 +3311,15 @@ class TPVWindow(QWidget):
                 "total":  pago["total"],
                 "cambio": pago.get("cambio", 0.0),
             }
+            # Cabecera con datos corporativos reales (fuente única, FASE 2c).
+            try:
+                from src.db.empresa import info_documento
+                _i = info_documento()
+                datos["empresa"] = _i.get("nombre")
+                datos["cif"] = _i.get("cif")
+                datos["empresa_dir"] = _i.get("direccion_completa")
+            except Exception:
+                pass
             generar_ticket_pdf(datos, archivo)
         except Exception as e:
             logger.warning(f"No se pudo generar el ticket PDF: {e}")
