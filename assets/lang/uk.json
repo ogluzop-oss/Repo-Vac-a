@@ -1287,7 +1287,12 @@
     "wz_ph_email": "пошта@приклад.com",
     "wz_f_titulacion": "Кваліфікація (якщо застосовується):",
     "wz_ph_titulacion": "Приклад: Ступінь з ADE, FP Comercio…",
-    "wz_centro_principal": "— Головний центр за замовчуванням —"
+    "wz_centro_principal": "— Головний центр за замовчуванням —",
+    "wz_sep_codigos": "ОФІЦІЙНІ КОДИ (SEPE) — додатково",
+    "wz_f_cod_pais": "Код країни (напр. 724):",
+    "wz_f_cod_provincia": "Код провінції:",
+    "wz_f_cod_municipio": "Код муніципалітету:",
+    "wz_f_cod_nivelform": "Код рівня освіти:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Розумний сканер - Smart Manager",

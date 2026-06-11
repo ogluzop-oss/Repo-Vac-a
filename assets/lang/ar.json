@@ -1287,7 +1287,12 @@
     "wz_ph_email": "correo@ejemplo.com",
     "wz_f_titulacion": "المؤهل العلمي (إن وجد):",
     "wz_ph_titulacion": "مثال: درجة البكالوريوس في إدارة الأعمال، تدريب مهني في التجارة…",
-    "wz_centro_principal": "— المركز الرئيسي الافتراضي —"
+    "wz_centro_principal": "— المركز الرئيسي الافتراضي —",
+    "wz_sep_codigos": "الرموز الرسمية (SEPE) — اختياري",
+    "wz_f_cod_pais": "رمز البلد (مثال 724):",
+    "wz_f_cod_provincia": "رمز المقاطعة:",
+    "wz_f_cod_municipio": "رمز البلدية:",
+    "wz_f_cod_nivelform": "رمز المستوى التعليمي:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "ماسح ذكي - Smart Manager",

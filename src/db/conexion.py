@@ -259,7 +259,11 @@ def ensure_schema(force: bool = False):
                     ADD COLUMN IF NOT EXISTS ccc                 VARCHAR(50)  DEFAULT NULL,
                     ADD COLUMN IF NOT EXISTS cnae                VARCHAR(20)  DEFAULT NULL,
                     ADD COLUMN IF NOT EXISTS actividad_economica VARCHAR(255) DEFAULT NULL,
-                    ADD COLUMN IF NOT EXISTS convenio_colectivo  VARCHAR(255) DEFAULT NULL
+                    ADD COLUMN IF NOT EXISTS convenio_colectivo  VARCHAR(255) DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS cod_pais            VARCHAR(10)  DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS cod_provincia       VARCHAR(10)  DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS cod_municipio       VARCHAR(15)  DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS cod_actividad       VARCHAR(15)  DEFAULT NULL
                 """)
                 cur.execute(f"""
                     CREATE TABLE IF NOT EXISTS representantes_legales (
@@ -295,12 +299,20 @@ def ensure_schema(force: bool = False):
                         codigo_cuenta_cotizacion VARCHAR(50)           DEFAULT NULL,
                         codigo_centro_trabajo    VARCHAR(50)           DEFAULT NULL,
                         actividad_economica      VARCHAR(255)          DEFAULT NULL,
+                        cod_pais                 VARCHAR(10)           DEFAULT NULL,
+                        cod_municipio            VARCHAR(15)           DEFAULT NULL,
                         es_principal             TINYINT      NOT NULL DEFAULT 0,
                         estado                   VARCHAR(20)  NOT NULL DEFAULT 'activo',
                         fecha_alta               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         INDEX idx_centro_empresa (id_empresa),
                         INDEX idx_centro_tienda (id_tienda)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                # Códigos oficiales en centros existentes (aditivo).
+                cur.execute("""
+                    ALTER TABLE centros_trabajo
+                    ADD COLUMN IF NOT EXISTS cod_pais      VARCHAR(10) DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS cod_municipio VARCHAR(15) DEFAULT NULL
                 """)
 
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──

@@ -1287,7 +1287,12 @@
     "wz_ph_email": "correio@exemplo.com",
     "wz_f_titulacion": "Titulação (se aplicável):",
     "wz_ph_titulacion": "Ex: Graduação em ADE, FP Comércio…",
-    "wz_centro_principal": "— Centro principal por padrão —"
+    "wz_centro_principal": "— Centro principal por padrão —",
+    "wz_sep_codigos": "CÓDIGOS OFICIAIS (SEPE) — opcional",
+    "wz_f_cod_pais": "Cód. país (ex. 724):",
+    "wz_f_cod_provincia": "Cód. provincia:",
+    "wz_f_cod_municipio": "Cód. município:",
+    "wz_f_cod_nivelform": "Cód. nível formativo:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Inteligente - Smart Manager",

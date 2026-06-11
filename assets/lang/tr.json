@@ -1287,7 +1287,12 @@
     "wz_ph_email": "eposta@ornek.com",
     "wz_f_titulacion": "Nitelik (varsa):",
     "wz_ph_titulacion": "Örn: İşletme Bölümü Lisans Derecesi, Ticaret MYO…",
-    "wz_centro_principal": "— Varsayılan Ana Merkez —"
+    "wz_centro_principal": "— Varsayılan Ana Merkez —",
+    "wz_sep_codigos": "RESMİ KODLAR (SEPE) — isteğe bağlı",
+    "wz_f_cod_pais": "Ülke kodu (örn. 724):",
+    "wz_f_cod_provincia": "İl kodu:",
+    "wz_f_cod_municipio": "Belediye kodu:",
+    "wz_f_cod_nivelform": "Eğitim seviyesi kodu:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Akıllı Tarayıcı - Smart Manager",

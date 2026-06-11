@@ -1287,7 +1287,12 @@
     "wz_ph_email": "correo@ejemplo.com",
     "wz_f_titulacion": "학위 (해당 시 ):",
     "wz_ph_titulacion": "예: 경영학 학위, 상업 직업교육…",
-    "wz_centro_principal": "— 기본 주 사무소 —"
+    "wz_centro_principal": "— 기본 주 사무소 —",
+    "wz_sep_codigos": "공식 코드(SEPE) — 선택사항",
+    "wz_f_cod_pais": "국가 코드(예: 724):",
+    "wz_f_cod_provincia": "지역 코드:",
+    "wz_f_cod_municipio": "시/군/구 코드:",
+    "wz_f_cod_nivelform": "교육 수준 코드:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "스마트 스캐너 - Smart Manager",

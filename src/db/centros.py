@@ -20,6 +20,7 @@ _PERMITIDOS = (
     "id_tienda", "nombre_centro", "direccion", "codigo_postal", "municipio",
     "provincia", "comunidad_autonoma", "pais", "telefono", "email",
     "codigo_cuenta_cotizacion", "codigo_centro_trabajo", "actividad_economica",
+    "cod_pais", "cod_municipio",
     "es_principal", "estado",
 )
 

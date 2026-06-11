@@ -1287,7 +1287,12 @@
     "wz_ph_email": "email@esempio.com",
     "wz_f_titulacion": "Titolo di studio (se applicabile):",
     "wz_ph_titulacion": "Es: Laurea in Economia Aziendale, Diploma in Commercio…",
-    "wz_centro_principal": "— Centro principale per impostazione predefinita —"
+    "wz_centro_principal": "— Centro principale per impostazione predefinita —",
+    "wz_sep_codigos": "CODICI UFFICIALI (SEPE) — facoltativo",
+    "wz_f_cod_pais": "Cod. paese (es. 724):",
+    "wz_f_cod_provincia": "Cod. provincia:",
+    "wz_f_cod_municipio": "Cod. municipio:",
+    "wz_f_cod_nivelform": "Cod. livello formativo:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Intelligente - Smart Manager",

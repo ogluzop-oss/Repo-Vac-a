@@ -1287,7 +1287,12 @@
     "wz_ph_email": "email@voorbeeld.com",
     "wz_f_titulacion": "Kwalificatie (indien van toepassing):",
     "wz_ph_titulacion": "Bijv: Hogeschooldiploma Bedrijfskunde, MBO Handel…",
-    "wz_centro_principal": "— Standaard hoofdlocatie —"
+    "wz_centro_principal": "— Standaard hoofdlocatie —",
+    "wz_sep_codigos": "OFFICIËLE CODES (SEPE) — optioneel",
+    "wz_f_cod_pais": "Landcode (bijv. 724):",
+    "wz_f_cod_provincia": "Provinciecode:",
+    "wz_f_cod_municipio": "Gemeentecode:",
+    "wz_f_cod_nivelform": "Code opleidingsniveau:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligente Scanner - Smart Manager",

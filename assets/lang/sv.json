@@ -1287,7 +1287,12 @@
     "wz_ph_email": "epost@exempel.com",
     "wz_f_titulacion": "Utbildning (om tillämpligt):",
     "wz_ph_titulacion": "Ex: Kandidatexamen i företagsekonomi, yrkesutbildning inom handel…",
-    "wz_centro_principal": "— Huvudkontor som standard —"
+    "wz_centro_principal": "— Huvudkontor som standard —",
+    "wz_sep_codigos": "OFFICIELLA KODER (SEPE) — valfritt",
+    "wz_f_cod_pais": "Landskod (ex. 724):",
+    "wz_f_cod_provincia": "Provinskod:",
+    "wz_f_cod_municipio": "Kommunkod:",
+    "wz_f_cod_nivelform": "Utbildningsnivåkod:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

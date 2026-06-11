@@ -161,6 +161,8 @@ def actualizar_empresa(id_empresa: str, **campos) -> bool:
         "nombre_comercial", "municipio", "provincia", "comunidad_autonoma",
         "cp", "pais", "regimen_ss", "ccc", "cnae", "actividad_economica",
         "convenio_colectivo",
+        # Códigos oficiales (SEPE)
+        "cod_pais", "cod_provincia", "cod_municipio", "cod_actividad",
     )
     sets = {k: v for k, v in campos.items() if k in permitidos}
     if not sets:
@@ -308,6 +310,11 @@ def info_documento(id_empresa=None, id_centro=None, id_representante=None) -> di
         "actividad": e.get("actividad_economica") or "",
         "convenio": e.get("convenio_colectivo") or "",
         "regimen": e.get("regimen_ss") or "0111",
+        # Códigos oficiales de empresa
+        "cod_pais": e.get("cod_pais") or "",
+        "cod_provincia": e.get("cod_provincia") or "",
+        "cod_municipio": e.get("cod_municipio") or "",
+        "cod_actividad": e.get("cod_actividad") or "",
         "rep_nombre": " ".join(x for x in [rep.get("nombre"), rep.get("apellidos")] if x).strip(),
         "rep_nif": rep.get("dni_nie") or "",
         "rep_cargo": rep.get("cargo") or "",
@@ -315,6 +322,10 @@ def info_documento(id_empresa=None, id_centro=None, id_representante=None) -> di
         "centro_codigo": c.get("codigo_centro") or "",
         "centro_direccion": c.get("direccion") or "",
         "centro_municipio": c.get("municipio") or "",
+        "centro_provincia": c.get("provincia") or "",
         "centro_cp": c.get("codigo_postal") or "",
         "centro_ccc": c.get("codigo_cuenta_cotizacion") or "",
+        "centro_actividad": c.get("actividad_economica") or "",
+        "centro_cod_pais": c.get("cod_pais") or "",
+        "centro_cod_municipio": c.get("cod_municipio") or "",
     }

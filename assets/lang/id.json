@@ -1287,7 +1287,12 @@
     "wz_ph_email": "email@contoh.com",
     "wz_f_titulacion": "Kualifikasi (jika berlaku):",
     "wz_ph_titulacion": "Contoh: Gelar dalam ADE, FP Perdagangan…",
-    "wz_centro_principal": "— Pusat utama secara default —"
+    "wz_centro_principal": "— Pusat utama secara default —",
+    "wz_sep_codigos": "KODE RESMI (SEPE) — opsional",
+    "wz_f_cod_pais": "Kode negara (cth. 724):",
+    "wz_f_cod_provincia": "Kode provinsi:",
+    "wz_f_cod_municipio": "Kode kota/kabupaten:",
+    "wz_f_cod_nivelform": "Kode tingkat pendidikan:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",

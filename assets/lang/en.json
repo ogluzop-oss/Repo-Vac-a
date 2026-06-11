@@ -1287,7 +1287,12 @@
     "wz_ph_email": "name@example.com",
     "wz_f_titulacion": "Qualification (if applicable):",
     "wz_ph_titulacion": "e.g. Business degree, vocational training…",
-    "wz_centro_principal": "— Default main work centre —"
+    "wz_centro_principal": "— Default main work centre —",
+    "wz_sep_codigos": "OFFICIAL CODES (SEPE) — optional",
+    "wz_f_cod_pais": "Country code (e.g. 724):",
+    "wz_f_cod_provincia": "Province code:",
+    "wz_f_cod_municipio": "Municipality code:",
+    "wz_f_cod_nivelform": "Education level code:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

@@ -1287,7 +1287,12 @@
     "wz_ph_email": "correo@ejemplo.com",
     "wz_f_titulacion": "資格(該当する場合):",
     "wz_ph_titulacion": "例: 経営学学位、商業職業訓練など",
-    "wz_centro_principal": "— デフォルトの主要センター —"
+    "wz_centro_principal": "— デフォルトの主要センター —",
+    "wz_sep_codigos": "公式コード（SEPE）— オプション",
+    "wz_f_cod_pais": "国コード（例：724）：",
+    "wz_f_cod_provincia": "都道府県コード：",
+    "wz_f_cod_municipio": "市町村コード：",
+    "wz_f_cod_nivelform": "教育レベルコード："
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

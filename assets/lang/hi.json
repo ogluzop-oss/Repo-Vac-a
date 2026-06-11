@@ -1287,7 +1287,12 @@
     "wz_ph_email": "correo@ejemplo.com",
     "wz_f_titulacion": "योग्यता (यदि लागू हो):",
     "wz_ph_titulacion": "उदा: व्यवसाय प्रशासन में स्नातक, वाणिज्य व्यावसायिक प्रशिक्षण…",
-    "wz_centro_principal": "— डिफ़ॉल्ट मुख्य केंद्र —"
+    "wz_centro_principal": "— डिफ़ॉल्ट मुख्य केंद्र —",
+    "wz_sep_codigos": "आधिकारिक कोड (SEPE) — वैकल्पिक",
+    "wz_f_cod_pais": "देश कोड (उदा. 724):",
+    "wz_f_cod_provincia": "प्रांत कोड:",
+    "wz_f_cod_municipio": "नगर पालिका कोड:",
+    "wz_f_cod_nivelform": "शैक्षणिक स्तर कोड:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "स्मार्ट स्कैनर - Smart Manager",

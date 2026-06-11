@@ -1287,7 +1287,12 @@
     "wz_ph_email": "correo@ejemplo.com",
     "wz_f_titulacion": "คุณวุฒิการศึกษา (หากมี):",
     "wz_ph_titulacion": "ตัวอย่าง: Grado en ADE, FP Comercio…",
-    "wz_centro_principal": "— ศูนย์หลักเป็นค่าเริ่มต้น —"
+    "wz_centro_principal": "— ศูนย์หลักเป็นค่าเริ่มต้น —",
+    "wz_sep_codigos": "รหัสทางการ (SEPE) — ไม่บังคับ",
+    "wz_f_cod_pais": "รหัสประเทศ (เช่น 724):",
+    "wz_f_cod_provincia": "รหัสจังหวัด:",
+    "wz_f_cod_municipio": "รหัสเขต:",
+    "wz_f_cod_nivelform": "รหัสระดับการศึกษา:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "สแกนเนอร์อัจฉริยะ - Smart Manager",

@@ -1287,7 +1287,12 @@
     "wz_ph_email": "mail@beispiel.com",
     "wz_f_titulacion": "Qualifikation (falls zutreffend):",
     "wz_ph_titulacion": "Beispiel: Abschluss in BWL, Kaufmännische Ausbildung …",
-    "wz_centro_principal": "— Hauptzentrale standardmäßig —"
+    "wz_centro_principal": "— Hauptzentrale standardmäßig —",
+    "wz_sep_codigos": "OFFIZIELLE CODES (SEPE) — optional",
+    "wz_f_cod_pais": "Ländercode (z. B. 724):",
+    "wz_f_cod_provincia": "Provinzcode:",
+    "wz_f_cod_municipio": "Gemeindecode:",
+    "wz_f_cod_nivelform": "Code Ausbildungsniveau:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",

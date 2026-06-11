@@ -4568,6 +4568,20 @@ class _WizardDocumentoFiscal(QDialog):
         self._inp_titulacion = self._mk_inp(tr("cfg.wz_ph_titulacion", default="Ej: Grado en ADE, FP Comercio…"))
         il.addWidget(self._inp_titulacion)
 
+        il.addWidget(self._sep_lbl(tr("cfg.wz_sep_codigos", default="CÓDIGOS OFICIALES (SEPE) — opcional")))
+        rcod1 = QHBoxLayout(); rcod1.setSpacing(8)
+        cc1 = QVBoxLayout(); cc1.addWidget(self._lbl_s(tr("cfg.wz_f_cod_pais", default="Cód. país (ej. 724):")))
+        self._inp_cod_pais = self._mk_inp("Ej: 724"); cc1.addWidget(self._inp_cod_pais)
+        cc2 = QVBoxLayout(); cc2.addWidget(self._lbl_s(tr("cfg.wz_f_cod_provincia", default="Cód. provincia:")))
+        self._inp_cod_provincia = self._mk_inp("Ej: 08"); cc2.addWidget(self._inp_cod_provincia)
+        rcod1.addLayout(cc1); rcod1.addLayout(cc2); il.addLayout(rcod1)
+        rcod2 = QHBoxLayout(); rcod2.setSpacing(8)
+        cc3 = QVBoxLayout(); cc3.addWidget(self._lbl_s(tr("cfg.wz_f_cod_municipio", default="Cód. municipio:")))
+        self._inp_cod_municipio = self._mk_inp("Ej: 08298"); cc3.addWidget(self._inp_cod_municipio)
+        cc4 = QVBoxLayout(); cc4.addWidget(self._lbl_s(tr("cfg.wz_f_cod_nivelform", default="Cód. nivel formativo:")))
+        self._inp_cod_nivelform = self._mk_inp("Ej: 34"); cc4.addWidget(self._inp_cod_nivelform)
+        rcod2.addLayout(cc3); rcod2.addLayout(cc4); il.addLayout(rcod2)
+
         il.addStretch()
         scroll.setWidget(inner)
         self._card_ly.addWidget(scroll, 1)
@@ -4664,6 +4678,10 @@ class _WizardDocumentoFiscal(QDialog):
             self._datos["telefono_trab"] = self._inp_telefono.text().strip()
             self._datos["email_trab"] = self._inp_email.text().strip()
             self._datos["titulacion"] = self._inp_titulacion.text().strip()
+            self._datos["cod_pais_dom"] = self._inp_cod_pais.text().strip()
+            self._datos["cod_provincia_dom"] = self._inp_cod_provincia.text().strip()
+            self._datos["cod_municipio_dom"] = self._inp_cod_municipio.text().strip()
+            self._datos["cod_nivel_formativo"] = self._inp_cod_nivelform.text().strip()
         self._ir(1)
 
     def _mk_check(self, txt):
@@ -5556,6 +5574,13 @@ class _WizardDocumentoFiscal(QDialog):
             ct_ccc       = _centro.get("codigo_cuenta_cotizacion") or ""
             ct_actividad = _centro.get("actividad_economica") or ""
             ct_codigo    = _centro.get("codigo_centro_trabajo") or ""
+            # Códigos oficiales (SEPE)
+            emp_cod_pais = _e.get("cod_pais") or ""
+            emp_cod_prov = _e.get("cod_provincia") or ""
+            emp_cod_muni = _e.get("cod_municipio") or ""
+            emp_cod_act  = _e.get("cod_actividad") or ""
+            ct_cod_pais  = _centro.get("cod_pais") or ""
+            ct_cod_muni  = _centro.get("cod_municipio") or ""
 
             # ── Datos trabajador ───────────────────────────────────────────────
             trab               = self._datos.get("trabajador", "—")
@@ -5576,6 +5601,10 @@ class _WizardDocumentoFiscal(QDialog):
             tel_trab           = self._datos.get("telefono_trab", "")
             email_trab         = self._datos.get("email_trab", "")
             titulacion         = self._datos.get("titulacion", "")
+            cod_pais_dom       = self._datos.get("cod_pais_dom", "")
+            cod_prov_dom       = self._datos.get("cod_provincia_dom", "")
+            cod_muni_dom       = self._datos.get("cod_municipio_dom", "")
+            cod_nivel          = self._datos.get("cod_nivel_formativo", "")
             asist_tipo         = self._datos.get("asist_tipo", "")
             asist_nombre       = self._datos.get("asist_nombre", "")
             asist_nif          = self._datos.get("asist_nif", "")
@@ -5770,6 +5799,13 @@ class _WizardDocumentoFiscal(QDialog):
                 ]))
                 return t
 
+            def _vc(val, cod):
+                """Valor + código oficial al lado (estilo SEPE), o solo el valor."""
+                v = val if (val not in (None, "")) else "—"
+                if cod:
+                    return f"{v}&nbsp;&nbsp;<font size='7' color='#1F3C88'>· {cod}</font>"
+                return v
+
             story = []
 
             # =================================================================
@@ -5813,10 +5849,10 @@ class _WizardDocumentoFiscal(QDialog):
                 story.append(_data_val_row(("NOMBRE O RAZÓN SOCIAL DE LA EMPRESA", emp_nombre)))
                 story.append(_data_val_row(("DOMICILIO SOCIAL", emp_dir)))
                 story.append(_data_val_row(
-                    ("MUNICIPIO", emp_municipio or "—"),
-                    ("PROVINCIA", emp_provincia or "—"),
+                    ("MUNICIPIO", _vc(emp_municipio, emp_cod_muni)),
+                    ("PROVINCIA", _vc(emp_provincia, emp_cod_prov)),
                     ("CÓDIGO POSTAL", emp_cp or "—"),
-                    ("PAÍS", emp_pais),
+                    ("PAÍS", _vc(emp_pais, emp_cod_pais)),
                 ))
                 story.append(Spacer(1, 1*mm))
 
@@ -5826,7 +5862,7 @@ class _WizardDocumentoFiscal(QDialog):
                     ("CÓDIGO CUENTA DE COTIZACIÓN", emp_ccc or "—"),
                 ))
                 story.append(_data_val_row(
-                    ("ACTIVIDAD ECONÓMICA", emp_actividad),
+                    ("ACTIVIDAD ECONÓMICA", _vc(emp_actividad, emp_cod_act)),
                     ("CNAE", emp_cnae or "—"),
                 ))
                 story.append(Spacer(1, 1*mm))
@@ -5837,10 +5873,10 @@ class _WizardDocumentoFiscal(QDialog):
                                                ("CÓD. CENTRO", ct_codigo or "—")))
                     story.append(_data_val_row(("DOMICILIO", ct_dir or "—")))
                     story.append(_data_val_row(
-                        ("MUNICIPIO", ct_municipio or emp_municipio or "—"),
+                        ("MUNICIPIO", _vc(ct_municipio or emp_municipio, ct_cod_muni or emp_cod_muni)),
                         ("PROVINCIA", ct_provincia or "—"),
                         ("CÓDIGO POSTAL", ct_cp or "—"),
-                        ("PAÍS", ct_pais),
+                        ("PAÍS", _vc(ct_pais, ct_cod_pais or emp_cod_pais)),
                     ))
                     story.append(_data_val_row(
                         ("CÓDIGO CUENTA DE COTIZACIÓN", ct_ccc or emp_ccc or "—"),
@@ -5848,9 +5884,9 @@ class _WizardDocumentoFiscal(QDialog):
                     ))
                 else:
                     story.append(_data_val_row(
-                        ("MUNICIPIO", emp_municipio or "—"),
+                        ("MUNICIPIO", _vc(emp_municipio, emp_cod_muni)),
                         ("CÓDIGO POSTAL", emp_cp or "—"),
-                        ("PAÍS", emp_pais),
+                        ("PAÍS", _vc(emp_pais, emp_cod_pais)),
                     ))
                 story.append(Spacer(1, 1*mm))
 
@@ -5862,14 +5898,14 @@ class _WizardDocumentoFiscal(QDialog):
                     ("NACIONALIDAD", nacionalidad or "ESPAÑOLA"),
                 ))
                 story.append(_data_val_row(
-                    ("NIVEL FORMATIVO", nivel_formativo or "—"),
+                    ("NIVEL FORMATIVO", _vc(nivel_formativo, cod_nivel)),
                     ("TITULACIÓN", titulacion or "—"),
                 ))
-                story.append(_data_val_row(("MUNICIPIO DEL DOMICILIO", municipio_dom or "—"),
-                                           ("PROVINCIA", provincia_dom or "—")))
+                story.append(_data_val_row(("MUNICIPIO DEL DOMICILIO", _vc(municipio_dom, cod_muni_dom)),
+                                           ("PROVINCIA", _vc(provincia_dom, cod_prov_dom))))
                 story.append(_data_val_row(
                     ("CÓDIGO POSTAL", cp_dom or "—"),
-                    ("PAÍS DOMICILIO", pais_dom or "ESPAÑA"),
+                    ("PAÍS DOMICILIO", _vc(pais_dom or "ESPAÑA", cod_pais_dom)),
                     ("TELÉFONO", tel_trab or "—"),
                 ))
                 if email_trab:
@@ -6722,9 +6758,11 @@ class ConfiguracionWindow(QWidget):
             "GESTIÓN CAJA", "PLAZO DEVOLUCIÓN", "GENERAR PERFIL EMPLEADO",
             "HORARIO EMPLEADOS", "FICHAJES", "LOGO CORPORATIVO",
             "PLANIFICAR CITAS", "FISCALIDAD", "ASIGNAR REFERENCIA",
+            "DATOS DE EMPRESA",
         ]
         for i, btn in enumerate(self.btns):
-            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
+            _def = _tab_def[i] if i < len(_tab_def) else ""
+            btn.setText(tr(self._tab_keys[i], default=_def))
         if hasattr(self, "_btn_salir"):
             self._btn_salir.setText(tr("cfg.exit", default="SALIR AL MENÚ"))
 
@@ -6776,6 +6814,8 @@ class ConfiguracionWindow(QWidget):
         ("codigo_cuenta_cotizacion", "Cuenta de cotización (CCC)"),
         ("codigo_centro_trabajo", "Código de centro de trabajo"),
         ("actividad_economica", "Actividad económica"),
+        ("cod_municipio", "Cód. municipio (SEPE)"),
+        ("cod_pais", "Cód. país (ej. 724)"),
     ]
 
     def _de_lbl(self, t):
@@ -6878,6 +6918,9 @@ class ConfiguracionWindow(QWidget):
             [("pais", "País:"), ("regimen_ss", "Régimen SS:")],
             [("ccc", "Cuenta de cotización (CCC):"), ("cnae", "CNAE:")],
             [("actividad_economica", "Actividad económica:"), ("convenio_colectivo", "Convenio colectivo:")],
+            # Códigos oficiales (SEPE) — opcionales
+            [("cod_pais", "Cód. país (ej. 724):"), ("cod_provincia", "Cód. provincia:")],
+            [("cod_municipio", "Cód. municipio:"), ("cod_actividad", "Cód. actividad económica:")],
         ]
         for fila in filas:
             rl = QHBoxLayout(); rl.setSpacing(8)

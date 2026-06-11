@@ -1287,7 +1287,12 @@
     "wz_ph_email": "email@exemple.com",
     "wz_f_titulacion": "Qualification (le cas échéant) :",
     "wz_ph_titulacion": "Ex : Licence en Gestion, BTS Commerce…",
-    "wz_centro_principal": "— Centre principal par défaut —"
+    "wz_centro_principal": "— Centre principal par défaut —",
+    "wz_sep_codigos": "CODES OFFICIELS (SEPE) — optionnel",
+    "wz_f_cod_pais": "Cód. pays (ex. 724) :",
+    "wz_f_cod_provincia": "Cód. province :",
+    "wz_f_cod_municipio": "Cód. municipio :",
+    "wz_f_cod_nivelform": "Cód. niveau de formation :"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanneur Intelligent - Smart Manager",

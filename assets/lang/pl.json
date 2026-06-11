@@ -1287,7 +1287,12 @@
     "wz_ph_email": "email@przykład.com",
     "wz_f_titulacion": "Kwalifikacje (jeśli dotyczy):",
     "wz_ph_titulacion": "Przykład: Licencjat z Administracji Biznesu, Szkolenie zawodowe Handel…",
-    "wz_centro_principal": "— Główny ośrodek domyślnie —"
+    "wz_centro_principal": "— Główny ośrodek domyślnie —",
+    "wz_sep_codigos": "OFICJALNE KODY (SEPE) — opcjonalnie",
+    "wz_f_cod_pais": "Kod kraju (np. 724):",
+    "wz_f_cod_provincia": "Kod prowincji:",
+    "wz_f_cod_municipio": "Kod gminy:",
+    "wz_f_cod_nivelform": "Kod poziomu wykształcenia:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

@@ -1287,7 +1287,12 @@
     "wz_ph_email": "correo@ejemplo.com",
     "wz_f_titulacion": "Квалификация (если применимо):",
     "wz_ph_titulacion": "Пример: Степень в области экономики и управления, Среднее профессиональное образование в сфере торговли…",
-    "wz_centro_principal": "— Основной центр по умолчанию —"
+    "wz_centro_principal": "— Основной центр по умолчанию —",
+    "wz_sep_codigos": "ОФИЦИАЛЬНЫЕ КОДЫ (SEPE) — опционально",
+    "wz_f_cod_pais": "Код страны (пример: 724):",
+    "wz_f_cod_provincia": "Код провинции:",
+    "wz_f_cod_municipio": "Код муниципалитета:",
+    "wz_f_cod_nivelform": "Код уровня образования:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Интеллектуальный сканер - Smart Manager",
