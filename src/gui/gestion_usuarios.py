@@ -4318,7 +4318,7 @@ class _WizardDocumentoFiscal(QDialog):
 
     # Logos institucionales (cofinanciación). Si faltan, se usa banner de texto.
     _FSE_LOGOS = [
-        "ue_cofinanciado.png", "ministerio_trabajo.png", "sepe.png",
+        "ue_cofinanciado.png", "ministerio_sepe.png",
         "fondos_europeos.png", "fse_plus.png",
     ]
 
@@ -4327,8 +4327,12 @@ class _WizardDocumentoFiscal(QDialog):
         Devuelve un Table de imágenes o None si no hay ninguna (→ banner de texto)."""
         from reportlab.lib.units import cm
         from reportlab.platypus import Image, Table, TableStyle
-        base = os.path.normpath(os.path.join(
-            os.path.dirname(__file__), "..", "..", "assets", "logos_institucionales"))
+        try:
+            from src.utils import recursos
+            base = recursos.ruta_recurso("assets", "logos_institucionales")
+        except Exception:
+            base = os.path.normpath(os.path.join(
+                os.path.dirname(__file__), "..", "..", "assets", "logos_institucionales"))
         rutas = [os.path.join(base, f) for f in self._FSE_LOGOS if os.path.exists(os.path.join(base, f))]
         if not rutas:
             return None

@@ -11,10 +11,10 @@ se usa un banner de texto (degradación elegante).
 
 Archivos esperados (el nombre debe ser EXACTO):
 
-  ue_cofinanciado.png    -> "Cofinanciado por la Unión Europea" (bandera UE)
-  ministerio_trabajo.png -> Ministerio de Trabajo y Economía Social
-  sepe.png               -> SEPE (Servicio Público de Empleo Estatal)
-  fondos_europeos.png    -> "Fondos Europeos" (emblema con estrellas)
-  fse_plus.png           -> FSE+ (Fondo Social Europeo Plus)
+  ue_cofinanciado.png  -> "Cofinanciado por la Unión Europea" (bandera UE)
+  ministerio_sepe.png  -> Ministerio de Trabajo y Economía Social + SEPE
+                          (ambos logos en una sola imagen)
+  fondos_europeos.png  -> "Fondos Europeos" (emblema con estrellas)
+  fse_plus.png         -> FSE+ (Fondo Social Europeo Plus)
 
 El orden de aparición es el de esta lista.
