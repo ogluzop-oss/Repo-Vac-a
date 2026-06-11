@@ -4267,6 +4267,7 @@ class _WizardDocumentoFiscal(QDialog):
         cb = _NeonComboBox()
         cb.addItems(items)
         cb.setFixedHeight(44)
+        cb.setMaxVisibleItems(12)
         cb.set_cover_style("#161B22", 10)
         cb.setStyle(_get_no_arrow_style())
         cb.setStyleSheet(f"""
@@ -4288,10 +4289,12 @@ class _WizardDocumentoFiscal(QDialog):
                 selection-background-color: {_CIAN};
                 selection-color: #0D1117;
                 outline: none;
+                padding: 6px;
             }}
             QComboBox QAbstractItemView::item {{
-                height: 38px;
+                min-height: 40px;
                 padding: 0 14px;
+                border-radius: 6px;
             }}
             QComboBox QAbstractItemView::item:hover {{
                 background: rgba(0,255,198,0.12);
@@ -4494,7 +4497,7 @@ class _WizardDocumentoFiscal(QDialog):
 
         # En el contrato, el 2º paso se llama CENTRO TRABAJO (lo pidió el usuario);
         # en el resto de documentos, DATOS.
-        _paso2 = (tr("cfg.step_centro_trabajo", default="CENTRO TRABAJO")
+        _paso2 = (tr("cfg.step_centro_trabajo", default="CENTRO DE TRABAJO")
                   if self._tipo == "CONTRATO" else tr("cfg.step_datos", default="DATOS"))
         pasos = ([tr("cfg.step_empresa", default="EMPRESA"), _paso2, tr("cfg.step_preview", default="VISTA PREVIA"), tr("cfg.step_generar", default="GENERAR")]
                  if self._tipo in self._FISCAL_TYPES
