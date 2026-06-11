@@ -4520,7 +4520,7 @@ class _WizardDocumentoFiscal(QDialog):
         row_ss_nac.addLayout(col_ss); row_ss_nac.addLayout(col_nacion)
         il.addLayout(row_ss_nac)
 
-        il.addWidget(self._lbl_s(tr("cfg.wz_f_categoria", default="Categoría profesional / Puesto:")))
+        il.addWidget(self._lbl_s(tr("cfg.wz_f_categoria", default="Grupo profesional / Puesto:")))
         self._inp_categoria = self._mk_inp(tr("cfg.wz_ph_categoria", default="Ej: Vendedor/a, Cajero/a, Responsable…"))
         il.addWidget(self._inp_categoria)
 
@@ -5500,6 +5500,11 @@ class _WizardDocumentoFiscal(QDialog):
                 "LIBRO GASTOS": "LGA", "INFORME AUDIT": "AUD",
             }
             now = datetime.now()
+            _MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+                         "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+            def _fecha_larga(dt):
+                # Mes en español (no en inglés) y traducido al idioma activo del PDF.
+                return self._pdf_tr(f"{dt.day} de {_MESES_ES[dt.month - 1]} de {dt.year}")
             prefix = prefix_map.get(self._tipo, "DOC")
             ts_str = now.strftime("%Y%m%d_%H%M%S")
             doc_id = f"{prefix}-{now.strftime('%Y%m%d')}-{now.strftime('%H%M%S')}"
@@ -5633,36 +5638,77 @@ class _WizardDocumentoFiscal(QDialog):
             # ── Canvas callbacks ──────────────────────────────────────────────
             page_w, page_h = A4
 
+            # ── Título del documento (contrato: tipo concreto; traducido) ──
+            if self._tipo == "CONTRATO":
+                titulo_doc = self._pdf_tr(f"CONTRATO DE TRABAJO {(subtipo or 'INDEFINIDO').upper()}")
+            else:
+                _lbl0 = self._doc_label()
+                for _emo in ("📄","📊","✅","❌","🏢","📮","💼","📋","📃","🔍","🌴","📈","📉"):
+                    _lbl0 = _lbl0.replace(_emo, "")
+                titulo_doc = _lbl0.strip().upper()
+
+            # ── Logos institucionales para la cabecera (si es cofinanciado) ──
+            _logos_hdr = []
+            if mostrar_fse:
+                try:
+                    from src.utils import recursos
+                    _lbase = recursos.ruta_recurso("assets", "logos_institucionales")
+                except Exception:
+                    _lbase = os.path.normpath(os.path.join(
+                        os.path.dirname(__file__), "..", "..", "assets", "logos_institucionales"))
+                for _lf in self._FSE_LOGOS:
+                    _lp = os.path.join(_lbase, _lf)
+                    if os.path.exists(_lp):
+                        _logos_hdr.append(_lp)
+
             def _draw_header(c, doc):
+                from reportlab.lib.utils import ImageReader
                 c.saveState()
-                c.setFillColor(AZUL)
-                c.rect(0, page_h - 0.9*cm, page_w, 0.9*cm, fill=1, stroke=0)
-                if os.path.exists(_LOGO_PATH):
-                    try:
-                        # Logo en la esquina superior derecha, justo bajo la banda azul y
-                        # POR ENCIMA de la línea de título/Ref (page_h-3.1cm) para no taparla.
-                        c.drawImage(_LOGO_PATH, page_w - 3.6*cm, page_h - 2.55*cm,
-                                    2.9*cm, 1.5*cm, preserveAspectRatio=True, mask="auto")
-                    except Exception:
-                        pass
-                c.setFont(_FB, 11)
-                c.setFillColor(NEGRO)
-                c.drawString(1.5*cm, page_h - 1.8*cm, emp_nombre.upper())
-                c.setFont(_FN, 7.5)
-                c.setFillColor(GRIS)
-                meta_parts = [x for x in [f"CIF: {emp_cif}", emp_dir, emp_tel, emp_email] if x]
-                c.drawString(1.5*cm, page_h - 2.4*cm, "  ·  ".join(meta_parts))
-                label = self._doc_label()
-                clean_lbl = label.replace("📄","").replace("📊","").replace("✅","").replace("❌","").replace("🏢","").replace("📮","").replace("💼","").replace("📋","").strip()
-                c.setFont(_FB, 10)
-                c.setFillColor(AZUL)
-                c.drawString(1.5*cm, page_h - 3.1*cm, clean_lbl.upper())
-                c.setFont(_FN, 7.5)
-                c.setFillColor(GRIS)
-                c.drawRightString(page_w - 1.5*cm, page_h - 3.1*cm, f"Ref: {doc_id}")
-                c.setStrokeColor(BORDE_OSC)
-                c.setLineWidth(0.8)
-                c.line(1.5*cm, page_h - 3.5*cm, page_w - 1.5*cm, page_h - 3.5*cm)
+                if self._tipo == "CONTRATO":
+                    # Cabecera de contrato: SOLO logos institucionales (cada página),
+                    # sin franja azul ni nombre de empresa (esos van en el cuerpo).
+                    if _logos_hdr:
+                        n = len(_logos_hdr)
+                        cell = usable_w / n
+                        lh = 1.15*cm
+                        for i, lp in enumerate(_logos_hdr):
+                            try:
+                                img = ImageReader(lp)
+                                iw, ih = img.getSize()
+                                ratio = (iw / ih) if ih else 1.0
+                                w = lh * ratio
+                                if w > cell - 0.3*cm:
+                                    w = cell - 0.3*cm
+                                cx = 1.5*cm + i*cell + (cell - w) / 2
+                                c.drawImage(img, cx, page_h - 1.0*cm - lh, w, lh,
+                                            preserveAspectRatio=True, mask="auto")
+                            except Exception:
+                                pass
+                        y_title = page_h - 1.0*cm - lh - 0.55*cm
+                    else:
+                        y_title = page_h - 1.7*cm
+                else:
+                    # Cabecera estándar (nómina, certificados, fiscal...): nombre de
+                    # empresa + logo corporativo (sin franja azul).
+                    if os.path.exists(_LOGO_PATH):
+                        try:
+                            c.drawImage(_LOGO_PATH, page_w - 3.6*cm, page_h - 2.35*cm,
+                                        2.9*cm, 1.5*cm, preserveAspectRatio=True, mask="auto")
+                        except Exception:
+                            pass
+                    c.setFont(_FB, 11); c.setFillColor(NEGRO)
+                    c.drawString(1.5*cm, page_h - 1.6*cm, emp_nombre.upper())
+                    c.setFont(_FN, 7.5); c.setFillColor(GRIS)
+                    meta_parts = [x for x in [f"CIF: {emp_cif}", emp_dir, emp_tel, emp_email] if x]
+                    c.drawString(1.5*cm, page_h - 2.2*cm, "  ·  ".join(meta_parts))
+                    y_title = page_h - 3.0*cm
+                # Título del documento + Ref + línea separadora
+                c.setFont(_FB, 12); c.setFillColor(AZUL)
+                c.drawString(1.5*cm, y_title, titulo_doc)
+                c.setFont(_FN, 7.5); c.setFillColor(GRIS)
+                c.drawRightString(page_w - 1.5*cm, y_title, f"Ref: {doc_id}")
+                c.setStrokeColor(BORDE_OSC); c.setLineWidth(0.8)
+                c.line(1.5*cm, y_title - 0.4*cm, page_w - 1.5*cm, y_title - 0.4*cm)
                 c.restoreState()
 
             def _draw_footer(c, doc):
@@ -5755,17 +5801,8 @@ class _WizardDocumentoFiscal(QDialog):
                 _es_determinada = _es_temporal or _es_practic      # duración determinada (no indefinida)
                 _fecha_fin   = self._datos.get("fecha_fin", "")
 
-                if mostrar_fse:
-                    _logos = self._fse_logos_flowable(usable_w)
-                    if _logos is not None:
-                        story.append(_logos)
-                    else:
-                        story.append(_P(
-                            "<b>Cofinanciado por la Unión Europea — Fondo Social Europeo (FSE+).</b>  "
-                            "Ministerio de Trabajo y Economía Social · Servicio Público de Empleo Estatal (SEPE).",
-                            st_center))
-                    story.append(Spacer(1, 2*mm))
-
+                # Los logos institucionales van en la cabecera de CADA página
+                # (_draw_header), no en el cuerpo.
                 story.append(_sec_header("DATOS DE LA EMPRESA"))
                 story.append(_data_val_row(("CIF/NIF/NIE", emp_cif)))
                 story.append(_data_val_row(
@@ -6183,7 +6220,7 @@ class _WizardDocumentoFiscal(QDialog):
                 story.append(_data_val_row(("PUESTO", puesto or "—"), ("FECHA EFECTO", fecha)))
                 story.append(Spacer(1, 3*mm))
                 story.append(_P(
-                    f"{emp_dir or '—'},  a {now.strftime('%d de %B de %Y')}",
+                    f"{emp_dir or '—'},  a {_fecha_larga(now)}",
                     st_right
                 ))
                 story.append(Spacer(1, 2*mm))
@@ -6274,7 +6311,7 @@ class _WizardDocumentoFiscal(QDialog):
                 story.append(Spacer(1, 5*mm))
                 story.append(_P(
                     f"Y para que así conste y surta los efectos oportunos, se expide el presente "
-                    f"certificado en {emp_dir or '_______________'} a {now.strftime('%d de %B de %Y')}.",
+                    f"certificado en {emp_dir or '_______________'} a {_fecha_larga(now)}.",
                     st_body
                 ))
 
@@ -6405,7 +6442,7 @@ class _WizardDocumentoFiscal(QDialog):
             story.append(Spacer(1, 7*mm))
             sig_lugar_fecha = (
                 f"En {emp_municipio or emp_dir or '_______________'}, "
-                f"a {now.strftime('%d de %B de %Y')}"
+                f"a {_fecha_larga(now)}"
             )
             story.append(_P(sig_lugar_fecha, st_body))
             story.append(Spacer(1, 5*mm))
