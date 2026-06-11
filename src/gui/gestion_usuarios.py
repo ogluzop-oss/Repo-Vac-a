@@ -4316,6 +4316,47 @@ class _WizardDocumentoFiscal(QDialog):
             pass
         return cb
 
+    # Logos institucionales (cofinanciación). Si faltan, se usa banner de texto.
+    _FSE_LOGOS = [
+        "ue_cofinanciado.png", "ministerio_trabajo.png", "sepe.png",
+        "fondos_europeos.png", "fse_plus.png",
+    ]
+
+    def _fse_logos_flowable(self, usable_w):
+        """Fila de logos institucionales disponibles en assets/logos_institucionales/.
+        Devuelve un Table de imágenes o None si no hay ninguna (→ banner de texto)."""
+        from reportlab.lib.units import cm
+        from reportlab.platypus import Image, Table, TableStyle
+        base = os.path.normpath(os.path.join(
+            os.path.dirname(__file__), "..", "..", "assets", "logos_institucionales"))
+        rutas = [os.path.join(base, f) for f in self._FSE_LOGOS if os.path.exists(os.path.join(base, f))]
+        if not rutas:
+            return None
+        cell_w = usable_w / len(rutas)
+        celdas = []
+        for r in rutas:
+            try:
+                im = Image(r)
+                ratio = (im.imageWidth / im.imageHeight) if im.imageHeight else 1.0
+                h = 1.25 * cm
+                w = h * ratio
+                if w > cell_w - 0.3 * cm:
+                    w = cell_w - 0.3 * cm
+                    h = w / ratio if ratio else h
+                im.drawWidth = w
+                im.drawHeight = h
+                celdas.append(im)
+            except Exception:
+                celdas.append("")
+        t = Table([celdas], colWidths=[cell_w] * len(rutas))
+        t.setStyle(TableStyle([
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        return t
+
     def _lbl_s(self, txt):
         l = QLabel(_wz_tr(txt))
         l.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:14px;font-weight:bold;")
@@ -5711,10 +5752,14 @@ class _WizardDocumentoFiscal(QDialog):
                 _fecha_fin   = self._datos.get("fecha_fin", "")
 
                 if mostrar_fse:
-                    story.append(_P(
-                        "<b>Cofinanciado por la Unión Europea — Fondo Social Europeo (FSE+).</b>  "
-                        "Ministerio de Trabajo y Economía Social · Servicio Público de Empleo Estatal (SEPE).",
-                        st_center))
+                    _logos = self._fse_logos_flowable(usable_w)
+                    if _logos is not None:
+                        story.append(_logos)
+                    else:
+                        story.append(_P(
+                            "<b>Cofinanciado por la Unión Europea — Fondo Social Europeo (FSE+).</b>  "
+                            "Ministerio de Trabajo y Economía Social · Servicio Público de Empleo Estatal (SEPE).",
+                            st_center))
                     story.append(Spacer(1, 2*mm))
 
                 story.append(_sec_header("DATOS DE LA EMPRESA"))
@@ -5998,6 +6043,43 @@ class _WizardDocumentoFiscal(QDialog):
                         num = numerales[min(i-1, 9)]
                         cla_body = _cla_map.get(cla_txt, cla_txt)
                         story.append(_P(f"<b>{num}.</b> {cla_body}", st_clause))
+
+                # ── Anexo específico según la modalidad contractual ──
+                _anexos = []
+                if _jornada_parcial:
+                    _anexos.append((
+                        "ANEXO — PACTO DE HORAS COMPLEMENTARIAS",
+                        "El/la trabajador/a a tiempo parcial podrá realizar horas complementarias hasta "
+                        "un máximo del 30% de las horas ordinarias (ampliable por convenio colectivo de "
+                        "ámbito sectorial hasta el 60%), con un preaviso mínimo de 3 días, conforme al "
+                        "artículo 12.5 del Estatuto de los Trabajadores. Se retribuirán como ordinarias y "
+                        "computarán a efectos de cotización a la Seguridad Social."))
+                if _es_fijodisc:
+                    _anexos.append((
+                        "ANEXO — TRABAJO FIJO-DISCONTINUO",
+                        "El llamamiento se realizará por escrito, en el orden y la forma que determine el "
+                        "convenio colectivo, con antelación suficiente. La falta de llamamiento equivaldrá a "
+                        "un despido a efectos legales. Los periodos de inactividad no interrumpen el cómputo "
+                        "de la antigüedad (art. 16 del Estatuto de los Trabajadores)."))
+                if _es_temporal:
+                    _anexos.append((
+                        "ANEXO — CONTRATO DE DURACIÓN DETERMINADA",
+                        "El contrato se extinguirá al finalizar la causa que lo motiva o, en su caso, en la "
+                        "fecha pactada. A su término, el/la trabajador/a tendrá derecho a la indemnización "
+                        "legalmente establecida (art. 49 del Estatuto de los Trabajadores)."))
+                if _es_practic:
+                    _anexos.append((
+                        "ANEXO FORMATIVO",
+                        "La empresa designa un/a tutor/a responsable del seguimiento del plan formativo "
+                        "individual. La actividad se ajustará al nivel de estudios de la persona trabajadora "
+                        "(art. 11.3 del Estatuto de los Trabajadores), con una duración mínima de 6 meses y "
+                        "máxima de 1 año."))
+                if _anexos:
+                    story.append(Spacer(1, 2*mm))
+                    story.append(_sec_header("ANEXO ESPECÍFICO DE LA MODALIDAD"))
+                    story.append(Spacer(1, 1*mm))
+                    for _ax_t, _ax_b in _anexos:
+                        story.append(_P(f"<b>{_ax_t}.</b> {_ax_b}", st_clause))
 
             # =================================================================
             elif self._tipo == "NÓMINA":
