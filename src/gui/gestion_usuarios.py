@@ -6743,7 +6743,7 @@ class ConfiguracionWindow(QWidget):
 
     def _de_lbl(self, t):
         l = QLabel(t)
-        l.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:11px;font-weight:700;background:transparent;")
+        l.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:14px;font-weight:700;background:transparent;")
         return l
 
     def _de_inp(self, val=""):
@@ -6781,15 +6781,19 @@ class ConfiguracionWindow(QWidget):
         t.setMinimumHeight(150)
         t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         t.setStyleSheet(
-            f"QTableWidget{{background:#0D1117;color:#E6EDF3;border:none;gridline-color:#21262D;font-size:12px;}}"
-            f"QHeaderView::section{{background:#161B22;color:{_CIAN};border:none;padding:8px;font-weight:900;font-size:11px;}}"
-            f"QTableWidget::item{{padding:6px;border-bottom:1px solid #21262D;}}"
+            "QTableWidget{background:#0D1117;color:#E6EDF3;border:none;gridline-color:#21262D;font-size:12px;}"
+            "QTableWidget::item{padding:6px;border-bottom:1px solid #21262D;}"
+            "QHeaderView{background:transparent;}"
+            f"QHeaderView::section{{background:#161B22;color:{_CIAN};border:none;padding:9px;font-weight:900;font-size:12px;}}"
+            f"QHeaderView::section:first{{border-top-left-radius:11px;}}"
+            f"QHeaderView::section:last{{border-top-right-radius:11px;}}"
+            f"QHeaderView::section:hover{{background:{_CIAN};color:#0E1117;}}"
         )
         return t
 
     def _de_wrap(self, tabla):
         wrap = QFrame()
-        wrap.setStyleSheet(f"QFrame{{background:#0D1117;border:2px solid {_BORDE};border-radius:12px;}}")
+        wrap.setStyleSheet(f"QFrame{{background:#0D1117;border:2px solid {_CIAN};border-radius:14px;}}")
         wl = QVBoxLayout(wrap); wl.setContentsMargins(5, 5, 5, 5); wl.addWidget(tabla)
         return wrap
 
@@ -8514,10 +8518,11 @@ class ConfiguracionWindow(QWidget):
         outer.addWidget(lbl_tit)
 
         # ── Módulos (4 botones de selección) ─────────────────────────────────
+        # EMPRESA se retiró: los datos de empresa se gestionan en la pestaña
+        # "DATOS DE EMPRESA" (fuente única).
         MODULOS = [
             ("👷  " + tr("cfg.mod_laboral", default="LABORAL"),   "#3FB950"),
             ("📋  " + tr("cfg.mod_fiscal", default="FISCAL"),    "#58A6FF"),
-            ("🏢  " + tr("cfg.mod_empresa", default="EMPRESA"),   "#E3B341"),
             ("🔍  " + tr("cfg.mod_auditoria", default="AUDITORÍA"), "#F0883E"),
         ]
         mod_row = QHBoxLayout(); mod_row.setSpacing(8)
@@ -8542,7 +8547,6 @@ class ConfiguracionWindow(QWidget):
 
         self._fis_stack.addWidget(self._fis_modulo_laboral())
         self._fis_stack.addWidget(self._fis_modulo_fiscal())
-        self._fis_stack.addWidget(self._fis_modulo_empresa())
         self._fis_stack.addWidget(self._fis_modulo_auditoria())
         outer.addWidget(self._fis_stack)
 
@@ -8552,14 +8556,14 @@ class ConfiguracionWindow(QWidget):
     def _fis_cambiar_modulo(self, idx):
         for i, b in enumerate(self._fis_mod_btns):
             b.setChecked(i == idx)
-        # Rebuild the AUDITORÍA widget (index 3) on every visit so it always
-        # reflects the current files on disk without requiring a re-login.
-        if idx == 3:
-            old = self._fis_stack.widget(3)
+        # Rebuild the AUDITORÍA widget (ahora índice 2) en cada visita para que
+        # refleje los archivos en disco sin necesidad de reiniciar sesión.
+        if idx == 2:
+            old = self._fis_stack.widget(2)
             nuevo = self._fis_modulo_auditoria()
             self._fis_stack.removeWidget(old)
             old.deleteLater()
-            self._fis_stack.insertWidget(3, nuevo)
+            self._fis_stack.insertWidget(2, nuevo)
         self._fis_stack.setCurrentIndex(idx)
 
     def _fis_card_btn(self, icono, titulo, descripcion, tipo_wizard):
