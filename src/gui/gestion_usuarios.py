@@ -5463,8 +5463,10 @@ class _WizardDocumentoFiscal(QDialog):
                 c.rect(0, page_h - 0.9*cm, page_w, 0.9*cm, fill=1, stroke=0)
                 if os.path.exists(_LOGO_PATH):
                     try:
-                        c.drawImage(_LOGO_PATH, page_w - 4.5*cm, page_h - 3.4*cm,
-                                    3.5*cm, 2.2*cm, preserveAspectRatio=True, mask="auto")
+                        # Logo en la esquina superior derecha, justo bajo la banda azul y
+                        # POR ENCIMA de la línea de título/Ref (page_h-3.1cm) para no taparla.
+                        c.drawImage(_LOGO_PATH, page_w - 3.6*cm, page_h - 2.55*cm,
+                                    2.9*cm, 1.5*cm, preserveAspectRatio=True, mask="auto")
                     except Exception:
                         pass
                 c.setFont(_FB, 11)
@@ -5566,6 +5568,15 @@ class _WizardDocumentoFiscal(QDialog):
                 _sal_mensual_fmt = f"{divisas.formatear(salario_mensual)}" if salario_mensual > 0 else "—"
                 _sal_anual_fmt   = f"{divisas.formatear(salario)}" if salario > 0 else "—"
 
+                # ── Modalidad contractual: determina cláusulas y código dinámicos ──
+                _sub_norm    = (subtipo or "INDEFINIDO").upper()
+                _es_fijodisc = "FIJO" in _sub_norm
+                _es_sustit   = "SUSTITU" in _sub_norm
+                _es_practic  = "CTIC" in _sub_norm                 # PRÁCTICAS / PRACTICAS
+                _es_temporal = "TEMPORAL" in _sub_norm or _es_sustit
+                _es_determinada = _es_temporal or _es_practic      # duración determinada (no indefinida)
+                _fecha_fin   = self._datos.get("fecha_fin", "")
+
                 story.append(_sec_header("DATOS DE LA EMPRESA"))
                 story.append(_data_val_row(("CIF/NIF/NIE", emp_cif)))
                 story.append(_data_val_row(("D./DÑA. (REPRESENTANTE LEGAL)", ""), ("NIF/NIE", "")))
@@ -5619,10 +5630,30 @@ class _WizardDocumentoFiscal(QDialog):
                     + (" Trabajo a distancia conforme a la Ley 10/2021, de 9 de julio." if _distancia_si else ""),
                     st_clause))
 
-                story.append(_P(
-                    "<b>SEGUNDA:</b> El contrato se concierta para realizar trabajos fijos-discontinuos "
-                    "de acuerdo con el artículo 16 del Estatuto de los Trabajadores.",
-                    st_clause))
+                if _es_fijodisc:
+                    _segunda_txt = (
+                        "<b>SEGUNDA:</b> El contrato se concierta para realizar trabajos fijos-discontinuos "
+                        "de acuerdo con el artículo 16 del Estatuto de los Trabajadores.")
+                elif _es_sustit:
+                    _segunda_txt = (
+                        "<b>SEGUNDA:</b> El contrato se concierta para la sustitución de persona trabajadora "
+                        "con derecho a reserva del puesto de trabajo, de acuerdo con el artículo 15.3 del "
+                        "Estatuto de los Trabajadores.")
+                elif _es_temporal:
+                    _segunda_txt = (
+                        "<b>SEGUNDA:</b> El contrato se concierta por circunstancias de la producción de "
+                        "carácter ocasional e imprevisible, con duración determinada, de acuerdo con el "
+                        "artículo 15 del Estatuto de los Trabajadores.")
+                elif _es_practic:
+                    _segunda_txt = (
+                        "<b>SEGUNDA:</b> El contrato se concierta como contrato formativo para la obtención de "
+                        "la práctica profesional adecuada al nivel de estudios, de acuerdo con el artículo 11.3 "
+                        "del Estatuto de los Trabajadores.")
+                else:
+                    _segunda_txt = (
+                        "<b>SEGUNDA:</b> El contrato se concierta por tiempo indefinido, de acuerdo con el "
+                        "artículo 15 del Estatuto de los Trabajadores.")
+                story.append(_P(_segunda_txt, st_clause))
 
                 if _jornada_parcial:
                     jornada_txt = (
@@ -5639,11 +5670,25 @@ class _WizardDocumentoFiscal(QDialog):
                     )
                 story.append(_P(jornada_txt, st_clause))
 
-                story.append(_P(
-                    f"<b>CUARTA:</b> La duración del presente contrato será <b>INDEFINIDA</b>, "
-                    f"iniciándose la relación laboral en fecha <b>{fecha}</b> y se establece un período de "
-                    f"prueba de <b>{_prueba_txt}</b>.",
-                    st_clause))
+                if _es_fijodisc:
+                    _cuarta_txt = (
+                        f"<b>CUARTA:</b> El presente contrato es <b>FIJO-DISCONTINUO</b> y de duración "
+                        f"<b>INDEFINIDA</b>; la relación laboral se inicia en fecha <b>{fecha}</b>, con "
+                        f"llamamientos sucesivos en el orden y la forma que determine el convenio colectivo. "
+                        f"Se establece un período de prueba de <b>{_prueba_txt}</b>.")
+                elif _es_determinada:
+                    _fin_txt = (f" y finalizando el <b>{_fecha_fin}</b>" if _fecha_fin
+                                else ", extendiéndose mientras subsista la causa que la motiva")
+                    _cuarta_txt = (
+                        f"<b>CUARTA:</b> La duración del presente contrato será <b>DETERMINADA</b>, "
+                        f"iniciándose la relación laboral en fecha <b>{fecha}</b>{_fin_txt}. Se establece un "
+                        f"período de prueba de <b>{_prueba_txt}</b>.")
+                else:
+                    _cuarta_txt = (
+                        f"<b>CUARTA:</b> La duración del presente contrato será <b>INDEFINIDA</b>, "
+                        f"iniciándose la relación laboral en fecha <b>{fecha}</b> y se establece un período de "
+                        f"prueba de <b>{_prueba_txt}</b>.")
+                story.append(_P(_cuarta_txt, st_clause))
 
                 story.append(_P(
                     f"<b>QUINTA:</b> El/La trabajador/a percibirá una retribución total de "
@@ -5688,15 +5733,24 @@ class _WizardDocumentoFiscal(QDialog):
                 story.append(Spacer(1, 2*mm))
 
                 story.append(_sec_header("TIPO DE CONTRATO — CÓDIGO"))
+                if _es_fijodisc:
+                    _cod_num = "300"
+                    _mk_completo, _mk_parcial, _mk_fijo = "☐", "☐", "☑"
+                elif _jornada_parcial:
+                    _cod_num = "200"
+                    _mk_completo, _mk_parcial, _mk_fijo = "☐", "☑", "☐"
+                else:
+                    _cod_num = "100"
+                    _mk_completo, _mk_parcial, _mk_fijo = "☑", "☐", "☐"
                 cod_data = [[
                     Paragraph(
-                        f"{'☑' if not _jornada_parcial else '☐'}  TIEMPO COMPLETO    "
-                        f"{'☑' if _jornada_parcial else '☐'}  TIEMPO PARCIAL    "
-                        f"☐  FIJO-DISCONTINUO",
+                        f"{_mk_completo}  TIEMPO COMPLETO    "
+                        f"{_mk_parcial}  TIEMPO PARCIAL    "
+                        f"{_mk_fijo}  FIJO-DISCONTINUO",
                         st_body
                     ),
                     Paragraph(
-                        f"{'200' if not _jornada_parcial else '200'}",
+                        _cod_num,
                         _st("cod", fontName=_FB, fontSize=14, textColor=AZUL,
                             leading=16, alignment=TA_CENTER)
                     ),
