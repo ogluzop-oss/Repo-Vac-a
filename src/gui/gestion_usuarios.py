@@ -4762,6 +4762,32 @@ class _WizardDocumentoFiscal(QDialog):
         self._inp_convenio = self._mk_inp("Ej: Convenio Colectivo del Comercio Textil de Barcelona")
         il.addWidget(self._inp_convenio)
 
+        il.addWidget(self._sep_lbl("ASISTENCIA LEGAL DE LOS TRABAJADORES"))
+        il.addWidget(self._lbl_s("Tipo de representación:"))
+        self._combo_asist = self._mk_combo([
+            "No procede", "Comité de Empresa", "Delegado Sindical",
+            "Representación Legal de los Trabajadores",
+        ])
+        il.addWidget(self._combo_asist)
+        row_as1 = QHBoxLayout(); row_as1.setSpacing(8)
+        ca1 = QVBoxLayout(); ca1.addWidget(self._lbl_s("Nombre y apellidos:"))
+        self._inp_asist_nombre = self._mk_inp("Nombre del representante"); ca1.addWidget(self._inp_asist_nombre)
+        ca2 = QVBoxLayout(); ca2.addWidget(self._lbl_s("DNI / NIE:"))
+        self._inp_asist_nif = self._mk_inp("Identificación"); ca2.addWidget(self._inp_asist_nif)
+        row_as1.addLayout(ca1); row_as1.addLayout(ca2); il.addLayout(row_as1)
+        row_as2 = QHBoxLayout(); row_as2.setSpacing(8)
+        ca3 = QVBoxLayout(); ca3.addWidget(self._lbl_s("Cargo:"))
+        self._inp_asist_cargo = self._mk_inp("Ej: Presidente del comité"); ca3.addWidget(self._inp_asist_cargo)
+        ca4 = QVBoxLayout(); ca4.addWidget(self._lbl_s("Organización / sindicato:"))
+        self._inp_asist_org = self._mk_inp("Ej: CCOO, UGT…"); ca4.addWidget(self._inp_asist_org)
+        row_as2.addLayout(ca3); row_as2.addLayout(ca4); il.addLayout(row_as2)
+
+        il.addWidget(self._sep_lbl("COFINANCIACIÓN / LOGOS INSTITUCIONALES"))
+        self._chk_fse = self._mk_check(
+            "Contrato cofinanciado — mostrar banner institucional (FSE+ / Unión Europea)")
+        self._chk_fse.setChecked(False)
+        il.addWidget(self._chk_fse)
+
         il.addWidget(self._sep_lbl("CLÁUSULAS ADICIONALES (ANEXO)"))
         _clauses = [
             "Prorrateo de pagas extraordinarias",
@@ -5240,6 +5266,8 @@ class _WizardDocumentoFiscal(QDialog):
             ("fecha_efecto_2", "_inp_fecha_efecto"), ("fecha_fin_vac", "_inp_fecha_fin_vac"),
             ("f_inicio_rel", "_inp_f_inicio_rel"), ("f_fin_rel", "_inp_f_fin_rel"),
             ("filtro_emp", "_inp_filtro_emp"), ("fecha_fin", "_inp_fecha_fin"),
+            ("asist_nombre", "_inp_asist_nombre"), ("asist_nif", "_inp_asist_nif"),
+            ("asist_cargo", "_inp_asist_cargo"), ("asist_org", "_inp_asist_org"),
         ]:
             self._datos[key] = _t(attr)
 
@@ -5252,9 +5280,11 @@ class _WizardDocumentoFiscal(QDialog):
             ("trabajo_distancia", "_combo_distancia"), ("tipo_jornada", "_combo_jornada"),
             ("num_pagas", "_combo_pagas"), ("pagas_pendientes", "_combo_pagas_pend"),
             ("material_empresa", "_combo_material"), ("advertencias_previas", "_combo_advertencias"),
-            ("expedientes_previos", "_combo_expedientes"),
+            ("expedientes_previos", "_combo_expedientes"), ("asist_tipo", "_combo_asist"),
         ]:
             self._datos[key] = _cb(attr)
+        if hasattr(self, "_chk_fse"):
+            self._datos["fse"] = self._chk_fse.isChecked()
 
         # Nómina devengos/deducciones
         for key, attr in [
@@ -5496,6 +5526,12 @@ class _WizardDocumentoFiscal(QDialog):
             tel_trab           = self._datos.get("telefono_trab", "")
             email_trab         = self._datos.get("email_trab", "")
             titulacion         = self._datos.get("titulacion", "")
+            asist_tipo         = self._datos.get("asist_tipo", "")
+            asist_nombre       = self._datos.get("asist_nombre", "")
+            asist_nif          = self._datos.get("asist_nif", "")
+            asist_cargo        = self._datos.get("asist_cargo", "")
+            asist_org          = self._datos.get("asist_org", "")
+            mostrar_fse        = bool(self._datos.get("fse"))
             puesto             = self._datos.get("puesto", "")
             grupo_prof         = self._datos.get("grupo_prof", "")
             funciones          = self._datos.get("funciones", "")
@@ -5674,6 +5710,13 @@ class _WizardDocumentoFiscal(QDialog):
                 _es_determinada = _es_temporal or _es_practic      # duración determinada (no indefinida)
                 _fecha_fin   = self._datos.get("fecha_fin", "")
 
+                if mostrar_fse:
+                    story.append(_P(
+                        "<b>Cofinanciado por la Unión Europea — Fondo Social Europeo (FSE+).</b>  "
+                        "Ministerio de Trabajo y Economía Social · Servicio Público de Empleo Estatal (SEPE).",
+                        st_center))
+                    story.append(Spacer(1, 2*mm))
+
                 story.append(_sec_header("DATOS DE LA EMPRESA"))
                 story.append(_data_val_row(("CIF/NIF/NIE", emp_cif)))
                 story.append(_data_val_row(
@@ -5746,6 +5789,19 @@ class _WizardDocumentoFiscal(QDialog):
                 if email_trab:
                     story.append(_data_val_row(("CORREO ELECTRÓNICO", email_trab)))
                 story.append(Spacer(1, 2*mm))
+
+                if (asist_tipo and asist_tipo != "No procede") or asist_nombre:
+                    story.append(_sec_header("DATOS DE LA ASISTENCIA LEGAL (EN SU CASO)"))
+                    story.append(_data_val_row(
+                        ("TIPO DE REPRESENTACIÓN", asist_tipo or "—"),
+                        ("ORGANIZACIÓN", asist_org or "—"),
+                    ))
+                    story.append(_data_val_row(
+                        ("D./DÑA.", asist_nombre or "—"),
+                        ("NIF/NIE", asist_nif or "—"),
+                        ("CARGO", asist_cargo or "—"),
+                    ))
+                    story.append(Spacer(1, 2*mm))
 
                 story.append(_P(
                     "Que reúnen los requisitos exigidos para la celebración del presente contrato y, "
