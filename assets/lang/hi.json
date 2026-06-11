@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "प्रांत कोड:",
     "wz_f_cod_municipio": "नगर पालिका कोड:",
     "wz_f_cod_nivelform": "शैक्षणिक स्तर कोड:",
-    "step_centro_trabajo": "कार्य केंद्र"
+    "step_centro_trabajo": "कार्य केंद्र",
+    "wz_rep_principal": "— डिफ़ॉल्ट प्रमुख प्रतिनिधि —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "स्मार्ट स्कैनर - Smart Manager",

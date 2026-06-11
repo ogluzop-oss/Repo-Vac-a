@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "İl kodu:",
     "wz_f_cod_municipio": "Belediye kodu:",
     "wz_f_cod_nivelform": "Eğitim seviyesi kodu:",
-    "step_centro_trabajo": "İŞ MERKEZİ"
+    "step_centro_trabajo": "İŞ MERKEZİ",
+    "wz_rep_principal": "— Varsayılan ana temsilci —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Akıllı Tarayıcı - Smart Manager",

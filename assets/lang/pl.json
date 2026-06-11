@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "Kod prowincji:",
     "wz_f_cod_municipio": "Kod gminy:",
     "wz_f_cod_nivelform": "Kod poziomu wykształcenia:",
-    "step_centro_trabajo": "MIEJSCE PRACY"
+    "step_centro_trabajo": "MIEJSCE PRACY",
+    "wz_rep_principal": "— Główny reprezentant domyślny —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "Provinciecode:",
     "wz_f_cod_municipio": "Gemeentecode:",
     "wz_f_cod_nivelform": "Code opleidingsniveau:",
-    "step_centro_trabajo": "WERKLOCATIE"
+    "step_centro_trabajo": "WERKLOCATIE",
+    "wz_rep_principal": "— Standaardvertegenwoordiger —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligente Scanner - Smart Manager",

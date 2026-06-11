@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "Provinzcode:",
     "wz_f_cod_municipio": "Gemeindecode:",
     "wz_f_cod_nivelform": "Code Ausbildungsniveau:",
-    "step_centro_trabajo": "ARBEITSSTELLE"
+    "step_centro_trabajo": "ARBEITSSTELLE",
+    "wz_rep_principal": "— Standardmäßiger Hauptvertreter —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",

@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "지역 코드:",
     "wz_f_cod_municipio": "시/군/구 코드:",
     "wz_f_cod_nivelform": "교육 수준 코드:",
-    "step_centro_trabajo": "근로 센터"
+    "step_centro_trabajo": "근로 센터",
+    "wz_rep_principal": "— 기본 주요 대리인 —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "스마트 스캐너 - Smart Manager",

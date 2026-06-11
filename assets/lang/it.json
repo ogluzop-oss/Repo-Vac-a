@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "Cod. provincia:",
     "wz_f_cod_municipio": "Cod. municipio:",
     "wz_f_cod_nivelform": "Cod. livello formativo:",
-    "step_centro_trabajo": "CENTRO DI LAVORO"
+    "step_centro_trabajo": "CENTRO DI LAVORO",
+    "wz_rep_principal": "— Rappresentante principale per impostazione predefinita —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Intelligente - Smart Manager",

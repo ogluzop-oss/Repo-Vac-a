@@ -328,4 +328,5 @@ def info_documento(id_empresa=None, id_centro=None, id_representante=None) -> di
         "centro_actividad": c.get("actividad_economica") or "",
         "centro_cod_pais": c.get("cod_pais") or "",
         "centro_cod_municipio": c.get("cod_municipio") or "",
+        "centro_cod_actividad": c.get("cod_actividad") or "",
     }

@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "Код провинции:",
     "wz_f_cod_municipio": "Код муниципалитета:",
     "wz_f_cod_nivelform": "Код уровня образования:",
-    "step_centro_trabajo": "ЦЕНТР РАБОТЫ"
+    "step_centro_trabajo": "ЦЕНТР РАБОТЫ",
+    "wz_rep_principal": "— Основной представитель по умолчанию —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Интеллектуальный сканер - Smart Manager",

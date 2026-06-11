@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "Kode provinsi:",
     "wz_f_cod_municipio": "Kode kota/kabupaten:",
     "wz_f_cod_nivelform": "Kode tingkat pendidikan:",
-    "step_centro_trabajo": "PUSAT KERJA"
+    "step_centro_trabajo": "PUSAT KERJA",
+    "wz_rep_principal": "— Perwakilan Utama Default —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",

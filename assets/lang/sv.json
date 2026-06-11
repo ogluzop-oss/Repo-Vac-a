@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "Provinskod:",
     "wz_f_cod_municipio": "Kommunkod:",
     "wz_f_cod_nivelform": "Utbildningsnivåkod:",
-    "step_centro_trabajo": "ARBETSCENTER"
+    "step_centro_trabajo": "ARBETSCENTER",
+    "wz_rep_principal": "— Huvudrepresentant som standard —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

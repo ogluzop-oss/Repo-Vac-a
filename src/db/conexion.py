@@ -301,6 +301,7 @@ def ensure_schema(force: bool = False):
                         actividad_economica      VARCHAR(255)          DEFAULT NULL,
                         cod_pais                 VARCHAR(10)           DEFAULT NULL,
                         cod_municipio            VARCHAR(15)           DEFAULT NULL,
+                        cod_actividad            VARCHAR(15)           DEFAULT NULL,
                         es_principal             TINYINT      NOT NULL DEFAULT 0,
                         estado                   VARCHAR(20)  NOT NULL DEFAULT 'activo',
                         fecha_alta               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -312,7 +313,8 @@ def ensure_schema(force: bool = False):
                 cur.execute("""
                     ALTER TABLE centros_trabajo
                     ADD COLUMN IF NOT EXISTS cod_pais      VARCHAR(10) DEFAULT NULL,
-                    ADD COLUMN IF NOT EXISTS cod_municipio VARCHAR(15) DEFAULT NULL
+                    ADD COLUMN IF NOT EXISTS cod_municipio VARCHAR(15) DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS cod_actividad VARCHAR(15) DEFAULT NULL
                 """)
 
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──

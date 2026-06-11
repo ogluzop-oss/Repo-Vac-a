@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "Mã tỉnh/thành phố:",
     "wz_f_cod_municipio": "Mã huyện/thành phố:",
     "wz_f_cod_nivelform": "Mã trình độ học vấn:",
-    "step_centro_trabajo": "ĐỊA ĐIỂM LÀM VIỆC"
+    "step_centro_trabajo": "ĐỊA ĐIỂM LÀM VIỆC",
+    "wz_rep_principal": "— Đại diện chính theo mặc định —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Máy Quét Thông Minh - Smart Manager",

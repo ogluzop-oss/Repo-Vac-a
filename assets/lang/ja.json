@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "都道府県コード：",
     "wz_f_cod_municipio": "市町村コード：",
     "wz_f_cod_nivelform": "教育レベルコード：",
-    "step_centro_trabajo": "勤務地"
+    "step_centro_trabajo": "勤務地",
+    "wz_rep_principal": "— デフォルトの主要代表者 —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

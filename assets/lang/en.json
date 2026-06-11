@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "Province code:",
     "wz_f_cod_municipio": "Municipality code:",
     "wz_f_cod_nivelform": "Education level code:",
-    "step_centro_trabajo": "WORK CENTRE"
+    "step_centro_trabajo": "CONTRACT DATA",
+    "wz_rep_principal": "— Default main representative —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

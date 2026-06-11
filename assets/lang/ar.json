@@ -1293,7 +1293,8 @@
     "wz_f_cod_provincia": "رمز المقاطعة:",
     "wz_f_cod_municipio": "رمز البلدية:",
     "wz_f_cod_nivelform": "رمز المستوى التعليمي:",
-    "step_centro_trabajo": "مركز العمل"
+    "step_centro_trabajo": "مركز العمل",
+    "wz_rep_principal": "— ممثل رئيسي افتراضي —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "ماسح ذكي - Smart Manager",

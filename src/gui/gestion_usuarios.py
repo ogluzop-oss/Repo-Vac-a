@@ -4359,6 +4359,22 @@ class _WizardDocumentoFiscal(QDialog):
             pass
         return cb
 
+    def _mk_combo_representantes(self):
+        """Combo con los representantes legales registrados (DATOS DE EMPRESA).
+        Data = id_representante (o None = representante principal por defecto)."""
+        cb = self._mk_combo([])
+        cb.addItem(tr("cfg.wz_rep_principal", default="— Representante principal por defecto —"), None)
+        try:
+            from src.db import representantes as _reps
+            for r in _reps.listar_representantes():
+                nom = " ".join(x for x in [r.get("nombre"), r.get("apellidos")] if x).strip()
+                cargo = r.get("cargo") or ""
+                etq = nom + (f" · {cargo}" if cargo else "")
+                cb.addItem("👤  " + (etq or "Representante"), r.get("id_representante"))
+        except Exception:
+            pass
+        return cb
+
     # Logos institucionales (cofinanciación). Si faltan, se usa banner de texto.
     _FSE_LOGOS = [
         "ue_cofinanciado.png", "ministerio_sepe.png", "fondos_europeos.png",
@@ -4496,7 +4512,7 @@ class _WizardDocumentoFiscal(QDialog):
 
         # En el contrato, el 2º paso se llama CENTRO TRABAJO (lo pidió el usuario);
         # en el resto de documentos, DATOS.
-        _paso2 = (tr("cfg.step_centro_trabajo", default="CENTRO DE TRABAJO")
+        _paso2 = (tr("cfg.step_centro_trabajo", default="DATOS DEL CONTRATO")
                   if self._tipo == "CONTRATO" else tr("cfg.step_datos", default="DATOS"))
         pasos = ([tr("cfg.step_empresa", default="EMPRESA"), _paso2, tr("cfg.step_preview", default="VISTA PREVIA"), tr("cfg.step_generar", default="GENERAR")]
                  if self._tipo in self._FISCAL_TYPES
@@ -4824,9 +4840,9 @@ class _WizardDocumentoFiscal(QDialog):
         il.addWidget(self._lbl_s("Centro de trabajo (registrado en DATOS DE EMPRESA):"))
         self._combo_centro = self._mk_combo_centros()
         il.addWidget(self._combo_centro)
-        il.addWidget(self._lbl_s("Centro de trabajo (dirección manual, opcional):"))
-        self._inp_centro = self._mk_inp("Calle, nº, localidad")
-        il.addWidget(self._inp_centro)
+        il.addWidget(self._lbl_s("Representante legal (firmante del contrato):"))
+        self._combo_rep = self._mk_combo_representantes()
+        il.addWidget(self._combo_rep)
         row2 = QHBoxLayout(); row2.setSpacing(8)
         c3 = QVBoxLayout(); c3.addWidget(self._lbl_s("Trabajo a distancia:"))
         self._combo_distancia = self._mk_combo(["NO", "SÍ"])
@@ -5387,6 +5403,9 @@ class _WizardDocumentoFiscal(QDialog):
             else:
                 self._datos["id_centro"] = None
                 self._datos["centro_info"] = None
+        # Representante legal (firmante) elegido para el contrato
+        if hasattr(self, "_combo_rep"):
+            self._datos["id_representante"] = self._combo_rep.currentData()
 
         # Combo fields
         for key, attr in [
@@ -5587,7 +5606,9 @@ class _WizardDocumentoFiscal(QDialog):
             # ── Datos corporativos: FUENTE ÚNICA (empresa + representante + centro) ──
             try:
                 from src.db import empresa as _empresa_db
-                _dc = _empresa_db.datos_corporativos(id_centro=self._datos.get("id_centro"))
+                _dc = _empresa_db.datos_corporativos(
+                    id_centro=self._datos.get("id_centro"),
+                    id_representante=self._datos.get("id_representante"))
             except Exception:
                 _dc = {"empresa": {}, "representante": None, "centro": None}
             _e     = _dc.get("empresa") or {}
@@ -5639,6 +5660,7 @@ class _WizardDocumentoFiscal(QDialog):
             emp_cod_act  = _e.get("cod_actividad") or ""
             ct_cod_pais  = _centro.get("cod_pais") or ""
             ct_cod_muni  = _centro.get("cod_municipio") or ""
+            ct_cod_act   = _centro.get("cod_actividad") or ""
 
             # ── Datos trabajador ───────────────────────────────────────────────
             trab               = self._datos.get("trabajador", "—")
@@ -5979,7 +6001,7 @@ class _WizardDocumentoFiscal(QDialog):
                     ))
                     story.append(_data_val_row(
                         ("CÓDIGO CUENTA DE COTIZACIÓN", ct_ccc or emp_ccc or "—"),
-                        ("ACTIVIDAD ECONÓMICA", ct_actividad or emp_actividad),
+                        ("ACTIVIDAD ECONÓMICA", _vc(ct_actividad or emp_actividad, ct_cod_act or emp_cod_act)),
                     ))
                 else:
                     story.append(_data_val_row(
@@ -6709,16 +6731,35 @@ class _FormDialogCorp(QDialog):
         scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
         inner = QWidget(); inner.setStyleSheet("background:transparent;")
         gl = QVBoxLayout(inner); gl.setContentsMargins(0, 0, 8, 0); gl.setSpacing(6)
-        for key, label in self._campos:
+        from PyQt6.QtWidgets import QComboBox
+        self._combos = set()
+        for campo in self._campos:
+            key, label = campo[0], campo[1]
+            choices = campo[2] if len(campo) > 2 else None
             lb = QLabel(label)
             lb.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:14px;font-weight:700;background:transparent;border:none;")
             gl.addWidget(lb)
             val = valores.get(key, "")
             if not val and key == "pais":
                 val = "ESPAÑA"
-            e = QLineEdit(str(val or "")); e.setFixedHeight(36)
-            e.setStyleSheet(f"QLineEdit{{background:#161B22;color:white;border:2px solid {_BORDE};border-radius:8px;padding:0 12px;font-size:12px;}}QLineEdit:focus{{border-color:{_CIAN};}}")
-            self._inps[key] = e; gl.addWidget(e)
+            if choices:
+                w = QComboBox(); w.setFixedHeight(38)
+                w.addItems(list(choices))
+                w.setStyleSheet(
+                    f"QComboBox{{background:#161B22;color:white;border:2px solid {_CIAN};border-radius:8px;padding:0 12px;font-size:12px;}}"
+                    f"QComboBox QAbstractItemView{{background:#0D1117;color:#E6EDF3;border:2px solid {_CIAN};border-radius:8px;"
+                    f"selection-background-color:{_CIAN};selection-color:#0D1117;outline:none;padding:6px;}}"
+                    f"QComboBox QAbstractItemView::item{{min-height:34px;padding:0 12px;border-radius:6px;}}")
+                if val:
+                    if w.findText(str(val)) < 0:
+                        w.insertItem(0, str(val))
+                    w.setCurrentText(str(val))
+                self._combos.add(key)
+                self._inps[key] = w; gl.addWidget(w)
+            else:
+                e = QLineEdit(str(val or "")); e.setFixedHeight(36)
+                e.setStyleSheet(f"QLineEdit{{background:#161B22;color:white;border:2px solid {_BORDE};border-radius:8px;padding:0 12px;font-size:12px;}}QLineEdit:focus{{border-color:{_CIAN};}}")
+                self._inps[key] = e; gl.addWidget(e)
         scroll.setWidget(inner); ly.addWidget(scroll, 1)
         br = QHBoxLayout(); br.addStretch()
         bc = QPushButton(tr("cfg.ban_cancelar", default="CANCELAR")); bc.setFixedHeight(38)
@@ -6733,7 +6774,13 @@ class _FormDialogCorp(QDialog):
         self.setFixedSize(560, min(640, 200 + 64 * len(self._campos)))
 
     def valores(self):
-        return {k: e.text().strip() for k, e in self._inps.items()}
+        out = {}
+        for k, w in self._inps.items():
+            if k in getattr(self, "_combos", set()):
+                out[k] = w.currentText().strip()
+            else:
+                out[k] = w.text().strip()
+        return out
 
 
 class ConfiguracionWindow(QWidget):
@@ -6906,20 +6953,28 @@ class ConfiguracionWindow(QWidget):
     # ============================================================
     # PESTAÑA 10: DATOS DE EMPRESA (fuente única de datos corporativos)
     # ============================================================
+    # Cargos que pueden ejercer como representante legal (desplegable).
+    _CARGOS_REP = [
+        "ADMINISTRADOR/A ÚNICO/A", "ADMINISTRADOR/A SOLIDARIO/A",
+        "ADMINISTRADOR/A MANCOMUNADO/A", "CONSEJERO/A DELEGADO/A",
+        "APODERADO/A", "GERENTE", "DIRECTOR/A GENERAL",
+        "DIRECTOR/A DE RECURSOS HUMANOS", "REPRESENTANTE LEGAL",
+    ]
     _CAMPOS_REP = [
         ("nombre", "Nombre"), ("apellidos", "Apellidos"), ("dni_nie", "DNI / NIE"),
-        ("cargo", "Cargo"), ("telefono", "Teléfono"), ("email", "Email"),
+        ("cargo", "Cargo", _CARGOS_REP), ("telefono", "Teléfono"), ("email", "Email"),
     ]
+    # Cada código va JUSTO después de su campo.
     _CAMPOS_CT = [
         ("nombre_centro", "Nombre del centro"), ("direccion", "Dirección"),
-        ("codigo_postal", "Código postal"), ("municipio", "Municipio"),
+        ("codigo_postal", "Código postal"),
+        ("municipio", "Municipio"), ("cod_municipio", "Cód. municipio (SEPE)"),
         ("provincia", "Provincia"), ("comunidad_autonoma", "Comunidad autónoma"),
-        ("pais", "País"), ("telefono", "Teléfono"), ("email", "Email"),
+        ("pais", "País"), ("cod_pais", "Cód. país (ej. 724)"),
+        ("telefono", "Teléfono"), ("email", "Email"),
         ("codigo_cuenta_cotizacion", "Cuenta de cotización (CCC)"),
-        ("codigo_centro_trabajo", "Código de centro de trabajo"),
         ("actividad_economica", "Actividad económica"),
-        ("cod_municipio", "Cód. municipio (SEPE)"),
-        ("cod_pais", "Cód. país (ej. 724)"),
+        ("cod_actividad", "Cód. actividad económica"),
     ]
 
     def _de_lbl(self, t):
@@ -7014,17 +7069,17 @@ class ConfiguracionWindow(QWidget):
         emp = _emp.obtener_empresa() or {}
         self._de_fields = {}
         filas = [
+            # Cada código va JUNTO a su campo correspondiente.
             [("razon_social", "Razón social:"), ("nombre_comercial", "Nombre comercial:")],
             [("cif_nif", "CIF / NIF:"), ("telefono", "Teléfono:")],
             [("email_principal", "Correo corporativo:"), ("direccion_fiscal", "Domicilio social:")],
-            [("municipio", "Municipio:"), ("provincia", "Provincia:")],
+            [("municipio", "Municipio:"), ("cod_municipio", "Cód. municipio:")],
+            [("provincia", "Provincia:"), ("cod_provincia", "Cód. provincia:")],
+            [("pais", "País:"), ("cod_pais", "Cód. país (ej. 724):")],
+            [("actividad_economica", "Actividad económica:"), ("cod_actividad", "Cód. actividad económica:")],
             [("comunidad_autonoma", "Comunidad autónoma:"), ("cp", "Código postal:")],
-            [("pais", "País:"), ("regimen_ss", "Régimen SS:")],
-            [("ccc", "Cuenta de cotización (CCC):"), ("cnae", "CNAE:")],
-            [("actividad_economica", "Actividad económica:"), ("convenio_colectivo", "Convenio colectivo:")],
-            # Códigos oficiales (SEPE) — opcionales
-            [("cod_pais", "Cód. país (ej. 724):"), ("cod_provincia", "Cód. provincia:")],
-            [("cod_municipio", "Cód. municipio:"), ("cod_actividad", "Cód. actividad económica:")],
+            [("regimen_ss", "Régimen SS:"), ("ccc", "Cuenta de cotización (CCC):")],
+            [("cnae", "CNAE:"), ("convenio_colectivo", "Convenio colectivo:")],
         ]
         for fila in filas:
             rl = QHBoxLayout(); rl.setSpacing(8)
