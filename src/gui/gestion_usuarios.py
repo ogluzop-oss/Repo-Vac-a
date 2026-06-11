@@ -6767,8 +6767,13 @@ class ConfiguracionWindow(QWidget):
         b.clicked.connect(slot); return b
 
     def _de_mini(self, txt, color, slot):
-        b = QPushButton(txt); b.setFixedSize(30, 30); b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setStyleSheet(f"QPushButton{{background:#0E1117;color:{color};border:2px solid {color};border-radius:8px;font-weight:900;font-size:13px;}}QPushButton:hover{{background:{color};color:#0E1117;}}")
+        b = QPushButton(txt); b.setFixedSize(38, 32); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Fuente con glifos (la global es un TTF que no incluye estos iconos).
+        b.setStyleSheet(
+            f"QPushButton{{background:#0E1117;color:{color};border:2px solid {color};"
+            f"border-radius:8px;font-family:'Segoe UI Emoji','Segoe UI Symbol','Segoe UI';"
+            f"font-size:15px;font-weight:900;padding:0;}}"
+            f"QPushButton:hover{{background:{color};color:#0E1117;}}")
         b.clicked.connect(slot); return b
 
     def _de_tabla(self, headers):
@@ -6780,13 +6785,16 @@ class ConfiguracionWindow(QWidget):
         t.verticalHeader().setDefaultSectionSize(46)
         t.setMinimumHeight(150)
         t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Fondo TRANSPARENTE: así el rectángulo de la tabla no tapa las esquinas
+        # redondeadas del marco neón (el #0D1117 del wrap se ve a través).
         t.setStyleSheet(
-            "QTableWidget{background:#0D1117;color:#E6EDF3;border:none;gridline-color:#21262D;font-size:12px;}"
-            "QTableWidget::item{padding:6px;border-bottom:1px solid #21262D;}"
-            "QHeaderView{background:transparent;}"
+            "QTableWidget{background:transparent;color:#E6EDF3;border:none;gridline-color:#21262D;font-size:12px;}"
+            "QTableWidget::item{padding:6px;border-bottom:1px solid #21262D;background:transparent;}"
+            "QHeaderView{background:transparent;border:none;}"
             f"QHeaderView::section{{background:#161B22;color:{_CIAN};border:none;padding:9px;font-weight:900;font-size:12px;}}"
-            f"QHeaderView::section:first{{border-top-left-radius:11px;}}"
-            f"QHeaderView::section:last{{border-top-right-radius:11px;}}"
+            # Primera/última cabecera: redondeo de las 4 esquinas externas (barra tipo pastilla)
+            f"QHeaderView::section:first{{border-top-left-radius:9px;border-bottom-left-radius:9px;}}"
+            f"QHeaderView::section:last{{border-top-right-radius:9px;border-bottom-right-radius:9px;}}"
             f"QHeaderView::section:hover{{background:{_CIAN};color:#0E1117;}}"
         )
         return t
@@ -6794,7 +6802,7 @@ class ConfiguracionWindow(QWidget):
     def _de_wrap(self, tabla):
         wrap = QFrame()
         wrap.setStyleSheet(f"QFrame{{background:#0D1117;border:2px solid {_CIAN};border-radius:14px;}}")
-        wl = QVBoxLayout(wrap); wl.setContentsMargins(5, 5, 5, 5); wl.addWidget(tabla)
+        wl = QVBoxLayout(wrap); wl.setContentsMargins(8, 8, 8, 8); wl.addWidget(tabla)
         return wrap
 
     def _crear_page_datos_empresa(self):
