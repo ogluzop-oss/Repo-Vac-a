@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "Landskod (ex. 724):",
     "wz_f_cod_provincia": "Provinskod:",
     "wz_f_cod_municipio": "Kommunkod:",
-    "wz_f_cod_nivelform": "Utbildningsnivåkod:"
+    "wz_f_cod_nivelform": "Utbildningsnivåkod:",
+    "step_centro_trabajo": "ARBETSCENTER"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

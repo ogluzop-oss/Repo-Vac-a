@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "Cod. paese (es. 724):",
     "wz_f_cod_provincia": "Cod. provincia:",
     "wz_f_cod_municipio": "Cod. municipio:",
-    "wz_f_cod_nivelform": "Cod. livello formativo:"
+    "wz_f_cod_nivelform": "Cod. livello formativo:",
+    "step_centro_trabajo": "CENTRO DI LAVORO"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Intelligente - Smart Manager",

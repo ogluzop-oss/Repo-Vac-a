@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "देश कोड (उदा. 724):",
     "wz_f_cod_provincia": "प्रांत कोड:",
     "wz_f_cod_municipio": "नगर पालिका कोड:",
-    "wz_f_cod_nivelform": "शैक्षणिक स्तर कोड:"
+    "wz_f_cod_nivelform": "शैक्षणिक स्तर कोड:",
+    "step_centro_trabajo": "कार्य केंद्र"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "स्मार्ट स्कैनर - Smart Manager",

@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "Ülke kodu (örn. 724):",
     "wz_f_cod_provincia": "İl kodu:",
     "wz_f_cod_municipio": "Belediye kodu:",
-    "wz_f_cod_nivelform": "Eğitim seviyesi kodu:"
+    "wz_f_cod_nivelform": "Eğitim seviyesi kodu:",
+    "step_centro_trabajo": "İŞ MERKEZİ"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Akıllı Tarayıcı - Smart Manager",

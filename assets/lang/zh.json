@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "国家代码 (例如 724):",
     "wz_f_cod_provincia": "省份代码:",
     "wz_f_cod_municipio": "市级代码:",
-    "wz_f_cod_nivelform": "教育水平代码:"
+    "wz_f_cod_nivelform": "教育水平代码:",
+    "step_centro_trabajo": "工作中心"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "智能扫描仪 - Smart Manager",

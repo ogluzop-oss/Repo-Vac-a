@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "Country code (e.g. 724):",
     "wz_f_cod_provincia": "Province code:",
     "wz_f_cod_municipio": "Municipality code:",
-    "wz_f_cod_nivelform": "Education level code:"
+    "wz_f_cod_nivelform": "Education level code:",
+    "step_centro_trabajo": "WORK CENTRE"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

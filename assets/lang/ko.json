@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "국가 코드(예: 724):",
     "wz_f_cod_provincia": "지역 코드:",
     "wz_f_cod_municipio": "시/군/구 코드:",
-    "wz_f_cod_nivelform": "교육 수준 코드:"
+    "wz_f_cod_nivelform": "교육 수준 코드:",
+    "step_centro_trabajo": "근로 센터"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "스마트 스캐너 - Smart Manager",

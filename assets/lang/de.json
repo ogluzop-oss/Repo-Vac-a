@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "Ländercode (z. B. 724):",
     "wz_f_cod_provincia": "Provinzcode:",
     "wz_f_cod_municipio": "Gemeindecode:",
-    "wz_f_cod_nivelform": "Code Ausbildungsniveau:"
+    "wz_f_cod_nivelform": "Code Ausbildungsniveau:",
+    "step_centro_trabajo": "ARBEITSSTELLE"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",

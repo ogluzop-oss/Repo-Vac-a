@@ -4301,17 +4301,57 @@ class _WizardDocumentoFiscal(QDialog):
         return cb
 
     def _mk_combo_centros(self):
-        """Combo con los centros de trabajo registrados (DATOS DE EMPRESA).
-        El item lleva como data el id_centro (o None = centro principal)."""
+        """Combo con TODOS los centros de trabajo de la empresa: centros registrados
+        (DATOS DE EMPRESA) + tiendas + almacenes + correos corporativos. El item
+        lleva como data un dict {id_centro, nombre, codigo, municipio, fuente}."""
         cb = self._mk_combo([])
         cb.addItem(tr("cfg.wz_centro_principal", default="— Centro principal por defecto —"), None)
         try:
             from src.db import centros as _cts
+            from src.db.conexion import obtener_conexion
+            from src.db.empresa import empresa_actual_id
+            eid = empresa_actual_id()
+            # 1) Centros de trabajo registrados (datos completos)
             for c in _cts.listar_centros():
                 etq = " · ".join(x for x in [c.get("codigo_centro"), c.get("nombre_centro")] if x)
                 if c.get("municipio"):
                     etq += f" ({c.get('municipio')})"
-                cb.addItem(etq or str(c.get("id_centro")), c.get("id_centro"))
+                cb.addItem("🏢  " + (etq or "Centro"),
+                           {"id_centro": c.get("id_centro"), "nombre": c.get("nombre_centro"),
+                            "municipio": c.get("municipio"), "fuente": "centro"})
+            with obtener_conexion() as cn, cn.cursor() as cu:
+                # 2) Tiendas
+                try:
+                    cu.execute("SELECT nombre, codigo_tienda FROM tiendas WHERE id_empresa=%s AND activo=1 ORDER BY nombre", (eid,))
+                    for r in cu.fetchall():
+                        nom = (r[0] if not isinstance(r, dict) else r.get("nombre")) or ""
+                        cod = (r[1] if not isinstance(r, dict) else r.get("codigo_tienda")) or ""
+                        if nom:
+                            cb.addItem("🏪  " + nom + (f" ({cod})" if cod else ""),
+                                       {"id_centro": None, "nombre": nom, "codigo": cod, "fuente": "tienda"})
+                except Exception:
+                    pass
+                # 3) Almacenes
+                try:
+                    cu.execute("SELECT nombre, codigo_almacen FROM almacen WHERE id_empresa=%s AND activo=1 ORDER BY nombre", (eid,))
+                    for r in cu.fetchall():
+                        nom = (r[0] if not isinstance(r, dict) else r.get("nombre")) or ""
+                        cod = (r[1] if not isinstance(r, dict) else r.get("codigo_almacen")) or ""
+                        if nom:
+                            cb.addItem("📦  " + nom + (f" ({cod})" if cod else ""),
+                                       {"id_centro": None, "nombre": nom, "codigo": cod, "fuente": "almacen"})
+                except Exception:
+                    pass
+            # 4) Correos corporativos (cada buzón implica un centro)
+            try:
+                from src.db import correo as _co
+                for m in _co.listar_correos():
+                    dirn = m.get("direccion") or ""
+                    if dirn:
+                        cb.addItem("✉  " + dirn,
+                                   {"id_centro": None, "nombre": dirn, "fuente": "correo"})
+            except Exception:
+                pass
         except Exception:
             pass
         return cb
@@ -4434,7 +4474,7 @@ class _WizardDocumentoFiscal(QDialog):
         self._outer_ly.addWidget(top_bar)
 
         self._content_w = None
-        self.setFixedSize(680, 620)
+        self.setFixedSize(740, 620)
         self._render()
 
     def _render(self):
@@ -4452,9 +4492,13 @@ class _WizardDocumentoFiscal(QDialog):
         self._card_ly.setSpacing(12)
         self._outer_ly.addWidget(content_w)
 
-        pasos = ([tr("cfg.step_empresa", default="EMPRESA"), tr("cfg.step_datos", default="DATOS"), tr("cfg.step_preview", default="VISTA PREVIA"), tr("cfg.step_generar", default="GENERAR")]
+        # En el contrato, el 2º paso se llama CENTRO TRABAJO (lo pidió el usuario);
+        # en el resto de documentos, DATOS.
+        _paso2 = (tr("cfg.step_centro_trabajo", default="CENTRO TRABAJO")
+                  if self._tipo == "CONTRATO" else tr("cfg.step_datos", default="DATOS"))
+        pasos = ([tr("cfg.step_empresa", default="EMPRESA"), _paso2, tr("cfg.step_preview", default="VISTA PREVIA"), tr("cfg.step_generar", default="GENERAR")]
                  if self._tipo in self._FISCAL_TYPES
-                 else [tr("cfg.step_trabajador", default="TRABAJADOR"), tr("cfg.step_datos", default="DATOS"), tr("cfg.step_preview", default="VISTA PREVIA"), tr("cfg.step_generar", default="GENERAR")])
+                 else [tr("cfg.step_trabajador", default="TRABAJADOR"), _paso2, tr("cfg.step_preview", default="VISTA PREVIA"), tr("cfg.step_generar", default="GENERAR")])
         sr = QHBoxLayout()
         for i, p in enumerate(pasos):
             lp = QLabel(p)
@@ -4490,7 +4534,7 @@ class _WizardDocumentoFiscal(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(self._scroll_ss())
         inner = QWidget(); inner.setStyleSheet("background:transparent;")
-        il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 8, 0); il.setSpacing(8)
+        il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 16, 0); il.setSpacing(8)
 
         il.addWidget(self._lbl_s(tr("cfg.wz_f_nombre", default="Nombre completo:")))
         self._inp_nombre = self._mk_inp(tr("cfg.wz_ph_nombre", default="Nombre y apellidos del trabajador"))
@@ -4520,40 +4564,57 @@ class _WizardDocumentoFiscal(QDialog):
         row_ss_nac.addLayout(col_ss); row_ss_nac.addLayout(col_nacion)
         il.addLayout(row_ss_nac)
 
-        il.addWidget(self._lbl_s(tr("cfg.wz_f_categoria", default="Grupo profesional / Puesto:")))
-        self._inp_categoria = self._mk_inp(tr("cfg.wz_ph_categoria", default="Ej: Vendedor/a, Cajero/a, Responsable…"))
-        il.addWidget(self._inp_categoria)
-
-        row_form_mun = QHBoxLayout(); row_form_mun.setSpacing(8)
+        # Nivel formativo + su código (inline)
+        row_nf = QHBoxLayout(); row_nf.setSpacing(8)
         c_form = QVBoxLayout(); c_form.addWidget(self._lbl_s(tr("cfg.wz_f_nivelform", default="Nivel formativo:")))
         self._inp_formativo = self._mk_inp(tr("cfg.wz_ph_nivelform", default="Ej: ESO, Bachillerato, FP, Grado…"))
         c_form.addWidget(self._inp_formativo)
+        c_cnf = QVBoxLayout(); c_cnf.addWidget(self._lbl_s(tr("cfg.wz_f_cod_nivelform", default="Cód. nivel formativo:")))
+        self._inp_cod_nivelform = self._mk_inp("Ej: 34"); c_cnf.addWidget(self._inp_cod_nivelform)
+        row_nf.addLayout(c_form); row_nf.addLayout(c_cnf); il.addLayout(row_nf)
+
+        il.addWidget(self._lbl_s(tr("cfg.wz_f_titulacion", default="Titulación (si procede):")))
+        self._inp_titulacion = self._mk_inp(tr("cfg.wz_ph_titulacion", default="Ej: Grado en ADE, FP Comercio…"))
+        il.addWidget(self._inp_titulacion)
+
+        # Municipio de domicilio + su código (inline)
+        row_mun = QHBoxLayout(); row_mun.setSpacing(8)
         c_mun = QVBoxLayout(); c_mun.addWidget(self._lbl_s(tr("cfg.wz_f_municipio", default="Municipio de domicilio:")))
         self._inp_municipio = self._mk_inp(tr("cfg.wz_ph_municipio", default="Ciudad de residencia"))
         c_mun.addWidget(self._inp_municipio)
-        row_form_mun.addLayout(c_form); row_form_mun.addLayout(c_mun)
-        il.addLayout(row_form_mun)
+        c_cmu = QVBoxLayout(); c_cmu.addWidget(self._lbl_s(tr("cfg.wz_f_cod_municipio", default="Cód. municipio:")))
+        self._inp_cod_municipio = self._mk_inp("Ej: 08298"); c_cmu.addWidget(self._inp_cod_municipio)
+        row_mun.addLayout(c_mun); row_mun.addLayout(c_cmu); il.addLayout(row_mun)
 
-        row_prov_cp = QHBoxLayout(); row_prov_cp.setSpacing(8)
+        # Provincia + su código (inline)
+        row_prov = QHBoxLayout(); row_prov.setSpacing(8)
         c_prov = QVBoxLayout(); c_prov.addWidget(self._lbl_s(tr("cfg.wz_f_provincia", default="Provincia:")))
         self._inp_provincia = self._mk_inp(tr("cfg.wz_ph_provincia", default="Provincia de residencia"))
         c_prov.addWidget(self._inp_provincia)
-        c_cp = QVBoxLayout(); c_cp.addWidget(self._lbl_s(tr("cfg.wz_f_cp", default="Código postal:")))
-        self._inp_cp = self._mk_inp(tr("cfg.wz_ph_cp", default="Ej: 08500"))
-        c_cp.addWidget(self._inp_cp)
-        row_prov_cp.addLayout(c_prov); row_prov_cp.addLayout(c_cp)
-        il.addLayout(row_prov_cp)
+        c_cpr = QVBoxLayout(); c_cpr.addWidget(self._lbl_s(tr("cfg.wz_f_cod_provincia", default="Cód. provincia:")))
+        self._inp_cod_provincia = self._mk_inp("Ej: 08"); c_cpr.addWidget(self._inp_cod_provincia)
+        row_prov.addLayout(c_prov); row_prov.addLayout(c_cpr); il.addLayout(row_prov)
 
-        row_pais_sexo = QHBoxLayout(); row_pais_sexo.setSpacing(8)
+        # País + su código (inline)
+        row_pais = QHBoxLayout(); row_pais.setSpacing(8)
         c_pais = QVBoxLayout(); c_pais.addWidget(self._lbl_s(tr("cfg.wz_f_pais", default="País:")))
         self._inp_pais = self._mk_inp(tr("cfg.wz_ph_pais", default="ESPAÑA")); self._inp_pais.setText("ESPAÑA")
         c_pais.addWidget(self._inp_pais)
+        c_cpa = QVBoxLayout(); c_cpa.addWidget(self._lbl_s(tr("cfg.wz_f_cod_pais", default="Cód. país (ej. 724):")))
+        self._inp_cod_pais = self._mk_inp("Ej: 724"); c_cpa.addWidget(self._inp_cod_pais)
+        row_pais.addLayout(c_pais); row_pais.addLayout(c_cpa); il.addLayout(row_pais)
+
+        # Código postal + Sexo
+        row_cp_sx = QHBoxLayout(); row_cp_sx.setSpacing(8)
+        c_cp = QVBoxLayout(); c_cp.addWidget(self._lbl_s(tr("cfg.wz_f_cp", default="Código postal:")))
+        self._inp_cp = self._mk_inp(tr("cfg.wz_ph_cp", default="Ej: 08500"))
+        c_cp.addWidget(self._inp_cp)
         c_sexo = QVBoxLayout(); c_sexo.addWidget(self._lbl_s(tr("cfg.wz_f_sexo", default="Sexo:")))
         self._combo_sexo = self._mk_combo(["—", "MUJER", "HOMBRE", "OTRO"])
         c_sexo.addWidget(self._combo_sexo)
-        row_pais_sexo.addLayout(c_pais); row_pais_sexo.addLayout(c_sexo)
-        il.addLayout(row_pais_sexo)
+        row_cp_sx.addLayout(c_cp); row_cp_sx.addLayout(c_sexo); il.addLayout(row_cp_sx)
 
+        # Teléfono + Correo
         row_tel_mail = QHBoxLayout(); row_tel_mail.setSpacing(8)
         c_tel = QVBoxLayout(); c_tel.addWidget(self._lbl_s(tr("cfg.wz_f_telefono", default="Teléfono:")))
         self._inp_telefono = self._mk_inp(tr("cfg.wz_ph_telefono", default="Ej: 600 000 000"))
@@ -4563,24 +4624,6 @@ class _WizardDocumentoFiscal(QDialog):
         c_mail.addWidget(self._inp_email)
         row_tel_mail.addLayout(c_tel); row_tel_mail.addLayout(c_mail)
         il.addLayout(row_tel_mail)
-
-        il.addWidget(self._lbl_s(tr("cfg.wz_f_titulacion", default="Titulación (si procede):")))
-        self._inp_titulacion = self._mk_inp(tr("cfg.wz_ph_titulacion", default="Ej: Grado en ADE, FP Comercio…"))
-        il.addWidget(self._inp_titulacion)
-
-        il.addWidget(self._sep_lbl(tr("cfg.wz_sep_codigos", default="CÓDIGOS OFICIALES (SEPE) — opcional")))
-        rcod1 = QHBoxLayout(); rcod1.setSpacing(8)
-        cc1 = QVBoxLayout(); cc1.addWidget(self._lbl_s(tr("cfg.wz_f_cod_pais", default="Cód. país (ej. 724):")))
-        self._inp_cod_pais = self._mk_inp("Ej: 724"); cc1.addWidget(self._inp_cod_pais)
-        cc2 = QVBoxLayout(); cc2.addWidget(self._lbl_s(tr("cfg.wz_f_cod_provincia", default="Cód. provincia:")))
-        self._inp_cod_provincia = self._mk_inp("Ej: 08"); cc2.addWidget(self._inp_cod_provincia)
-        rcod1.addLayout(cc1); rcod1.addLayout(cc2); il.addLayout(rcod1)
-        rcod2 = QHBoxLayout(); rcod2.setSpacing(8)
-        cc3 = QVBoxLayout(); cc3.addWidget(self._lbl_s(tr("cfg.wz_f_cod_municipio", default="Cód. municipio:")))
-        self._inp_cod_municipio = self._mk_inp("Ej: 08298"); cc3.addWidget(self._inp_cod_municipio)
-        cc4 = QVBoxLayout(); cc4.addWidget(self._lbl_s(tr("cfg.wz_f_cod_nivelform", default="Cód. nivel formativo:")))
-        self._inp_cod_nivelform = self._mk_inp("Ej: 34"); cc4.addWidget(self._inp_cod_nivelform)
-        rcod2.addLayout(cc3); rcod2.addLayout(cc4); il.addLayout(rcod2)
 
         il.addStretch()
         scroll.setWidget(inner)
@@ -4601,7 +4644,7 @@ class _WizardDocumentoFiscal(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(self._scroll_ss())
         inner = QWidget(); inner.setStyleSheet("background:transparent;")
-        il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 8, 0); il.setSpacing(8)
+        il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 16, 0); il.setSpacing(8)
 
         # Load empresa data for auto-populate
         emp: dict = {}
@@ -4667,7 +4710,6 @@ class _WizardDocumentoFiscal(QDialog):
             self._datos["fecha_nacimiento"] = self._inp_fnac.text().strip()
             self._datos["ss"] = self._inp_ss.text().strip()
             self._datos["nacionalidad"] = self._inp_nacionalidad.text().strip()
-            self._datos["categoria"] = self._inp_categoria.text().strip()
             self._datos["nivel_formativo"] = self._inp_formativo.text().strip()
             self._datos["municipio_domicilio"] = self._inp_municipio.text().strip()
             self._datos["provincia_domicilio"] = self._inp_provincia.text().strip()
@@ -4701,7 +4743,7 @@ class _WizardDocumentoFiscal(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet(self._scroll_ss())
         inner = QWidget(); inner.setStyleSheet("background:transparent;")
-        il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 8, 0); il.setSpacing(8)
+        il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 16, 0); il.setSpacing(8)
         return scroll, inner, il
 
     def _p2_nav(self):
@@ -5334,9 +5376,15 @@ class _WizardDocumentoFiscal(QDialog):
         ]:
             self._datos[key] = _t(attr)
 
-        # Centro de trabajo seleccionado (de los registrados en DATOS DE EMPRESA)
+        # Centro de trabajo seleccionado (centro registrado / tienda / almacén / correo)
         if hasattr(self, "_combo_centro"):
-            self._datos["id_centro"] = self._combo_centro.currentData()
+            _cd = self._combo_centro.currentData()
+            if isinstance(_cd, dict):
+                self._datos["id_centro"] = _cd.get("id_centro")
+                self._datos["centro_info"] = _cd
+            else:
+                self._datos["id_centro"] = None
+                self._datos["centro_info"] = None
 
         # Combo fields
         for key, attr in [
@@ -5543,6 +5591,13 @@ class _WizardDocumentoFiscal(QDialog):
             _e     = _dc.get("empresa") or {}
             _rep   = _dc.get("representante") or {}
             _centro = _dc.get("centro") or {}
+            # Si el centro elegido es una tienda/almacén/correo (no un centro
+            # registrado con datos completos), usar su nombre/municipio.
+            _cinfo = self._datos.get("centro_info") or {}
+            if _cinfo and not _cinfo.get("id_centro"):
+                _centro = {"nombre_centro": _cinfo.get("nombre"),
+                           "codigo_centro": _cinfo.get("codigo"),
+                           "municipio": _cinfo.get("municipio")}
             emp = _e  # compat con referencias posteriores
             emp_nombre    = _e.get("razon_social") or _e.get("nombre_empresa") or "EMPRESA"
             emp_comercial = _e.get("nombre_comercial") or ""

@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "رمز البلد (مثال 724):",
     "wz_f_cod_provincia": "رمز المقاطعة:",
     "wz_f_cod_municipio": "رمز البلدية:",
-    "wz_f_cod_nivelform": "رمز المستوى التعليمي:"
+    "wz_f_cod_nivelform": "رمز المستوى التعليمي:",
+    "step_centro_trabajo": "مركز العمل"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "ماسح ذكي - Smart Manager",

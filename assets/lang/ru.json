@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "Код страны (пример: 724):",
     "wz_f_cod_provincia": "Код провинции:",
     "wz_f_cod_municipio": "Код муниципалитета:",
-    "wz_f_cod_nivelform": "Код уровня образования:"
+    "wz_f_cod_nivelform": "Код уровня образования:",
+    "step_centro_trabajo": "ЦЕНТР РАБОТЫ"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Интеллектуальный сканер - Smart Manager",

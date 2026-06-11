@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "Kod kraju (np. 724):",
     "wz_f_cod_provincia": "Kod prowincji:",
     "wz_f_cod_municipio": "Kod gminy:",
-    "wz_f_cod_nivelform": "Kod poziomu wykształcenia:"
+    "wz_f_cod_nivelform": "Kod poziomu wykształcenia:",
+    "step_centro_trabajo": "MIEJSCE PRACY"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

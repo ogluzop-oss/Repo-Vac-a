@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "Kode negara (cth. 724):",
     "wz_f_cod_provincia": "Kode provinsi:",
     "wz_f_cod_municipio": "Kode kota/kabupaten:",
-    "wz_f_cod_nivelform": "Kode tingkat pendidikan:"
+    "wz_f_cod_nivelform": "Kode tingkat pendidikan:",
+    "step_centro_trabajo": "PUSAT KERJA"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",

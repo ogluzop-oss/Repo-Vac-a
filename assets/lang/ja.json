@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "国コード（例：724）：",
     "wz_f_cod_provincia": "都道府県コード：",
     "wz_f_cod_municipio": "市町村コード：",
-    "wz_f_cod_nivelform": "教育レベルコード："
+    "wz_f_cod_nivelform": "教育レベルコード：",
+    "step_centro_trabajo": "勤務地"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

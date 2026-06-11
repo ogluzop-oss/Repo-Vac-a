@@ -1292,7 +1292,8 @@
     "wz_f_cod_pais": "รหัสประเทศ (เช่น 724):",
     "wz_f_cod_provincia": "รหัสจังหวัด:",
     "wz_f_cod_municipio": "รหัสเขต:",
-    "wz_f_cod_nivelform": "รหัสระดับการศึกษา:"
+    "wz_f_cod_nivelform": "รหัสระดับการศึกษา:",
+    "step_centro_trabajo": "ศูนย์กลางงาน"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "สแกนเนอร์อัจฉริยะ - Smart Manager",
