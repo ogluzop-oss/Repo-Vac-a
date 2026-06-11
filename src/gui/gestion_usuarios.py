@@ -4847,8 +4847,8 @@ class _WizardDocumentoFiscal(QDialog):
 
         il.addWidget(self._sep_lbl("COFINANCIACIÓN / LOGOS INSTITUCIONALES"))
         self._chk_fse = self._mk_check(
-            "Contrato cofinanciado — mostrar banner institucional (FSE+ / Unión Europea)")
-        self._chk_fse.setChecked(False)
+            "Contrato cofinanciado — mostrar logos institucionales en la cabecera (FSE+ / UE / Ministerio / SEPE)")
+        self._chk_fse.setChecked(True)  # por defecto marcado (modelo SEPE/FSE)
         il.addWidget(self._chk_fse)
 
         il.addWidget(self._sep_lbl("CLÁUSULAS ADICIONALES (ANEXO)"))
@@ -5934,19 +5934,22 @@ class _WizardDocumentoFiscal(QDialog):
                 story.append(_sec_header("CLÁUSULAS"))
                 story.append(Spacer(1, 1*mm))
 
+                _td_txt = "SÍ" if _distancia_si else "NO"
                 story.append(_P(
-                    f"<b>PRIMERA:</b> El/La trabajador/a prestará sus servicios como "
-                    f"<b>{_puesto_txt}</b>, incluido en el grupo profesional de <b>{_grupo_txt}</b>, "
-                    f"para la realización de las funciones de <b>{_func_txt}</b>, de acuerdo con el "
-                    f"sistema de clasificación profesional vigente en la empresa <b>{emp_nombre}</b> "
-                    f"(CIF: {emp_cif}). Centro de trabajo: <b>{_centro_txt}</b>."
-                    + (" Trabajo a distancia conforme a la Ley 10/2021, de 9 de julio." if _distancia_si else ""),
+                    f"<b>PRIMERA:</b> El/la trabajador/a prestará sus servicios como <b>{_puesto_txt}</b>, "
+                    f"incluido/a en el grupo profesional de <b>{_grupo_txt}</b>, para la realización de las "
+                    f"funciones de <b>{_func_txt}</b>, de acuerdo con el sistema de clasificación profesional "
+                    f"vigente en la empresa. En el centro de trabajo ubicado en (calle, nº y localidad): "
+                    f"<b>{_centro_txt}</b>. Modalidad de trabajo a distancia: <b>{_td_txt}</b> "
+                    f"(Ley 10/2021, de 9 de julio, de trabajo a distancia).",
                     st_clause))
 
                 if _es_fijodisc:
                     _segunda_txt = (
-                        "<b>SEGUNDA:</b> El contrato se concierta para realizar trabajos fijos-discontinuos "
-                        "de acuerdo con el artículo 16 del Estatuto de los Trabajadores.")
+                        f"<b>SEGUNDA:</b> El contrato se concierta para realizar trabajos fijos-discontinuos, "
+                        f"de acuerdo con el artículo 16 del Estatuto de los Trabajadores. Los/as trabajadores/as "
+                        f"serán llamados/as en el orden y la forma que se determine en el Convenio Colectivo de "
+                        f"<b>{_conv_txt}</b> o acuerdo de empresa.")
                 elif _es_sustit:
                     _segunda_txt = (
                         "<b>SEGUNDA:</b> El contrato se concierta para la sustitución de persona trabajadora "
@@ -5970,17 +5973,15 @@ class _WizardDocumentoFiscal(QDialog):
 
                 if _jornada_parcial:
                     jornada_txt = (
-                        f"<b>TERCERA:</b> La jornada de trabajo ordinaria será de <b>{_horas_txt} horas</b> "
+                        f"<b>TERCERA:</b> La jornada de trabajo será <b>a tiempo parcial</b>: <b>{_horas_txt} horas</b> "
                         f"a la semana, siendo esta jornada inferior a la de un trabajador a tiempo completo comparable. "
                         f"La distribución del tiempo de trabajo será de <b>{_dist_txt}</b>, conforme a lo previsto "
-                        f"en el convenio colectivo."
-                    )
+                        f"en el convenio colectivo.")
                 else:
                     jornada_txt = (
-                        f"<b>TERCERA:</b> La jornada de trabajo será de <b>{_horas_txt} horas semanales</b> "
-                        f"prestadas a tiempo completo, con distribución horaria de <b>{_dist_txt}</b>, "
-                        f"con los descansos establecidos legal o convencionalmente."
-                    )
+                        f"<b>TERCERA:</b> La jornada de trabajo será <b>a tiempo completo</b>: <b>{_horas_txt} horas "
+                        f"semanales</b>, con la distribución horaria de <b>{_dist_txt}</b>, con los descansos "
+                        f"establecidos legal o convencionalmente.")
                 story.append(_P(jornada_txt, st_clause))
 
                 if _es_fijodisc:
@@ -6004,15 +6005,18 @@ class _WizardDocumentoFiscal(QDialog):
                 story.append(_P(_cuarta_txt, st_clause))
 
                 story.append(_P(
-                    f"<b>QUINTA:</b> El/La trabajador/a percibirá una retribución total de "
-                    f"<b>{_sal_anual_fmt} brutos</b> distribuidos en <b>{num_pagas} pagas</b> "
-                    f"(mensual: <b>{_sal_mensual_fmt}</b>), sujetos a las retenciones de IRPF y "
-                    f"cotizaciones a la Seguridad Social legalmente establecidas.",
+                    f"<b>QUINTA:</b> El/la trabajador/a percibirá una retribución total de "
+                    f"<b>{_sal_anual_fmt} euros brutos anuales</b>, que se distribuirán en <b>{num_pagas} pagas</b> "
+                    f"(importe mensual: <b>{_sal_mensual_fmt}</b>), conforme a los conceptos salariales del "
+                    f"convenio colectivo y sujetos a las retenciones de IRPF y a las cotizaciones a la "
+                    f"Seguridad Social legalmente establecidas.",
                     st_clause))
 
                 story.append(_P(
-                    "<b>SEXTA:</b> La empresa <b>NO</b> tiene autorizado un expediente de regulación de empleo. "
-                    "Complemento de apoyo al empleo conforme a la disposición adicional 59ª del TRLGSS.",
+                    "<b>SEXTA:</b> Complemento de apoyo al empleo para las personas trabajadoras que estén "
+                    "percibiendo prestaciones por desempleo (disposición adicional 59ª del texto refundido de "
+                    "la Ley General de la Seguridad Social). La empresa <b>NO</b> tiene autorizado un expediente "
+                    "de regulación de empleo.",
                     st_clause))
 
                 story.append(_P(
@@ -6020,8 +6024,9 @@ class _WizardDocumentoFiscal(QDialog):
                     st_clause))
 
                 story.append(_P(
-                    f"<b>OCTAVA:</b> En lo no previsto, se estará al Estatuto de los Trabajadores "
-                    f"(RDL 2/2015) y al Convenio Colectivo de <b>{_conv_txt}</b>.",
+                    f"<b>OCTAVA:</b> En lo no previsto en este contrato, se estará a la legislación vigente que "
+                    f"resulte de aplicación y, particularmente, al Estatuto de los Trabajadores (RDL 2/2015) y "
+                    f"al Convenio Colectivo de <b>{_conv_txt}</b>.",
                     st_clause))
 
                 story.append(_P(
@@ -6030,18 +6035,18 @@ class _WizardDocumentoFiscal(QDialog):
                     st_clause))
 
                 story.append(_P(
-                    "<b>DÉCIMA:</b> El contenido del presente contrato se comunicará al SEPE en el "
-                    "plazo de los 10 días siguientes a su concertación (art. 16.1 Ley de Empleo).",
+                    "<b>DÉCIMA:</b> ESTE CONTRATO PODRÁ SER COFINANCIADO POR EL FONDO SOCIAL EUROPEO.",
                     st_clause))
 
                 story.append(_P(
-                    "<b>UNDÉCIMA:</b> PROTECCIÓN DE DATOS. Los datos consignados tendrán la "
-                    "protección derivada del Reglamento (UE) 2016/679 y de la Ley Orgánica 3/2018, "
-                    "de 5 de diciembre (LOPDGDD).",
+                    "<b>UNDÉCIMA:</b> El contenido del presente contrato se comunicará al Servicio Público de "
+                    "Empleo en el plazo de los 10 días siguientes a su concertación (art. 16.1 de la Ley de Empleo).",
                     st_clause))
 
                 story.append(_P(
-                    "<b>DUODÉCIMA:</b> ESTE CONTRATO PODRÁ SER COFINANCIADO POR EL FONDO SOCIAL EUROPEO.",
+                    "<b>DUODÉCIMA:</b> PROTECCIÓN DE DATOS. Los datos consignados en el presente modelo tendrán "
+                    "la protección derivada del Reglamento (UE) 2016/679 del Parlamento Europeo y del Consejo, "
+                    "de 27 de abril de 2016, y de la Ley Orgánica 3/2018, de 5 de diciembre (LOPDGDD).",
                     st_clause))
                 story.append(Spacer(1, 2*mm))
 
