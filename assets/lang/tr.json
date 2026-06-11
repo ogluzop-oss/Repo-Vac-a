@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "YENİ ÇALIŞMA MERKEZİ",
     "de_edit_ct": "ÇALIŞMA MERKEZİNİ DÜZENLE",
     "de_ok_t": "Veriler kaydedildi",
-    "de_ok_msg": "Şirket verileri kaydedilmiş ve tüm belgelerde otomatik olarak kullanılacaktır."
+    "de_ok_msg": "Şirket verileri kaydedilmiş ve tüm belgelerde otomatik olarak kullanılacaktır.",
+    "wz_f_provincia": "İl:",
+    "wz_ph_provincia": "İkametgah İli",
+    "wz_f_cp": "Posta Kodu:",
+    "wz_ph_cp": "Örn: 08500",
+    "wz_f_pais": "Ülke:",
+    "wz_ph_pais": "İSPANYA",
+    "wz_f_sexo": "Cinsiyet:",
+    "wz_f_telefono": "Telefon:",
+    "wz_ph_telefono": "Örn: 600 000 000",
+    "wz_f_email": "E-posta:",
+    "wz_ph_email": "eposta@ornek.com",
+    "wz_f_titulacion": "Nitelik (varsa):",
+    "wz_ph_titulacion": "Örn: İşletme Bölümü Lisans Derecesi, Ticaret MYO…",
+    "wz_centro_principal": "— Varsayılan Ana Merkez —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Akıllı Tarayıcı - Smart Manager",

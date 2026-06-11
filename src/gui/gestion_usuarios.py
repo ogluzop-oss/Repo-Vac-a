@@ -4300,6 +4300,22 @@ class _WizardDocumentoFiscal(QDialog):
         """)
         return cb
 
+    def _mk_combo_centros(self):
+        """Combo con los centros de trabajo registrados (DATOS DE EMPRESA).
+        El item lleva como data el id_centro (o None = centro principal)."""
+        cb = self._mk_combo([])
+        cb.addItem(tr("cfg.wz_centro_principal", default="— Centro principal por defecto —"), None)
+        try:
+            from src.db import centros as _cts
+            for c in _cts.listar_centros():
+                etq = " · ".join(x for x in [c.get("codigo_centro"), c.get("nombre_centro")] if x)
+                if c.get("municipio"):
+                    etq += f" ({c.get('municipio')})"
+                cb.addItem(etq or str(c.get("id_centro")), c.get("id_centro"))
+        except Exception:
+            pass
+        return cb
+
     def _lbl_s(self, txt):
         l = QLabel(_wz_tr(txt))
         l.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:14px;font-weight:bold;")
@@ -4473,6 +4489,40 @@ class _WizardDocumentoFiscal(QDialog):
         row_form_mun.addLayout(c_form); row_form_mun.addLayout(c_mun)
         il.addLayout(row_form_mun)
 
+        row_prov_cp = QHBoxLayout(); row_prov_cp.setSpacing(8)
+        c_prov = QVBoxLayout(); c_prov.addWidget(self._lbl_s(tr("cfg.wz_f_provincia", default="Provincia:")))
+        self._inp_provincia = self._mk_inp(tr("cfg.wz_ph_provincia", default="Provincia de residencia"))
+        c_prov.addWidget(self._inp_provincia)
+        c_cp = QVBoxLayout(); c_cp.addWidget(self._lbl_s(tr("cfg.wz_f_cp", default="Código postal:")))
+        self._inp_cp = self._mk_inp(tr("cfg.wz_ph_cp", default="Ej: 08500"))
+        c_cp.addWidget(self._inp_cp)
+        row_prov_cp.addLayout(c_prov); row_prov_cp.addLayout(c_cp)
+        il.addLayout(row_prov_cp)
+
+        row_pais_sexo = QHBoxLayout(); row_pais_sexo.setSpacing(8)
+        c_pais = QVBoxLayout(); c_pais.addWidget(self._lbl_s(tr("cfg.wz_f_pais", default="País:")))
+        self._inp_pais = self._mk_inp(tr("cfg.wz_ph_pais", default="ESPAÑA")); self._inp_pais.setText("ESPAÑA")
+        c_pais.addWidget(self._inp_pais)
+        c_sexo = QVBoxLayout(); c_sexo.addWidget(self._lbl_s(tr("cfg.wz_f_sexo", default="Sexo:")))
+        self._combo_sexo = self._mk_combo(["—", "MUJER", "HOMBRE", "OTRO"])
+        c_sexo.addWidget(self._combo_sexo)
+        row_pais_sexo.addLayout(c_pais); row_pais_sexo.addLayout(c_sexo)
+        il.addLayout(row_pais_sexo)
+
+        row_tel_mail = QHBoxLayout(); row_tel_mail.setSpacing(8)
+        c_tel = QVBoxLayout(); c_tel.addWidget(self._lbl_s(tr("cfg.wz_f_telefono", default="Teléfono:")))
+        self._inp_telefono = self._mk_inp(tr("cfg.wz_ph_telefono", default="Ej: 600 000 000"))
+        c_tel.addWidget(self._inp_telefono)
+        c_mail = QVBoxLayout(); c_mail.addWidget(self._lbl_s(tr("cfg.wz_f_email", default="Correo electrónico:")))
+        self._inp_email = self._mk_inp(tr("cfg.wz_ph_email", default="correo@ejemplo.com"))
+        c_mail.addWidget(self._inp_email)
+        row_tel_mail.addLayout(c_tel); row_tel_mail.addLayout(c_mail)
+        il.addLayout(row_tel_mail)
+
+        il.addWidget(self._lbl_s(tr("cfg.wz_f_titulacion", default="Titulación (si procede):")))
+        self._inp_titulacion = self._mk_inp(tr("cfg.wz_ph_titulacion", default="Ej: Grado en ADE, FP Comercio…"))
+        il.addWidget(self._inp_titulacion)
+
         il.addStretch()
         scroll.setWidget(inner)
         self._card_ly.addWidget(scroll, 1)
@@ -4561,6 +4611,14 @@ class _WizardDocumentoFiscal(QDialog):
             self._datos["categoria"] = self._inp_categoria.text().strip()
             self._datos["nivel_formativo"] = self._inp_formativo.text().strip()
             self._datos["municipio_domicilio"] = self._inp_municipio.text().strip()
+            self._datos["provincia_domicilio"] = self._inp_provincia.text().strip()
+            self._datos["cp_domicilio"] = self._inp_cp.text().strip()
+            self._datos["pais_domicilio"] = self._inp_pais.text().strip()
+            sx = self._combo_sexo.currentText()
+            self._datos["sexo"] = "" if sx == "—" else sx
+            self._datos["telefono_trab"] = self._inp_telefono.text().strip()
+            self._datos["email_trab"] = self._inp_email.text().strip()
+            self._datos["titulacion"] = self._inp_titulacion.text().strip()
         self._ir(1)
 
     def _mk_check(self, txt):
@@ -4639,6 +4697,9 @@ class _WizardDocumentoFiscal(QDialog):
         self._combo_sub = self._mk_combo(subtypes)
         il.addWidget(self._combo_sub)
         self._p2_fecha_label(il, "Fecha de inicio:")
+        il.addWidget(self._lbl_s("Fecha fin (solo temporal / sustitución / prácticas):"))
+        self._inp_fecha_fin = self._mk_inp("DD/MM/AAAA")
+        il.addWidget(self._inp_fecha_fin)
 
         il.addWidget(self._sep_lbl("PUESTO DE TRABAJO"))
         row1 = QHBoxLayout(); row1.setSpacing(8)
@@ -4653,7 +4714,10 @@ class _WizardDocumentoFiscal(QDialog):
         il.addWidget(self._lbl_s("Funciones principales:"))
         self._inp_funciones = self._mk_inp("Descripción breve de las funciones")
         il.addWidget(self._inp_funciones)
-        il.addWidget(self._lbl_s("Centro de trabajo (dirección):"))
+        il.addWidget(self._lbl_s("Centro de trabajo (registrado en DATOS DE EMPRESA):"))
+        self._combo_centro = self._mk_combo_centros()
+        il.addWidget(self._combo_centro)
+        il.addWidget(self._lbl_s("Centro de trabajo (dirección manual, opcional):"))
         self._inp_centro = self._mk_inp("Calle, nº, localidad")
         il.addWidget(self._inp_centro)
         row2 = QHBoxLayout(); row2.setSpacing(8)
@@ -5175,9 +5239,13 @@ class _WizardDocumentoFiscal(QDialog):
             ("anticipos", "_inp_anticipos"), ("embargos", "_inp_embargos"),
             ("fecha_efecto_2", "_inp_fecha_efecto"), ("fecha_fin_vac", "_inp_fecha_fin_vac"),
             ("f_inicio_rel", "_inp_f_inicio_rel"), ("f_fin_rel", "_inp_f_fin_rel"),
-            ("filtro_emp", "_inp_filtro_emp"),
+            ("filtro_emp", "_inp_filtro_emp"), ("fecha_fin", "_inp_fecha_fin"),
         ]:
             self._datos[key] = _t(attr)
+
+        # Centro de trabajo seleccionado (de los registrados en DATOS DE EMPRESA)
+        if hasattr(self, "_combo_centro"):
+            self._datos["id_centro"] = self._combo_centro.currentData()
 
         # Combo fields
         for key, attr in [
@@ -5421,6 +5489,13 @@ class _WizardDocumentoFiscal(QDialog):
             nacionalidad       = self._datos.get("nacionalidad", "")
             nivel_formativo    = self._datos.get("nivel_formativo", "")
             municipio_dom      = self._datos.get("municipio_domicilio", "")
+            provincia_dom      = self._datos.get("provincia_domicilio", "")
+            cp_dom             = self._datos.get("cp_domicilio", "")
+            pais_dom           = self._datos.get("pais_domicilio", "") or "ESPAÑA"
+            sexo               = self._datos.get("sexo", "")
+            tel_trab           = self._datos.get("telefono_trab", "")
+            email_trab         = self._datos.get("email_trab", "")
+            titulacion         = self._datos.get("titulacion", "")
             puesto             = self._datos.get("puesto", "")
             grupo_prof         = self._datos.get("grupo_prof", "")
             funciones          = self._datos.get("funciones", "")
@@ -5651,15 +5726,25 @@ class _WizardDocumentoFiscal(QDialog):
                 story.append(Spacer(1, 1*mm))
 
                 story.append(_sec_header("DATOS DE LA PERSONA TRABAJADORA"))
-                story.append(_data_val_row(("D./DÑA.", trab), ("NIF/NIE", nif)))
+                story.append(_data_val_row(("D./DÑA.", trab), ("NIF/NIE", nif), ("SEXO", sexo or "—")))
                 story.append(_data_val_row(
                     ("FECHA NACIMIENTO (dd/mm/aaaa)", fn_nac or "—"),
                     ("Nº SEGURIDAD SOCIAL", ss or "—"),
                     ("NACIONALIDAD", nacionalidad or "ESPAÑOLA"),
                 ))
-                story.append(_data_val_row(("NIVEL FORMATIVO", nivel_formativo or "—")))
-                story.append(_data_val_row(("MUNICIPIO DEL DOMICILIO", municipio_dom or "—")))
-                story.append(_data_val_row(("CÓDIGO POSTAL", "—"), ("PAÍS DOMICILIO", "ESPAÑA")))
+                story.append(_data_val_row(
+                    ("NIVEL FORMATIVO", nivel_formativo or "—"),
+                    ("TITULACIÓN", titulacion or "—"),
+                ))
+                story.append(_data_val_row(("MUNICIPIO DEL DOMICILIO", municipio_dom or "—"),
+                                           ("PROVINCIA", provincia_dom or "—")))
+                story.append(_data_val_row(
+                    ("CÓDIGO POSTAL", cp_dom or "—"),
+                    ("PAÍS DOMICILIO", pais_dom or "ESPAÑA"),
+                    ("TELÉFONO", tel_trab or "—"),
+                ))
+                if email_trab:
+                    story.append(_data_val_row(("CORREO ELECTRÓNICO", email_trab)))
                 story.append(Spacer(1, 2*mm))
 
                 story.append(_P(

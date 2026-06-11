@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "สถานที่ทำงานใหม่",
     "de_edit_ct": "แก้ไขสถานที่ทำงาน",
     "de_ok_t": "บันทึกข้อมูลเรียบร้อย",
-    "de_ok_msg": "บันทึกข้อมูลบริษัทแล้ว และจะใช้อัตโนมัติในเอกสารทั้งหมด"
+    "de_ok_msg": "บันทึกข้อมูลบริษัทแล้ว และจะใช้อัตโนมัติในเอกสารทั้งหมด",
+    "wz_f_provincia": "จังหวัด:",
+    "wz_ph_provincia": "จังหวัดที่อาศัยอยู่",
+    "wz_f_cp": "รหัสไปรษณีย์:",
+    "wz_ph_cp": "ตัวอย่าง: 08500",
+    "wz_f_pais": "ประเทศ:",
+    "wz_ph_pais": "สเปน",
+    "wz_f_sexo": "เพศ:",
+    "wz_f_telefono": "โทรศัพท์:",
+    "wz_ph_telefono": "ตัวอย่าง: 600 000 000",
+    "wz_f_email": "อีเมล:",
+    "wz_ph_email": "correo@ejemplo.com",
+    "wz_f_titulacion": "คุณวุฒิการศึกษา (หากมี):",
+    "wz_ph_titulacion": "ตัวอย่าง: Grado en ADE, FP Comercio…",
+    "wz_centro_principal": "— ศูนย์หลักเป็นค่าเริ่มต้น —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "สแกนเนอร์อัจฉริยะ - Smart Manager",

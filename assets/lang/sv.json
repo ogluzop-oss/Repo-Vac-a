@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "NY ARBETSPLATS",
     "de_edit_ct": "REDIGERA ARBETSPLATS",
     "de_ok_t": "Data sparad",
-    "de_ok_msg": "Företagsdata har sparats och kommer att användas automatiskt i alla dokument."
+    "de_ok_msg": "Företagsdata har sparats och kommer att användas automatiskt i alla dokument.",
+    "wz_f_provincia": "Provins:",
+    "wz_ph_provincia": "Bosättningsprovins",
+    "wz_f_cp": "Postnummer:",
+    "wz_ph_cp": "Ex: 08500",
+    "wz_f_pais": "Land:",
+    "wz_ph_pais": "SPANIEN",
+    "wz_f_sexo": "Kön:",
+    "wz_f_telefono": "Telefon:",
+    "wz_ph_telefono": "Ex: 600 000 000",
+    "wz_f_email": "E-postadress:",
+    "wz_ph_email": "epost@exempel.com",
+    "wz_f_titulacion": "Utbildning (om tillämpligt):",
+    "wz_ph_titulacion": "Ex: Kandidatexamen i företagsekonomi, yrkesutbildning inom handel…",
+    "wz_centro_principal": "— Huvudkontor som standard —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "NOWE CENTRUM PRACY",
     "de_edit_ct": "EDYTUJ CENTRUM PRACY",
     "de_ok_t": "Dane zapisane",
-    "de_ok_msg": "Dane firmy zostały zapisane i będą automatycznie używane we wszystkich dokumentach."
+    "de_ok_msg": "Dane firmy zostały zapisane i będą automatycznie używane we wszystkich dokumentach.",
+    "wz_f_provincia": "Województwo:",
+    "wz_ph_provincia": "Województwo zamieszkania",
+    "wz_f_cp": "Kod pocztowy:",
+    "wz_ph_cp": "Przykład: 08500",
+    "wz_f_pais": "Kraj:",
+    "wz_ph_pais": "HISZPANIA",
+    "wz_f_sexo": "Płeć:",
+    "wz_f_telefono": "Telefon:",
+    "wz_ph_telefono": "Przykład: 600 000 000",
+    "wz_f_email": "Poczta elektroniczna:",
+    "wz_ph_email": "email@przykład.com",
+    "wz_f_titulacion": "Kwalifikacje (jeśli dotyczy):",
+    "wz_ph_titulacion": "Przykład: Licencjat z Administracji Biznesu, Szkolenie zawodowe Handel…",
+    "wz_centro_principal": "— Główny ośrodek domyślnie —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

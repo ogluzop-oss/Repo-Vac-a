@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "ĐỊA ĐIỂM LÀM VIỆC MỚI",
     "de_edit_ct": "CHỈNH SỬA ĐỊA ĐIỂM LÀM VIỆC",
     "de_ok_t": "Dữ liệu đã lưu",
-    "de_ok_msg": "Dữ liệu công ty đã được lưu và sẽ được sử dụng tự động trong tất cả các tài liệu."
+    "de_ok_msg": "Dữ liệu công ty đã được lưu và sẽ được sử dụng tự động trong tất cả các tài liệu.",
+    "wz_f_provincia": "Tỉnh:",
+    "wz_ph_provincia": "Tỉnh nơi cư trú",
+    "wz_f_cp": "Mã bưu chính:",
+    "wz_ph_cp": "Ví dụ: 08500",
+    "wz_f_pais": "Quốc gia:",
+    "wz_ph_pais": "ESPAÑA",
+    "wz_f_sexo": "Giới tính:",
+    "wz_f_telefono": "Điện thoại:",
+    "wz_ph_telefono": "Ví dụ: 600 000 000",
+    "wz_f_email": "Địa chỉ email:",
+    "wz_ph_email": "correo@ejemplo.com",
+    "wz_f_titulacion": "Trình độ học vấn (nếu có):",
+    "wz_ph_titulacion": "Ví dụ: Grado en ADE, FP Comercio…",
+    "wz_centro_principal": "— Trung tâm chính theo mặc định —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Máy Quét Thông Minh - Smart Manager",

@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "NEUE ARBEITSSTÄTTE",
     "de_edit_ct": "ARBEITSSTÄTTE BEARBEITEN",
     "de_ok_t": "Daten gespeichert",
-    "de_ok_msg": "Die Unternehmensdaten wurden gespeichert und werden automatisch in allen Dokumenten verwendet."
+    "de_ok_msg": "Die Unternehmensdaten wurden gespeichert und werden automatisch in allen Dokumenten verwendet.",
+    "wz_f_provincia": "Provinz:",
+    "wz_ph_provincia": "Wohnprovinz",
+    "wz_f_cp": "Postleitzahl:",
+    "wz_ph_cp": "Beispiel: 08500",
+    "wz_f_pais": "Land:",
+    "wz_ph_pais": "SPANIEN",
+    "wz_f_sexo": "Geschlecht:",
+    "wz_f_telefono": "Telefon:",
+    "wz_ph_telefono": "Beispiel: 600 000 000",
+    "wz_f_email": "E-Mail:",
+    "wz_ph_email": "mail@beispiel.com",
+    "wz_f_titulacion": "Qualifikation (falls zutreffend):",
+    "wz_ph_titulacion": "Beispiel: Abschluss in BWL, Kaufmännische Ausbildung …",
+    "wz_centro_principal": "— Hauptzentrale standardmäßig —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",

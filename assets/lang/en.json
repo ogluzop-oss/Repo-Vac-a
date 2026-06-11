@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "NEW WORK CENTRE",
     "de_edit_ct": "EDIT WORK CENTRE",
     "de_ok_t": "Data saved",
-    "de_ok_msg": "Company data has been saved and will be used automatically across all documents."
+    "de_ok_msg": "Company data has been saved and will be used automatically across all documents.",
+    "wz_f_provincia": "Province:",
+    "wz_ph_provincia": "Province of residence",
+    "wz_f_cp": "Postal code:",
+    "wz_ph_cp": "e.g. 08500",
+    "wz_f_pais": "Country:",
+    "wz_ph_pais": "SPAIN",
+    "wz_f_sexo": "Sex:",
+    "wz_f_telefono": "Phone:",
+    "wz_ph_telefono": "e.g. 600 000 000",
+    "wz_f_email": "Email:",
+    "wz_ph_email": "name@example.com",
+    "wz_f_titulacion": "Qualification (if applicable):",
+    "wz_ph_titulacion": "e.g. Business degree, vocational training…",
+    "wz_centro_principal": "— Default main work centre —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

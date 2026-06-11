@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "新しい事業所",
     "de_edit_ct": "事業所を編集",
     "de_ok_t": "データが保存されました",
-    "de_ok_msg": "企業データが保存され、すべてのドキュメントで自動的に使用されます。"
+    "de_ok_msg": "企業データが保存され、すべてのドキュメントで自動的に使用されます。",
+    "wz_f_provincia": "都道府県:",
+    "wz_ph_provincia": "居住地の都道府県",
+    "wz_f_cp": "郵便番号:",
+    "wz_ph_cp": "例: 08500",
+    "wz_f_pais": "国:",
+    "wz_ph_pais": "スペイン",
+    "wz_f_sexo": "性別:",
+    "wz_f_telefono": "電話番号:",
+    "wz_ph_telefono": "例: 600 000 000",
+    "wz_f_email": "メールアドレス:",
+    "wz_ph_email": "correo@ejemplo.com",
+    "wz_f_titulacion": "資格(該当する場合):",
+    "wz_ph_titulacion": "例: 経営学学位、商業職業訓練など",
+    "wz_centro_principal": "— デフォルトの主要センター —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

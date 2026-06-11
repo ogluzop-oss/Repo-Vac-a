@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "NUEVO CENTRO DE TRABAJO",
     "de_edit_ct": "EDITAR CENTRO DE TRABAJO",
     "de_ok_t": "Datos guardados",
-    "de_ok_msg": "Los datos de empresa se han guardado y se usarán automáticamente en todos los documentos."
+    "de_ok_msg": "Los datos de empresa se han guardado y se usarán automáticamente en todos los documentos.",
+    "wz_f_provincia": "Provincia:",
+    "wz_ph_provincia": "Provincia de residencia",
+    "wz_f_cp": "Código postal:",
+    "wz_ph_cp": "Ej: 08500",
+    "wz_f_pais": "País:",
+    "wz_ph_pais": "ESPAÑA",
+    "wz_f_sexo": "Sexo:",
+    "wz_f_telefono": "Teléfono:",
+    "wz_ph_telefono": "Ej: 600 000 000",
+    "wz_f_email": "Correo electrónico:",
+    "wz_ph_email": "correo@ejemplo.com",
+    "wz_f_titulacion": "Titulación (si procede):",
+    "wz_ph_titulacion": "Ej: Grado en ADE, FP Comercio…",
+    "wz_centro_principal": "— Centro principal por defecto —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Escáner Inteligente - Smart Manager",

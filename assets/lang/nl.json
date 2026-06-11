@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "NIEUW WERKCENTRUM",
     "de_edit_ct": "WERKCENTRUM BEWERKEN",
     "de_ok_t": "Gegevens opgeslagen",
-    "de_ok_msg": "De bedrijfsgegevens zijn opgeslagen en zullen automatisch in alle documenten worden gebruikt."
+    "de_ok_msg": "De bedrijfsgegevens zijn opgeslagen en zullen automatisch in alle documenten worden gebruikt.",
+    "wz_f_provincia": "Provincie:",
+    "wz_ph_provincia": "Provincie van woonplaats",
+    "wz_f_cp": "Postcode:",
+    "wz_ph_cp": "Bijv: 08500",
+    "wz_f_pais": "Land:",
+    "wz_ph_pais": "SPANJE",
+    "wz_f_sexo": "Geslacht:",
+    "wz_f_telefono": "Telefoonnummer:",
+    "wz_ph_telefono": "Bijv: 600 000 000",
+    "wz_f_email": "E-mailadres:",
+    "wz_ph_email": "email@voorbeeld.com",
+    "wz_f_titulacion": "Kwalificatie (indien van toepassing):",
+    "wz_ph_titulacion": "Bijv: Hogeschooldiploma Bedrijfskunde, MBO Handel…",
+    "wz_centro_principal": "— Standaard hoofdlocatie —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligente Scanner - Smart Manager",

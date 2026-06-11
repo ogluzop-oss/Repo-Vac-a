@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "PUSAT KERJA BARU",
     "de_edit_ct": "EDIT PUSAT KERJA",
     "de_ok_t": "Data disimpan",
-    "de_ok_msg": "Data perusahaan telah disimpan dan akan digunakan secara otomatis di semua dokumen."
+    "de_ok_msg": "Data perusahaan telah disimpan dan akan digunakan secara otomatis di semua dokumen.",
+    "wz_f_provincia": "Provinsi:",
+    "wz_ph_provincia": "Provinsi tempat tinggal",
+    "wz_f_cp": "Kode pos:",
+    "wz_ph_cp": "Contoh: 08500",
+    "wz_f_pais": "Negara:",
+    "wz_ph_pais": "SPANYOL",
+    "wz_f_sexo": "Jenis kelamin:",
+    "wz_f_telefono": "Telepon:",
+    "wz_ph_telefono": "Contoh: 600 000 000",
+    "wz_f_email": "Alamat email:",
+    "wz_ph_email": "email@contoh.com",
+    "wz_f_titulacion": "Kualifikasi (jika berlaku):",
+    "wz_ph_titulacion": "Contoh: Gelar dalam ADE, FP Perdagangan…",
+    "wz_centro_principal": "— Pusat utama secara default —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",

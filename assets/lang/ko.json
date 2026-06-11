@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "새로운 작업 센터",
     "de_edit_ct": "작업 센터 편집",
     "de_ok_t": "데이터 저장됨",
-    "de_ok_msg": "회사 데이터가 저장되었으며 모든 문서에서 자동으로 사용됩니다."
+    "de_ok_msg": "회사 데이터가 저장되었으며 모든 문서에서 자동으로 사용됩니다.",
+    "wz_f_provincia": "주(道):",
+    "wz_ph_provincia": "거주 지역",
+    "wz_f_cp": "우편번호:",
+    "wz_ph_cp": "예: 08500",
+    "wz_f_pais": "국가:",
+    "wz_ph_pais": "스페인",
+    "wz_f_sexo": "성별:",
+    "wz_f_telefono": "전화번호:",
+    "wz_ph_telefono": "예: 600 000 000",
+    "wz_f_email": "이메일:",
+    "wz_ph_email": "correo@ejemplo.com",
+    "wz_f_titulacion": "학위 (해당 시 ):",
+    "wz_ph_titulacion": "예: 경영학 학위, 상업 직업교육…",
+    "wz_centro_principal": "— 기본 주 사무소 —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "스마트 스캐너 - Smart Manager",

@@ -1273,7 +1273,21 @@
     "de_nuevo_ct": "新增工作场所",
     "de_edit_ct": "编辑工作场所",
     "de_ok_t": "数据已保存",
-    "de_ok_msg": "公司数据已保存，将自动用于所有文档。"
+    "de_ok_msg": "公司数据已保存，将自动用于所有文档。",
+    "wz_f_provincia": "省份:",
+    "wz_ph_provincia": "居住省份",
+    "wz_f_cp": "邮政编码:",
+    "wz_ph_cp": "例如: 08500",
+    "wz_f_pais": "国家:",
+    "wz_ph_pais": "西班牙",
+    "wz_f_sexo": "性别:",
+    "wz_f_telefono": "电话:",
+    "wz_ph_telefono": "例如: 600 000 000",
+    "wz_f_email": "电子邮件:",
+    "wz_ph_email": "correo@ejemplo.com",
+    "wz_f_titulacion": "学历资格(如适用):",
+    "wz_ph_titulacion": "例如: 工商管理学位、商业职业培训……",
+    "wz_centro_principal": "— 默认主要中心 —"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "智能扫描仪 - Smart Manager",
