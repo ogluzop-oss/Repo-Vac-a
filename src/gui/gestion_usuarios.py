@@ -5645,8 +5645,9 @@ class _WizardDocumentoFiscal(QDialog):
 
             st_sec_hdr  = _st("sec_hdr",  fontName=_FB, fontSize=8,
                                textColor=AZUL, leading=10)
+            # Valores de las tablas en AZUL (como el modelo oficial SEPE).
             st_cell_val = _st("cell_val", fontName=_FB, fontSize=8.5,
-                               textColor=NEGRO, leading=11)
+                               textColor=AZUL, leading=11)
             st_body     = _st("body",     fontName=_FN, fontSize=9, textColor=NEGRO,
                                leading=13, spaceAfter=2, alignment=TA_JUSTIFY)
             st_clause_h = _st("clause_h", fontName=_FB, fontSize=9,
@@ -5689,6 +5690,11 @@ class _WizardDocumentoFiscal(QDialog):
                     _lp = os.path.join(_lbase, _lf)
                     if os.path.exists(_lp):
                         _logos_hdr.append(_lp)
+                _fse_plus_path = os.path.join(_lbase, "fse_plus.png")
+                if not os.path.exists(_fse_plus_path):
+                    _fse_plus_path = None
+            else:
+                _fse_plus_path = None
 
             def _draw_header(c, doc):
                 from reportlab.lib.utils import ImageReader
@@ -5731,9 +5737,11 @@ class _WizardDocumentoFiscal(QDialog):
                     meta_parts = [x for x in [f"CIF: {emp_cif}", emp_dir, emp_tel, emp_email] if x]
                     c.drawString(1.5*cm, page_h - 2.2*cm, "  ·  ".join(meta_parts))
                     y_title = page_h - 3.0*cm
-                # Título del documento + Ref + línea separadora
-                c.setFont(_FB, 12); c.setFillColor(AZUL)
-                c.drawString(1.5*cm, y_title, titulo_doc)
+                # En contratos el título va en un banner del cuerpo (pág. 1, modelo
+                # SEPE); en el resto de documentos, título en la cabecera.
+                if self._tipo != "CONTRATO":
+                    c.setFont(_FB, 12); c.setFillColor(AZUL)
+                    c.drawString(1.5*cm, y_title, titulo_doc)
                 c.setFont(_FN, 7.5); c.setFillColor(GRIS)
                 c.drawRightString(page_w - 1.5*cm, y_title, f"Ref: {doc_id}")
                 c.setStrokeColor(BORDE_OSC); c.setLineWidth(0.8)
@@ -5741,14 +5749,32 @@ class _WizardDocumentoFiscal(QDialog):
                 c.restoreState()
 
             def _draw_footer(c, doc):
+                from reportlab.lib.utils import ImageReader
                 c.saveState()
                 c.setStrokeColor(BORDE)
                 c.setLineWidth(0.5)
-                c.line(1.5*cm, 1.8*cm, page_w - 1.5*cm, 1.8*cm)
+                c.line(1.5*cm, 1.7*cm, page_w - 1.5*cm, 1.7*cm)
+                # Pie institucional FSE+ (cofinanciado), abajo a la izquierda.
+                _tx = 1.5*cm
+                if _fse_plus_path:
+                    try:
+                        img = ImageReader(_fse_plus_path)
+                        iw, ih = img.getSize()
+                        ph = 0.85*cm
+                        pw = ph * ((iw / ih) if ih else 1.0)
+                        c.drawImage(img, 1.5*cm, 0.5*cm, pw, ph,
+                                    preserveAspectRatio=True, mask="auto")
+                        c.setFont(_FB, 8); c.setFillColor(AZUL)
+                        c.drawString(1.5*cm + pw + 0.18*cm, 1.05*cm, "FSE+")
+                        c.setFont(_FN, 7); c.setFillColor(GRIS)
+                        c.drawString(1.5*cm + pw + 0.18*cm, 0.72*cm, "Fondo Social Europeo Plus")
+                    except Exception:
+                        pass
+                # Trazabilidad (Ref/Hash) + paginación a la derecha.
                 c.setFont(_FN, 6.5)
                 c.setFillColor(GRIS)
-                c.drawString(1.5*cm, 1.3*cm, f"Ref: {doc_id}  ·  Hash: {audit_hash}")
-                c.drawRightString(page_w - 1.5*cm, 1.3*cm,
+                c.drawRightString(page_w - 1.5*cm, 1.15*cm, f"Ref: {doc_id}  ·  Hash: {audit_hash}")
+                c.drawRightString(page_w - 1.5*cm, 0.8*cm,
                                   f"{self._pdf_tr('Pág.')} {doc.page}  ·  {now.strftime('%d/%m/%Y %H:%M')}")
                 c.restoreState()
 
@@ -5839,6 +5865,19 @@ class _WizardDocumentoFiscal(QDialog):
 
                 # Los logos institucionales van en la cabecera de CADA página
                 # (_draw_header), no en el cuerpo.
+                # Banner del título (modelo SEPE) — barra sombreada a ancho completo.
+                _tb = Table([[Paragraph(titulo_doc, _st("tbanner", fontName=_FB, fontSize=12,
+                                                         textColor=AZUL, leading=15))]],
+                            colWidths=[usable_w])
+                _tb.setStyle(TableStyle([
+                    ("BACKGROUND", (0,0), (-1,-1), HexColor("#E9EEF6")),
+                    ("BOX", (0,0), (-1,-1), 0.6, AZUL),
+                    ("TOPPADDING", (0,0), (-1,-1), 6),
+                    ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+                    ("LEFTPADDING", (0,0), (-1,-1), 8),
+                ]))
+                story.append(_tb)
+                story.append(Spacer(1, 2.5*mm))
                 story.append(_sec_header("DATOS DE LA EMPRESA"))
                 story.append(_data_val_row(("CIF/NIF/NIE", emp_cif)))
                 story.append(_data_val_row(
@@ -5912,18 +5951,18 @@ class _WizardDocumentoFiscal(QDialog):
                     story.append(_data_val_row(("CORREO ELECTRÓNICO", email_trab)))
                 story.append(Spacer(1, 2*mm))
 
-                if (asist_tipo and asist_tipo != "No procede") or asist_nombre:
-                    story.append(_sec_header("DATOS DE LA ASISTENCIA LEGAL (EN SU CASO)"))
-                    story.append(_data_val_row(
-                        ("TIPO DE REPRESENTACIÓN", asist_tipo or "—"),
-                        ("ORGANIZACIÓN", asist_org or "—"),
-                    ))
-                    story.append(_data_val_row(
-                        ("D./DÑA.", asist_nombre or "—"),
-                        ("NIF/NIE", asist_nif or "—"),
-                        ("CARGO", asist_cargo or "—"),
-                    ))
-                    story.append(Spacer(1, 2*mm))
+                # Sección siempre presente (como el modelo oficial), aunque vacía.
+                story.append(_sec_header("DATOS DE LA ASISTENCIA LEGAL (EN SU CASO)"))
+                story.append(_data_val_row(
+                    ("TIPO DE REPRESENTACIÓN", asist_tipo if (asist_tipo and asist_tipo != "No procede") else "—"),
+                    ("ORGANIZACIÓN", asist_org or "—"),
+                ))
+                story.append(_data_val_row(
+                    ("D./DÑA.", asist_nombre or "—"),
+                    ("NIF/NIE", asist_nif or "—"),
+                    ("CARGO", asist_cargo or "—"),
+                ))
+                story.append(Spacer(1, 2*mm))
 
                 story.append(_P(
                     "Que reúnen los requisitos exigidos para la celebración del presente contrato y, "
