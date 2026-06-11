@@ -157,6 +157,10 @@ def actualizar_empresa(id_empresa: str, **campos) -> bool:
     permitidos = (
         "nombre_empresa", "razon_social", "cif_nif", "direccion_fiscal",
         "telefono", "email_principal", "estado", "plan_licencia",
+        # FASE 2 — datos corporativos para documentos
+        "nombre_comercial", "municipio", "provincia", "comunidad_autonoma",
+        "cp", "pais", "regimen_ss", "ccc", "cnae", "actividad_economica",
+        "convenio_colectivo",
     )
     sets = {k: v for k, v in campos.items() if k in permitidos}
     if not sets:
@@ -175,3 +179,98 @@ def actualizar_empresa(id_empresa: str, **campos) -> bool:
     except Exception as e:
         logger.error("Error actualizar_empresa(%s): %s", id_empresa, e)
         return False
+
+
+# ============================================================
+# FUENTE ÚNICA DE DATOS CORPORATIVOS (para TODOS los documentos)
+# ============================================================
+import json as _json
+import os as _os
+
+_JSON_EMP = _os.path.normpath(
+    _os.path.join(_os.path.dirname(__file__), "..", "..", "documentos", "datos_empresa.json")
+)
+_json_migrado = False
+
+
+def _migrar_json_a_empresa():
+    """Importa UNA vez el antiguo documentos/datos_empresa.json a la fila de la
+    empresa por defecto, solo en los campos que aún estén vacíos. No se pierde
+    nada y la BD pasa a ser la fuente de verdad."""
+    global _json_migrado
+    if _json_migrado:
+        return
+    _json_migrado = True
+    if not _os.path.exists(_JSON_EMP):
+        return
+    try:
+        with open(_JSON_EMP, encoding="utf-8") as f:
+            j = _json.load(f) or {}
+    except Exception:
+        return
+    emp = obtener_empresa(EMPRESA_DEFAULT_ID) or {}
+    mapa = {
+        "razon_social": "razon_social", "cif": "cif_nif",
+        "direccion": "direccion_fiscal", "telefono": "telefono",
+        "email": "email_principal", "municipio": "municipio", "cp": "cp",
+        "ccc": "ccc", "actividad": "actividad_economica", "convenio": "convenio_colectivo",
+    }
+    sets = {}
+    for jk, col in mapa.items():
+        val = (j.get(jk) or "").strip() if isinstance(j.get(jk), str) else j.get(jk)
+        if val and not (emp.get(col) or "").strip():
+            sets[col] = val
+    if sets:
+        actualizar_empresa(EMPRESA_DEFAULT_ID, **sets)
+        logger.info("datos_empresa.json migrado a empresas: %s", list(sets))
+
+
+def _refrescar_cache_json(emp: dict, centro: dict | None, rep: dict | None):
+    """Reescribe documentos/datos_empresa.json como caché de lectura (compatibilidad
+    con lectores legacy durante la transición)."""
+    try:
+        data = {
+            "razon_social": emp.get("razon_social") or emp.get("nombre_empresa") or "",
+            "cif": emp.get("cif_nif") or "",
+            "direccion": emp.get("direccion_fiscal") or "",
+            "municipio": emp.get("municipio") or "",
+            "cp": emp.get("cp") or "",
+            "telefono": emp.get("telefono") or "",
+            "email": emp.get("email_principal") or "",
+            "ccc": emp.get("ccc") or "",
+            "actividad": emp.get("actividad_economica") or "",
+            "convenio": emp.get("convenio_colectivo") or "",
+            "iban": "",
+        }
+        _os.makedirs(_os.path.dirname(_JSON_EMP), exist_ok=True)
+        with open(_JSON_EMP, "w", encoding="utf-8") as f:
+            _json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.debug("No se pudo refrescar cache datos_empresa.json: %s", e)
+
+
+def datos_corporativos(id_empresa=None, id_tienda=None, id_centro=None,
+                       id_representante=None) -> dict:
+    """FUENTE ÚNICA DE VERDAD para los documentos del sistema.
+
+    Devuelve {'empresa': {...}, 'representante': {...|None}, 'centro': {...|None}}
+    resolviendo por el TenantContext si no se pasan IDs. El centro/representante
+    devueltos son los seleccionados, o el principal de la empresa, o el primero."""
+    from src.db import centros as _centros
+    from src.db import representantes as _reps
+
+    _migrar_json_a_empresa()
+    id_empresa = id_empresa or empresa_actual_id()
+    id_tienda = id_tienda if id_tienda is not None else tienda_actual_id()
+
+    empresa = obtener_empresa(id_empresa) or {}
+    representante = (_reps.obtener_representante(id_representante) if id_representante
+                    else _reps.representante_principal(id_empresa))
+    centro = None
+    if id_centro:
+        centro = _centros.obtener_centro(id_centro)
+    else:
+        centro = _centros.centro_principal(id_empresa, id_tienda)
+
+    _refrescar_cache_json(empresa, centro, representante)
+    return {"empresa": empresa, "representante": representante, "centro": centro}

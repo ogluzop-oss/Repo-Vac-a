@@ -5368,26 +5368,46 @@ class _WizardDocumentoFiscal(QDialog):
             os.makedirs(carpeta, exist_ok=True)
             ruta = os.path.join(carpeta, fname)
 
-            # ── Datos empresa ──────────────────────────────────────────────────
-            emp: dict = {}
-            emp_path = os.path.normpath(
-                os.path.join(os.path.dirname(__file__), "..", "..", "documentos", "datos_empresa.json")
-            )
-            if os.path.exists(emp_path):
-                try:
-                    with open(emp_path, encoding="utf-8") as _f:
-                        emp = json.load(_f)
-                except Exception:
-                    pass
-            emp_nombre    = emp.get("razon_social", "EMPRESA")
-            emp_cif       = emp.get("cif", "")
-            emp_dir       = emp.get("direccion", "")
-            emp_tel       = emp.get("telefono", "")
-            emp_email     = emp.get("email", "")
-            emp_iban      = emp.get("iban", "")
-            emp_ccc       = emp.get("ccc", "")
-            emp_municipio = emp.get("municipio", "")
-            emp_cp        = emp.get("cp", "")
+            # ── Datos corporativos: FUENTE ÚNICA (empresa + representante + centro) ──
+            try:
+                from src.db import empresa as _empresa_db
+                _dc = _empresa_db.datos_corporativos(id_centro=self._datos.get("id_centro"))
+            except Exception:
+                _dc = {"empresa": {}, "representante": None, "centro": None}
+            _e     = _dc.get("empresa") or {}
+            _rep   = _dc.get("representante") or {}
+            _centro = _dc.get("centro") or {}
+            emp = _e  # compat con referencias posteriores
+            emp_nombre    = _e.get("razon_social") or _e.get("nombre_empresa") or "EMPRESA"
+            emp_comercial = _e.get("nombre_comercial") or ""
+            emp_cif       = _e.get("cif_nif") or ""
+            emp_dir       = _e.get("direccion_fiscal") or ""
+            emp_tel       = _e.get("telefono") or ""
+            emp_email     = _e.get("email_principal") or ""
+            emp_iban      = ""
+            emp_ccc       = _e.get("ccc") or ""
+            emp_municipio = _e.get("municipio") or ""
+            emp_cp        = _e.get("cp") or ""
+            emp_provincia = _e.get("provincia") or ""
+            emp_pais      = _e.get("pais") or "ESPAÑA"
+            emp_regimen   = _e.get("regimen_ss") or "0111"
+            emp_cnae      = _e.get("cnae") or ""
+            emp_actividad = _e.get("actividad_economica") or "Comercio al por menor"
+            emp_convenio  = _e.get("convenio_colectivo") or ""
+            # Representante legal (firmante del documento)
+            rep_nombre_full = " ".join(x for x in [_rep.get("nombre"), _rep.get("apellidos")] if x).strip()
+            rep_nif         = _rep.get("dni_nie") or ""
+            rep_cargo       = _rep.get("cargo") or "REPRESENTANTE LEGAL"
+            # Centro de trabajo
+            ct_nombre    = _centro.get("nombre_centro") or ""
+            ct_dir       = _centro.get("direccion") or ""
+            ct_municipio = _centro.get("municipio") or ""
+            ct_provincia = _centro.get("provincia") or ""
+            ct_cp        = _centro.get("codigo_postal") or ""
+            ct_pais      = _centro.get("pais") or "ESPAÑA"
+            ct_ccc       = _centro.get("codigo_cuenta_cotizacion") or ""
+            ct_actividad = _centro.get("actividad_economica") or ""
+            ct_codigo    = _centro.get("codigo_centro_trabajo") or ""
 
             # ── Datos trabajador ───────────────────────────────────────────────
             trab               = self._datos.get("trabajador", "—")
@@ -5412,7 +5432,7 @@ class _WizardDocumentoFiscal(QDialog):
             num_pagas          = self._datos.get("num_pagas", "12")
             periodo_prueba     = self._datos.get("periodo_prueba", "")
             vacaciones         = self._datos.get("vacaciones", "Según Convenio")
-            convenio           = self._datos.get("convenio", emp.get("convenio", ""))
+            convenio           = self._datos.get("convenio") or emp_convenio
             clausulas_adicionales = self._datos.get("clausulas_adicionales", [])
             irpf_pct_str       = self._datos.get("irpf_pct", "15.0")
             ss_pct_str         = self._datos.get("ss_pct", "6.35")
@@ -5557,7 +5577,9 @@ class _WizardDocumentoFiscal(QDialog):
                 _puesto_txt      = puesto or "Según categoría profesional"
                 _grupo_txt       = grupo_prof or "Según convenio"
                 _func_txt        = funciones or "Las propias del grupo profesional"
-                _centro_txt      = centro_trabajo or emp_dir or "—"
+                _centro_txt      = (centro_trabajo
+                                    or ", ".join(x for x in [ct_nombre, ct_dir, ct_municipio] if x)
+                                    or emp_dir or "—")
                 _horas_txt       = horas_sem or "40"
                 _dist_txt        = distribucion or "Lunes a domingo"
                 _prueba_txt      = periodo_prueba or "Conforme a convenio colectivo"
@@ -5579,25 +5601,53 @@ class _WizardDocumentoFiscal(QDialog):
 
                 story.append(_sec_header("DATOS DE LA EMPRESA"))
                 story.append(_data_val_row(("CIF/NIF/NIE", emp_cif)))
-                story.append(_data_val_row(("D./DÑA. (REPRESENTANTE LEGAL)", ""), ("NIF/NIE", "")))
-                story.append(_data_val_row(("EN CONCEPTO", "REPRESENTANTE LEGAL")))
+                story.append(_data_val_row(
+                    ("D./DÑA. (REPRESENTANTE LEGAL)", rep_nombre_full or "—"),
+                    ("NIF/NIE", rep_nif or "—"),
+                ))
+                story.append(_data_val_row(("EN CONCEPTO", rep_cargo or "REPRESENTANTE LEGAL")))
                 story.append(_data_val_row(("NOMBRE O RAZÓN SOCIAL DE LA EMPRESA", emp_nombre)))
                 story.append(_data_val_row(("DOMICILIO SOCIAL", emp_dir)))
                 story.append(_data_val_row(
                     ("MUNICIPIO", emp_municipio or "—"),
+                    ("PROVINCIA", emp_provincia or "—"),
                     ("CÓDIGO POSTAL", emp_cp or "—"),
-                    ("PAÍS", "ESPAÑA"),
+                    ("PAÍS", emp_pais),
                 ))
                 story.append(Spacer(1, 1*mm))
 
                 story.append(_sec_header("DATOS DE LA CUENTA DE COTIZACIÓN"))
-                story.append(_data_val_row(("RÉGIMEN", "0111"), ("CÓDIGO CUENTA DE COTIZACIÓN", emp_ccc or "—")))
-                story.append(_data_val_row(("ACTIVIDAD ECONÓMICA", emp.get("actividad", "Comercio al por menor"))))
+                story.append(_data_val_row(
+                    ("RÉGIMEN", emp_regimen or "0111"),
+                    ("CÓDIGO CUENTA DE COTIZACIÓN", emp_ccc or "—"),
+                ))
+                story.append(_data_val_row(
+                    ("ACTIVIDAD ECONÓMICA", emp_actividad),
+                    ("CNAE", emp_cnae or "—"),
+                ))
                 story.append(Spacer(1, 1*mm))
 
                 story.append(_sec_header("DATOS DEL CENTRO DE TRABAJO"))
-                story.append(_data_val_row(("MUNICIPIO", emp_municipio or "—")))
-                story.append(_data_val_row(("CÓDIGO POSTAL", emp_cp or "—"), ("PAÍS", "ESPAÑA")))
+                if ct_nombre or ct_dir:
+                    story.append(_data_val_row(("CENTRO DE TRABAJO", ct_nombre or "—"),
+                                               ("CÓD. CENTRO", ct_codigo or "—")))
+                    story.append(_data_val_row(("DOMICILIO", ct_dir or "—")))
+                    story.append(_data_val_row(
+                        ("MUNICIPIO", ct_municipio or emp_municipio or "—"),
+                        ("PROVINCIA", ct_provincia or "—"),
+                        ("CÓDIGO POSTAL", ct_cp or "—"),
+                        ("PAÍS", ct_pais),
+                    ))
+                    story.append(_data_val_row(
+                        ("CÓDIGO CUENTA DE COTIZACIÓN", ct_ccc or emp_ccc or "—"),
+                        ("ACTIVIDAD ECONÓMICA", ct_actividad or emp_actividad),
+                    ))
+                else:
+                    story.append(_data_val_row(
+                        ("MUNICIPIO", emp_municipio or "—"),
+                        ("CÓDIGO POSTAL", emp_cp or "—"),
+                        ("PAÍS", emp_pais),
+                    ))
                 story.append(Spacer(1, 1*mm))
 
                 story.append(_sec_header("DATOS DE LA PERSONA TRABAJADORA"))

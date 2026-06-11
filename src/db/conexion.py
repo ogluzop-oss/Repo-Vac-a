@@ -242,6 +242,67 @@ def ensure_schema(force: bool = False):
                 cur.execute(f"UPDATE usuarios SET id_empresa='{_emp}' WHERE id_empresa IS NULL OR id_empresa=''")
                 cur.execute(f"UPDATE configuraciones SET id_empresa='{_emp}' WHERE id_empresa IS NULL OR id_empresa=''")
 
+                # ── FASE 2: DATOS CORPORATIVOS (fuente única reutilizable) ──
+                # Ampliación de 'empresas' con todos los campos necesarios para
+                # generar documentos (contratos, facturas, certificados...) +
+                # tablas independientes de representantes legales y centros de
+                # trabajo. Todo aditivo (ADD COLUMN IF NOT EXISTS) y por id_empresa.
+                cur.execute("""
+                    ALTER TABLE empresas
+                    ADD COLUMN IF NOT EXISTS nombre_comercial    VARCHAR(255) DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS municipio           VARCHAR(120) DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS provincia           VARCHAR(120) DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS comunidad_autonoma  VARCHAR(120) DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS cp                  VARCHAR(10)  DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS pais                VARCHAR(80)  DEFAULT 'ESPAÑA',
+                    ADD COLUMN IF NOT EXISTS regimen_ss          VARCHAR(20)  DEFAULT '0111',
+                    ADD COLUMN IF NOT EXISTS ccc                 VARCHAR(50)  DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS cnae                VARCHAR(20)  DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS actividad_economica VARCHAR(255) DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS convenio_colectivo  VARCHAR(255) DEFAULT NULL
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS representantes_legales (
+                        id_representante CHAR(36)     NOT NULL PRIMARY KEY,
+                        id_empresa       CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        nombre           VARCHAR(120)          DEFAULT NULL,
+                        apellidos        VARCHAR(180)          DEFAULT NULL,
+                        dni_nie          VARCHAR(50)           DEFAULT NULL,
+                        cargo            VARCHAR(120)          DEFAULT 'REPRESENTANTE LEGAL',
+                        telefono         VARCHAR(50)           DEFAULT NULL,
+                        email            VARCHAR(255)          DEFAULT NULL,
+                        es_principal     TINYINT      NOT NULL DEFAULT 0,
+                        estado           VARCHAR(20)  NOT NULL DEFAULT 'activo',
+                        fecha_alta       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_rep_empresa (id_empresa)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS centros_trabajo (
+                        id_centro                CHAR(36)     NOT NULL PRIMARY KEY,
+                        id_empresa               CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_tienda                INT                   DEFAULT NULL,
+                        codigo_centro            VARCHAR(20)           DEFAULT NULL,
+                        nombre_centro            VARCHAR(255)          DEFAULT NULL,
+                        direccion                VARCHAR(255)          DEFAULT NULL,
+                        codigo_postal            VARCHAR(10)           DEFAULT NULL,
+                        municipio                VARCHAR(120)          DEFAULT NULL,
+                        provincia                VARCHAR(120)          DEFAULT NULL,
+                        comunidad_autonoma       VARCHAR(120)          DEFAULT NULL,
+                        pais                     VARCHAR(80)  NOT NULL DEFAULT 'ESPAÑA',
+                        telefono                 VARCHAR(50)           DEFAULT NULL,
+                        email                    VARCHAR(255)          DEFAULT NULL,
+                        codigo_cuenta_cotizacion VARCHAR(50)           DEFAULT NULL,
+                        codigo_centro_trabajo    VARCHAR(50)           DEFAULT NULL,
+                        actividad_economica      VARCHAR(255)          DEFAULT NULL,
+                        es_principal             TINYINT      NOT NULL DEFAULT 0,
+                        estado                   VARCHAR(20)  NOT NULL DEFAULT 'activo',
+                        fecha_alta               DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_centro_empresa (id_empresa),
+                        INDEX idx_centro_tienda (id_tienda)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
                 # Identidad: empresa → tienda → correo. El correo es un SERVICIO
                 # asociado, nunca la clave principal. Preparado para licenciamiento
