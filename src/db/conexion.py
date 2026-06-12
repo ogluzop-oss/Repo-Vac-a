@@ -345,6 +345,25 @@ def ensure_schema(force: bool = False):
                 except Exception as _e:
                     logger.warning("No se pudo migrar ventas.codigo/cantidad a NULL: %s", _e)
 
+                # Tipo de IVA por artículo (para el desglose fiscal del ticket).
+                try:
+                    cur.execute("ALTER TABLE articulos "
+                                "ADD COLUMN IF NOT EXISTS iva DECIMAL(5,2) NOT NULL DEFAULT 21.00")
+                except Exception as _e:
+                    logger.warning("No se pudo añadir articulos.iva: %s", _e)
+
+                # Configuración del ticket por empresa (texto legal, mensaje de
+                # despedida y plazo de devolución). Fuente única para el generador.
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS config_ticket (
+                        id_empresa        CHAR(36)     NOT NULL PRIMARY KEY,
+                        texto_legal       TEXT                  DEFAULT NULL,
+                        mensaje_despedida VARCHAR(255)          DEFAULT NULL,
+                        devol_dias        INT          NOT NULL DEFAULT 30,
+                        fecha_actualizacion DATETIME   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
                 # Identidad: empresa → tienda → correo. El correo es un SERVICIO
                 # asociado, nunca la clave principal. Preparado para licenciamiento

@@ -2906,6 +2906,7 @@ class TPVWindow(QWidget):
             "precio":       precio,
             "descuento_pct": 0.0,
             "subtotal":     round(qty * precio, 2),
+            "iva":          float(articulo.get("iva", 21) or 21),  # tipo de IVA del artículo
         })
         self._refresh_tabla()
         self.inp_sku.clear()
@@ -3325,30 +3326,77 @@ class TPVWindow(QWidget):
                 _TICKETS_DIR,
                 f"ticket_{fecha.strftime('%Y%m%d_%H%M%S')}_{venta_id}.pdf"
             )
+            from src.utils import divisas
             from src.utils.impresion import generar_ticket_pdf
-            datos = {
-                "fecha":      fecha.strftime("%d/%m/%Y %H:%M:%S"),
-                "venta_id":   venta_id,
-                "caja":       self._id_caja,
-                "empleado":   str(self.empleado_id) if self.empleado_id else "—",
-                "forma_pago": pago["forma_pago"].capitalize(),
-                "items":      [
-                    {"nombre": l["nombre"], "cantidad": l["cantidad"],
-                     "precio": l["precio"], "subtotal": l["subtotal"]}
-                    for l in lineas
-                ],
-                "total":  pago["total"],
-                "cambio": pago.get("cambio", 0.0),
-            }
-            # Cabecera con datos corporativos reales (fuente única, FASE 2c).
             try:
-                from src.db.empresa import info_documento
+                n_caja = int(str(self._id_caja).split("-")[-1])
+            except Exception:
+                n_caja = 1
+            ticket_num = f"TCK-{fecha.strftime('%Y%m%d')}-{int(venta_id or 0):05d}"
+
+            # Cabecera corporativa (fuente única) + tienda/centro
+            empresa, tienda, id_empresa = {}, {}, ""
+            try:
+                from src.db.empresa import empresa_actual_id, info_documento
                 _i = info_documento()
-                datos["empresa"] = _i.get("nombre")
-                datos["cif"] = _i.get("cif")
-                datos["empresa_dir"] = _i.get("direccion_completa")
+                empresa = {
+                    "nombre": _i.get("nombre"), "cif": _i.get("cif"),
+                    "direccion_completa": _i.get("direccion_completa"),
+                    "pais": _i.get("pais"), "telefono": _i.get("telefono"),
+                    "email": _i.get("email"),
+                }
+                tienda = {"nombre": _i.get("centro_nombre"), "codigo": _i.get("centro_codigo")}
+                id_empresa = empresa_actual_id() or ""
             except Exception:
                 pass
+
+            # Configuración del ticket (texto legal / mensaje / plazo devolución)
+            try:
+                from src.db.config_ticket import obtener_config_ticket
+                cfg = obtener_config_ticket()
+            except Exception:
+                cfg = {}
+
+            items = [
+                {"nombre": l.get("nombre"), "cantidad": l.get("cantidad", 1),
+                 "precio": l.get("precio", 0), "subtotal": l.get("subtotal", 0),
+                 "descuento_pct": l.get("descuento_pct", 0), "iva": l.get("iva", 21),
+                 "modo_venta": l.get("modo_venta"), "peso": l.get("peso"),
+                 "precio_kg": l.get("precio_kg"), "granel": l.get("modo_venta") == "PESO"}
+                for l in lineas
+            ]
+
+            pago_d = {
+                "forma_pago": pago.get("forma_pago", ""),
+                "total": pago.get("total", 0),
+                "entregado": pago.get("entregado"),
+                "cambio": pago.get("cambio", 0.0),
+                "efectivo": pago.get("efectivo_neto"),
+                "tarjeta": pago.get("tarjeta"),
+            }
+
+            import hashlib
+            traza = f"{venta_id}|{fecha.isoformat()}|{pago.get('total',0)}|{len(lineas)}"
+            doc_hash = hashlib.sha256(traza.encode()).hexdigest()
+
+            datos = {
+                "logo": _LOGO_CORP_PATH if os.path.exists(_LOGO_CORP_PATH) else None,
+                "empresa": empresa,
+                "tienda": tienda,
+                "operacion": {
+                    "ticket_num": ticket_num, "venta_id": venta_id,
+                    "caja": self._id_caja, "terminal": f"TPV-{n_caja:02d}",
+                    "empleado": self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else "—"),
+                    "fecha": fecha.strftime("%d/%m/%Y  %H:%M:%S"),
+                },
+                "items": items,
+                "pago": pago_d,
+                "moneda": divisas.divisa_actual(),
+                "config": cfg,
+                "hash": doc_hash,
+                "qr": f"SMART|{ticket_num}|{fecha.strftime('%Y-%m-%d %H:%M')}|"
+                      f"{id_empresa}|{tienda.get('codigo') or ''}|{pago.get('total', 0)}",
+            }
             generar_ticket_pdf(datos, archivo)
         except Exception as e:
             logger.warning(f"No se pudo generar el ticket PDF: {e}")

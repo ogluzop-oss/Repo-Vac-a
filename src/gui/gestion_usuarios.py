@@ -9381,6 +9381,16 @@ class ConfiguracionWindow(QWidget):
         return b
 
     def _guardar_devol(self):
+        try:
+            from src.db.config_ticket import guardar_config_ticket
+            dias = (self.spin_dias.value()
+                    + self.spin_meses.value() * 30
+                    + self.spin_anios.value() * 365)
+            guardar_config_ticket(
+                texto_legal=self.text_ticket.toPlainText().strip(),
+                devol_dias=int(dias) or 30)
+        except Exception as e:
+            logging.getLogger("gestion_usuarios").warning("No se pudo guardar config_ticket: %s", e)
         if mostrar_mensaje:
             mostrar_mensaje(self, tr("cfg.guardado_t", default="Guardado"),
                             tr("cfg.guardado_msg", default="Cambios guardados correctamente."), "info")
@@ -9408,6 +9418,16 @@ class ConfiguracionWindow(QWidget):
         ly.addWidget(form)
         ly.addStretch()
         ly.addWidget(self._btn_guardar_verde(self._guardar_devol), alignment=Qt.AlignmentFlag.AlignRight)
+
+        # Cargar la configuración guardada del ticket (texto legal + plazo)
+        try:
+            from src.db.config_ticket import obtener_config_ticket
+            _c = obtener_config_ticket()
+            self.text_ticket.setPlainText(_c.get("texto_legal") or "")
+            self.spin_dias.setMaximum(3650)
+            self.spin_dias.setValue(int(_c.get("devol_dias") or 30))
+        except Exception:
+            pass
         return w
 
     # ── Módulo 2: artículos baneados para devolución ─────────────────────────
