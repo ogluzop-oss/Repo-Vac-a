@@ -3313,20 +3313,8 @@ class VentasAnaliticaWindow(QWidget):
         return page
 
     # ── IA predictiva de facturación (alimentada por HISTÓRICO DE VENTAS) ──────
-    def _prever_facturacion_mensual(self, anio, mes):
-        """Previsión IA de facturación diaria para (anio, mes).
-
-        Se alimenta del histórico de ventas pasadas subido en la pestaña
-        HISTÓRICO DE VENTAS (tabla ``prevision_historico``). Tiene en cuenta
-        eventos comerciales y festividades (Navidad, Black Friday, Halloween,
-        Reyes, Rebajas, Semana Santa, etc.) además del día de la semana y la
-        tendencia. Intenta primero un modelo de series temporales (Prophet, con
-        las festividades como *holidays*) y, si no está disponible o hay pocos
-        datos, usa una heurística estacional. Devuelve ``{dia: importe}``.
-        """
-        import calendar
-        ndias = calendar.monthrange(anio, mes)[1]
-        prevision = {d: 0.0 for d in range(1, ndias + 1)}
+    def _serie_historica(self):
+        """Serie diaria [(fecha, importe)] del histórico subido (prevision_historico)."""
         try:
             with obtener_conexion() as conn:
                 cur = conn.cursor()
@@ -3343,6 +3331,48 @@ class VentasAnaliticaWindow(QWidget):
             fecha = f if hasattr(f, "weekday") else self._parse_fecha(f)
             if fecha is not None:
                 serie.append((fecha, float(t or 0)))
+        return serie
+
+    def _serie_ventas_tpv(self):
+        """Serie diaria [(fecha, importe)] de las ventas reales del TPV/autocobro."""
+        try:
+            with obtener_conexion() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT DATE(fecha), COALESCE(SUM(total),0) FROM ventas "
+                    "GROUP BY DATE(fecha) ORDER BY DATE(fecha)")
+                filas = cur.fetchall()
+        except Exception:
+            filas = []
+        serie = []
+        for f, t in filas:
+            if f is None:
+                continue
+            fecha = f if hasattr(f, "weekday") else self._parse_fecha(f)
+            if fecha is not None:
+                serie.append((fecha, float(t or 0)))
+        return serie
+
+    def _prever_facturacion_mensual(self, anio, mes):
+        """Previsión IA de facturación diaria para (anio, mes).
+
+        Se alimenta del histórico de ventas pasadas subido en la pestaña
+        HISTÓRICO DE VENTAS (tabla ``prevision_historico``) y, si no hay ningún
+        archivo subido, recurre automáticamente a las ventas reales acumuladas
+        por el TPV/autocobro (tabla ``ventas``). Tiene en cuenta eventos
+        comerciales y festividades (Navidad, Black Friday, Halloween, Reyes,
+        Rebajas, Semana Santa, etc.) además del día de la semana y la tendencia.
+        Intenta primero un modelo de series temporales (Prophet, con las
+        festividades como *holidays*) y, si no está disponible o hay pocos
+        datos, usa una heurística estacional. Devuelve ``{dia: importe}``.
+        """
+        import calendar
+        ndias = calendar.monthrange(anio, mes)[1]
+        prevision = {d: 0.0 for d in range(1, ndias + 1)}
+        serie = self._serie_historica()
+        if not serie:
+            # Respaldo: ventas reales acumuladas por el TPV/autocobro.
+            serie = self._serie_ventas_tpv()
         if not serie:
             return prevision
         # 1) Modelo de series temporales (IA) si está disponible y hay datos.
