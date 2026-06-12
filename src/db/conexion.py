@@ -327,10 +327,13 @@ def ensure_schema(force: bool = False):
                         facturacion  DECIMAL(12,2)          DEFAULT NULL,
                         clientes     INT                    DEFAULT NULL,
                         horas        DECIMAL(8,2)           DEFAULT NULL,
+                        prevision    DECIMAL(12,2)          DEFAULT NULL,
                         fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                         UNIQUE KEY uq_rend_emp_fecha (id_empresa, fecha)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                cur.execute("ALTER TABLE rendimiento_diario "
+                            "ADD COLUMN IF NOT EXISTS prevision DECIMAL(12,2) DEFAULT NULL")
 
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
                 # Identidad: empresa → tienda → correo. El correo es un SERVICIO

@@ -856,7 +856,15 @@
     "perf_c_prod": "Năng suất ngày",
     "perf_c_prodac": "Năng suất tích lũy",
     "perf_saved_t": "Đã lưu",
-    "perf_saved": "Hiệu suất được lưu thành công."
+    "perf_saved": "Hiệu suất được lưu thành công.",
+    "perf_sub": "Bảng hiệu suất hàng ngày của tháng. Chỉnh sửa Hóa đơn, Số lượng khách hàng và Giờ làm việc; các cột còn lại được tính toán tự động.",
+    "perf_prev_title": "DỰ ĐOÁN HÓA ĐƠN (AI)",
+    "perf_c_prev": "Dự đoán hóa đơn",
+    "perf_print": "🖨  IN",
+    "perf_share": "✉  CHIA SẺ",
+    "perf_print_ok_t": "Bảng đã xuất",
+    "perf_print_ok": "Đã lưu tại:\n{ruta}",
+    "hist_help_body": "Tải lên lịch sử bán hàng dưới dạng Excel để cung cấp dữ liệu cho phân tích và dự đoán."
   },
   "cfg": {
     "window_title": "CẤU HÌNH HỆ THỐNG",

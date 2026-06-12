@@ -856,7 +856,15 @@
     "perf_c_prod": "Günlük Verimlilik",
     "perf_c_prodac": "Birikmiş Verimlilik",
     "perf_saved_t": "Kaydedildi",
-    "perf_saved": "Performans başarıyla kaydedildi."
+    "perf_saved": "Performans başarıyla kaydedildi.",
+    "perf_sub": "Ayın günlük performans tablosu. Faturalandırma, Müşteri Sayısı ve Çalışılan Saatleri düzenleyin; diğer sütunlar otomatik olarak hesaplanır.",
+    "perf_prev_title": "FATURALANDIRMA TAHMİNİ (AI)",
+    "perf_c_prev": "Faturalandırma tahmini",
+    "perf_print": "🖨  YAZDIR",
+    "perf_share": "✉  PAYLAŞ",
+    "perf_print_ok_t": "Tablo dışa aktarıldı",
+    "perf_print_ok": "Kaydedildi:\n{ruta}",
+    "hist_help_body": "Analiz ve tahminleri beslemek için Excel'de satış geçmişini yükleyin."
   },
   "cfg": {
     "window_title": "SİSTEM YAPILANDIRMASI",

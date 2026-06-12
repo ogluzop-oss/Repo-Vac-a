@@ -2294,6 +2294,13 @@ class VentasAnaliticaWindow(QWidget):
         self.stack.setCurrentIndex(idx)
         for i, btn in enumerate(self._sidebar_btns):
             btn.setStyleSheet(_SS_SIDEBAR_BTN_ACTIVE if i == idx else _SS_SIDEBAR_BTN)
+        # Pestaña RENDIMIENTO: refresca al mes actual (auto-actualización mensual).
+        if idx == 3 and hasattr(self, "tbl_rend"):
+            import datetime as _now_dt
+            _hoy = _now_dt.date.today()
+            if (getattr(self, "_rend_anio", None), getattr(self, "_rend_mes", None)) != (_hoy.year, _hoy.month):
+                self._rend_anio, self._rend_mes = _hoy.year, _hoy.month
+            self._cargar_rendimiento()
 
     def _volver(self):
         self.hide()
@@ -2951,7 +2958,7 @@ class VentasAnaliticaWindow(QWidget):
                 "•  Fuente — origen de los datos (archivo importado o ventas reales del TPV).\n\n"
                 "Archivos compatibles: .xlsx o .csv con DOS columnas → FECHA (DD/MM/AAAA) "
                 "y TOTAL (importe facturado ese día). Cada fila = un día."
-            )), size=13, color="#C9D1D9")
+            )), bold=True, size=14, color="#C9D1D9")
         _help.setWordWrap(True); ely.addWidget(_help)
         root.addWidget(expl)
 
@@ -3231,10 +3238,11 @@ class VentasAnaliticaWindow(QWidget):
                       default="Seguimiento diario de facturación y productividad de la tienda. Los datos se rellenan "
                               "automáticamente desde el TPV, el autocobro y los fichajes; también puedes editarlos a "
                               "mano (facturación, nº clientes y horas) y pulsar GUARDAR CAMBIOS."),
-                   size=13, color="#C9D1D9")
+                   bold=True, size=14, color="#C9D1D9")
         sub.setWordWrap(True); ely.addWidget(sub)
         root.addWidget(expl)
-        root.addWidget(_lbl(f"{self._MESES_RND[self._rend_mes]} {self._rend_anio}", bold=True, size=14, color="#C9D1D9"))
+        self._rend_mes_lbl = _lbl(f"{self._MESES_RND[self._rend_mes]} {self._rend_anio}", bold=True, size=14, color="#C9D1D9")
+        root.addWidget(self._rend_mes_lbl)
 
         self._rend_cols = [
             tr("vta.perf_c_dia", default="Día"),
@@ -3264,7 +3272,33 @@ class VentasAnaliticaWindow(QWidget):
         t.setColumnWidth(0, 55)
         _ClipTableTopCorners(t)
         self.tbl_rend = t
-        root.addWidget(t, 1)
+        root.addLayout(self._rend_acciones_row("rend"))   # imprimir / compartir
+        root.addWidget(t, 3)
+
+        # ── Tabla de PREVISIÓN DE FACTURACIÓN (IA), debajo ──
+        root.addWidget(_lbl(tr("vta.perf_prev_title", default="PREVISIÓN DE FACTURACIÓN (IA)"),
+                            bold=True, size=12, color=CIAN))
+        tp = QTableWidget(0, 2)
+        tp.setHorizontalHeaderLabels([
+            tr("vta.perf_c_dia", default="Día"),
+            tr("vta.perf_c_prev", default="Previsión facturación"),
+        ])
+        tp.setStyleSheet(_SS_TABLE)
+        tp.verticalHeader().setVisible(False)
+        tp.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.SelectedClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.AnyKeyPressed
+        )
+        _hhp = tp.horizontalHeader()
+        _hhp.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        _hhp.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        tp.setColumnWidth(0, 55)
+        _ClipTableTopCorners(tp)
+        self.tbl_prev = tp
+        root.addLayout(self._rend_acciones_row("prev"))
+        root.addWidget(tp, 2)
 
         br = QHBoxLayout(); br.addStretch()
         self.btn_rend_guardar = QPushButton(tr("vta.perf_save", default="GUARDAR CAMBIOS"))
@@ -3282,7 +3316,7 @@ class VentasAnaliticaWindow(QWidget):
         """Datos auto por día (TPV/autocobro + fichajes), con override manual guardado."""
         import calendar
         ndias = calendar.monthrange(anio, mes)[1]
-        data = {d: {"fact": 0.0, "clientes": 0, "horas": 0.0} for d in range(1, ndias + 1)}
+        data = {d: {"fact": 0.0, "clientes": 0, "horas": 0.0, "prev": 0.0} for d in range(1, ndias + 1)}
         try:
             with obtener_conexion() as conn:
                 cur = conn.cursor()
@@ -3299,17 +3333,28 @@ class VentasAnaliticaWindow(QWidget):
                 for d, mins in cur.fetchall():
                     if d in data:
                         data[d]["horas"] = round(float(mins or 0) / 60.0, 2)
+                # Previsión IA: media histórica de facturación para ese día del mes.
+                try:
+                    cur.execute(
+                        "SELECT DAY(fecha), AVG(total_facturado) FROM prevision_historico "
+                        "WHERE MONTH(fecha)=%s GROUP BY DAY(fecha)", (mes,))
+                    for d, avg in cur.fetchall():
+                        if d in data and avg is not None:
+                            data[d]["prev"] = round(float(avg), 2)
+                except Exception:
+                    pass
                 try:
                     from src.db.empresa import empresa_actual_id
                     cur.execute(
-                        "SELECT DAY(fecha), facturacion, clientes, horas FROM rendimiento_diario "
+                        "SELECT DAY(fecha), facturacion, clientes, horas, prevision FROM rendimiento_diario "
                         "WHERE id_empresa=%s AND YEAR(fecha)=%s AND MONTH(fecha)=%s",
                         (empresa_actual_id(), anio, mes))
-                    for d, f, c, h in cur.fetchall():
+                    for d, f, c, h, p in cur.fetchall():
                         if d in data:
                             if f is not None: data[d]["fact"] = float(f)
                             if c is not None: data[d]["clientes"] = int(c)
                             if h is not None: data[d]["horas"] = float(h)
+                            if p is not None: data[d]["prev"] = float(p)
                 except Exception:
                     pass
         except Exception:
@@ -3319,6 +3364,8 @@ class VentasAnaliticaWindow(QWidget):
     def _cargar_rendimiento(self):
         self._rend_updating = True
         try:
+            if hasattr(self, "_rend_mes_lbl"):
+                self._rend_mes_lbl.setText(f"{self._MESES_RND[self._rend_mes]} {self._rend_anio}")
             data = self._rend_datos_auto(self._rend_anio, self._rend_mes)
             dias = sorted(data.keys())
             t = self.tbl_rend
@@ -3337,6 +3384,17 @@ class VentasAnaliticaWindow(QWidget):
                         it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
                     t.setItem(r, c, it)
             self._rend_recalcular()
+            # Tabla de previsión (Día | Previsión facturación)
+            if hasattr(self, "tbl_prev"):
+                tp = self.tbl_prev
+                tp.setRowCount(len(dias))
+                for r, d in enumerate(dias):
+                    it0 = QTableWidgetItem(str(d)); it0.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    it0.setFlags(it0.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    tp.setItem(r, 0, it0)
+                    it1 = QTableWidgetItem(f"{data[d]['prev']:.2f}")
+                    it1.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    tp.setItem(r, 1, it1)
         finally:
             self._rend_updating = False
 
@@ -3384,6 +3442,18 @@ class VentasAnaliticaWindow(QWidget):
         except Exception:
             eid = None
         t = self.tbl_rend
+        # Previsión por día (tabla de abajo): Día -> importe.
+        prev_por_dia = {}
+        tp = getattr(self, "tbl_prev", None)
+        if tp is not None:
+            for r in range(tp.rowCount()):
+                it0 = tp.item(r, 0); it1 = tp.item(r, 1)
+                if it0 and it0.text().strip().isdigit():
+                    s = (it1.text() if it1 else "").replace(",", ".").strip()
+                    try:
+                        prev_por_dia[int(it0.text().strip())] = float(s) if s else 0.0
+                    except ValueError:
+                        prev_por_dia[int(it0.text().strip())] = 0.0
         try:
             with obtener_conexion() as conn:
                 cur = conn.cursor()
@@ -3394,13 +3464,85 @@ class VentasAnaliticaWindow(QWidget):
                         continue
                     fecha = _d.date(self._rend_anio, self._rend_mes, int(dia))
                     fact = self._rend_num(r, 1); cli = int(self._rend_num(r, 3)); horas = self._rend_num(r, 5)
+                    prev = prev_por_dia.get(int(dia), 0.0)
                     cur.execute(
-                        "INSERT INTO rendimiento_diario (id_empresa, fecha, facturacion, clientes, horas) "
-                        "VALUES (%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE "
-                        "facturacion=VALUES(facturacion), clientes=VALUES(clientes), horas=VALUES(horas)",
-                        (eid, fecha, fact, cli, horas))
+                        "INSERT INTO rendimiento_diario (id_empresa, fecha, facturacion, clientes, horas, prevision) "
+                        "VALUES (%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE "
+                        "facturacion=VALUES(facturacion), clientes=VALUES(clientes), horas=VALUES(horas), "
+                        "prevision=VALUES(prevision)",
+                        (eid, fecha, fact, cli, horas, prev))
                 conn.commit()
             mostrar_mensaje(self, tr("vta.perf_saved_t", default="Guardado"),
                             tr("vta.perf_saved", default="Rendimiento guardado correctamente."), "success")
+        except Exception as e:
+            mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")
+
+    # ── Imprimir / Compartir tablas de RENDIMIENTO ────────────────────────────
+    def _rend_acciones_row(self, which):
+        row = QHBoxLayout(); row.addStretch()
+        b_imp = QPushButton(tr("vta.perf_print", default="🖨  IMPRIMIR"))
+        b_sh = QPushButton(tr("vta.perf_share", default="✉  COMPARTIR"))
+        for b in (b_imp, b_sh):
+            b.setStyleSheet(_SS_BTN_CIAN); b.setFixedHeight(34)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b_imp.clicked.connect(lambda: self._imprimir_tabla(which))
+        b_sh.clicked.connect(lambda: self._compartir_tabla(which))
+        row.addWidget(b_imp); row.addWidget(b_sh)
+        return row
+
+    def _exportar_tabla_pdf(self, which):
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import cm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+        t = self.tbl_rend if which == "rend" else self.tbl_prev
+        nombre = "Rendimiento" if which == "rend" else "Prevision"
+        titulo = (("RENDIMIENTO" if which == "rend" else "PREVISIÓN DE FACTURACIÓN (IA)")
+                  + f" — {self._MESES_RND[self._rend_mes]} {self._rend_anio}")
+        headers = [t.horizontalHeaderItem(c).text() for c in range(t.columnCount())]
+        rows = [headers]
+        for r in range(t.rowCount()):
+            rows.append([(t.item(r, c).text() if t.item(r, c) else "") for c in range(t.columnCount())])
+        carpeta = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../documentos/informes"))
+        os.makedirs(carpeta, exist_ok=True)
+        ruta = os.path.join(carpeta, f"{nombre}_{self._rend_anio}_{self._rend_mes:02d}.pdf")
+        doc = SimpleDocTemplate(ruta, pagesize=landscape(A4),
+                                leftMargin=1 * cm, rightMargin=1 * cm, topMargin=1.2 * cm, bottomMargin=1 * cm)
+        styles = getSampleStyleSheet()
+        tbl = Table(rows, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F3C88")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#BBBBBB")),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F2F2")]),
+        ]))
+        doc.build([Paragraph(f"<b>{titulo}</b>", styles["Title"]), Spacer(1, 8), tbl])
+        return ruta
+
+    def _imprimir_tabla(self, which):
+        try:
+            ruta = self._exportar_tabla_pdf(which)
+            mostrar_mensaje(self, tr("vta.perf_print_ok_t", default="Tabla exportada"),
+                            tr("vta.perf_print_ok", default="Guardada en:\n{ruta}", ruta=ruta), "success")
+            import platform
+            import subprocess
+            if platform.system() == "Windows":
+                os.startfile(ruta)  # abre el visor → permite imprimir
+            else:
+                subprocess.Popen(["xdg-open", ruta])
+        except Exception as e:
+            mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")
+
+    def _compartir_tabla(self, which):
+        try:
+            ruta = self._exportar_tabla_pdf(which)
+            from src.gui.correo_corporativo import enviar_documento_por_correo
+            asunto = (("Rendimiento" if which == "rend" else "Previsión de facturación")
+                      + f" {self._MESES_RND[self._rend_mes]} {self._rend_anio}")
+            enviar_documento_por_correo(self, ruta, asunto)
         except Exception as e:
             mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")

@@ -856,7 +856,15 @@
     "perf_c_prod": "Daily prod.",
     "perf_c_prodac": "Cum. prod.",
     "perf_saved_t": "Saved",
-    "perf_saved": "Performance saved successfully."
+    "perf_saved": "Performance saved successfully.",
+    "perf_sub": "Daily performance table for the month. Edit Revenue, Customers and Worked hours; the remaining columns are computed automatically.",
+    "perf_prev_title": "REVENUE FORECAST (AI)",
+    "perf_c_prev": "Revenue forecast",
+    "perf_print": "🖨  PRINT",
+    "perf_share": "✉  SHARE",
+    "perf_print_ok_t": "Table exported",
+    "perf_print_ok": "Saved to:\n{ruta}",
+    "hist_help_body": "Upload the sales history in Excel to feed analytics and forecasts."
   },
   "cfg": {
     "window_title": "SYSTEM CONFIGURATION",

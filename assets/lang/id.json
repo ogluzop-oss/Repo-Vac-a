@@ -856,7 +856,15 @@
     "perf_c_prod": "Produktivitas hari",
     "perf_c_prodac": "Prod. akumulatif",
     "perf_saved_t": "Tersimpan",
-    "perf_saved": "Kinerja berhasil disimpan."
+    "perf_saved": "Kinerja berhasil disimpan.",
+    "perf_sub": "Tabel kinerja harian untuk bulan ini. Edit Faktur, Jumlah Pelanggan dan Jam Kerja; kolom lainnya dihitung secara otomatis.",
+    "perf_prev_title": "PRAKIRAAN FAKTUR (AI)",
+    "perf_c_prev": "Prakiraan faktur",
+    "perf_print": "🖨  CETAK",
+    "perf_share": "✉  BAGIKAN",
+    "perf_print_ok_t": "Tabel diekspor",
+    "perf_print_ok": "Disimpan di:\n{ruta}",
+    "hist_help_body": "Unggah riwayat penjualan dalam Excel untuk mengisi analisis dan prakiraan."
   },
   "cfg": {
     "window_title": "KONFIGURASI SISTEM",

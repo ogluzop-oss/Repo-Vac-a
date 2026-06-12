@@ -856,7 +856,15 @@
     "perf_c_prod": "Produttività giorno",
     "perf_c_prodac": "Prod. accumulata",
     "perf_saved_t": "Salvato",
-    "perf_saved": "Prestazioni salvate correttamente."
+    "perf_saved": "Prestazioni salvate correttamente.",
+    "perf_sub": "Tabella di performance giornaliera del mese. Modifica Fatturazione, Nº di clienti e Ore lavorate; il resto delle colonne si calcolano automaticamente.",
+    "perf_prev_title": "PREVISIONE DI FATTURAZIONE (IA)",
+    "perf_c_prev": "Previsione fatturazione",
+    "perf_print": "🖨  STAMPARE",
+    "perf_share": "✉  CONDIVIDERE",
+    "perf_print_ok_t": "Tabella esportata",
+    "perf_print_ok": "Salvata in:\n{ruta}",
+    "hist_help_body": "Carica lo storico delle vendite in Excel per alimentare l'analisi e le previsioni."
   },
   "cfg": {
     "window_title": "CONFIGURAZIONE DEL SISTEMA",
