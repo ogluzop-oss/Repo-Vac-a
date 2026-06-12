@@ -841,7 +841,22 @@
     "fmt_unsupported": "صيغة غير مدعومة. استخدم Excel (.xlsx) أو CSV.",
     "need_columns": "يجب أن يحتوي الملف على أعمدة 'date' و 'total' (أو متغيرات مشابهة).",
     "hist_import_ok": "السجل المستورد: تم تحميل {n} يوم من\n{ruta}",
-    "import_err": "خطأ في الاستيراد: {e}"
+    "import_err": "خطأ في الاستيراد: {e}",
+    "tab_rendimiento": "الأداء",
+    "hist_help_title": "ما هذه التبويبة؟",
+    "perf_title": "الأداء",
+    "perf_save": "حفظ التغييرات",
+    "perf_c_dia": "اليوم",
+    "perf_c_fact": "الفواتير اليومية",
+    "perf_c_factac": "الفواتير المتراكمة",
+    "perf_c_cli": "عدد العملاء",
+    "perf_c_tm": "متوسط الفاتورة",
+    "perf_c_horas": "ساعات اليوم",
+    "perf_c_horasac": "الساعات المتراكمة",
+    "perf_c_prod": "الإنتاجية اليومية",
+    "perf_c_prodac": "الإنتاجية المتراكمة",
+    "perf_saved_t": "تم الحفظ",
+    "perf_saved": "تم حفظ الأداء بنجاح."
   },
   "cfg": {
     "window_title": "تكوين النظام",

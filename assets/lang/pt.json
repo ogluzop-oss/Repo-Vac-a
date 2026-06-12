@@ -841,7 +841,22 @@
     "pdf_col_total": "Total",
     "pdf_total": "TOTAL:",
     "hist_imported": "HISTÓRICO IMPORTADO",
-    "importing_hist": "Importando histórico…"
+    "importing_hist": "Importando histórico…",
+    "tab_rendimiento": "DESEMPENHO",
+    "hist_help_title": "O QUE É ESTA ABA?",
+    "perf_title": "DESEMPENHO",
+    "perf_save": "SALVAR ALTERAÇÕES",
+    "perf_c_dia": "Dia",
+    "perf_c_fact": "Faturamento dia",
+    "perf_c_factac": "Faturamento acum.",
+    "perf_c_cli": "Nº clientes",
+    "perf_c_tm": "Ticket médio",
+    "perf_c_horas": "Horas dia",
+    "perf_c_horasac": "Horas acum.",
+    "perf_c_prod": "Produtividade dia",
+    "perf_c_prodac": "Prod. acumulada",
+    "perf_saved_t": "Salvo",
+    "perf_saved": "Desempenho salvo corretamente."
   },
   "cfg": {
     "window_title": "CONFIGURAÇÃO DO SISTEMA",

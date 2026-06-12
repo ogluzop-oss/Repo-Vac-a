@@ -841,7 +841,22 @@
     "fmt_unsupported": "प्रारूप समर्थित नहीं है। Excel (.xlsx) या CSV का उपयोग करें।",
     "need_columns": "फ़ाइल में 'तारीख' और 'कुल' कॉलम (या समान) होने चाहिए।",
     "hist_import_ok": "इतिहास आयातित: {n} दिन लोड किए गए\n{ruta}",
-    "import_err": "आयात में त्रुटि: {e}"
+    "import_err": "आयात में त्रुटि: {e}",
+    "tab_rendimiento": "प्रदर्शन",
+    "hist_help_title": "यह टैब क्या है?",
+    "perf_title": "प्रदर्शन",
+    "perf_save": "परिवर्तन सहेजें",
+    "perf_c_dia": "दिन",
+    "perf_c_fact": "दैनिक बिलिंग",
+    "perf_c_factac": "संचयी बिलिंग",
+    "perf_c_cli": "ग्राहकों की संख्या",
+    "perf_c_tm": "औसत टिकट",
+    "perf_c_horas": "दैनिक घंटे",
+    "perf_c_horasac": "संचयी घंटे",
+    "perf_c_prod": "दैनिक उत्पादकता",
+    "perf_c_prodac": "संचयी उत्पादकता",
+    "perf_saved_t": "सहेजा गया",
+    "perf_saved": "प्रदर्शन सही तरीके से सहेजा गया।"
   },
   "cfg": {
     "window_title": "सिस्टम कॉन्फ़िगरेशन",

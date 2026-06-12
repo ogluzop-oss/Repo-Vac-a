@@ -841,7 +841,22 @@
     "import_err": "Kesalahan saat mengimpor: {e}",
     "col_total": "Total ({sym})",
     "pdf_col_total": "Total",
-    "pdf_total": "TOTAL:"
+    "pdf_total": "TOTAL:",
+    "tab_rendimiento": "KINERJA",
+    "hist_help_title": "APA ITU TAB INI?",
+    "perf_title": "KINERJA",
+    "perf_save": "SIMPAN PERUBAHAN",
+    "perf_c_dia": "Hari",
+    "perf_c_fact": "Penagihan hari",
+    "perf_c_factac": "Penagihan akum.",
+    "perf_c_cli": "Nº pelanggan",
+    "perf_c_tm": "Tiket rata-rata",
+    "perf_c_horas": "Jam hari",
+    "perf_c_horasac": "Jam akum.",
+    "perf_c_prod": "Produktivitas hari",
+    "perf_c_prodac": "Prod. akumulatif",
+    "perf_saved_t": "Tersimpan",
+    "perf_saved": "Kinerja berhasil disimpan."
   },
   "cfg": {
     "window_title": "KONFIGURASI SISTEM",

@@ -841,7 +841,22 @@
     "fmt_unsupported": "Formato non supportato. Usa Excel (.xlsx) o CSV.",
     "need_columns": "Il file deve avere colonne 'data' e 'totale' (o varianti simili).",
     "hist_import_ok": "Storico importato: {n} giorni caricati da\n{ruta}",
-    "import_err": "Errore durante l'importazione: {e}"
+    "import_err": "Errore durante l'importazione: {e}",
+    "tab_rendimiento": "PRESTAZIONI",
+    "hist_help_title": "CHE COS'È QUESTA SCHEDA?",
+    "perf_title": "PRESTAZIONI",
+    "perf_save": "SALVA MODIFICHE",
+    "perf_c_dia": "Giorno",
+    "perf_c_fact": "Fatturazione giorno",
+    "perf_c_factac": "Fatturazione accum.",
+    "perf_c_cli": "N° clienti",
+    "perf_c_tm": "Scontrino medio",
+    "perf_c_horas": "Ore giorno",
+    "perf_c_horasac": "Ore accum.",
+    "perf_c_prod": "Produttività giorno",
+    "perf_c_prodac": "Prod. accumulata",
+    "perf_saved_t": "Salvato",
+    "perf_saved": "Prestazioni salvate correttamente."
   },
   "cfg": {
     "window_title": "CONFIGURAZIONE DEL SISTEMA",

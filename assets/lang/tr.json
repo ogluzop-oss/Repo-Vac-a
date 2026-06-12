@@ -841,7 +841,22 @@
     "fmt_unsupported": "Desteklenmeyen format. Excel (.xlsx) veya CSV kullanın.",
     "need_columns": "Dosyada 'tarih' ve 'toplam' sütunları olmalıdır (veya benzer varyantlar).",
     "hist_import_ok": "Geçmiş ithal edildi: {n} gün yüklendi\n{ruta}",
-    "import_err": "İthal edilirken hata: {e}"
+    "import_err": "İthal edilirken hata: {e}",
+    "tab_rendimiento": "PERFORMANS",
+    "hist_help_title": "BU SEKME NEDİR?",
+    "perf_title": "PERFORMANS",
+    "perf_save": "DEĞİŞİKLİKLERİ KAYDET",
+    "perf_c_dia": "Gün",
+    "perf_c_fact": "Günlük Faturalandırma",
+    "perf_c_factac": "Birikmiş Faturalandırma",
+    "perf_c_cli": "Müşteri Sayısı",
+    "perf_c_tm": "Ortalama Fiş",
+    "perf_c_horas": "Günlük Saatler",
+    "perf_c_horasac": "Birikmiş Saatler",
+    "perf_c_prod": "Günlük Verimlilik",
+    "perf_c_prodac": "Birikmiş Verimlilik",
+    "perf_saved_t": "Kaydedildi",
+    "perf_saved": "Performans başarıyla kaydedildi."
   },
   "cfg": {
     "window_title": "SİSTEM YAPILANDIRMASI",

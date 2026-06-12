@@ -841,7 +841,22 @@
     "col_ticket": "Ticket",
     "col_total": "Total ({sym})",
     "pdf_col_total": "Total",
-    "unit_uds_low": "uds"
+    "unit_uds_low": "uds",
+    "tab_rendimiento": "PERFORMANCE",
+    "hist_help_title": "QU'EST-CE QUE CET ONGLET?",
+    "perf_title": "PERFORMANCE",
+    "perf_save": "ENREGISTRER LES MODIFICATIONS",
+    "perf_c_dia": "Jour",
+    "perf_c_fact": "Facturation jour",
+    "perf_c_factac": "Facturation cumul.",
+    "perf_c_cli": "Nº clients",
+    "perf_c_tm": "Ticket moyen",
+    "perf_c_horas": "Heures jour",
+    "perf_c_horasac": "Heures cumul.",
+    "perf_c_prod": "Productivité jour",
+    "perf_c_prodac": "Prod. cumulée",
+    "perf_saved_t": "Enregistré",
+    "perf_saved": "Performance enregistrée correctement."
   },
   "cfg": {
     "window_title": "CONFIGURATION DU SYSTÈME",

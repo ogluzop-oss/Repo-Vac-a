@@ -841,7 +841,22 @@
     "hist_import_ok": "Historie importiert: {n} Tage geladen von\n{ruta}",
     "import_err": "Fehler beim Importieren: {e}",
     "col_ticket": "Ticket",
-    "pdf_ticket_num": "Ticket: T-{num}"
+    "pdf_ticket_num": "Ticket: T-{num}",
+    "tab_rendimiento": "LEISTUNG",
+    "hist_help_title": "WAS IST DIESES TAB?",
+    "perf_title": "LEISTUNG",
+    "perf_save": "ÄNDERUNGEN SPEICHERN",
+    "perf_c_dia": "Tag",
+    "perf_c_fact": "Tagesabrechnung",
+    "perf_c_factac": "Kumulierte Abrechnung",
+    "perf_c_cli": "Anzahl Kunden",
+    "perf_c_tm": "Durchschnittlicher Beleg",
+    "perf_c_horas": "Stunden Tag",
+    "perf_c_horasac": "Stunden kumuliert",
+    "perf_c_prod": "Tagesproduktivität",
+    "perf_c_prodac": "Kumulierte Produktivität",
+    "perf_saved_t": "Gespeichert",
+    "perf_saved": "Leistung korrekt gespeichert."
   },
   "cfg": {
     "window_title": "SYSTEMKONFIGURATION",

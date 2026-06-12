@@ -841,7 +841,22 @@
     "fmt_unsupported": "Nieobsługiwany format. Użyj Excela (.xlsx) lub CSV.",
     "need_columns": "Plik musi zawierać kolumny 'data' i 'razem' (lub podobne warianty).",
     "hist_import_ok": "Historia zaimportowana: {n} dni załadowanych z\n{ruta}",
-    "import_err": "Błąd podczas importu: {e}"
+    "import_err": "Błąd podczas importu: {e}",
+    "tab_rendimiento": "WYDAJNOŚĆ",
+    "hist_help_title": "CO TO JEST TA KARTA?",
+    "perf_title": "WYDAJNOŚĆ",
+    "perf_save": "ZAPISZ ZMIANY",
+    "perf_c_dia": "Dzień",
+    "perf_c_fact": "Rozliczenie dzienne",
+    "perf_c_factac": "Rozliczenie skumulowane",
+    "perf_c_cli": "Liczba klientów",
+    "perf_c_tm": "Średni paragon",
+    "perf_c_horas": "Godziny dzienne",
+    "perf_c_horasac": "Godziny skumulowane",
+    "perf_c_prod": "Produktywność dzienna",
+    "perf_c_prodac": "Produktywność skumulowana",
+    "perf_saved_t": "Zapisano",
+    "perf_saved": "Wydajność zapisana prawidłowo."
   },
   "cfg": {
     "window_title": "KONFIGURACJA SYSTEMU",

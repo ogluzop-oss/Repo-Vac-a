@@ -841,7 +841,22 @@
     "fmt_unsupported": "不支持的格式。使用 Excel (.xlsx) 或 CSV。",
     "need_columns": "文件必须包含 'fecha' 和 'total' 列 (或类似的变体)。",
     "hist_import_ok": "历史数据已导入: 从以下位置加载了 {n} 天的数据\n{ruta}",
-    "import_err": "导入出错: {e}"
+    "import_err": "导入出错: {e}",
+    "tab_rendimiento": "性能",
+    "hist_help_title": "这个标签是什么?",
+    "perf_title": "性能",
+    "perf_save": "保存更改",
+    "perf_c_dia": "日",
+    "perf_c_fact": "日结账",
+    "perf_c_factac": "累计结账",
+    "perf_c_cli": "客户数",
+    "perf_c_tm": "平均单据",
+    "perf_c_horas": "日工作时间",
+    "perf_c_horasac": "累计工作时间",
+    "perf_c_prod": "日生产率",
+    "perf_c_prodac": "累计生产率",
+    "perf_saved_t": "已保存",
+    "perf_saved": "性能已正确保存。"
   },
   "cfg": {
     "window_title": "系统配置",

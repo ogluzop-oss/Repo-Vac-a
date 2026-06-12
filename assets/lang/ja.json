@@ -841,7 +841,22 @@
     "fmt_unsupported": "サポートされていない形式です。Excel (.xlsx) または CSV を使用してください。",
     "need_columns": "ファイルに「fecha」および「total」列（または類似の列）が必要です。",
     "hist_import_ok": "履歴をインポートしました: {n} から {ruta} 日間読み込みました",
-    "import_err": "インポートエラー: {e}"
+    "import_err": "インポートエラー: {e}",
+    "tab_rendimiento": "パフォーマンス",
+    "hist_help_title": "このタブとは何ですか?",
+    "perf_title": "パフォーマンス",
+    "perf_save": "変更を保存",
+    "perf_c_dia": "日",
+    "perf_c_fact": "本日の売上",
+    "perf_c_factac": "累積売上",
+    "perf_c_cli": "顧客数",
+    "perf_c_tm": "平均チケット",
+    "perf_c_horas": "本日の営業時間",
+    "perf_c_horasac": "累積営業時間",
+    "perf_c_prod": "本日の生産性",
+    "perf_c_prodac": "累積生産性",
+    "perf_saved_t": "保存済み",
+    "perf_saved": "パフォーマンスが正常に保存されました。"
   },
   "cfg": {
     "window_title": "システム設定",

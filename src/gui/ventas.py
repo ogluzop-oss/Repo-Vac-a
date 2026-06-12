@@ -2202,9 +2202,10 @@ class VentasAnaliticaWindow(QWidget):
         i18n.conectar_retraduccion(self, self._retraducir)
 
     def _retraducir(self):
-        _tab_def = ["BUSCAR VENTAS", "RESUMEN DE VENTAS", "PREVISIÓN FACTURACIÓN"]
+        _tab_def = ["BUSCAR VENTAS", "RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
         for i, btn in enumerate(self._sidebar_btns):
-            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
+            _d = _tab_def[i] if i < len(_tab_def) else ""
+            btn.setText(tr(self._tab_keys[i], default=_d))
         if hasattr(self, "_btn_exit"):
             self._btn_exit.setText(tr("vta.exit", default="SALIR AL MENÚ"))
 
@@ -2222,6 +2223,7 @@ class VentasAnaliticaWindow(QWidget):
         self.stack.addWidget(self._panel_buscar_ventas())
         self.stack.addWidget(self._panel_resumen_ventas())
         self.stack.addWidget(self._panel_prevision())
+        self.stack.addWidget(self._panel_rendimiento())
         root.addWidget(self.stack)
 
         self._cambiar_tab(0)
@@ -2246,8 +2248,8 @@ class VentasAnaliticaWindow(QWidget):
         )
         ly.addWidget(titulo)
 
-        self._tab_keys = ["vta.tab_search", "vta.tab_summary", "vta.tab_forecast"]
-        _tab_def = ["BUSCAR VENTAS", "RESUMEN DE VENTAS", "PREVISIÓN FACTURACIÓN"]
+        self._tab_keys = ["vta.tab_search", "vta.tab_summary", "vta.tab_forecast", "vta.tab_rendimiento"]
+        _tab_def = ["BUSCAR VENTAS", "RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
         for i, texto in enumerate(_tab_def):
             btn = QPushButton(tr(self._tab_keys[i], default=texto))
             btn.setObjectName("btn_sidebar")
@@ -2912,47 +2914,58 @@ class VentasAnaliticaWindow(QWidget):
         root.setContentsMargins(24, 20, 24, 16)
         root.setSpacing(14)
 
-        root.addWidget(_lbl(tr("vta.forecast_title", default="PREVISIÓN FACTURACIÓN"), bold=True, size=15, color=CIAN))
+        _center = Qt.AlignmentFlag.AlignCenter
+        root.addWidget(_lbl(tr("vta.forecast_title", default="HISTÓRICO DE VENTAS"), bold=True, size=15, color=CIAN))
         root.addWidget(_separador())
+
+        # ── Recuadro explicativo (arriba) ──────────────────────────────────────
+        expl = QFrame(); expl.setObjectName("expl_hist")
+        expl.setStyleSheet(f"QFrame#expl_hist {{ background: #161B22; border: 1px solid {BORDE}; border-radius: 10px; }}")
+        ely = QVBoxLayout(expl); ely.setContentsMargins(18, 12, 18, 12); ely.setSpacing(4)
+        ely.addWidget(_lbl(tr("vta.hist_help_title", default="¿QUÉ ES ESTA PESTAÑA?"), bold=True, size=11, color=CIAN))
+        _help = _lbl(tr(
+            "vta.hist_help_body",
+            default=(
+                "Sube tu facturación de años anteriores para alimentar la previsión inteligente. "
+                "La tabla de abajo resume el histórico importado, columna por columna:\n"
+                "•  Año — ejercicio al que pertenecen los datos.\n"
+                "•  Días — número de días con datos registrados ese año.\n"
+                "•  Total facturado — suma de la facturación de todo el año.\n"
+                "•  Fuente — origen de los datos (archivo importado o ventas reales del TPV).\n\n"
+                "Archivos compatibles: .xlsx o .csv con DOS columnas → FECHA (DD/MM/AAAA) "
+                "y TOTAL (importe facturado ese día). Cada fila = un día."
+            )), size=10, color="#C9D1D9")
+        _help.setWordWrap(True); ely.addWidget(_help)
+        root.addWidget(expl)
+
         root.addStretch()
 
-        # Icono central
+        # Icono + subtítulo + botón (centrados, más abajo)
         lbl_icon = QLabel("📈")
-        lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_icon.setStyleSheet(
-            "font-size: 72px; background: transparent; color: white;"
-        )
+        lbl_icon.setAlignment(_center)
+        lbl_icon.setStyleSheet("font-size: 60px; background: transparent; color: white;")
         root.addWidget(lbl_icon)
 
         lbl_sub = _lbl(tr("vta.forecast_subtitle", default="Sistema de previsión inteligente basado en histórico de ventas y modelos IA"),
                        size=11, color="#8B949E")
-        lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_sub.setAlignment(_center)
         lbl_sub.setWordWrap(True)
         root.addWidget(lbl_sub)
 
-        root.addSpacing(20)
+        root.addSpacing(16)
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(20)
-        btn_row.addStretch()
-
+        btn_row = QHBoxLayout(); btn_row.addStretch()
         self.btn_subir_hist = QPushButton(tr("vta.btn_upload_hist", default="SUBIR VENTAS PASADAS"))
-        self.btn_ver_prev   = QPushButton(tr("vta.btn_view_forecast", default="VER PREVISIÓN"))
-        for btn in (self.btn_subir_hist, self.btn_ver_prev):
-            btn.setStyleSheet(_SS_BTN_CIAN)
-            btn.setFixedHeight(48)
-            btn.setFixedWidth(240)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_row.addWidget(btn)
-
+        self.btn_subir_hist.setStyleSheet(_SS_BTN_CIAN)
+        self.btn_subir_hist.setFixedHeight(48); self.btn_subir_hist.setFixedWidth(260)
+        self.btn_subir_hist.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_subir_hist.clicked.connect(self._subir_ventas_pasadas)
-        self.btn_ver_prev.clicked.connect(self._ver_prevision)
-        btn_row.addStretch()
+        btn_row.addWidget(self.btn_subir_hist); btn_row.addStretch()
         root.addLayout(btn_row)
 
         # Estado importación
         self.lbl_prev_estado = _lbl("", size=10, color="#8B949E")
-        self.lbl_prev_estado.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_prev_estado.setAlignment(_center)
         root.addWidget(self.lbl_prev_estado)
 
         root.addStretch()
@@ -2966,7 +2979,7 @@ class VentasAnaliticaWindow(QWidget):
         ifly = QVBoxLayout(info_frame)
         ifly.setContentsMargins(16, 12, 16, 12)
         ifly.setSpacing(6)
-        ifly.addWidget(_lbl(tr("vta.hist_imported", default="HISTÓRICO IMPORTADO"), bold=True, size=10, color=CIAN))
+        ifly.addWidget(_lbl(tr("vta.hist_imported", default="HISTÓRICO IMPORTADO"), bold=True, size=13, color=CIAN))
         self.tbl_historico = QTableWidget(0, 4)
         self.tbl_historico.setHorizontalHeaderLabels([
             tr("vta.col_year", default="Año"),
@@ -3178,3 +3191,185 @@ class VentasAnaliticaWindow(QWidget):
 
         except Exception as e:
             mostrar_mensaje(self, tr("vta.error_title", default="Error"), tr("vta.excel_gen_err", default="No se pudo generar el Excel:\n{e}", e=e), "error")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 4 — RENDIMIENTO (facturación diaria + productividad por tienda)
+    # ══════════════════════════════════════════════════════════════════════════
+    _MESES_RND = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+    def _panel_rendimiento(self):
+        page = QWidget(); page.setStyleSheet(f"background: {BG};")
+        root = QVBoxLayout(page); root.setContentsMargins(24, 20, 24, 16); root.setSpacing(12)
+        _now = datetime.now()
+        self._rend_anio, self._rend_mes = _now.year, _now.month
+        self._rend_updating = False
+
+        root.addWidget(_lbl(tr("vta.perf_title", default="RENDIMIENTO"), bold=True, size=15, color=CIAN))
+        root.addWidget(_separador())
+        sub = _lbl(tr("vta.perf_sub",
+                      default="Seguimiento diario de facturación y productividad de la tienda. Los datos se rellenan "
+                              "automáticamente desde el TPV, el autocobro y los fichajes; también puedes editarlos a "
+                              "mano (facturación, nº clientes y horas) y pulsar GUARDAR CAMBIOS."),
+                   size=10, color="#8B949E")
+        sub.setWordWrap(True); root.addWidget(sub)
+        root.addWidget(_lbl(f"{self._MESES_RND[self._rend_mes]} {self._rend_anio}", bold=True, size=12, color="#C9D1D9"))
+
+        self._rend_cols = [
+            tr("vta.perf_c_dia", default="Día"),
+            tr("vta.perf_c_fact", default="Fact. día"),
+            tr("vta.perf_c_factac", default="Fact. acum."),
+            tr("vta.perf_c_cli", default="Nº clientes"),
+            tr("vta.perf_c_tm", default="Ticket medio"),
+            tr("vta.perf_c_horas", default="Horas día"),
+            tr("vta.perf_c_horasac", default="Horas acum."),
+            tr("vta.perf_c_prod", default="Prod. día"),
+            tr("vta.perf_c_prodac", default="Prod. acum."),
+        ]
+        t = QTableWidget(0, len(self._rend_cols))
+        t.setHorizontalHeaderLabels(self._rend_cols)
+        t.setStyleSheet(_SS_TABLE)
+        t.verticalHeader().setVisible(False)
+        t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        _ClipTableTopCorners(t)
+        self.tbl_rend = t
+        root.addWidget(t, 1)
+
+        br = QHBoxLayout(); br.addStretch()
+        self.btn_rend_guardar = QPushButton(tr("vta.perf_save", default="GUARDAR CAMBIOS"))
+        self.btn_rend_guardar.setStyleSheet(_SS_BTN_CIAN)
+        self.btn_rend_guardar.setFixedHeight(44); self.btn_rend_guardar.setFixedWidth(220)
+        self.btn_rend_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_rend_guardar.clicked.connect(self._guardar_rendimiento)
+        br.addWidget(self.btn_rend_guardar); root.addLayout(br)
+
+        self._cargar_rendimiento()
+        t.cellChanged.connect(self._rend_on_edit)
+        return page
+
+    def _rend_datos_auto(self, anio, mes):
+        """Datos auto por día (TPV/autocobro + fichajes), con override manual guardado."""
+        import calendar
+        ndias = calendar.monthrange(anio, mes)[1]
+        data = {d: {"fact": 0.0, "clientes": 0, "horas": 0.0} for d in range(1, ndias + 1)}
+        try:
+            with obtener_conexion() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT DAY(fecha), COALESCE(SUM(total),0), COUNT(*) FROM ventas "
+                    "WHERE YEAR(fecha)=%s AND MONTH(fecha)=%s GROUP BY DAY(fecha)", (anio, mes))
+                for d, tot, cnt in cur.fetchall():
+                    if d in data:
+                        data[d]["fact"] = float(tot or 0); data[d]["clientes"] = int(cnt or 0)
+                cur.execute(
+                    "SELECT DAY(entrada), COALESCE(SUM(TIMESTAMPDIFF(MINUTE, entrada, salida)),0) "
+                    "FROM fichajes WHERE salida IS NOT NULL AND YEAR(entrada)=%s AND MONTH(entrada)=%s "
+                    "GROUP BY DAY(entrada)", (anio, mes))
+                for d, mins in cur.fetchall():
+                    if d in data:
+                        data[d]["horas"] = round(float(mins or 0) / 60.0, 2)
+                try:
+                    from src.db.empresa import empresa_actual_id
+                    cur.execute(
+                        "SELECT DAY(fecha), facturacion, clientes, horas FROM rendimiento_diario "
+                        "WHERE id_empresa=%s AND YEAR(fecha)=%s AND MONTH(fecha)=%s",
+                        (empresa_actual_id(), anio, mes))
+                    for d, f, c, h in cur.fetchall():
+                        if d in data:
+                            if f is not None: data[d]["fact"] = float(f)
+                            if c is not None: data[d]["clientes"] = int(c)
+                            if h is not None: data[d]["horas"] = float(h)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return data
+
+    def _cargar_rendimiento(self):
+        self._rend_updating = True
+        try:
+            data = self._rend_datos_auto(self._rend_anio, self._rend_mes)
+            dias = sorted(data.keys())
+            t = self.tbl_rend
+            t.setRowCount(len(dias))
+            editables = {1, 3, 5}  # facturación, clientes, horas
+            for r, d in enumerate(dias):
+                base = ["" for _ in range(9)]
+                base[0] = str(d)
+                base[1] = f"{data[d]['fact']:.2f}"
+                base[3] = str(int(data[d]['clientes']))
+                base[5] = f"{data[d]['horas']:.2f}"
+                for c in range(9):
+                    it = QTableWidgetItem(base[c])
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    if c not in editables:
+                        it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    t.setItem(r, c, it)
+            self._rend_recalcular()
+        finally:
+            self._rend_updating = False
+
+    def _rend_num(self, r, c):
+        it = self.tbl_rend.item(r, c)
+        s = (it.text() if it else "").replace(",", ".").strip()
+        try:
+            return float(s) if s else 0.0
+        except ValueError:
+            return 0.0
+
+    def _rend_recalcular(self):
+        t = self.tbl_rend
+        fact_ac = 0.0; horas_ac = 0.0
+        prev = self._rend_updating; self._rend_updating = True
+        try:
+            for r in range(t.rowCount()):
+                fact = self._rend_num(r, 1); cli = self._rend_num(r, 3); horas = self._rend_num(r, 5)
+                fact_ac += fact; horas_ac += horas
+                tm = fact / cli if cli else 0.0
+                prod = fact / horas if horas else 0.0
+                prodac = fact_ac / horas_ac if horas_ac else 0.0
+
+                def _setc(c, v):
+                    it = t.item(r, c)
+                    if it is None:
+                        it = QTableWidgetItem(); it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                        it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable); t.setItem(r, c, it)
+                    it.setText(f"{v:.2f}")
+                _setc(2, fact_ac); _setc(4, tm); _setc(6, horas_ac); _setc(7, prod); _setc(8, prodac)
+        finally:
+            self._rend_updating = prev
+
+    def _rend_on_edit(self, row, col):
+        if getattr(self, "_rend_updating", False):
+            return
+        if col in (1, 3, 5):
+            self._rend_recalcular()
+
+    def _guardar_rendimiento(self):
+        import datetime as _d
+        try:
+            from src.db.empresa import empresa_actual_id
+            eid = empresa_actual_id()
+        except Exception:
+            eid = None
+        t = self.tbl_rend
+        try:
+            with obtener_conexion() as conn:
+                cur = conn.cursor()
+                for r in range(t.rowCount()):
+                    it0 = t.item(r, 0)
+                    dia = (it0.text().strip() if it0 else "")
+                    if not dia.isdigit():
+                        continue
+                    fecha = _d.date(self._rend_anio, self._rend_mes, int(dia))
+                    fact = self._rend_num(r, 1); cli = int(self._rend_num(r, 3)); horas = self._rend_num(r, 5)
+                    cur.execute(
+                        "INSERT INTO rendimiento_diario (id_empresa, fecha, facturacion, clientes, horas) "
+                        "VALUES (%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE "
+                        "facturacion=VALUES(facturacion), clientes=VALUES(clientes), horas=VALUES(horas)",
+                        (eid, fecha, fact, cli, horas))
+                conn.commit()
+            mostrar_mensaje(self, tr("vta.perf_saved_t", default="Guardado"),
+                            tr("vta.perf_saved", default="Rendimiento guardado correctamente."), "success")
+        except Exception as e:
+            mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")

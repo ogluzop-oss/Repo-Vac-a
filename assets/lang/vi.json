@@ -841,7 +841,22 @@
     "fmt_unsupported": "Định dạng không được hỗ trợ. Sử dụng Excel (.xlsx) hoặc CSV.",
     "need_columns": "Tệp phải có các cột 'ngày' và 'tổng' (hoặc các biến thể tương tự).",
     "hist_import_ok": "Lịch sử đã nhập: {n} ngày được tải từ\n{ruta}",
-    "import_err": "Lỗi khi nhập: {e}"
+    "import_err": "Lỗi khi nhập: {e}",
+    "tab_rendimiento": "HIỆU SUẤT",
+    "hist_help_title": "TAB NÀY LÀ CÁI GÌ?",
+    "perf_title": "HIỆU SUẤT",
+    "perf_save": "LƯU THAY ĐỔI",
+    "perf_c_dia": "Ngày",
+    "perf_c_fact": "Doanh thu ngày",
+    "perf_c_factac": "Doanh thu tích lũy",
+    "perf_c_cli": "Số khách hàng",
+    "perf_c_tm": "Giá trị đơn hàng trung bình",
+    "perf_c_horas": "Giờ ngày",
+    "perf_c_horasac": "Giờ tích lũy",
+    "perf_c_prod": "Năng suất ngày",
+    "perf_c_prodac": "Năng suất tích lũy",
+    "perf_saved_t": "Đã lưu",
+    "perf_saved": "Hiệu suất được lưu thành công."
   },
   "cfg": {
     "window_title": "CẤU HÌNH HỆ THỐNG",

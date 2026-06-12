@@ -841,7 +841,22 @@
     "fmt_unsupported": "Format stöds inte. Använd Excel (.xlsx) eller CSV.",
     "need_columns": "Filen måste innehålla kolumnerna 'datum' och 'totalt' (eller liknande varianter).",
     "hist_import_ok": "Historik importerad: {n} dagar inlästa från\n{ruta}",
-    "import_err": "Fel vid import: {e}"
+    "import_err": "Fel vid import: {e}",
+    "tab_rendimiento": "PRESTANDA",
+    "hist_help_title": "VAD ÄR DENNA FLIK?",
+    "perf_title": "PRESTANDA",
+    "perf_save": "SPARA ÄNDRINGAR",
+    "perf_c_dia": "Dag",
+    "perf_c_fact": "Fakturering dag",
+    "perf_c_factac": "Fakturering ackum.",
+    "perf_c_cli": "Antal kunder",
+    "perf_c_tm": "Genomsnittlig ticket",
+    "perf_c_horas": "Timmar dag",
+    "perf_c_horasac": "Timmar ackum.",
+    "perf_c_prod": "Produktivitet dag",
+    "perf_c_prodac": "Ackum. produktivitet",
+    "perf_saved_t": "Sparad",
+    "perf_saved": "Prestanda sparad korrekt."
   },
   "cfg": {
     "window_title": "SYSTEMKONFIGURATION",

@@ -317,6 +317,21 @@ def ensure_schema(force: bool = False):
                     ADD COLUMN IF NOT EXISTS cod_actividad VARCHAR(15) DEFAULT NULL
                 """)
 
+                # ── RENDIMIENTO diario por tienda (ediciones manuales que
+                # sobreescriben los valores auto-calculados de TPV/autocobro/horarios) ──
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS rendimiento_diario (
+                        id           INT AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa   CHAR(36)      NOT NULL DEFAULT '{_emp}',
+                        fecha        DATE          NOT NULL,
+                        facturacion  DECIMAL(12,2)          DEFAULT NULL,
+                        clientes     INT                    DEFAULT NULL,
+                        horas        DECIMAL(8,2)           DEFAULT NULL,
+                        fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_rend_emp_fecha (id_empresa, fecha)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
                 # Identidad: empresa → tienda → correo. El correo es un SERVICIO
                 # asociado, nunca la clave principal. Preparado para licenciamiento

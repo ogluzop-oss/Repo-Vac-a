@@ -841,7 +841,22 @@
     "hist_import_ok": "Historie geïmporteerd: {n} dagen geladen van\n{ruta}",
     "import_err": "Fout bij importeren: {e}",
     "col_ticket": "Ticket",
-    "pdf_ticket_num": "Ticket: T-{num}"
+    "pdf_ticket_num": "Ticket: T-{num}",
+    "tab_rendimiento": "PRESTATIES",
+    "hist_help_title": "WAT IS DIT TABBLAD?",
+    "perf_title": "PRESTATIES",
+    "perf_save": "WIJZIGINGEN OPSLAAN",
+    "perf_c_dia": "Dag",
+    "perf_c_fact": "Facturering dag",
+    "perf_c_factac": "Facturering cumulatief",
+    "perf_c_cli": "Aantal klanten",
+    "perf_c_tm": "Gemiddeld ticket",
+    "perf_c_horas": "Uren dag",
+    "perf_c_horasac": "Uren cumulatief",
+    "perf_c_prod": "Productiviteit dag",
+    "perf_c_prodac": "Cumulatieve productiviteit",
+    "perf_saved_t": "Opgeslagen",
+    "perf_saved": "Prestaties correct opgeslagen."
   },
   "cfg": {
     "window_title": "SYSTEEMCONFIGURATIE",
