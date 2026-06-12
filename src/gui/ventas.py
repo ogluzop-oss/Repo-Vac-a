@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from assets.estilo_global import mostrar_mensaje
 from src.db.conexion import obtener_conexion
 from src.utils import divisas, i18n
 from src.utils.i18n import tr
@@ -2561,7 +2562,7 @@ class VentasAnaliticaWindow(QWidget):
         if not self._venta_id_sel:
             return
         if not REPORTLAB_OK:
-            QMessageBox.warning(self, tr("vta.error_title", default="Error"), tr("vta.reportlab_missing", default="ReportLab no disponible. Instala: pip install reportlab"))
+            mostrar_mensaje(self, tr("vta.error_title", default="Error"), tr("vta.reportlab_missing", default="ReportLab no disponible. Instala: pip install reportlab"), "warning")
             return
         try:
             pdf_bytes = self._generar_pdf_ticket(self._venta_id_sel, con_precios)
@@ -2574,7 +2575,7 @@ class VentasAnaliticaWindow(QWidget):
             ruta = os.path.join(carpeta, nombre)
             with open(ruta, "wb") as f:
                 f.write(pdf_bytes)
-            QMessageBox.information(self, tr("vta.ticket_exported_title", default="Ticket exportado"), tr("vta.ticket_saved", default="Guardado en:\n{ruta}", ruta=ruta))
+            mostrar_mensaje(self, tr("vta.ticket_exported_title", default="Ticket exportado"), tr("vta.ticket_saved", default="Guardado en:\n{ruta}", ruta=ruta))
             try:
                 import platform
                 import subprocess
@@ -2585,7 +2586,7 @@ class VentasAnaliticaWindow(QWidget):
             except Exception:
                 pass
         except Exception as e:
-            QMessageBox.critical(self, tr("vta.error_title", default="Error"), tr("vta.ticket_gen_err", default="No se pudo generar el ticket:\n{e}", e=e))
+            mostrar_mensaje(self, tr("vta.error_title", default="Error"), tr("vta.ticket_gen_err", default="No se pudo generar el ticket:\n{e}", e=e), "error")
 
     def _generar_pdf_ticket(self, venta_id: int, con_precios: bool) -> bytes:
         with obtener_conexion() as conn:
@@ -3040,7 +3041,7 @@ class VentasAnaliticaWindow(QWidget):
                 cnt = cur.fetchone()[0]
 
             if cnt == 0:
-                QMessageBox.information(
+                mostrar_mensaje(
                     self, tr("vta.no_data_title", default="Sin datos"),
                     tr("vta.forecast_need_data",
                        default="Primero sube al menos un archivo de ventas pasadas\npara que el sistema pueda calcular previsiones.")
@@ -3049,7 +3050,7 @@ class VentasAnaliticaWindow(QWidget):
 
             self._generar_prevision_excel(anio_actual)
         except Exception as e:
-            QMessageBox.critical(self, tr("vta.error_title", default="Error"), str(e))
+            mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")
 
     def _generar_prevision_excel(self, anio: int):
         try:
@@ -3072,7 +3073,7 @@ class VentasAnaliticaWindow(QWidget):
             total_anual = df["total"].sum()
 
             if total_anual == 0:
-                QMessageBox.warning(self, tr("vta.no_data_title", default="Aviso"), tr("vta.not_enough_data", default="El histórico no tiene datos suficientes."))
+                mostrar_mensaje(self, tr("vta.no_data_title", default="Aviso"), tr("vta.not_enough_data", default="El histórico no tiene datos suficientes."), "warning")
                 return
 
             df["peso"] = df["total"] / total_anual
@@ -3164,7 +3165,7 @@ class VentasAnaliticaWindow(QWidget):
                 )
                 conn.commit()
 
-            QMessageBox.information(self, tr("vta.forecast_generated_title", default="Previsión generada"), tr("vta.excel_saved", default="Excel guardado en:\n{ruta}", ruta=ruta))
+            mostrar_mensaje(self, tr("vta.forecast_generated_title", default="Previsión generada"), tr("vta.excel_saved", default="Excel guardado en:\n{ruta}", ruta=ruta))
             try:
                 import platform
                 import subprocess
@@ -3176,4 +3177,4 @@ class VentasAnaliticaWindow(QWidget):
                 pass
 
         except Exception as e:
-            QMessageBox.critical(self, tr("vta.error_title", default="Error"), tr("vta.excel_gen_err", default="No se pudo generar el Excel:\n{e}", e=e))
+            mostrar_mensaje(self, tr("vta.error_title", default="Error"), tr("vta.excel_gen_err", default="No se pudo generar el Excel:\n{e}", e=e), "error")
