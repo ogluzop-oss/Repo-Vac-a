@@ -118,6 +118,14 @@ def _card() -> QFrame:
     return f
 
 
+def _solo_texto(s: str) -> str:
+    """Quita un icono/símbolo inicial (y espacios) del texto de un botón,
+    p. ej. '⚖  BÁSCULA' -> 'BÁSCULA'. Conserva acentos y ñ."""
+    import re
+    out = re.sub(r"^[^0-9A-Za-zÁÉÍÓÚÑÜáéíóúñü]+", "", s or "").strip()
+    return out or (s or "")
+
+
 def _sep() -> QFrame:
     s = QFrame()
     s.setFrameShape(QFrame.Shape.HLine)
@@ -2570,7 +2578,6 @@ class TPVWindow(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
         lay.addWidget(self._build_busqueda())
-        lay.addWidget(self._build_numpad())
         lay.addWidget(self._build_tabla(), 1)
         return w
 
@@ -2628,59 +2635,45 @@ class TPVWindow(QWidget):
     def _build_numpad(self) -> QFrame:
         card = _card()
         gl = QGridLayout(card)
-        gl.setContentsMargins(10, 8, 10, 8)
-        gl.setSpacing(6)
+        gl.setContentsMargins(12, 12, 12, 12)
+        gl.setSpacing(10)
 
+        # Botones grandes, cuadrados y con esquinas redondeadas (estilo TPV táctil).
         _ss_num = (
-            f"QPushButton{{background:{_BG};color:{_TEXT};border:1px solid {_BORDE};"
-            f"border-radius:8px;font-family:'{_FONT}';font-weight:900;font-size:15px;}}"
+            f"QPushButton{{background:{_BG};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:16px;font-family:'{_FONT}';font-weight:900;font-size:24px;}}"
             f"QPushButton:hover{{background:{_CIAN};color:#0D1117;border-color:{_CIAN};}}"
+            f"QPushButton:pressed{{background:{_CIAN};color:#0D1117;}}"
         )
         _ss_fn = (
-            f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
-            f"border-radius:8px;font-family:'{_FONT}';font-weight:700;font-size:12px;}}"
+            f"QPushButton{{background:{_BG2};color:{_TEXT2};border:2px solid {_BORDE};"
+            f"border-radius:16px;font-family:'{_FONT}';font-weight:900;font-size:18px;}}"
             f"QPushButton:hover{{background:#30363D;color:{_TEXT};}}"
         )
-        _ss_enter = (
-            f"QPushButton{{background:{_CIAN};color:#0D1117;border:none;"
-            f"border-radius:8px;font-family:'{_FONT}';font-weight:900;font-size:13px;}}"
-            f"QPushButton:hover{{background:#FFFFFF;color:#0D1117;}}"
-        )
         _ss_del = (
-            f"QPushButton{{background:{_BG2};color:{_ROJO};border:1px solid {_ROJO};"
-            f"border-radius:8px;font-family:'{_FONT}';font-weight:900;font-size:14px;}}"
+            f"QPushButton{{background:{_BG2};color:{_ROJO};border:2px solid {_ROJO};"
+            f"border-radius:16px;font-family:'{_FONT}';font-weight:900;font-size:22px;}}"
             f"QPushButton:hover{{background:{_ROJO};color:#FFF;}}"
         )
 
-        H = 36
+        H = 54  # alto generoso → aspecto cuadrado (crece con el espacio disponible)
         layout_keys = [
-            # (texto, fila, col, colspan, estilo_key)
-            ("7",   0, 0, 1, "num"), ("8",   0, 1, 1, "num"), ("9",   0, 2, 1, "num"), ("⌫",  0, 3, 1, "del"),
-            ("4",   1, 0, 1, "num"), ("5",   1, 1, 1, "num"), ("6",   1, 2, 1, "num"), ("C",  1, 3, 1, "fn"),
-            ("1",   2, 0, 1, "num"), ("2",   2, 1, 1, "num"), ("3",   2, 2, 1, "num"),
-            ("0",   3, 0, 2, "num"), (".",   3, 2, 1, "num"),
+            ("7", 0, 0, "num"), ("8", 0, 1, "num"), ("9", 0, 2, "num"),
+            ("4", 1, 0, "num"), ("5", 1, 1, "num"), ("6", 1, 2, "num"),
+            ("1", 2, 0, "num"), ("2", 2, 1, "num"), ("3", 2, 2, "num"),
+            ("C", 3, 0, "fn"),  ("0", 3, 1, "num"), ("⌫", 3, 2, "del"),
         ]
-
-        for txt, row, col, span, sk in layout_keys:
+        for c in range(3):
+            gl.setColumnStretch(c, 1)
+        for txt, row, col, sk in layout_keys:
             b = QPushButton(txt)
-            b.setFixedHeight(H)
+            b.setMinimumHeight(H)
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            if sk == "num":
-                b.setStyleSheet(_ss_num)
-            elif sk == "del":
-                b.setStyleSheet(_ss_del)
-            else:
-                b.setStyleSheet(_ss_fn)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setStyleSheet(_ss_num if sk == "num" else (_ss_del if sk == "del" else _ss_fn))
             b.clicked.connect(lambda checked, t=txt: self._num_pulse(t))
-            gl.addWidget(b, row, col, 1, span)
-
-        # ENTER ocupa filas 2-3 en col 3
-        btn_enter = QPushButton(tr("tpv.agregar", default="AGREGAR"))
-        btn_enter.setFixedHeight(H * 2 + 6)
-        btn_enter.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_enter.setStyleSheet(_ss_enter)
-        btn_enter.clicked.connect(self._agregar)
-        gl.addWidget(btn_enter, 2, 3, 2, 1)
+            gl.addWidget(b, row, col)
 
         return card
 
@@ -2748,6 +2741,38 @@ class TPVWindow(QWidget):
         lay.addWidget(self.tabla)
         return card
 
+    def _btn_accion_card(self, icono: str, texto: str, color: str, on_click=None, danger=False):
+        """Botón de acción cuadrado: icono centrado arriba y texto debajo.
+        Devuelve (boton, label_texto) para poder re-traducir el texto."""
+        col = _ROJO if danger else color
+        b = QPushButton()
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        b.setMinimumHeight(64)
+        b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        b.setStyleSheet(
+            f"QPushButton{{background:{_BG2};border:2px solid {col};border-radius:14px;outline:0px;}}"
+            f"QPushButton:hover{{background:#1C2128;}}"
+            f"QPushButton:disabled{{background:#161B22;border-color:#30363D;}}"
+        )
+        v = QVBoxLayout(b)
+        v.setContentsMargins(4, 8, 4, 8)
+        v.setSpacing(3)
+        li = QLabel(icono)
+        li.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        li.setStyleSheet(f"color:{col};font-family:'{_FONT}';font-size:24px;background:transparent;border:none;")
+        lt = QLabel(_solo_texto(texto))
+        lt.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lt.setWordWrap(True)
+        lt.setStyleSheet(f"color:{col};font-family:'{_FONT}';font-weight:900;font-size:11px;background:transparent;border:none;")
+        for l in (li, lt):
+            l.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        v.addWidget(li)
+        v.addWidget(lt)
+        if on_click:
+            b.clicked.connect(on_click)
+        return b, lt
+
     def _build_der(self) -> QWidget:
         w = QWidget()
         w.setStyleSheet("background:transparent;")
@@ -2792,46 +2817,38 @@ class TPVWindow(QWidget):
         self.btn_cobrar.clicked.connect(self._realizar_pago)
         lay.addWidget(self.btn_cobrar)
 
-        # Acciones secundarias
+        # Teclado numérico (a la derecha, táctil) — absorbe el alto sobrante
+        lay.addWidget(self._build_numpad(), 1)
+
+        # Acciones secundarias — tarjetas con icono centrado y texto debajo
         card_acc = _card()
         cl2 = QVBoxLayout(card_acc)
-        cl2.setSpacing(6)
+        cl2.setSpacing(8)
         cl2.setContentsMargins(12, 10, 12, 10)
         self._lbl_acciones = _lbl(tr("tpv.actions"), bold=True, size=12, color=_TEXT2)
         cl2.addWidget(self._lbl_acciones)
 
-        # Funciones enterprise: báscula / devolución / autocobro
-        self.btn_bascula = QPushButton(tr("tpv.scale"))
-        self.btn_bascula.setFixedHeight(42)
-        self.btn_bascula.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_bascula.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_bascula.setStyleSheet(
-            f"QPushButton{{background:{_BG2};color:{_CIAN};border:2px solid {_CIAN};"
-            f"border-radius:10px;font-family:'{_FONT}';font-weight:900;font-size:14px;outline:0px;}}"
-            f"QPushButton:hover{{background:{_CIAN};color:#0D1117;}}"
-            f"QPushButton:focus{{outline:0px;border:2px solid {_CIAN};}}"
-        )
-        self.btn_bascula.clicked.connect(self._abrir_bascula)
-        cl2.addWidget(self.btn_bascula)
+        grid_acc = QGridLayout()
+        grid_acc.setSpacing(8)
+        for c in range(3):
+            grid_acc.setColumnStretch(c, 1)
 
-        # El autocobro es una terminal independiente para clientes
-        # (python -m src.autocobro_app); no aparece en el TPV del cajero.
-        self.btn_devolucion = _btn(tr("tpv.refund"), h=36)
-        self.btn_devolucion.clicked.connect(self._abrir_devolucion)
-        cl2.addWidget(self.btn_devolucion)
-
-        self.btn_retener   = _btn(tr("tpv.hold"), h=36)
-        self.btn_recuperar = _btn(tr("tpv.recover"), h=36)
-        self._btn_vaciar = btn_vaciar = _btn(tr("tpv.empty_cart"), color_fg=_ROJO, color_border=_ROJO,
-                          hover_bg=_ROJO, hover_fg="#FFF", h=36)
-
+        self._acc_labels = {}
+        self.btn_bascula,    lb = self._btn_accion_card("⚖", tr("tpv.scale"), _CIAN, self._abrir_bascula)
+        self.btn_devolucion, ld = self._btn_accion_card("↩", tr("tpv.refund"), _CIAN, self._abrir_devolucion)
+        self.btn_retener,    lr = self._btn_accion_card("⏸", tr("tpv.hold"), _CIAN, self._retener)
+        self.btn_recuperar,  lc = self._btn_accion_card("📂", tr("tpv.recover"), _CIAN, self._recuperar)
+        self._btn_vaciar,    lv = self._btn_accion_card("🗑", tr("tpv.empty_cart"), _ROJO, self._vaciar, danger=True)
+        self._acc_labels = {"tpv.scale": lb, "tpv.refund": ld, "tpv.hold": lr,
+                            "tpv.recover": lc, "tpv.empty_cart": lv}
         self.btn_retener.setEnabled(False)
-        self.btn_retener.clicked.connect(self._retener)
-        self.btn_recuperar.clicked.connect(self._recuperar)
-        btn_vaciar.clicked.connect(self._vaciar)
-        cl2.addWidget(self.btn_retener)
-        cl2.addWidget(self.btn_recuperar)
-        cl2.addWidget(btn_vaciar)
+
+        grid_acc.addWidget(self.btn_bascula,    0, 0)
+        grid_acc.addWidget(self.btn_devolucion, 0, 1)
+        grid_acc.addWidget(self.btn_retener,    0, 2)
+        grid_acc.addWidget(self.btn_recuperar,  1, 0)
+        grid_acc.addWidget(self._btn_vaciar,    1, 1)
+        cl2.addLayout(grid_acc)
         lay.addWidget(card_acc)
 
         # Info caja activa
@@ -2844,8 +2861,6 @@ class TPVWindow(QWidget):
         cl3.addWidget(self.lbl_caja_id)
         cl3.addWidget(self.lbl_caja_fondo)
         lay.addWidget(card_cj)
-
-        lay.addStretch()
         return w
 
     # ─────────────────── RELOJ / INFO CAJA ───────────────────
@@ -2979,14 +2994,14 @@ class TPVWindow(QWidget):
                 ("_lbl_titulo_tpv", "tpv.title"), ("_btn_salir_tpv", "tpv.exit"),
                 ("_btn_add", "tpv.add"), ("_lbl_resumen", "tpv.summary"),
                 ("btn_cobrar", "tpv.charge"), ("_lbl_acciones", "tpv.actions"),
-                ("btn_bascula", "tpv.scale"), ("btn_devolucion", "tpv.refund"),
-                ("btn_retener", "tpv.hold"), ("btn_recuperar", "tpv.recover"),
-                ("_btn_vaciar", "tpv.empty_cart"),
             ]
             for attr, clave in pares:
                 w = getattr(self, attr, None)
                 if w is not None:
                     w.setText(tr(clave))
+            # Tarjetas de acción (icono + texto debajo): re-traducir el texto.
+            for clave, lbl in getattr(self, "_acc_labels", {}).items():
+                lbl.setText(_solo_texto(tr(clave)))
             if hasattr(self, "inp_sku"):
                 self.inp_sku.setPlaceholderText(tr("tpv.search_placeholder"))
             if hasattr(self, "tabla"):
