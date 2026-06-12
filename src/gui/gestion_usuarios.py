@@ -3159,37 +3159,18 @@ class _ConteoEfectivoDialog(QDialog):
     """Modal de arqueo de efectivo con tabla de denominaciones y totales en tiempo real.
     La tabla es DINÁMICA según la divisa de empresa: imagen | valor | cantidad | total."""
 
-    def __init__(self, titulo="ARQUEO DE EFECTIVO", fondo_esperado=None, parent=None,
-                 multidivisa=False):
+    def __init__(self, titulo="ARQUEO DE EFECTIVO", fondo_esperado=None, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._total = 0.0
         self._fondo_esperado = fondo_esperado
-        self._multidivisa = multidivisa
-        self._divisa_base = divisas.divisa_actual()
-        self._totales_divisa: dict = {}
         self._spins: list = []
         self._sub_items: list = []
-        # Denominaciones: solo la divisa de empresa (modo normal) o TODAS las
-        # divisas soportadas agrupadas, con la divisa de empresa primero
-        # (modo multidivisa, p. ej. cambio de cajero).
-        if multidivisa:
-            self._denoms = self._denoms_todas_divisas()
-        else:
-            self._denoms = [dict(d, code=self._divisa_base) for d in divisas.denominaciones()]
+        # Denominaciones de la divisa de empresa activa (dinámico): si el admin
+        # cambia la divisa, el siguiente arqueo se construye con la nueva.
+        self._denoms = divisas.denominaciones()
         self._build(titulo)
-
-    def _denoms_todas_divisas(self) -> list:
-        """Denominaciones de TODAS las divisas soportadas, con la divisa de
-        empresa la primera. Cada item lleva su 'code' de divisa."""
-        base = self._divisa_base
-        codigos = [base] + [c for c in divisas.monedas_soportadas() if c != base]
-        out = []
-        for code in codigos:
-            for d in divisas.denominaciones(code):
-                out.append(dict(d, code=code))
-        return out
 
     @staticmethod
     def _btn_ss(bg, fg, border):
@@ -3271,11 +3252,8 @@ class _ConteoEfectivoDialog(QDialog):
             it_img.setFlags(Qt.ItemFlag.ItemIsEnabled)
             tbl.setItem(row, 0, it_img)
 
-            # Col 1 — VALOR (en multidivisa se antepone el código de la divisa)
-            etiqueta = den["etiqueta"]
-            if self._multidivisa:
-                etiqueta = f"{den.get('code', '')} · {etiqueta}"
-            it_v = QTableWidgetItem("  " + etiqueta)
+            # Col 1 — VALOR
+            it_v = QTableWidgetItem("  " + den["etiqueta"])
             it_v.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             it_v.setForeground(QColor("#E3B341" if tipo_b else "#E6EDF3"))
             tbl.setItem(row, 1, it_v)
@@ -3287,7 +3265,7 @@ class _ConteoEfectivoDialog(QDialog):
             self._spins.append((den["valor"], qty))
 
             # Col 3 — TOTAL
-            it_s = QTableWidgetItem(divisas.formatear(0, den.get("code")))
+            it_s = QTableWidgetItem(_cero)
             it_s.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             it_s.setForeground(QColor("#6E7681"))
             tbl.setItem(row, 3, it_s)
@@ -3412,36 +3390,22 @@ class _ConteoEfectivoDialog(QDialog):
         self.setFixedSize(720, 640)
 
     def _upd(self):
-        por_divisa: dict = {}
+        total = 0.0
         for i, (val, spin) in enumerate(self._spins):
-            code = self._denoms[i].get("code") or self._divisa_base
             sub = round(val * spin.value(), 2)
-            por_divisa[code] = round(por_divisa.get(code, 0.0) + sub, 2)
-            self._sub_items[i].setText(divisas.formatear(sub, code))
+            total += sub
+            self._sub_items[i].setText(divisas.formatear(sub))
             self._sub_items[i].setForeground(QColor("#3FB950" if sub > 0 else "#6E7681"))
-        self._totales_divisa = {c: t for c, t in por_divisa.items() if t > 0}
-        # El TOTAL CONTADO (y el descuadre) se refieren SIEMPRE a la divisa de empresa.
-        self._total = round(por_divisa.get(self._divisa_base, 0.0), 2)
-        if self._multidivisa and len(self._totales_divisa) > 1:
-            otras = "  ·  ".join(divisas.formatear(t, c)
-                                 for c, t in self._totales_divisa.items() if c != self._divisa_base)
-            self._lbl_total.setText(divisas.formatear(self._total) + (f"   (+ {otras})" if otras else ""))
-        else:
-            self._lbl_total.setText(divisas.formatear(self._total))
+        self._total = round(total, 2)
+        self._lbl_total.setText(divisas.formatear(self._total))
 
     def get_total(self) -> float:
-        """Total contado en la divisa de empresa (base del descuadre)."""
         return self._total
-
-    def get_totales_por_divisa(self) -> dict:
-        """{code: total} de cada divisa con efectivo contado (incluye la base)."""
-        return dict(self._totales_divisa)
 
     def get_detalle(self) -> list:
         return [
             {"denominacion": self._denoms[i]["etiqueta"], "valor": self._denoms[i]["valor"],
-             "cantidad": sp.value(), "subtotal": round(self._denoms[i]["valor"] * sp.value(), 2),
-             "divisa": self._denoms[i].get("code") or self._divisa_base}
+             "cantidad": sp.value(), "subtotal": round(self._denoms[i]["valor"] * sp.value(), 2)}
             for i, (_, sp) in enumerate(self._spins) if sp.value() > 0
         ]
 
@@ -7737,15 +7701,14 @@ class ConfiguracionWindow(QWidget):
                             tr("cfg.cambio_mismo_msg", default="El cajero entrante debe ser distinto del saliente."), "warning")
             return
 
-        # 4. Arqueo (multidivisa) — recuento de monedas y billetes de todas las divisas
+        # 4. Arqueo — recuento de monedas y billetes en la divisa de la empresa
         dlg = _ConteoEfectivoDialog(
             "🔁  " + tr("cfg.conteo_cambio_cajero", default="CAMBIO DE CAJERO {id} — ARQUEO", id=id_caja),
-            fondo_esperado=caja_data.get("fondo", 0.0), parent=self, multidivisa=True)
+            fondo_esperado=caja_data.get("fondo", 0.0), parent=self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         total_contado = dlg.get_total()
         detalle = dlg.get_detalle()
-        totales_divisa = dlg.get_totales_por_divisa()
         fondo_esperado = caja_data.get("fondo", 0.0)
         diff = total_contado - fondo_esperado
         descuadre = abs(diff)
@@ -7776,8 +7739,6 @@ class ConfiguracionWindow(QWidget):
                 c["responsable_id"] = entrante_id
                 c["fondo"] = total_contado
                 c["hora_apertura"] = datetime.now().strftime("%H:%M")
-                if totales_divisa:
-                    c["efectivo_divisas"] = totales_divisa
                 break
         est.setdefault("historial", []).append({
             "accion": f"CAMBIO CAJERO {id_caja}", "usuario": saliente,
@@ -7796,18 +7757,13 @@ class ConfiguracionWindow(QWidget):
         else:
             sign = "+" if diff > 0 else ""
             desc_line = tr("cfg.descuadre_val", default="Descuadre: {x} €", x=f"{sign}{divisas.formatear(diff)}")
-        extra_div = ""
-        otras = {c: t for c, t in totales_divisa.items() if c != divisas.divisa_actual()}
-        if otras:
-            extra_div = "\n" + tr("cfg.cambio_otras_divisas", default="Otras divisas: {x}",
-                                  x="  ·  ".join(divisas.formatear(t, c) for c, t in otras.items()))
         mostrar_mensaje(self, tr("cfg.cambio_ok_title", default="Cambio de cajero — {id}", id=id_caja),
                         tr("cfg.cambio_ok_msg",
                            default="{id} traspasada de {sal} a {ent}.\nLa caja sigue activa.",
                            id=id_caja, sal=saliente, ent=entrante)
                         + "\n\n" + tr("cfg.contado_esperado", default="Contado: {c} €  ·  Esperado: {e} €",
                                       c=divisas.formatear(total_contado), e=divisas.formatear(fondo_esperado))
-                        + "\n" + desc_line + extra_div, "success")
+                        + "\n" + desc_line, "success")
 
     def _es_responsable(self, caja: dict, nombre, id_empleado=None) -> bool:
         """True si el empleado identificado es el responsable de la caja (por id,
@@ -7958,12 +7914,9 @@ class ConfiguracionWindow(QWidget):
                 c.setFont("Helvetica", 8); c.setFillColorRGB(0.9, 0.9, 0.9)
                 for item in detalle:
                     if y < 3*cm: c.showPage(); y = h - 2*cm
-                    _den_txt = str(item.get("denominacion", ""))
-                    if item.get("divisa"):
-                        _den_txt = f"{item['divisa']} · {_den_txt}"
-                    c.drawString(1*cm, y, _den_txt)
+                    c.drawString(1*cm, y, str(item.get("denominacion", "")))
                     c.drawRightString(w - 2.5*cm, y, str(item.get("cantidad", "")))
-                    c.drawRightString(w - 1*cm, y, f"{divisas.formatear(item.get('subtotal', 0), item.get('divisa'))}")
+                    c.drawRightString(w - 1*cm, y, f"{divisas.formatear(item.get('subtotal', 0))}")
                     y -= 0.42*cm
             y -= 0.5*cm
             c.setStrokeColorRGB(0, 1, 0.78); c.line(1*cm, y, w - 1*cm, y); y -= 0.55*cm
