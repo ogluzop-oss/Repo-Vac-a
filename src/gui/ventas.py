@@ -3317,10 +3317,12 @@ class VentasAnaliticaWindow(QWidget):
         """Previsión IA de facturación diaria para (anio, mes).
 
         Se alimenta del histórico de ventas pasadas subido en la pestaña
-        HISTÓRICO DE VENTAS (tabla ``prevision_historico``). Intenta primero un
-        modelo de series temporales (Prophet) y, si no está disponible o hay
-        pocos datos, usa una heurística estacional (día de la semana + día del
-        mes + tendencia). Devuelve ``{dia: importe}``.
+        HISTÓRICO DE VENTAS (tabla ``prevision_historico``). Tiene en cuenta
+        eventos comerciales y festividades (Navidad, Black Friday, Halloween,
+        Reyes, Rebajas, Semana Santa, etc.) además del día de la semana y la
+        tendencia. Intenta primero un modelo de series temporales (Prophet, con
+        las festividades como *holidays*) y, si no está disponible o hay pocos
+        datos, usa una heurística estacional. Devuelve ``{dia: importe}``.
         """
         import calendar
         ndias = calendar.monthrange(anio, mes)[1]
@@ -3367,6 +3369,103 @@ class VentasAnaliticaWindow(QWidget):
                 continue
         return None
 
+    # ── Calendario de eventos comerciales / estacionales (fuente única) ───────
+    @staticmethod
+    def _nth_weekday(anio, mes, weekday, n):
+        """n-ésimo ``weekday`` (0=lunes) del mes. Ej.: 4º viernes de noviembre."""
+        import datetime as _dt
+        d = _dt.date(anio, mes, 1)
+        offset = (weekday - d.weekday()) % 7
+        return d + _dt.timedelta(days=offset + 7 * (n - 1))
+
+    @staticmethod
+    def _domingo_pascua(anio):
+        """Domingo de Pascua (algoritmo de Gauss/Anonymous Gregorian)."""
+        import datetime as _dt
+        a = anio % 19
+        b = anio // 100
+        c = anio % 100
+        d = b // 4
+        e = b % 4
+        f = (b + 8) // 25
+        g = (b - f + 1) // 3
+        h = (19 * a + b - d - g + 15) % 30
+        i = c // 4
+        k = c % 4
+        ll = (32 + 2 * e + 2 * i - h - k) % 7
+        m = (a + 11 * h + 22 * ll) // 451
+        mes = (h + ll - 7 * m + 114) // 31
+        dia = ((h + ll - 7 * m + 114) % 31) + 1
+        return _dt.date(anio, mes, dia)
+
+    def _fechas_eventos(self, anio):
+        """Eventos comerciales del año: (nombre, fecha, lower_window,
+        upper_window, factor_heurístico). Las ventanas son días relativos a la
+        fecha; el factor es el multiplicador de facturación usado por la
+        heurística (Prophet sólo necesita las fechas y aprende el efecto)."""
+        import datetime as _dt
+        D = _dt.date
+        black_friday = self._nth_weekday(anio, 11, 4, 4)        # 4º viernes nov.
+        cyber_monday = black_friday + _dt.timedelta(days=3)
+        dia_madre = self._nth_weekday(anio, 5, 6, 1)            # 1er domingo mayo (ES)
+        pascua = self._domingo_pascua(anio)
+        jueves_santo = pascua - _dt.timedelta(days=3)
+        return [
+            ("Reyes",            D(anio, 1, 6),   -2, 0, 1.5),
+            ("Rebajas invierno", D(anio, 1, 7),    0, 21, 1.25),
+            ("San Valentín",     D(anio, 2, 14),  -3, 0, 1.2),
+            ("Día del Padre",    D(anio, 3, 19),  -3, 0, 1.2),
+            ("Semana Santa",     jueves_santo,     0, 3, 1.15),
+            ("Día de la Madre",  dia_madre,       -3, 0, 1.3),
+            ("Rebajas verano",   D(anio, 7, 1),    0, 30, 1.2),
+            ("Vuelta al cole",   D(anio, 9, 1),    0, 14, 1.2),
+            ("Halloween",        D(anio, 10, 31), -6, 0, 1.3),
+            ("Black Friday",     black_friday,    -1, 1, 2.2),
+            ("Cyber Monday",     cyber_monday,     0, 0, 1.8),
+            ("Campaña Navidad",  D(anio, 12, 24), -9, 0, 1.6),
+            ("Navidad",          D(anio, 12, 25),  0, 0, 0.3),
+        ]
+
+    @staticmethod
+    def _festivos_nacionales(anio):
+        """Festivos nacionales de España de baja/nula actividad comercial."""
+        import datetime as _dt
+        return [
+            _dt.date(anio, 1, 1), _dt.date(anio, 1, 6), _dt.date(anio, 5, 1),
+            _dt.date(anio, 8, 15), _dt.date(anio, 10, 12), _dt.date(anio, 11, 1),
+            _dt.date(anio, 12, 6), _dt.date(anio, 12, 8), _dt.date(anio, 12, 25),
+        ]
+
+    def _factores_estacionales(self, anio):
+        """{fecha: factor} multiplicativo por evento comercial/festivo."""
+        import datetime as _dt
+        fac = {}
+        for _nombre, fecha, lw, uw, factor in self._fechas_eventos(anio):
+            for off in range(lw, uw + 1):
+                dia = fecha + _dt.timedelta(days=off)
+                if dia.year != anio:
+                    continue
+                cur = fac.get(dia)
+                if cur is None:
+                    fac[dia] = factor
+                elif factor < 1 or cur < 1:   # los días de cierre/baja mandan
+                    fac[dia] = min(cur, factor)
+                else:                          # si no, el mayor impulso
+                    fac[dia] = max(cur, factor)
+        for f in self._festivos_nacionales(anio):
+            fac[f] = min(fac.get(f, 1.0), 0.3)
+        return fac
+
+    def _eventos_comerciales_prophet(self, anios):
+        """DataFrame de holidays para Prophet con todos los eventos de cada año."""
+        import pandas as pd
+        filas = []
+        for a in anios:
+            for nombre, fecha, lw, uw, _factor in self._fechas_eventos(a):
+                filas.append({"holiday": nombre, "ds": pd.Timestamp(fecha),
+                              "lower_window": int(lw), "upper_window": int(uw)})
+        return pd.DataFrame(filas) if filas else None
+
     def _prever_prophet(self, serie, anio, mes, ndias):
         """Previsión con Prophet (opcional). Devuelve {dia: importe} o None."""
         try:
@@ -3382,8 +3481,16 @@ class VentasAnaliticaWindow(QWidget):
             logging.getLogger(nm).setLevel(logging.CRITICAL)
         df = pd.DataFrame(serie, columns=["ds", "y"])
         df["ds"] = pd.to_datetime(df["ds"])
+        # Eventos comerciales/estacionales como holidays (Prophet aprende su efecto).
+        anios = sorted({d.year for d, _ in serie} | {anio})
+        holi = self._eventos_comerciales_prophet(anios)
         m = Prophet(weekly_seasonality=True, yearly_seasonality=True,
-                    daily_seasonality=False)
+                    daily_seasonality=False,
+                    holidays=(holi if holi is not None and not holi.empty else None))
+        try:
+            m.add_country_holidays(country_name="ES")  # festivos oficiales de España
+        except Exception:
+            pass
         m.fit(df)
         fut = pd.DataFrame({"ds": pd.date_range(f"{anio}-{mes:02d}-01", periods=ndias)})
         fc = m.predict(fut)
@@ -3416,12 +3523,14 @@ class VentasAnaliticaWindow(QWidget):
             ult = sum(v for _, v in serie[mitad:]) / (n - mitad)
             if prim > 0:
                 tendencia = max(0.5, min(2.0, ult / prim))
+        factores = self._factores_estacionales(anio)   # Navidad, Black Friday, etc.
         for d in range(1, ndias + 1):
             fecha = _dt.date(anio, mes, d)
             base = (dom_sum[d] / dom_cnt[d]) if dom_cnt[d] else media_dia
             wd = fecha.weekday()
             factor_dow = (dow_sum[wd] / dow_cnt[wd]) / media_dia if dow_cnt[wd] and media_dia else 1.0
-            pred = (base * 0.5 + media_dia * factor_dow * 0.5) * tendencia
+            estacional = factores.get(fecha, 1.0)
+            pred = (base * 0.5 + media_dia * factor_dow * 0.5) * tendencia * estacional
             prevision[d] = round(max(0.0, pred), 2)
         return prevision
 
