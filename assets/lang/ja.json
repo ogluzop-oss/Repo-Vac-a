@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "{x} での {id} € の不一致 (退出レジ担当者: {resp})。\n理由を記入してください:",
     "cambio_otras_divisas": "その他の通貨: {x}",
     "cambio_ok_title": "レジ担当者の変更 — {id}",
-    "cambio_ok_msg": "{id} は {sal} から {ent} に譲渡されました。\nレジはアクティブなままです。"
+    "cambio_ok_msg": "{id} は {sal} から {ent} に譲渡されました。\nレジはアクティブなままです。",
+    "rol_ger_admin": "店長または管理者",
+    "auth_abrir_caja": "{id}のレジスターを開く",
+    "auth_cerrar_caja": "レジスターを閉じる",
+    "auth_cambio_cajero": "レジ係の交代を実行する",
+    "auth_apertura_fuerte": "金庫を開く",
+    "auth_cierre_fuerte": "金庫を閉じる",
+    "auth_movimiento": "現金移動を記録する"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Niedobór {x} € w {id} (kasjer wychodzący: {resp}).\nPodaj przyczynę:",
     "cambio_otras_divisas": "Inne waluty: {x}",
     "cambio_ok_title": "Zmiana kasjera — {id}",
-    "cambio_ok_msg": "{id} przeniesiona od {sal} do {ent}.\nKasa pozostaje aktywna."
+    "cambio_ok_msg": "{id} przeniesiona od {sal} do {ent}.\nKasa pozostaje aktywna.",
+    "rol_ger_admin": "MENEDŻER lub ADMINISTRATOR",
+    "auth_abrir_caja": "otworzyć kasę rejestracyjną {id}",
+    "auth_cerrar_caja": "zamknąć kasę rejestracyjną",
+    "auth_cambio_cajero": "dokonać zmiany kasjera",
+    "auth_apertura_fuerte": "otworzyć sejf",
+    "auth_cierre_fuerte": "zamknąć sejf",
+    "auth_movimiento": "zarejestrować ruch gotówki"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Discrepanza di {x} € in {id} (cassiere in uscita: {resp}).\nIndichi il motivo:",
     "cambio_otras_divisas": "Altre valute: {x}",
     "cambio_ok_title": "Cambio di cassiere — {id}",
-    "cambio_ok_msg": "{id} trasferita da {sal} a {ent}.\nLa cassa rimane attiva."
+    "cambio_ok_msg": "{id} trasferita da {sal} a {ent}.\nLa cassa rimane attiva.",
+    "rol_ger_admin": "GERENTE o AMMINISTRATORE",
+    "auth_abrir_caja": "aprire il registratore di cassa {id}",
+    "auth_cerrar_caja": "chiudere un registratore di cassa",
+    "auth_cambio_cajero": "effettuare un cambio cassiere",
+    "auth_apertura_fuerte": "aprire la cassaforte",
+    "auth_cierre_fuerte": "chiudere la cassaforte",
+    "auth_movimiento": "registrare un movimento di cassa"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Intelligente - Smart Manager",

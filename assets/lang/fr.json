@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Écart de {x} € dans {id} (caissier sortant : {resp}).\nVeuillez indiquer le motif :",
     "cambio_otras_divisas": "Autres devises : {x}",
     "cambio_ok_title": "Changement de caissier — {id}",
-    "cambio_ok_msg": "{id} transférée de {sal} à {ent}.\nLa caisse reste active."
+    "cambio_ok_msg": "{id} transférée de {sal} à {ent}.\nLa caisse reste active.",
+    "rol_ger_admin": "GÉRANT ou ADMINISTRATEUR",
+    "auth_abrir_caja": "ouvrir le tiroir-caisse {id}",
+    "auth_cerrar_caja": "fermer un tiroir-caisse",
+    "auth_cambio_cajero": "effectuer un changement de caissier",
+    "auth_apertura_fuerte": "ouvrir le coffre-fort",
+    "auth_cierre_fuerte": "fermer le coffre-fort",
+    "auth_movimiento": "enregistrer un mouvement de trésorerie"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanneur Intelligent - Smart Manager",

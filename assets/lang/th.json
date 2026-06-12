@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "ส่วนต่างเงินสด {x} € ใน {id} (แคชเชียร์ที่ออก: {resp})\nโปรดระบุเหตุผล:",
     "cambio_otras_divisas": "通货其他: {x}",
     "cambio_ok_title": "การเปลี่ยนแปลงแคชเชียร์ — {id}",
-    "cambio_ok_msg": "{id} โอนจาก {sal} ไปยัง {ent}\nเงินสดยังคงใช้งานอยู่"
+    "cambio_ok_msg": "{id} โอนจาก {sal} ไปยัง {ent}\nเงินสดยังคงใช้งานอยู่",
+    "rol_ger_admin": "ผู้จัดการ หรือ ผู้บริหาร",
+    "auth_abrir_caja": "เปิดลงทะเบียนเงินสด {id}",
+    "auth_cerrar_caja": "ปิดลงทะเบียนเงินสด",
+    "auth_cambio_cajero": "ทำการเปลี่ยนแคชเชียร์",
+    "auth_apertura_fuerte": "เปิดตู้เซฟ",
+    "auth_cierre_fuerte": "ปิดตู้เซฟ",
+    "auth_movimiento": "บันทึกการเคลื่อนไหวเงินสด"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "สแกนเนอร์อัจฉริยะ - Smart Manager",

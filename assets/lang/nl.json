@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Verschil van {x} € in {id} (vertrekkende kassier: {resp}).\nGeef de reden op:",
     "cambio_otras_divisas": "Andere valuta's: {x}",
     "cambio_ok_title": "Kassawisseling — {id}",
-    "cambio_ok_msg": "{id} overgedragen van {sal} aan {ent}.\nDe kassa blijft actief."
+    "cambio_ok_msg": "{id} overgedragen van {sal} aan {ent}.\nDe kassa blijft actief.",
+    "rol_ger_admin": "MANAGER of BEHEERDER",
+    "auth_abrir_caja": "de kassa {id} openen",
+    "auth_cerrar_caja": "een kassa sluiten",
+    "auth_cambio_cajero": "een kassawisseling uitvoeren",
+    "auth_apertura_fuerte": "de kluis openen",
+    "auth_cierre_fuerte": "de kluis sluiten",
+    "auth_movimiento": "een contantbewegeing registreren"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligente Scanner - Smart Manager",

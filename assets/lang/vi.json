@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Sai số {x} € trong {id} (thu ngân rời đi: {resp}).\nVui lòng cho biết lý do:",
     "cambio_otras_divisas": "Các đơn vị tiền tệ khác: {x}",
     "cambio_ok_title": "Thay đổi thu ngân — {id}",
-    "cambio_ok_msg": "{id} được chuyển giao từ {sal} tới {ent}.\nCaja vẫn hoạt động."
+    "cambio_ok_msg": "{id} được chuyển giao từ {sal} tới {ent}.\nCaja vẫn hoạt động.",
+    "rol_ger_admin": "QUẢN LÝ hoặc QUẢN TRỊ VIÊN",
+    "auth_abrir_caja": "mở ngăn tiền {id}",
+    "auth_cerrar_caja": "đóng ngăn tiền",
+    "auth_cambio_cajero": "thực hiện thay đổi nhân viên quầy",
+    "auth_apertura_fuerte": "mở két sắt",
+    "auth_cierre_fuerte": "đóng két sắt",
+    "auth_movimiento": "ghi nhận một giao dịch tiền mặt"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Máy Quét Thông Minh - Smart Manager",

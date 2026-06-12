@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Kassaoväxlighet på {x} € i {id} (utgående kassör: {resp}).\nAnge orsaken:",
     "cambio_otras_divisas": "Övriga valutor: {x}",
     "cambio_ok_title": "Kassörväxling — {id}",
-    "cambio_ok_msg": "{id} överförd från {sal} till {ent}.\nKassan förblir aktiv."
+    "cambio_ok_msg": "{id} överförd från {sal} till {ent}.\nKassan förblir aktiv.",
+    "rol_ger_admin": "CHEF eller ADMINISTRATÖR",
+    "auth_abrir_caja": "öppna kassaregistret {id}",
+    "auth_cerrar_caja": "stänga ett kassaregister",
+    "auth_cambio_cajero": "genomföra ett kassiörbyte",
+    "auth_apertura_fuerte": "öppna kassaskåpet",
+    "auth_cierre_fuerte": "stänga kassaskåpet",
+    "auth_movimiento": "registrera en kontantrörelse"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

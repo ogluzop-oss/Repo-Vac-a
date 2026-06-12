@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Bestandsdifferenz von {x} € in {id} (ausscheidender Kassierer: {resp}).\nGeben Sie den Grund an:",
     "cambio_otras_divisas": "Sonstige Währungen: {x}",
     "cambio_ok_title": "Kassierer-Wechsel — {id}",
-    "cambio_ok_msg": "{id} übertragen von {sal} zu {ent}.\nDie Kasse bleibt aktiv."
+    "cambio_ok_msg": "{id} übertragen von {sal} zu {ent}.\nDie Kasse bleibt aktiv.",
+    "rol_ger_admin": "MANAGER oder ADMINISTRATOR",
+    "auth_abrir_caja": "Registrierkasse {id} öffnen",
+    "auth_cerrar_caja": "eine Registrierkasse schließen",
+    "auth_cambio_cajero": "einen Kassiererwechsel durchführen",
+    "auth_apertura_fuerte": "den Tresor öffnen",
+    "auth_cierre_fuerte": "den Tresor schließen",
+    "auth_movimiento": "eine Bargeldtransaktion erfassen"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",

@@ -3411,15 +3411,27 @@ class _ConteoEfectivoDialog(QDialog):
 
 
 class _PinDialog(QDialog):
-    """Verificación de PIN de usuario con rol mínimo requerido."""
+    """Verificación de PIN de usuario con rol MÍNIMO requerido (jerárquico):
+    un perfil de rango igual o superior al exigido también autoriza
+    (p. ej. exigir GERENTE acepta GERENTE, ADMINISTRADOR y SUPERADMIN)."""
 
-    def __init__(self, rol_requerido="GERENTE", motivo="autorizar esta acción", parent=None):
+    _RANK = {"OPERARIO": 1, "GERENTE": 2, "ADMINISTRADOR": 3, "SUPERADMIN": 4}
+
+    def __init__(self, rol_requerido="GERENTE", motivo="autorizar esta acción", parent=None,
+                 roles_label=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._rol = rol_requerido
+        self._roles_label = roles_label or rol_requerido
         self._ok = False
+        self._usuario_nombre = ""
+        self._usuario_id = None
         self._build(motivo)
+
+    def _roles_permitidos(self) -> list:
+        base = self._RANK.get(self._rol, 2)
+        return [r for r, v in self._RANK.items() if v >= base]
 
     def _build(self, motivo):
         card = QFrame(self); card.setObjectName("pc")
@@ -3427,11 +3439,11 @@ class _PinDialog(QDialog):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
         ly = QVBoxLayout(card); ly.setContentsMargins(32, 28, 32, 28); ly.setSpacing(14)
 
-        lbl_t = QLabel("🔐  " + tr("cfg.pin_auth_title", default="SE REQUIERE AUTORIZACIÓN DE {rol}", rol=self._rol))
+        lbl_t = QLabel("🔐  " + tr("cfg.pin_auth_title", default="SE REQUIERE AUTORIZACIÓN DE {rol}", rol=self._roles_label))
         lbl_t.setStyleSheet("color:#E3B341;font-family:'Segoe UI';font-weight:900;font-size:14px;")
         lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_t.setWordWrap(True)
-        lbl_m = QLabel(tr("cfg.pin_auth_msg", default="Introduzca el PIN de un {rol} para {motivo}.", rol=self._rol.lower(), motivo=motivo))
+        lbl_m = QLabel(tr("cfg.pin_auth_msg", default="Introduzca el PIN de un {rol} para {motivo}.", rol=self._roles_label.lower(), motivo=motivo))
         lbl_m.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:12px;")
         lbl_m.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_m.setWordWrap(True)
@@ -3472,13 +3484,26 @@ class _PinDialog(QDialog):
         pin = self._pin_inp.text().strip()
         if len(pin) != 4 or not pin.isdigit():
             self._lbl_err.setText(tr("cfg.pin_len_err", default="El PIN debe tener exactamente 4 dígitos.")); return
+        import hashlib
+        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+        roles = self._roles_permitidos()
         try:
             from src.db.conexion import obtener_conexion
             with obtener_conexion() as conn:
                 cur = conn.cursor()
-                cur.execute("SELECT id FROM usuarios WHERE password=%s AND perfil=%s AND activo=1", (pin, self._rol))
-                if cur.fetchone():
-                    self._ok = True; self.accept(); return
+                cur.execute("SHOW COLUMNS FROM usuarios")
+                cols = [r["Field"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+                col = "nombre" if "nombre" in cols else "usuario"
+                ph = ",".join(["%s"] * len(roles))
+                cur.execute(
+                    f"SELECT id, {col} FROM usuarios WHERE password=%s AND activo=1 AND perfil IN ({ph})",
+                    (pin_hash, *roles))
+                row = cur.fetchone()
+                if row:
+                    self._ok = True
+                    self._usuario_id = row[0] if not isinstance(row, dict) else row["id"]
+                    self._usuario_nombre = row[1] if not isinstance(row, dict) else row[col]
+                    self.accept(); return
             self._lbl_err.setText(tr("cfg.pin_wrong_auth", default="PIN incorrecto o usuario no autorizado."))
             self._pin_inp.clear(); self._pin_inp.setFocus()
         except Exception:
@@ -3486,6 +3511,12 @@ class _PinDialog(QDialog):
 
     def verificado(self) -> bool:
         return self._ok
+
+    def usuario_nombre(self) -> str:
+        return self._usuario_nombre
+
+    def usuario_id(self):
+        return self._usuario_id
 
 
 class _MotivoDialog(QDialog):
@@ -7448,13 +7479,21 @@ class ConfiguracionWindow(QWidget):
         dlg.exec()
         return dlg.verificado()
 
+    def _autorizar_ger_admin(self, motivo: str):
+        """Exige la verificación de un perfil GERENTE o ADMINISTRADOR (o superior).
+        Devuelve (ok: bool, nombre_usuario: str) del responsable que autoriza."""
+        dlg = _PinDialog("GERENTE", motivo, parent=self,
+                         roles_label=tr("cfg.rol_ger_admin", default="GERENTE o ADMINISTRADOR"))
+        dlg.exec()
+        return dlg.verificado(), dlg.usuario_nombre()
+
     # ── Caja: acciones ────────────────────────────────────────────────────────
 
     def _fn_apertura(self):
-        dlg_id = _IdentificacionEmpleadoDialog(tr("cfg.id_apertura_fuerte", default="Apertura de Caja Fuerte"), self)
-        if dlg_id.exec() != QDialog.DialogCode.Accepted:
+        ok, usuario = self._autorizar_ger_admin(
+            tr("cfg.auth_apertura_fuerte", default="abrir la caja fuerte"))
+        if not ok:
             return
-        usuario = dlg_id.get_empleado_nombre()
         est = self._get_caja_estado()
         ultimo = est.get("ultimos_cierres", {}).get("CAJA_FUERTE", 0.0)
         dlg = _ConteoEfectivoDialog("🔓  " + tr("cfg.conteo_apertura_fuerte", default="APERTURA — ARQUEO CAJA FUERTE"),
@@ -7512,6 +7551,11 @@ class ConfiguracionWindow(QWidget):
         est = self._get_caja_estado()
         n = len(est.get("cajas_activas", [])) + 1
         id_caja = f"CAJA-{n:02d}"
+        # 1. Autorización de GERENTE/ADMINISTRADOR
+        if not self._autorizar_ger_admin(
+                tr("cfg.auth_abrir_caja", default="abrir la caja registradora {id}", id=id_caja))[0]:
+            return
+        # 2. Identificación del empleado (operario) al que se le asigna la caja
         dlg_id = _IdentificacionEmpleadoDialog(tr("cfg.id_apertura_caja", default="Apertura de {id}", id=id_caja), self)
         if dlg_id.exec() != QDialog.DialogCode.Accepted:
             return
@@ -7570,7 +7614,12 @@ class ConfiguracionWindow(QWidget):
         if not cajas:
             return
 
-        # 1. Identificación del empleado
+        # 1. Autorización de GERENTE/ADMINISTRADOR
+        if not self._autorizar_ger_admin(
+                tr("cfg.auth_cerrar_caja", default="cerrar una caja registradora"))[0]:
+            return
+
+        # 2. Identificación del empleado (operario) responsable del cierre
         dlg_id = _IdentificacionEmpleadoDialog(tr("cfg.id_cierre_reg", default="Cierre de caja registradora"), self)
         if dlg_id.exec() != QDialog.DialogCode.Accepted:
             return
@@ -7663,6 +7712,11 @@ class ConfiguracionWindow(QWidget):
         est = self._get_caja_estado()
         cajas = est.get("cajas_activas", [])
         if not cajas:
+            return
+
+        # 0. Autorización de GERENTE/ADMINISTRADOR
+        if not self._autorizar_ger_admin(
+                tr("cfg.auth_cambio_cajero", default="realizar un cambio de cajero"))[0]:
             return
 
         # 1. Selección de la caja a traspasar
@@ -7776,10 +7830,10 @@ class ConfiguracionWindow(QWidget):
         return bool(b) and a == b
 
     def _fn_cierre_fuerte(self):
-        dlg_id = _IdentificacionEmpleadoDialog(tr("cfg.id_cierre_fuerte", default="Cierre de Caja Fuerte"), self)
-        if dlg_id.exec() != QDialog.DialogCode.Accepted:
+        ok, usuario = self._autorizar_ger_admin(
+            tr("cfg.auth_cierre_fuerte", default="cerrar la caja fuerte"))
+        if not ok:
             return
-        usuario = dlg_id.get_empleado_nombre()
         est = self._get_caja_estado()
 
         dlg = _ConteoEfectivoDialog(
@@ -7834,7 +7888,12 @@ class ConfiguracionWindow(QWidget):
                         "success")
 
     def _fn_movimiento(self):
-        usuario, _ = self._usuario_actual()
+        ok, usuario = self._autorizar_ger_admin(
+            tr("cfg.auth_movimiento", default="registrar un movimiento de efectivo"))
+        if not ok:
+            return
+        if not usuario:
+            usuario, _ = self._usuario_actual()
         est = self._get_caja_estado()
         dlg = _MovimientoDialog(est.get("cajas_activas", []), est.get("fondo_caja_fuerte", 0.0), self)
         if dlg.exec() != QDialog.DialogCode.Accepted:

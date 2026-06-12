@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Discrepancy of {x} € in {id} (outgoing cashier: {resp}).\nEnter the reason:",
     "cambio_otras_divisas": "Other currencies: {x}",
     "cambio_ok_title": "Cashier handover — {id}",
-    "cambio_ok_msg": "{id} handed over from {sal} to {ent}.\nThe register stays active."
+    "cambio_ok_msg": "{id} handed over from {sal} to {ent}.\nThe register stays active.",
+    "rol_ger_admin": "MANAGER or ADMIN",
+    "auth_abrir_caja": "open register {id}",
+    "auth_cerrar_caja": "close a cash register",
+    "auth_cambio_cajero": "perform a cashier handover",
+    "auth_apertura_fuerte": "open the safe",
+    "auth_cierre_fuerte": "close the safe",
+    "auth_movimiento": "register a cash movement"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

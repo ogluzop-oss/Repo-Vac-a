@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "عدم تطابق بمقدار {x} € في {id} (أمين الصندوق المغادر: {resp}).\nالرجاء تحديد السبب:",
     "cambio_otras_divisas": "العملات الأخرى: {x}",
     "cambio_ok_title": "تغيير أمين الصندوق — {id}",
-    "cambio_ok_msg": "تم تحويل {id} من {sal} إلى {ent}.\nالصندوق لا يزال نشطاً."
+    "cambio_ok_msg": "تم تحويل {id} من {sal} إلى {ent}.\nالصندوق لا يزال نشطاً.",
+    "rol_ger_admin": "مدير أو مسؤول إداري",
+    "auth_abrir_caja": "فتح درج النقد {id}",
+    "auth_cerrar_caja": "إغلاق درج النقد",
+    "auth_cambio_cajero": "إجراء تبديل أمين الصندوق",
+    "auth_apertura_fuerte": "فتح خزنة النقود",
+    "auth_cierre_fuerte": "إغلاق خزنة النقود",
+    "auth_movimiento": "تسجيل حركة نقدية"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "ماسح ذكي - Smart Manager",

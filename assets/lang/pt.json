@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Diferença de {x} € em {id} (caixa sainte: {resp}).\nIndique o motivo:",
     "cambio_otras_divisas": "Outras moedas: {x}",
     "cambio_ok_title": "Mudança de caixa — {id}",
-    "cambio_ok_msg": "{id} transferida de {sal} para {ent}.\nA caixa continua ativa."
+    "cambio_ok_msg": "{id} transferida de {sal} para {ent}.\nA caixa continua ativa.",
+    "rol_ger_admin": "GERENTE ou ADMINISTRADOR",
+    "auth_abrir_caja": "abrir o caixa registradora {id}",
+    "auth_cerrar_caja": "fechar uma caixa registradora",
+    "auth_cambio_cajero": "realizar uma troca de caixa",
+    "auth_apertura_fuerte": "abrir o cofre",
+    "auth_cierre_fuerte": "fechar o cofre",
+    "auth_movimiento": "registrar um movimento de caixa"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Inteligente - Smart Manager",

@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Selisih {x} € di {id} (kasir keluar: {resp}).\nSilakan jelaskan alasannya:",
     "cambio_otras_divisas": "Mata uang lainnya: {x}",
     "cambio_ok_title": "Perubahan kasir — {id}",
-    "cambio_ok_msg": "{id} ditransfer dari {sal} ke {ent}.\nKas tetap aktif."
+    "cambio_ok_msg": "{id} ditransfer dari {sal} ke {ent}.\nKas tetap aktif.",
+    "rol_ger_admin": "MANAJER atau ADMINISTRATOR",
+    "auth_abrir_caja": "membuka register kas {id}",
+    "auth_cerrar_caja": "menutup register kas",
+    "auth_cambio_cajero": "melakukan pergantian kasir",
+    "auth_apertura_fuerte": "membuka brankas",
+    "auth_cierre_fuerte": "menutup brankas",
+    "auth_movimiento": "mencatat pergerakan kas"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",

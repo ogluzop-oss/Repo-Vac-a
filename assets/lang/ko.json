@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "{x}에서 {id} €의 차이 발생 (퇴임 계산원: {resp}).\n사유를 입력하세요:",
     "cambio_otras_divisas": "기타 통화: {x}",
     "cambio_ok_title": "계산대 변경 — {id}",
-    "cambio_ok_msg": "{id}이(가) {sal}에서 {ent}로 이전되었습니다.\n계산대는 계속 활성 상태입니다."
+    "cambio_ok_msg": "{id}이(가) {sal}에서 {ent}로 이전되었습니다.\n계산대는 계속 활성 상태입니다.",
+    "rol_ger_admin": "관리자 또는 관리인",
+    "auth_abrir_caja": "계산대 {id} 열기",
+    "auth_cerrar_caja": "계산대 닫기",
+    "auth_cambio_cajero": "계산원 변경하기",
+    "auth_apertura_fuerte": "금고 열기",
+    "auth_cierre_fuerte": "금고 닫기",
+    "auth_movimiento": "현금 이동 기록하기"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "스마트 스캐너 - Smart Manager",

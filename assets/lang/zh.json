@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "{x}中存在{id}€的差异（离职收银员：{resp}）。\n请说明原因：",
     "cambio_otras_divisas": "其他货币：{x}",
     "cambio_ok_title": "收银员交接 — {id}",
-    "cambio_ok_msg": "{id}已从{sal}转移至{ent}。\n现金箱仍处于活跃状态。"
+    "cambio_ok_msg": "{id}已从{sal}转移至{ent}。\n现金箱仍处于活跃状态。",
+    "rol_ger_admin": "经理或管理员",
+    "auth_abrir_caja": "打开收银机 {id}",
+    "auth_cerrar_caja": "关闭收银机",
+    "auth_cambio_cajero": "进行收银员交接",
+    "auth_apertura_fuerte": "打开保险箱",
+    "auth_cierre_fuerte": "关闭保险箱",
+    "auth_movimiento": "记录现金流动"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "智能扫描仪 - Smart Manager",

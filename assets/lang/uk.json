@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "Розбіжність у {x} € у касі {id} (касир, що звільняється: {resp}).\nУкажіть причину:",
     "cambio_otras_divisas": "Інші валюти: {x}",
     "cambio_ok_title": "Зміна касира — {id}",
-    "cambio_ok_msg": "{id} передана від {sal} до {ent}.\nКаса залишається активною."
+    "cambio_ok_msg": "{id} передана від {sal} до {ent}.\nКаса залишається активною.",
+    "rol_ger_admin": "МЕНЕДЖЕР або АДМІНІСТРАТОР",
+    "auth_abrir_caja": "відкрити касу {id}",
+    "auth_cerrar_caja": "закрити касу",
+    "auth_cambio_cajero": "провести зміну касира",
+    "auth_apertura_fuerte": "відкрити сейф",
+    "auth_cierre_fuerte": "закрити сейф",
+    "auth_movimiento": "зареєструвати рух готівки"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Розумний сканер - Smart Manager",

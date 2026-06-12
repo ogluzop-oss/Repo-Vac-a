@@ -1330,7 +1330,14 @@
     "motivo_cambio_cajero": "{x} में {id} € की विसंगति (निकास कैशियर: {resp})।\nकारण बताएं:",
     "cambio_otras_divisas": "अन्य मुद्राएं: {x}",
     "cambio_ok_title": "कैशियर परिवर्तन — {id}",
-    "cambio_ok_msg": "{id} को {sal} से {ent} में स्थानांतरित किया गया।\nकैश सक्रिय रहता है।"
+    "cambio_ok_msg": "{id} को {sal} से {ent} में स्थानांतरित किया गया।\nकैश सक्रिय रहता है।",
+    "rol_ger_admin": "प्रबंधक या प्रशासक",
+    "auth_abrir_caja": "नकद रजिस्टर {id} खोलें",
+    "auth_cerrar_caja": "नकद रजिस्टर बंद करें",
+    "auth_cambio_cajero": "कैशियर परिवर्तन करें",
+    "auth_apertura_fuerte": "तिजोरी खोलें",
+    "auth_cierre_fuerte": "तिजोरी बंद करें",
+    "auth_movimiento": "नकद आंदोलन दर्ज करें"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "स्मार्ट स्कैनर - Smart Manager",
