@@ -859,9 +859,9 @@
     "perf_saved": "Performance saved successfully.",
     "perf_sub": "Daily performance table for the month. Edit Revenue, Customers and Worked hours; the remaining columns are computed automatically.",
     "perf_prev_title": "REVENUE FORECAST (AI)",
-    "perf_c_prev": "Revenue forecast",
+    "perf_c_prev": "Forecast",
     "perf_print": "🖨  PRINT",
-    "perf_share": "✉  SHARE",
+    "perf_share": "📧  SHARE",
     "perf_print_ok_t": "Table exported",
     "perf_print_ok": "Saved to:\n{ruta}",
     "hist_help_body": "Upload the sales history in Excel to feed analytics and forecasts."

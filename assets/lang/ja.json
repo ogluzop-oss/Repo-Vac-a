@@ -859,9 +859,9 @@
     "perf_saved": "パフォーマンスが正常に保存されました。",
     "perf_sub": "月間の日次パフォーマンステーブル。売上高、顧客数、労働時間を編集します。残りの列は自動的に計算されます。",
     "perf_prev_title": "売上予測（AI）",
-    "perf_c_prev": "売上予測",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  印刷",
-    "perf_share": "✉  共有",
+    "perf_share": "📧  共有",
     "perf_print_ok_t": "テーブルをエクスポートしました",
     "perf_print_ok": "保存先：\n{ruta}",
     "hist_help_body": "分析と予測を強化するため、Excelの売上履歴をアップロードしてください。"

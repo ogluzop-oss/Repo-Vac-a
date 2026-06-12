@@ -859,9 +859,9 @@
     "perf_saved": "Prestaties correct opgeslagen.",
     "perf_sub": "Dagelijkse prestatietabel van de maand. Bewerk Facturering, Aantal klanten en Gewerkte uren; de overige kolommen worden automatisch berekend.",
     "perf_prev_title": "FACTURERINGSVOORSPELLING (AI)",
-    "perf_c_prev": "Factureringsvoorspelling",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  AFDRUKKEN",
-    "perf_share": "✉  DELEN",
+    "perf_share": "📧  DELEN",
     "perf_print_ok_t": "Tabel geëxporteerd",
     "perf_print_ok": "Opgeslagen in:\n{ruta}",
     "hist_help_body": "Upload de verkoopgeschiedenis in Excel om de analyse en voorspellingen in te voeden."

@@ -859,9 +859,9 @@
     "perf_saved": "Desempenho salvo corretamente.",
     "perf_sub": "Tabela diária de desempenho do mês. Edite Faturamento, Nº de clientes e Horas trabalhadas; as demais colunas são calculadas automaticamente.",
     "perf_prev_title": "PREVISÃO DE FATURAMENTO (IA)",
-    "perf_c_prev": "Previsão de faturamento",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  IMPRIMIR",
-    "perf_share": "✉  COMPARTILHAR",
+    "perf_share": "📧  COMPARTILHAR",
     "perf_print_ok_t": "Tabela exportada",
     "perf_print_ok": "Salva em:\n{ruta}",
     "hist_help_body": "Carregue o histórico de vendas em Excel para alimentar a análise e as previsões."

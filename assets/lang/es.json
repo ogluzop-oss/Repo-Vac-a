@@ -859,9 +859,9 @@
     "perf_saved": "Rendimiento guardado correctamente.",
     "perf_sub": "Tabla diaria de rendimiento del mes. Edita Facturación, Nº de clientes y Horas trabajadas; el resto de columnas se calculan automáticamente.",
     "perf_prev_title": "PREVISIÓN DE FACTURACIÓN (IA)",
-    "perf_c_prev": "Previsión facturación",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  IMPRIMIR",
-    "perf_share": "✉  COMPARTIR",
+    "perf_share": "📧  COMPARTIR",
     "perf_print_ok_t": "Tabla exportada",
     "perf_print_ok": "Guardada en:\n{ruta}",
     "hist_help_body": "Sube el histórico de ventas en Excel para alimentar el análisis y las previsiones."

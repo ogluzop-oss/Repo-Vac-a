@@ -859,9 +859,9 @@
     "perf_saved": "性能已正确保存。",
     "perf_sub": "每月日度绩效表。编辑开票金额、客户数量和工作小时数；其余列自动计算。",
     "perf_prev_title": "开票预测（AI）",
-    "perf_c_prev": "开票预测",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  打印",
-    "perf_share": "✉  分享",
+    "perf_share": "📧  分享",
     "perf_print_ok_t": "表格已导出",
     "perf_print_ok": "保存位置：\n{ruta}",
     "hist_help_body": "上传Excel销售历史记录以支持分析和预测。"

@@ -859,9 +859,9 @@
     "perf_saved": "Wydajność zapisana prawidłowo.",
     "perf_sub": "Tablica dzienna wydajności miesiąca. Edytuj Fakturowanie, Liczbę klientów i Godziny pracy; pozostałe kolumny są obliczane automatycznie.",
     "perf_prev_title": "PROGNOZA FAKTUROWANIA (AI)",
-    "perf_c_prev": "Prognoza fakturowania",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  DRUKUJ",
-    "perf_share": "✉  UDOSTĘPNIJ",
+    "perf_share": "📧  UDOSTĘPNIJ",
     "perf_print_ok_t": "Tabela wyeksportowana",
     "perf_print_ok": "Zapisana w:\n{ruta}",
     "hist_help_body": "Prześlij historię sprzedaży w Excelu, aby zasilić analizę i prognozy."

@@ -859,9 +859,9 @@
     "perf_saved": "Prestanda sparad korrekt.",
     "perf_sub": "Daglig prestationstabell för månaden. Redigera Fakturering, Antal kunder och Arbetade timmar; övriga kolumner beräknas automatiskt.",
     "perf_prev_title": "FAKTURERINGSPROGNOS (AI)",
-    "perf_c_prev": "Faktureringsprognos",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  SKRIV UT",
-    "perf_share": "✉  DELA",
+    "perf_share": "📧  DELA",
     "perf_print_ok_t": "Tabell exporterad",
     "perf_print_ok": "Sparad i:\n{ruta}",
     "hist_help_body": "Ladda upp försäljningshistoriken i Excel för att mata analysen och prognoserna."

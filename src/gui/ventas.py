@@ -2946,7 +2946,7 @@ class VentasAnaliticaWindow(QWidget):
         expl = QFrame(); expl.setObjectName("expl_hist")
         expl.setStyleSheet(f"QFrame#expl_hist {{ background: #161B22; border: 1px solid {BORDE}; border-radius: 10px; }}")
         ely = QVBoxLayout(expl); ely.setContentsMargins(18, 12, 18, 12); ely.setSpacing(4)
-        ely.addWidget(_lbl(tr("vta.hist_help_title", default="¿QUÉ ES ESTA PESTAÑA?"), bold=True, size=11, color=CIAN))
+        ely.addWidget(_lbl(tr("vta.hist_help_title", default="¿QUÉ ES ESTA PESTAÑA?"), bold=True, size=12, color=CIAN))
         _help = _lbl(tr(
             "vta.hist_help_body",
             default=(
@@ -3231,19 +3231,10 @@ class VentasAnaliticaWindow(QWidget):
 
         root.addWidget(_lbl(tr("vta.perf_title", default="RENDIMIENTO"), bold=True, size=15, color=CIAN))
         root.addWidget(_separador())
-        expl = QFrame(); expl.setObjectName("expl_rend")
-        expl.setStyleSheet(f"QFrame#expl_rend {{ background: #161B22; border: 1px solid {BORDE}; border-radius: 10px; }}")
-        ely = QVBoxLayout(expl); ely.setContentsMargins(18, 12, 18, 12)
-        sub = _lbl(tr("vta.perf_sub",
-                      default="Seguimiento diario de facturación y productividad de la tienda. Los datos se rellenan "
-                              "automáticamente desde el TPV, el autocobro y los fichajes; también puedes editarlos a "
-                              "mano (facturación, nº clientes y horas) y pulsar GUARDAR CAMBIOS."),
-                   bold=True, size=14, color="#C9D1D9")
-        sub.setWordWrap(True); ely.addWidget(sub)
-        root.addWidget(expl)
         self._rend_mes_lbl = _lbl(f"{self._MESES_RND[self._rend_mes]} {self._rend_anio}", bold=True, size=14, color="#C9D1D9")
         root.addWidget(self._rend_mes_lbl)
 
+        # Tabla única: rendimiento + previsión IA (última columna, a la derecha).
         self._rend_cols = [
             tr("vta.perf_c_dia", default="Día"),
             tr("vta.perf_c_fact", default="Fact. día"),
@@ -3254,12 +3245,13 @@ class VentasAnaliticaWindow(QWidget):
             tr("vta.perf_c_horasac", default="Horas acum."),
             tr("vta.perf_c_prod", default="Prod. día"),
             tr("vta.perf_c_prodac", default="Prod. acum."),
+            tr("vta.perf_c_prev", default="Prev. Fact."),
         ]
         t = QTableWidget(0, len(self._rend_cols))
         t.setHorizontalHeaderLabels(self._rend_cols)
         t.setStyleSheet(_SS_TABLE)
         t.verticalHeader().setVisible(False)
-        # Celdas editables (facturación / nº clientes / horas).
+        # Celdas editables (facturación / nº clientes / horas / previsión).
         t.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked
             | QAbstractItemView.EditTrigger.SelectedClicked
@@ -3272,33 +3264,8 @@ class VentasAnaliticaWindow(QWidget):
         t.setColumnWidth(0, 55)
         _ClipTableTopCorners(t)
         self.tbl_rend = t
-        root.addLayout(self._rend_acciones_row("rend"))   # imprimir / compartir
-        root.addWidget(t, 3)
-
-        # ── Tabla de PREVISIÓN DE FACTURACIÓN (IA), debajo ──
-        root.addWidget(_lbl(tr("vta.perf_prev_title", default="PREVISIÓN DE FACTURACIÓN (IA)"),
-                            bold=True, size=12, color=CIAN))
-        tp = QTableWidget(0, 2)
-        tp.setHorizontalHeaderLabels([
-            tr("vta.perf_c_dia", default="Día"),
-            tr("vta.perf_c_prev", default="Previsión facturación"),
-        ])
-        tp.setStyleSheet(_SS_TABLE)
-        tp.verticalHeader().setVisible(False)
-        tp.setEditTriggers(
-            QAbstractItemView.EditTrigger.DoubleClicked
-            | QAbstractItemView.EditTrigger.SelectedClicked
-            | QAbstractItemView.EditTrigger.EditKeyPressed
-            | QAbstractItemView.EditTrigger.AnyKeyPressed
-        )
-        _hhp = tp.horizontalHeader()
-        _hhp.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        _hhp.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        tp.setColumnWidth(0, 55)
-        _ClipTableTopCorners(tp)
-        self.tbl_prev = tp
-        root.addLayout(self._rend_acciones_row("prev"))
-        root.addWidget(tp, 2)
+        root.addLayout(self._rend_acciones_row())   # imprimir / compartir
+        root.addWidget(t, 1)
 
         br = QHBoxLayout(); br.addStretch()
         self.btn_rend_guardar = QPushButton(tr("vta.perf_save", default="GUARDAR CAMBIOS"))
@@ -3621,31 +3588,22 @@ class VentasAnaliticaWindow(QWidget):
             dias = sorted(data.keys())
             t = self.tbl_rend
             t.setRowCount(len(dias))
-            editables = {1, 3, 5}  # facturación, clientes, horas
+            ncols = len(self._rend_cols)
+            editables = {1, 3, 5, 9}  # facturación, clientes, horas, previsión
             for r, d in enumerate(dias):
-                base = ["" for _ in range(9)]
+                base = ["" for _ in range(ncols)]
                 base[0] = str(d)
                 base[1] = f"{data[d]['fact']:.2f}"
                 base[3] = str(int(data[d]['clientes']))
                 base[5] = f"{data[d]['horas']:.2f}"
-                for c in range(9):
+                base[9] = f"{data[d]['prev']:.2f}"   # previsión IA (editable)
+                for c in range(ncols):
                     it = QTableWidgetItem(base[c])
                     it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     if c not in editables:
                         it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
                     t.setItem(r, c, it)
             self._rend_recalcular()
-            # Tabla de previsión (Día | Previsión facturación)
-            if hasattr(self, "tbl_prev"):
-                tp = self.tbl_prev
-                tp.setRowCount(len(dias))
-                for r, d in enumerate(dias):
-                    it0 = QTableWidgetItem(str(d)); it0.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    it0.setFlags(it0.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    tp.setItem(r, 0, it0)
-                    it1 = QTableWidgetItem(f"{data[d]['prev']:.2f}")
-                    it1.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    tp.setItem(r, 1, it1)
         finally:
             self._rend_updating = False
 
@@ -3693,18 +3651,6 @@ class VentasAnaliticaWindow(QWidget):
         except Exception:
             eid = None
         t = self.tbl_rend
-        # Previsión por día (tabla de abajo): Día -> importe.
-        prev_por_dia = {}
-        tp = getattr(self, "tbl_prev", None)
-        if tp is not None:
-            for r in range(tp.rowCount()):
-                it0 = tp.item(r, 0); it1 = tp.item(r, 1)
-                if it0 and it0.text().strip().isdigit():
-                    s = (it1.text() if it1 else "").replace(",", ".").strip()
-                    try:
-                        prev_por_dia[int(it0.text().strip())] = float(s) if s else 0.0
-                    except ValueError:
-                        prev_por_dia[int(it0.text().strip())] = 0.0
         try:
             with obtener_conexion() as conn:
                 cur = conn.cursor()
@@ -3715,7 +3661,7 @@ class VentasAnaliticaWindow(QWidget):
                         continue
                     fecha = _d.date(self._rend_anio, self._rend_mes, int(dia))
                     fact = self._rend_num(r, 1); cli = int(self._rend_num(r, 3)); horas = self._rend_num(r, 5)
-                    prev = prev_por_dia.get(int(dia), 0.0)
+                    prev = self._rend_num(r, 9)   # previsión IA (última columna)
                     cur.execute(
                         "INSERT INTO rendimiento_diario (id_empresa, fecha, facturacion, clientes, horas, prevision) "
                         "VALUES (%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE "
@@ -3729,28 +3675,27 @@ class VentasAnaliticaWindow(QWidget):
             mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")
 
     # ── Imprimir / Compartir tablas de RENDIMIENTO ────────────────────────────
-    def _rend_acciones_row(self, which):
+    def _rend_acciones_row(self):
         row = QHBoxLayout(); row.addStretch()
         b_imp = QPushButton(tr("vta.perf_print", default="🖨  IMPRIMIR"))
-        b_sh = QPushButton(tr("vta.perf_share", default="✉  COMPARTIR"))
+        b_sh = QPushButton(tr("vta.perf_share", default="📧  COMPARTIR"))
         for b in (b_imp, b_sh):
             b.setStyleSheet(_SS_BTN_CIAN); b.setFixedHeight(34)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b_imp.clicked.connect(lambda: self._imprimir_tabla(which))
-        b_sh.clicked.connect(lambda: self._compartir_tabla(which))
+        b_imp.clicked.connect(self._imprimir_tabla)
+        b_sh.clicked.connect(self._compartir_tabla)
         row.addWidget(b_imp); row.addWidget(b_sh)
         return row
 
-    def _exportar_tabla_pdf(self, which):
+    def _exportar_tabla_pdf(self):
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.lib.units import cm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-        t = self.tbl_rend if which == "rend" else self.tbl_prev
-        nombre = "Rendimiento" if which == "rend" else "Prevision"
-        titulo = (("RENDIMIENTO" if which == "rend" else "PREVISIÓN DE FACTURACIÓN (IA)")
-                  + f" — {self._MESES_RND[self._rend_mes]} {self._rend_anio}")
+        t = self.tbl_rend
+        nombre = "Rendimiento"
+        titulo = f"RENDIMIENTO — {self._MESES_RND[self._rend_mes]} {self._rend_anio}"
         headers = [t.horizontalHeaderItem(c).text() for c in range(t.columnCount())]
         rows = [headers]
         for r in range(t.rowCount()):
@@ -3774,9 +3719,9 @@ class VentasAnaliticaWindow(QWidget):
         doc.build([Paragraph(f"<b>{titulo}</b>", styles["Title"]), Spacer(1, 8), tbl])
         return ruta
 
-    def _imprimir_tabla(self, which):
+    def _imprimir_tabla(self):
         try:
-            ruta = self._exportar_tabla_pdf(which)
+            ruta = self._exportar_tabla_pdf()
             mostrar_mensaje(self, tr("vta.perf_print_ok_t", default="Tabla exportada"),
                             tr("vta.perf_print_ok", default="Guardada en:\n{ruta}", ruta=ruta), "success")
             import platform
@@ -3788,12 +3733,11 @@ class VentasAnaliticaWindow(QWidget):
         except Exception as e:
             mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")
 
-    def _compartir_tabla(self, which):
+    def _compartir_tabla(self):
         try:
-            ruta = self._exportar_tabla_pdf(which)
+            ruta = self._exportar_tabla_pdf()
             from src.gui.correo_corporativo import enviar_documento_por_correo
-            asunto = (("Rendimiento" if which == "rend" else "Previsión de facturación")
-                      + f" {self._MESES_RND[self._rend_mes]} {self._rend_anio}")
+            asunto = f"Rendimiento {self._MESES_RND[self._rend_mes]} {self._rend_anio}"
             enviar_documento_por_correo(self, ruta, asunto)
         except Exception as e:
             mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")

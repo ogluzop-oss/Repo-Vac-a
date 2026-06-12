@@ -859,9 +859,9 @@
     "perf_saved": "Performance enregistrée correctement.",
     "perf_sub": "Tableau de performance quotidienne du mois. Modifiez Facturation, Nombre de clients et Heures travaillées; les autres colonnes se calculent automatiquement.",
     "perf_prev_title": "PRÉVISION DE FACTURATION (IA)",
-    "perf_c_prev": "Prévision de facturation",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  IMPRIMER",
-    "perf_share": "✉  PARTAGER",
+    "perf_share": "📧  PARTAGER",
     "perf_print_ok_t": "Tableau exporté",
     "perf_print_ok": "Enregistré dans:\n{ruta}",
     "hist_help_body": "Téléchargez l'historique des ventes en Excel pour alimenter l'analyse et les prévisions."

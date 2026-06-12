@@ -859,9 +859,9 @@
     "perf_saved": "성능이 올바르게 저장되었습니다.",
     "perf_sub": "월간 일일 실적 표. 청구, 고객 수 및 근무 시간을 편집하십시오. 나머지 열은 자동으로 계산됩니다.",
     "perf_prev_title": "청구 예측 (AI)",
-    "perf_c_prev": "청구 예측",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  인쇄",
-    "perf_share": "✉  공유",
+    "perf_share": "📧  공유",
     "perf_print_ok_t": "테이블 내보내기 완료",
     "perf_print_ok": "저장 위치:\n{ruta}",
     "hist_help_body": "분석 및 예측을 위해 Excel의 판매 이력을 업로드하십시오."

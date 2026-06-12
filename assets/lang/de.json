@@ -859,9 +859,9 @@
     "perf_saved": "Leistung korrekt gespeichert.",
     "perf_sub": "Tägliche Leistungstabelle des Monats. Bearbeiten Sie Abrechnung, Anzahl der Kunden und Arbeitsstunden; die übrigen Spalten werden automatisch berechnet.",
     "perf_prev_title": "ABRECHNUNGSPROGNOSE (KI)",
-    "perf_c_prev": "Abrechnungsprognose",
+    "perf_c_prev": "Prev. Fact.",
     "perf_print": "🖨  DRUCKEN",
-    "perf_share": "✉  FREIGEBEN",
+    "perf_share": "📧  FREIGEBEN",
     "perf_print_ok_t": "Tabelle exportiert",
     "perf_print_ok": "Gespeichert in:\n{ruta}",
     "hist_help_body": "Laden Sie den Verkaufsverlauf in Excel hoch, um die Analyse und Prognosen zu verbessern."
