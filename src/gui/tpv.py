@@ -2548,11 +2548,11 @@ class TPVWindow(QWidget):
         lay.addWidget(self._lbl_titulo_tpv)
         lay.addStretch()
 
-        self.lbl_caja_top = _lbl(tr("tpv.register_dash"), size=12, color=_TEXT2)
+        self.lbl_caja_top = _lbl(tr("tpv.register_dash"), bold=True, size=14, color=_TEXT2)
         lay.addWidget(self.lbl_caja_top)
 
         lay.addSpacing(20)
-        self.lbl_reloj = _lbl("", size=12, color=_TEXT2)
+        self.lbl_reloj = _lbl("", bold=True, size=14, color=_TEXT2)
         lay.addWidget(self.lbl_reloj)
 
         lay.addSpacing(16)
@@ -2579,7 +2579,28 @@ class TPVWindow(QWidget):
         lay.setSpacing(8)
         lay.addWidget(self._build_busqueda())
         lay.addWidget(self._build_tabla(), 1)
+        lay.addWidget(self._build_resumen_bar())   # resumen bajo la tabla (horizontal)
         return w
+
+    def _build_resumen_bar(self) -> QFrame:
+        """Resumen del pedido como barra horizontal bajo la tabla del carrito."""
+        card = _card()
+        cl = QHBoxLayout(card)
+        cl.setContentsMargins(16, 10, 18, 10)
+        cl.setSpacing(22)
+        self._lbl_resumen = _lbl(tr("tpv.summary"), bold=True, size=14)
+        self.lbl_n_items  = _lbl(tr("tpv.items", n=0, uds=0), bold=True, size=14, color=_TEXT2)
+        self.lbl_subtotal = _lbl(tr("tpv.subtotal", x="0,00"), bold=True, size=14, color=_TEXT2)
+        self.lbl_dto      = _lbl(tr("tpv.discount_zero"), bold=True, size=14, color=_TEXT2)
+        cl.addWidget(self._lbl_resumen)
+        cl.addSpacing(6)
+        cl.addWidget(self.lbl_n_items)
+        cl.addWidget(self.lbl_subtotal)
+        cl.addWidget(self.lbl_dto)
+        cl.addStretch()
+        self.lbl_total = _lbl(tr("tpv.total", x="0,00"), bold=True, size=22, color=_CIAN)
+        cl.addWidget(self.lbl_total)
+        return card
 
     def _build_busqueda(self) -> QFrame:
         card = _card()
@@ -2781,26 +2802,6 @@ class TPVWindow(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
 
-        # Resumen pedido (compacto)
-        card_res = _card()
-        cl = QVBoxLayout(card_res)
-        cl.setSpacing(3)
-        cl.setContentsMargins(16, 10, 16, 10)
-        self._lbl_resumen = _lbl(tr("tpv.summary"), bold=True, size=13)
-        cl.addWidget(self._lbl_resumen)
-        cl.addWidget(_sep())
-        self.lbl_n_items  = _lbl(tr("tpv.items", n=0, uds=0), bold=True, size=13, color=_TEXT2)
-        self.lbl_subtotal = _lbl(tr("tpv.subtotal", x="0,00"), bold=True, size=13, color=_TEXT2)
-        self.lbl_dto      = _lbl(tr("tpv.discount_zero"), bold=True, size=13, color=_TEXT2)
-        cl.addWidget(self.lbl_n_items)
-        cl.addWidget(self.lbl_subtotal)
-        cl.addWidget(self.lbl_dto)
-        cl.addWidget(_sep())
-        self.lbl_total = _lbl(tr("tpv.total", x="0,00"), bold=True, size=19, color=_CIAN)
-        self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignRight)
-        cl.addWidget(self.lbl_total)
-        lay.addWidget(card_res)
-
         # Botón COBRAR
         self.btn_cobrar = QPushButton(tr("tpv.charge"))
         self.btn_cobrar.setFixedHeight(52)
@@ -2850,17 +2851,6 @@ class TPVWindow(QWidget):
         grid_acc.addWidget(self._btn_vaciar,    1, 1)
         cl2.addLayout(grid_acc)
         lay.addWidget(card_acc)
-
-        # Info caja activa
-        card_cj = _card()
-        cl3 = QVBoxLayout(card_cj)
-        cl3.setSpacing(3)
-        cl3.setContentsMargins(12, 8, 12, 8)
-        self.lbl_caja_id   = _lbl(tr("tpv.register_dash"), bold=True, size=13, color=_TEXT2)
-        self.lbl_caja_fondo = _lbl(tr("tpv.fund_dash"), bold=True, size=13, color=_TEXT2)
-        cl3.addWidget(self.lbl_caja_id)
-        cl3.addWidget(self.lbl_caja_fondo)
-        lay.addWidget(card_cj)
         lay.addStretch()
         return w
 
@@ -2875,8 +2865,6 @@ class TPVWindow(QWidget):
         fondo = caja.get("fondo", 0.0)
         self._caja_actual = caja  # guardado para re-traducción en caliente
         self.lbl_caja_top.setText(f"{cid}  ·  {resp}")
-        self.lbl_caja_id.setText(tr("tpv.register", cid=cid, resp=resp))
-        self.lbl_caja_fondo.setText(tr("tpv.fund", x=divisas.formatear(fondo)))
         self.inp_sku.setFocus()
 
     # ─────────────────── CARRITO ─────────────────────────────
@@ -3015,17 +3003,9 @@ class TPVWindow(QWidget):
             if caja:
                 cid = caja.get("id", "?")
                 resp = caja.get("responsable", "?")
-                fondo = caja.get("fondo", 0.0)
                 self.lbl_caja_top.setText(f"{cid}  ·  {resp}")
-                self.lbl_caja_id.setText(tr("tpv.register", cid=cid, resp=resp))
-                self.lbl_caja_fondo.setText(tr("tpv.fund", x=divisas.formatear(fondo)))
-            else:
-                if hasattr(self, "lbl_caja_top"):
-                    self.lbl_caja_top.setText(tr("tpv.register_dash"))
-                if hasattr(self, "lbl_caja_id"):
-                    self.lbl_caja_id.setText(tr("tpv.register_dash"))
-                if hasattr(self, "lbl_caja_fondo"):
-                    self.lbl_caja_fondo.setText(tr("tpv.fund_dash"))
+            elif hasattr(self, "lbl_caja_top"):
+                self.lbl_caja_top.setText(tr("tpv.register_dash"))
         except Exception:
             pass
 
