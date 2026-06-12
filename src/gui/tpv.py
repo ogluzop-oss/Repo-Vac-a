@@ -81,7 +81,7 @@ def _lbl(text: str, bold: bool = False, size: int = 12, color: str = _TEXT) -> Q
     lb = QLabel(text)
     lb.setStyleSheet(
         f"color:{color};font-family:'{_FONT}';font-size:{size}px;"
-        f"font-weight:{'900' if bold else '500'};background:transparent;"
+        f"font-weight:{'900' if bold else '500'};background:transparent;border:none;"
     )
     return lb
 
@@ -934,7 +934,7 @@ class _LineaEditDialog(QDialog):
 
         def _row(label, widget):
             h = QHBoxLayout()
-            h.addWidget(_lbl(label, size=12))
+            h.addWidget(_lbl(label, bold=True, size=14))
             h.addWidget(widget)
             lay.addLayout(h)
 
@@ -1222,11 +1222,11 @@ class _PagoDialog(QDialog):
 
         _inp_ss = (
             f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
-            f"border-radius:8px;padding:6px 12px;font-size:16px;font-family:'{_FONT}';}}"
+            f"border-radius:8px;padding:6px 12px;font-size:18px;font-weight:900;font-family:'{_FONT}';}}"
             f"QLineEdit:focus{{border-color:{_CIAN};}}"
         )
 
-        lay.addWidget(_lbl(tr("pago.amount_given"), size=12))
+        lay.addWidget(_lbl(tr("pago.amount_given"), bold=True, size=14))
         self.inp_ef = QLineEdit("0.00")
         self.inp_ef.setStyleSheet(_inp_ss)
         self.inp_ef.textChanged.connect(self._actualizar_cambio)
@@ -2750,12 +2750,12 @@ class TPVWindow(QWidget):
             (6, QHeaderView.ResizeMode.Fixed),
         ]:
             hh.setSectionResizeMode(col, mode)
-        hh.resizeSection(0, 115)
-        hh.resizeSection(2, 60)
-        hh.resizeSection(3, 78)
-        hh.resizeSection(4, 58)
-        hh.resizeSection(5, 88)
-        hh.resizeSection(6, 116)  # ACCIONES: editar (lápiz) + borrar (papelera)
+        hh.resizeSection(0, 106)
+        hh.resizeSection(2, 56)
+        hh.resizeSection(3, 74)
+        hh.resizeSection(4, 84)   # Dto%: más ancho para que se vea el valor completo
+        hh.resizeSection(5, 84)
+        hh.resizeSection(6, 108)  # ACCIONES: editar (lápiz) + borrar (papelera)
         hh.setMinimumSectionSize(40)
 
         self.tabla.doubleClicked.connect(self._editar_linea)
@@ -2816,10 +2816,11 @@ class TPVWindow(QWidget):
             f"QPushButton:disabled{{background:#1C2128;color:#484F58;border-color:#30363D;}}"
         )
         self.btn_cobrar.clicked.connect(self._realizar_pago)
-        lay.addWidget(self.btn_cobrar)
 
         # Teclado numérico (a la derecha, táctil)
         lay.addWidget(self._build_numpad())
+        # Botón COBRAR justo debajo del teclado numérico
+        lay.addWidget(self.btn_cobrar)
 
         # Acciones secundarias — tarjetas con icono centrado y texto debajo
         card_acc = _card()
