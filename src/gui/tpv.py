@@ -2750,12 +2750,12 @@ class TPVWindow(QWidget):
             (6, QHeaderView.ResizeMode.Fixed),
         ]:
             hh.setSectionResizeMode(col, mode)
-        hh.resizeSection(0, 106)
-        hh.resizeSection(2, 56)
-        hh.resizeSection(3, 74)
-        hh.resizeSection(4, 84)   # Dto%: más ancho para que se vea el valor completo
-        hh.resizeSection(5, 84)
-        hh.resizeSection(6, 108)  # ACCIONES: editar (lápiz) + borrar (papelera)
+        hh.resizeSection(0, 104)
+        hh.resizeSection(2, 54)
+        hh.resizeSection(3, 72)
+        hh.resizeSection(4, 82)   # Dto%: más ancho para que se vea el valor completo
+        hh.resizeSection(5, 82)
+        hh.resizeSection(6, 120)  # ACCIONES: editar (lápiz) + borrar (papelera) con su contorno
         hh.setMinimumSectionSize(40)
 
         self.tabla.doubleClicked.connect(self._editar_linea)
@@ -3112,6 +3112,15 @@ class TPVWindow(QWidget):
         # para devolver el control al usuario de inmediato.
         self._toast(tr("tpv.held_title"), tr("tpv.held_msg"))
 
+    def _msg(self, titulo: str, mensaje: str, nivel: str = "info"):
+        """Aviso modal que NO se congela sobre la ventana frameless siempre-encima
+        (usa el diálogo propio; QMessageBox nativo queda oculto y bloquea)."""
+        try:
+            from assets.estilo_global import mostrar_mensaje as _mm
+            _mm(self, titulo, mensaje, nivel)
+        except Exception:
+            QMessageBox.warning(self, titulo, mensaje)
+
     def _toast(self, titulo: str, mensaje: str, ms: int = 1800):
         """Aviso breve, no modal, que se cierra solo y no captura el foco."""
         box = QMessageBox(self)
@@ -3171,14 +3180,12 @@ class TPVWindow(QWidget):
             return
         # Verificar que la caja sigue activa sin re-lanzar el login
         if not self._id_caja:
-            QMessageBox.warning(self, tr("tpv.no_register_title"),
-                                tr("tpv.no_register_msg"))
+            self._msg(tr("tpv.no_register_title"), tr("tpv.no_register_msg"), "warning")
             return
         est  = _leer_estado_caja()
         caja = _caja_activa(est, self._empleado_tpv, self._empleado_id_tpv)
         if not caja:
-            QMessageBox.warning(self, tr("tpv.register_closed_title"),
-                                tr("tpv.register_closed_msg"))
+            self._msg(tr("tpv.register_closed_title"), tr("tpv.register_closed_msg"), "warning")
             return
 
         total = round(sum(l["subtotal"] for l in self._lineas), 2)
@@ -3238,8 +3245,7 @@ class TPVWindow(QWidget):
                 conn.commit()
 
         except Exception as e:
-            QMessageBox.critical(self, tr("tpv.db_error_title"),
-                                 tr("tpv.db_error_msg", e=e))
+            self._msg(tr("tpv.db_error_title"), tr("tpv.db_error_msg", e=e), "error")
             return
 
         # Señales de stock

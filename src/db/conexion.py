@@ -335,6 +335,16 @@ def ensure_schema(force: bool = False):
                 cur.execute("ALTER TABLE rendimiento_diario "
                             "ADD COLUMN IF NOT EXISTS prevision DECIMAL(12,2) DEFAULT NULL")
 
+                # Migración: en BBDD antiguas `ventas.codigo` se creó NOT NULL (modelo
+                # de venta de un solo artículo). El modelo actual usa venta_items, así
+                # que el INSERT del TPV/autocobro no aporta `codigo` → error 1364. Se
+                # vuelve nullable con default para que esas ventas se registren.
+                try:
+                    cur.execute("ALTER TABLE ventas MODIFY codigo VARCHAR(50) NULL DEFAULT NULL")
+                    cur.execute("ALTER TABLE ventas MODIFY cantidad INT NULL DEFAULT 0")
+                except Exception as _e:
+                    logger.warning("No se pudo migrar ventas.codigo/cantidad a NULL: %s", _e)
+
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
                 # Identidad: empresa → tienda → correo. El correo es un SERVICIO
                 # asociado, nunca la clave principal. Preparado para licenciamiento
