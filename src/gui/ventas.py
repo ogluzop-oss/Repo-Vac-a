@@ -250,6 +250,23 @@ QPushButton:hover {{
 }}
 """
 
+_SS_BTN_VERDE = """
+QPushButton {
+    background: #0E1117;
+    color: #3FB950;
+    border: 2px solid #3FB950;
+    border-radius: 8px;
+    padding: 8px 20px;
+    font-family: 'Segoe UI';
+    font-weight: 900;
+    font-size: 11px;
+}
+QPushButton:hover {
+    background: #3FB950;
+    color: #0E1117;
+}
+"""
+
 _SS_BTN_EXIT = f"""
 QPushButton {{
     background: transparent;
@@ -2934,7 +2951,7 @@ class VentasAnaliticaWindow(QWidget):
                 "•  Fuente — origen de los datos (archivo importado o ventas reales del TPV).\n\n"
                 "Archivos compatibles: .xlsx o .csv con DOS columnas → FECHA (DD/MM/AAAA) "
                 "y TOTAL (importe facturado ese día). Cada fila = un día."
-            )), size=10, color="#C9D1D9")
+            )), size=13, color="#C9D1D9")
         _help.setWordWrap(True); ely.addWidget(_help)
         root.addWidget(expl)
 
@@ -3207,13 +3224,17 @@ class VentasAnaliticaWindow(QWidget):
 
         root.addWidget(_lbl(tr("vta.perf_title", default="RENDIMIENTO"), bold=True, size=15, color=CIAN))
         root.addWidget(_separador())
+        expl = QFrame(); expl.setObjectName("expl_rend")
+        expl.setStyleSheet(f"QFrame#expl_rend {{ background: #161B22; border: 1px solid {BORDE}; border-radius: 10px; }}")
+        ely = QVBoxLayout(expl); ely.setContentsMargins(18, 12, 18, 12)
         sub = _lbl(tr("vta.perf_sub",
                       default="Seguimiento diario de facturación y productividad de la tienda. Los datos se rellenan "
                               "automáticamente desde el TPV, el autocobro y los fichajes; también puedes editarlos a "
                               "mano (facturación, nº clientes y horas) y pulsar GUARDAR CAMBIOS."),
-                   size=10, color="#8B949E")
-        sub.setWordWrap(True); root.addWidget(sub)
-        root.addWidget(_lbl(f"{self._MESES_RND[self._rend_mes]} {self._rend_anio}", bold=True, size=12, color="#C9D1D9"))
+                   size=13, color="#C9D1D9")
+        sub.setWordWrap(True); ely.addWidget(sub)
+        root.addWidget(expl)
+        root.addWidget(_lbl(f"{self._MESES_RND[self._rend_mes]} {self._rend_anio}", bold=True, size=14, color="#C9D1D9"))
 
         self._rend_cols = [
             tr("vta.perf_c_dia", default="Día"),
@@ -3230,14 +3251,24 @@ class VentasAnaliticaWindow(QWidget):
         t.setHorizontalHeaderLabels(self._rend_cols)
         t.setStyleSheet(_SS_TABLE)
         t.verticalHeader().setVisible(False)
-        t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Celdas editables (facturación / nº clientes / horas).
+        t.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.SelectedClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.AnyKeyPressed
+        )
+        _hh = t.horizontalHeader()
+        _hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)   # resto equitativo
+        _hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # "Día" a la mitad
+        t.setColumnWidth(0, 55)
         _ClipTableTopCorners(t)
         self.tbl_rend = t
         root.addWidget(t, 1)
 
         br = QHBoxLayout(); br.addStretch()
         self.btn_rend_guardar = QPushButton(tr("vta.perf_save", default="GUARDAR CAMBIOS"))
-        self.btn_rend_guardar.setStyleSheet(_SS_BTN_CIAN)
+        self.btn_rend_guardar.setStyleSheet(_SS_BTN_VERDE)
         self.btn_rend_guardar.setFixedHeight(44); self.btn_rend_guardar.setFixedWidth(220)
         self.btn_rend_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_rend_guardar.clicked.connect(self._guardar_rendimiento)
