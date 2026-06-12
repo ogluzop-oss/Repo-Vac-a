@@ -5783,15 +5783,16 @@ class _WizardDocumentoFiscal(QDialog):
                     if _logos_hdr:
                         n = len(_logos_hdr)
                         cell = usable_w / n
-                        _maxlh = 1.65*cm  # altura máxima (Fondos Europeos, algo mayor)
+                        _maxlh = 2.1*cm  # altura máxima (Fondos Europeos, a la par del resto)
                         _cy = page_h - 1.0*cm - _maxlh / 2  # centro vertical común
                         for i, lp in enumerate(_logos_hdr):
                             try:
                                 img = ImageReader(lp)
                                 iw, ih = img.getSize()
                                 ratio = (iw / ih) if ih else 1.0
-                                # Fondos Europeos un poco más grande que el resto.
-                                lh = 1.55*cm if "fondos_europeos" in lp else 1.15*cm
+                                # El logo de Fondos Europeos tiene mucho margen interno,
+                                # así que se dibuja bastante más alto para igualar visualmente.
+                                lh = 2.1*cm if "fondos_europeos" in lp else 1.2*cm
                                 w = lh * ratio
                                 if w > cell - 0.3*cm:
                                     w = cell - 0.3*cm
@@ -5801,7 +5802,7 @@ class _WizardDocumentoFiscal(QDialog):
                                             preserveAspectRatio=True, mask="auto")
                             except Exception:
                                 pass
-                        y_title = page_h - 1.0*cm - _maxlh - 0.45*cm
+                        y_title = page_h - 1.0*cm - _maxlh - 0.4*cm
                     else:
                         y_title = page_h - 1.7*cm
                 else:
@@ -5865,10 +5866,12 @@ class _WizardDocumentoFiscal(QDialog):
                 _draw_footer(c, doc)
 
             # ── Documento ─────────────────────────────────────────────────────
+            # El contrato tiene cabecera con logos grandes -> más margen superior.
+            _top_margin = 4.4*cm if self._tipo == "CONTRATO" else 3.9*cm
             doc = SimpleDocTemplate(
                 ruta, pagesize=A4,
                 leftMargin=1.5*cm, rightMargin=1.5*cm,
-                topMargin=3.9*cm, bottomMargin=2.3*cm,
+                topMargin=_top_margin, bottomMargin=2.3*cm,
             )
             usable_w = page_w - 3.0*cm
 
@@ -6617,7 +6620,10 @@ class _WizardDocumentoFiscal(QDialog):
                 [Spacer(1, 2.0*cm), Spacer(1, 2.0*cm), Spacer(1, 2.0*cm)],
                 [
                     Paragraph(f"<b>{trab}</b><br/>{nif}", st_sign_val),
-                    Paragraph(f"<b>{emp_nombre}</b><br/>{emp_cif}", st_sign_val),
+                    Paragraph(
+                        (f"<b>{rep_nombre_full}</b><br/>{rep_nif}" if rep_nombre_full
+                         else f"<b>{emp_nombre}</b><br/>{emp_cif}"),
+                        st_sign_val),
                     Paragraph("________________________", st_sign_val),
                 ],
             ]
