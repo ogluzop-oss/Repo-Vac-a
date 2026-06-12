@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "市级代码:",
     "wz_f_cod_nivelform": "教育水平代码:",
     "step_centro_trabajo": "工作中心",
-    "wz_rep_principal": "— 默认主要代表 —"
+    "wz_rep_principal": "— 默认主要代表 —",
+    "btn_cambio_cajero": "收银员交接",
+    "id_cajero_saliente": "收银员交接 — 离职收银员 ({id})",
+    "id_cajero_entrante": "收银员交接 — 入职收银员 ({id})",
+    "cambio_no_responsable_title": "现金箱不可转移",
+    "cambio_no_responsable_msg": "仅{id}的负责收银员可以转移该现金箱。\n当前负责人：{resp}",
+    "cambio_mismo_title": "收银员无效",
+    "cambio_mismo_msg": "入职收银员必须不同于离职收银员。",
+    "conteo_cambio_cajero": "收银员交接 {id} — 现金盘点",
+    "cambio_cancelado_title": "交接已取消",
+    "motivo_cambio_cajero": "{x}中存在{id}€的差异（离职收银员：{resp}）。\n请说明原因：",
+    "cambio_otras_divisas": "其他货币：{x}",
+    "cambio_ok_title": "收银员交接 — {id}",
+    "cambio_ok_msg": "{id}已从{sal}转移至{ent}。\n现金箱仍处于活跃状态。"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "智能扫描仪 - Smart Manager",

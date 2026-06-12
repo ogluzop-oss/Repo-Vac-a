@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Belediye kodu:",
     "wz_f_cod_nivelform": "Eğitim seviyesi kodu:",
     "step_centro_trabajo": "İŞ MERKEZİ",
-    "wz_rep_principal": "— Varsayılan ana temsilci —"
+    "wz_rep_principal": "— Varsayılan ana temsilci —",
+    "btn_cambio_cajero": "KASA DEĞİŞTİRME",
+    "id_cajero_saliente": "Kasa değiştirme — Çıkan Kasiyer ({id})",
+    "id_cajero_entrante": "Kasa değiştirme — Gelen Kasiyer ({id})",
+    "cambio_no_responsable_title": "Devredilemeyen kasa",
+    "cambio_no_responsable_msg": "Yalnızca {id} sorumlusu tarafından devredilir.\nGeçerli sorumlu: {resp}",
+    "cambio_mismo_title": "Geçersiz kasiyer",
+    "cambio_mismo_msg": "Gelen kasiyer, çıkan kasiyerden farklı olmalıdır.",
+    "conteo_cambio_cajero": "KASA DEĞİŞTİRME {id} — DENETİM",
+    "cambio_cancelado_title": "Değiştirme iptal edildi",
+    "motivo_cambio_cajero": "{x} içinde {id} € tutarında dengesizlik (çıkan kasiyer: {resp}).\nSebep belirtiniz:",
+    "cambio_otras_divisas": "Diğer para birimleri: {x}",
+    "cambio_ok_title": "Kasa değiştirme — {id}",
+    "cambio_ok_msg": "{id} {sal} tarafından {ent} tarafına devredildi.\nKasa aktif kalmaya devam ediyor."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Akıllı Tarayıcı - Smart Manager",

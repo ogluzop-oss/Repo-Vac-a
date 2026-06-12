@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "市町村コード：",
     "wz_f_cod_nivelform": "教育レベルコード：",
     "step_centro_trabajo": "勤務地",
-    "wz_rep_principal": "— デフォルトの主要代表者 —"
+    "wz_rep_principal": "— デフォルトの主要代表者 —",
+    "btn_cambio_cajero": "レジ担当者の変更",
+    "id_cajero_saliente": "レジ担当者の変更 — 退出レジ担当者 ({id})",
+    "id_cajero_entrante": "レジ担当者の変更 — 入出レジ担当者 ({id})",
+    "cambio_no_responsable_title": "譲渡不可の現金預け金",
+    "cambio_no_responsable_msg": "{id} の責任を持つレジ担当者のみがこれを譲渡できます。\n現在の責任者: {resp}",
+    "cambio_mismo_title": "無効なレジ担当者",
+    "cambio_mismo_msg": "入出するレジ担当者は退出するレジ担当者と異なる必要があります。",
+    "conteo_cambio_cajero": "レジ担当者の変更 {id} — 集計",
+    "cambio_cancelado_title": "変更がキャンセルされました",
+    "motivo_cambio_cajero": "{x} での {id} € の不一致 (退出レジ担当者: {resp})。\n理由を記入してください:",
+    "cambio_otras_divisas": "その他の通貨: {x}",
+    "cambio_ok_title": "レジ担当者の変更 — {id}",
+    "cambio_ok_msg": "{id} は {sal} から {ent} に譲渡されました。\nレジはアクティブなままです。"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "नगर पालिका कोड:",
     "wz_f_cod_nivelform": "शैक्षणिक स्तर कोड:",
     "step_centro_trabajo": "कार्य केंद्र",
-    "wz_rep_principal": "— डिफ़ॉल्ट प्रमुख प्रतिनिधि —"
+    "wz_rep_principal": "— डिफ़ॉल्ट प्रमुख प्रतिनिधि —",
+    "btn_cambio_cajero": "कैशियर परिवर्तन",
+    "id_cajero_saliente": "कैशियर परिवर्तन — निकास कैशियर ({id})",
+    "id_cajero_entrante": "कैशियर परिवर्तन — प्रवेश कैशियर ({id})",
+    "cambio_no_responsable_title": "अहस्तांतरणीय कैश",
+    "cambio_no_responsable_msg": "केवल {id} के लिए जिम्मेदार कैशियर इसे स्थानांतरित कर सकता है।\nवर्तमान जिम्मेदार: {resp}",
+    "cambio_mismo_title": "अमान्य कैशियर",
+    "cambio_mismo_msg": "प्रवेश कैशियर को निकास कैशियर से अलग होना चाहिए।",
+    "conteo_cambio_cajero": "कैशियर परिवर्तन {id} — प्रत्यक्षण",
+    "cambio_cancelado_title": "परिवर्तन रद्द किया गया",
+    "motivo_cambio_cajero": "{x} में {id} € की विसंगति (निकास कैशियर: {resp})।\nकारण बताएं:",
+    "cambio_otras_divisas": "अन्य मुद्राएं: {x}",
+    "cambio_ok_title": "कैशियर परिवर्तन — {id}",
+    "cambio_ok_msg": "{id} को {sal} से {ent} में स्थानांतरित किया गया।\nकैश सक्रिय रहता है।"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "स्मार्ट स्कैनर - Smart Manager",

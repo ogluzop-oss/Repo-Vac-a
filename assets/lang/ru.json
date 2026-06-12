@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Код муниципалитета:",
     "wz_f_cod_nivelform": "Код уровня образования:",
     "step_centro_trabajo": "ЦЕНТР РАБОТЫ",
-    "wz_rep_principal": "— Основной представитель по умолчанию —"
+    "wz_rep_principal": "— Основной представитель по умолчанию —",
+    "btn_cambio_cajero": "СМЕНА КАССИРА",
+    "id_cajero_saliente": "Смена кассира — Кассир ВЫБЫВАЮЩИЙ ({id})",
+    "id_cajero_entrante": "Смена кассира — Кассир ВСТУПАЮЩИЙ ({id})",
+    "cambio_no_responsable_title": "Касса не подлежит передаче",
+    "cambio_no_responsable_msg": "Только кассир, ответственный за {id}, может её передать.\nТекущий ответственный: {resp}",
+    "cambio_mismo_title": "Неверный кассир",
+    "cambio_mismo_msg": "Вступающий кассир должен отличаться от выбывающего.",
+    "conteo_cambio_cajero": "СМЕНА КАССИРА {id} — ИНВЕНТАРИЗАЦИЯ",
+    "cambio_cancelado_title": "Смена отменена",
+    "motivo_cambio_cajero": "Расхождение на сумму {x} € в {id} (выбывающий кассир: {resp}).\nУкажите причину:",
+    "cambio_otras_divisas": "Другие валюты: {x}",
+    "cambio_ok_title": "Смена кассира — {id}",
+    "cambio_ok_msg": "{id} передана от {sal} к {ent}.\nКасса остаётся активной."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Интеллектуальный сканер - Smart Manager",

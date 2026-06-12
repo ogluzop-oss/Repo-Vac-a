@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Gemeindecode:",
     "wz_f_cod_nivelform": "Code Ausbildungsniveau:",
     "step_centro_trabajo": "ARBEITSSTELLE",
-    "wz_rep_principal": "— Standardmäßiger Hauptvertreter —"
+    "wz_rep_principal": "— Standardmäßiger Hauptvertreter —",
+    "btn_cambio_cajero": "KASSIERER-WECHSEL",
+    "id_cajero_saliente": "Kassierer-Wechsel — Ausscheidender Kassierer ({id})",
+    "id_cajero_entrante": "Kassierer-Wechsel — Eintretender Kassierer ({id})",
+    "cambio_no_responsable_title": "Nicht übertragbare Kasse",
+    "cambio_no_responsable_msg": "Nur der für {id} verantwortliche Kassierer kann diese übertragen.\nAktuell verantwortlich: {resp}",
+    "cambio_mismo_title": "Ungültiger Kassierer",
+    "cambio_mismo_msg": "Der eintretende Kassierer muss sich vom ausscheidenden Kassierer unterscheiden.",
+    "conteo_cambio_cajero": "KASSIERER-WECHSEL {id} — KASSENABSCHLUSS",
+    "cambio_cancelado_title": "Wechsel storniert",
+    "motivo_cambio_cajero": "Bestandsdifferenz von {x} € in {id} (ausscheidender Kassierer: {resp}).\nGeben Sie den Grund an:",
+    "cambio_otras_divisas": "Sonstige Währungen: {x}",
+    "cambio_ok_title": "Kassierer-Wechsel — {id}",
+    "cambio_ok_msg": "{id} übertragen von {sal} zu {ent}.\nDie Kasse bleibt aktiv."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",

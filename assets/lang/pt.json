@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Cód. município:",
     "wz_f_cod_nivelform": "Cód. nível formativo:",
     "step_centro_trabajo": "CENTRO DE TRABALHO",
-    "wz_rep_principal": "— Representante principal por padrão —"
+    "wz_rep_principal": "— Representante principal por padrão —",
+    "btn_cambio_cajero": "MUDANÇA DE CAIXA",
+    "id_cajero_saliente": "Mudança de caixa — Caixa SAINTE ({id})",
+    "id_cajero_entrante": "Mudança de caixa — Caixa ENTRANTE ({id})",
+    "cambio_no_responsable_title": "Caixa intransferível",
+    "cambio_no_responsable_msg": "Apenas o caixa responsável por {id} pode transferi-la.\nResponsável atual: {resp}",
+    "cambio_mismo_title": "Caixa inválida",
+    "cambio_mismo_msg": "O caixa entrante deve ser diferente do caixa sainte.",
+    "conteo_cambio_cajero": "MUDANÇA DE CAIXA {id} — CONFERÊNCIA",
+    "cambio_cancelado_title": "Mudança cancelada",
+    "motivo_cambio_cajero": "Diferença de {x} € em {id} (caixa sainte: {resp}).\nIndique o motivo:",
+    "cambio_otras_divisas": "Outras moedas: {x}",
+    "cambio_ok_title": "Mudança de caixa — {id}",
+    "cambio_ok_msg": "{id} transferida de {sal} para {ent}.\nA caixa continua ativa."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Inteligente - Smart Manager",

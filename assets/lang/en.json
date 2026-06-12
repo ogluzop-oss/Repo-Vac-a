@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Municipality code:",
     "wz_f_cod_nivelform": "Education level code:",
     "step_centro_trabajo": "CONTRACT DATA",
-    "wz_rep_principal": "— Default main representative —"
+    "wz_rep_principal": "— Default main representative —",
+    "btn_cambio_cajero": "CASHIER HANDOVER",
+    "id_cajero_saliente": "Cashier handover — OUTGOING cashier ({id})",
+    "id_cajero_entrante": "Cashier handover — INCOMING cashier ({id})",
+    "cambio_no_responsable_title": "Register not transferable",
+    "cambio_no_responsable_msg": "Only the cashier in charge of {id} can hand it over.\nCurrent holder: {resp}",
+    "cambio_mismo_title": "Invalid cashier",
+    "cambio_mismo_msg": "The incoming cashier must be different from the outgoing one.",
+    "conteo_cambio_cajero": "CASHIER HANDOVER {id} — CASH COUNT",
+    "cambio_cancelado_title": "Handover cancelled",
+    "motivo_cambio_cajero": "Discrepancy of {x} € in {id} (outgoing cashier: {resp}).\nEnter the reason:",
+    "cambio_otras_divisas": "Other currencies: {x}",
+    "cambio_ok_title": "Cashier handover — {id}",
+    "cambio_ok_msg": "{id} handed over from {sal} to {ent}.\nThe register stays active."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

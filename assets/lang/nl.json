@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Gemeentecode:",
     "wz_f_cod_nivelform": "Code opleidingsniveau:",
     "step_centro_trabajo": "WERKLOCATIE",
-    "wz_rep_principal": "— Standaardvertegenwoordiger —"
+    "wz_rep_principal": "— Standaardvertegenwoordiger —",
+    "btn_cambio_cajero": "KASSAWISSELING",
+    "id_cajero_saliente": "Kassawisseling — VERTREKKENDE Kassier ({id})",
+    "id_cajero_entrante": "Kassawisseling — AANKOMENDE Kassier ({id})",
+    "cambio_no_responsable_title": "Niet-overdraagbare kassa",
+    "cambio_no_responsable_msg": "Alleen de kassier die verantwoordelijk is voor {id} kan deze overdragen.\nHuidige verantwoordelijke: {resp}",
+    "cambio_mismo_title": "Ongeldige kassier",
+    "cambio_mismo_msg": "De aankomende kassier moet anders zijn dan de vertrekkende kassier.",
+    "conteo_cambio_cajero": "KASSAWISSELING {id} — INVENTARISATIE",
+    "cambio_cancelado_title": "Wisseling geannuleerd",
+    "motivo_cambio_cajero": "Verschil van {x} € in {id} (vertrekkende kassier: {resp}).\nGeef de reden op:",
+    "cambio_otras_divisas": "Andere valuta's: {x}",
+    "cambio_ok_title": "Kassawisseling — {id}",
+    "cambio_ok_msg": "{id} overgedragen van {sal} aan {ent}.\nDe kassa blijft actief."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligente Scanner - Smart Manager",

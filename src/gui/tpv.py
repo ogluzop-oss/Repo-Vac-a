@@ -352,36 +352,47 @@ def _guardar_estado_caja(est: dict):
         logger.error(f"Error guardando estado caja: {e}")
 
 
-def _caja_activa(est: dict, nombre_empleado: str = "") -> dict | None:
-    """Devuelve la caja del empleado activo (por responsable), o la primera disponible.
-    Retorna None si el TPV debe bloquearse."""
+def _norm_nombre(s) -> str:
+    """Normaliza un nombre para comparar (sin distinción de may/min ni espacios)."""
+    return str(s or "").strip().casefold()
+
+
+def _caja_pertenece(caja: dict, nombre_empleado: str = "", id_empleado=None) -> bool:
+    """Una caja registradora es INTRANSFERIBLE: solo pertenece al cajero
+    responsable durante su turno. Se casa preferentemente por id de empleado y,
+    como respaldo (cajas antiguas sin id), por nombre normalizado.
+
+    NUNCA devuelve True por defecto: si no hay coincidencia, no pertenece.
+    """
+    rid = caja.get("responsable_id")
+    if id_empleado is not None and rid is not None:
+        return str(rid) == str(id_empleado)
+    nombre_empleado = _norm_nombre(nombre_empleado)
+    if not nombre_empleado:
+        return False
+    return _norm_nombre(caja.get("responsable")) == nombre_empleado
+
+
+def _caja_activa(est: dict, nombre_empleado: str = "", id_empleado=None) -> dict | None:
+    """Devuelve la caja del cajero indicado (responsable). Retorna None si el TPV
+    debe bloquearse o si el empleado no tiene ninguna caja asignada."""
     estado = est.get("estado", "SIN_APERTURA")
     if estado not in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA"):
         return None
-    cajas = est.get("cajas_activas", [])
-    if not cajas:
-        return None
-    if nombre_empleado:
-        for c in cajas:
-            if c.get("responsable", "") == nombre_empleado:
-                return c
-    return cajas[0]
+    for c in est.get("cajas_activas", []):
+        if _caja_pertenece(c, nombre_empleado, id_empleado):
+            return c
+    return None
 
 
-def _cajas_de_empleado(est: dict, nombre_empleado: str) -> list:
-    """Devuelve todas las cajas activas asignadas al empleado.
-    Si no tiene ninguna asignada específicamente, devuelve todas las activas."""
+def _cajas_de_empleado(est: dict, nombre_empleado: str = "", id_empleado=None) -> list:
+    """Cajas activas asignadas EXCLUSIVAMENTE al empleado (por responsable).
+    Si no tiene ninguna asignada, devuelve lista vacía (TPV bloqueado)."""
     estado = est.get("estado", "SIN_APERTURA")
     if estado not in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA"):
         return []
-    cajas = est.get("cajas_activas", [])
-    if not cajas:
-        return []
-    if nombre_empleado:
-        asignadas = [c for c in cajas if c.get("responsable", "") == nombre_empleado]
-        if asignadas:
-            return asignadas
-    return cajas
+    return [c for c in est.get("cajas_activas", [])
+            if _caja_pertenece(c, nombre_empleado, id_empleado)]
 
 
 def _motivo_bloqueo(est: dict) -> str:
@@ -520,6 +531,7 @@ class _LoginTPVDialog(QDialog):
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._nombre_empleado: str = ""
+        self._id_empleado = None
         self._pin: str = ""
         self._build()
 
@@ -735,6 +747,7 @@ class _LoginTPVDialog(QDialog):
         resultado = validar_login_empleado(self._nombre_empleado, self._pin)
         if resultado:
             self._nombre_empleado = (resultado.get("nombre") or self._nombre_empleado).upper()
+            self._id_empleado = resultado.get("id")
             self.accept()
         else:
             self._lbl_err.setText(tr("login_tpv.err_wrong_pin"))
@@ -757,6 +770,9 @@ class _LoginTPVDialog(QDialog):
 
     def get_nombre_empleado(self) -> str:
         return self._nombre_empleado
+
+    def get_id_empleado(self):
+        return self._id_empleado
 
 
 # ============================================================
@@ -2314,6 +2330,7 @@ class TPVWindow(QWidget):
         self._lineas: list[dict] = []
         self._id_caja: str | None = None
         self._empleado_tpv: str = ""
+        self._empleado_id_tpv = None
         self._auth_cancelled: bool = False  # login cancelado → _abrir_tpv_en_stack no muestra el TPV
 
         self.setWindowTitle(tr("tpv.title"))
@@ -2370,10 +2387,10 @@ class TPVWindow(QWidget):
 
     # ─────────────────── VERIFICACIÓN CAJA ───────────────────
 
-    def _verificar_caja_directa(self, nombre_empleado: str):
+    def _verificar_caja_directa(self, nombre_empleado: str, id_empleado=None):
         """Entra al TPV directamente sin mostrar el diálogo de login."""
         est  = _leer_estado_caja()
-        caja = _caja_activa(est, nombre_empleado)
+        caja = _caja_activa(est, nombre_empleado, id_empleado)
         if caja:
             self._id_caja      = caja.get("id", "CAJA-01")
             self._empleado_tpv = nombre_empleado
@@ -2382,7 +2399,12 @@ class TPVWindow(QWidget):
         else:
             self._id_caja      = None
             self._empleado_tpv = ""
-            self._bloqueada.set_motivo(_motivo_bloqueo(est))
+            # Sin caja propia → bloquear (no se permite usar la caja de otro).
+            est_estado = est.get("estado", "SIN_APERTURA")
+            if est_estado in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA") and est.get("cajas_activas"):
+                self._bloqueada.set_motivo(tr("bloq.reason_sin_asignar"))
+            else:
+                self._bloqueada.set_motivo(_motivo_bloqueo(est))
             self._stack.setCurrentIndex(0)
 
     def _verificar_caja(self):
@@ -2405,11 +2427,14 @@ class TPVWindow(QWidget):
             return
 
         nombre_empleado = dlg.get_nombre_empleado()
-        cajas = _cajas_de_empleado(est, nombre_empleado)
+        id_empleado = dlg.get_id_empleado()
+        cajas = _cajas_de_empleado(est, nombre_empleado, id_empleado)
 
         if not cajas:
+            # El empleado no es responsable de ninguna caja → acceso denegado.
             self._id_caja = None
             self._empleado_tpv = ""
+            self._empleado_id_tpv = None
             self._bloqueada.set_motivo(tr("bloq.reason_sin_asignar"))
             self._stack.setCurrentIndex(0)
             return
@@ -2425,6 +2450,7 @@ class TPVWindow(QWidget):
 
         self._id_caja      = caja.get("id", "CAJA-01")
         self._empleado_tpv = nombre_empleado
+        self._empleado_id_tpv = id_empleado
         self._stack.setCurrentIndex(1)
         self._refresh_caja_info(caja)
 
@@ -3152,7 +3178,7 @@ class TPVWindow(QWidget):
                                 tr("tpv.no_register_msg"))
             return
         est  = _leer_estado_caja()
-        caja = _caja_activa(est, self._empleado_tpv)
+        caja = _caja_activa(est, self._empleado_tpv, self._empleado_id_tpv)
         if not caja:
             QMessageBox.warning(self, tr("tpv.register_closed_title"),
                                 tr("tpv.register_closed_msg"))
@@ -3272,7 +3298,7 @@ class TPVWindow(QWidget):
         )
 
         # Revalidar sin re-pedir login; si la caja fue cerrada mostrará la pantalla bloqueada
-        self._verificar_caja_directa(self._empleado_tpv)
+        self._verificar_caja_directa(self._empleado_tpv, self._empleado_id_tpv)
 
     def _actualizar_fondo_caja(self, importe: float):
         try:

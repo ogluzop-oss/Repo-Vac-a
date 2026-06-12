@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Kode kota/kabupaten:",
     "wz_f_cod_nivelform": "Kode tingkat pendidikan:",
     "step_centro_trabajo": "PUSAT KERJA",
-    "wz_rep_principal": "— Perwakilan Utama Default —"
+    "wz_rep_principal": "— Perwakilan Utama Default —",
+    "btn_cambio_cajero": "PERUBAHAN KASIR",
+    "id_cajero_saliente": "Perubahan kasir — Kasir KELUAR ({id})",
+    "id_cajero_entrante": "Perubahan kasir — Kasir MASUK ({id})",
+    "cambio_no_responsable_title": "Kas tidak dapat ditransfer",
+    "cambio_no_responsable_msg": "Hanya kasir yang bertanggung jawab atas {id} yang dapat mentransfernya.\nPenanggung jawab saat ini: {resp}",
+    "cambio_mismo_title": "Kasir tidak valid",
+    "cambio_mismo_msg": "Kasir masuk harus berbeda dari kasir keluar.",
+    "conteo_cambio_cajero": "PERUBAHAN KASIR {id} — HITUNG KAS",
+    "cambio_cancelado_title": "Perubahan dibatalkan",
+    "motivo_cambio_cajero": "Selisih {x} € di {id} (kasir keluar: {resp}).\nSilakan jelaskan alasannya:",
+    "cambio_otras_divisas": "Mata uang lainnya: {x}",
+    "cambio_ok_title": "Perubahan kasir — {id}",
+    "cambio_ok_msg": "{id} ditransfer dari {sal} ke {ent}.\nKas tetap aktif."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",

@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Kod gminy:",
     "wz_f_cod_nivelform": "Kod poziomu wykształcenia:",
     "step_centro_trabajo": "MIEJSCE PRACY",
-    "wz_rep_principal": "— Główny reprezentant domyślny —"
+    "wz_rep_principal": "— Główny reprezentant domyślny —",
+    "btn_cambio_cajero": "ZMIANA KASJERA",
+    "id_cajero_saliente": "Zmiana kasjera — Kasjer WYCHODZĄCY ({id})",
+    "id_cajero_entrante": "Zmiana kasjera — Kasjer WCHODZĄCY ({id})",
+    "cambio_no_responsable_title": "Kasa nieprzenoszona",
+    "cambio_no_responsable_msg": "Tylko kasjer odpowiedzialny za {id} może ją przenieść.\nAktualna osoba odpowiedzialna: {resp}",
+    "cambio_mismo_title": "Kasjer nieprawidłowy",
+    "cambio_mismo_msg": "Kasjer wchodzący musi być inny niż kasjer wychodzący.",
+    "conteo_cambio_cajero": "ZMIANA KASJERA {id} — INWENTARYZACJA",
+    "cambio_cancelado_title": "Zmiana anulowana",
+    "motivo_cambio_cajero": "Niedobór {x} € w {id} (kasjer wychodzący: {resp}).\nPodaj przyczynę:",
+    "cambio_otras_divisas": "Inne waluty: {x}",
+    "cambio_ok_title": "Zmiana kasjera — {id}",
+    "cambio_ok_msg": "{id} przeniesiona od {sal} do {ent}.\nKasa pozostaje aktywna."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

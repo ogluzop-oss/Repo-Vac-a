@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "رمز البلدية:",
     "wz_f_cod_nivelform": "رمز المستوى التعليمي:",
     "step_centro_trabajo": "مركز العمل",
-    "wz_rep_principal": "— ممثل رئيسي افتراضي —"
+    "wz_rep_principal": "— ممثل رئيسي افتراضي —",
+    "btn_cambio_cajero": "تغيير أمين الصندوق",
+    "id_cajero_saliente": "تغيير أمين الصندوق — أمين الصندوق المغادر ({id})",
+    "id_cajero_entrante": "تغيير أمين الصندوق — أمين الصندوق الداخل ({id})",
+    "cambio_no_responsable_title": "صندوق غير قابل للتحويل",
+    "cambio_no_responsable_msg": "فقط أمين الصندوق المسؤول عن {id} يمكنه تحويلها.\nالمسؤول الحالي: {resp}",
+    "cambio_mismo_title": "أمين صندوق غير صحيح",
+    "cambio_mismo_msg": "يجب أن يكون أمين الصندوق الداخل مختلفاً عن المغادر.",
+    "conteo_cambio_cajero": "تغيير أمين الصندوق {id} — جرد الصندوق",
+    "cambio_cancelado_title": "تم إلغاء التغيير",
+    "motivo_cambio_cajero": "عدم تطابق بمقدار {x} € في {id} (أمين الصندوق المغادر: {resp}).\nالرجاء تحديد السبب:",
+    "cambio_otras_divisas": "العملات الأخرى: {x}",
+    "cambio_ok_title": "تغيير أمين الصندوق — {id}",
+    "cambio_ok_msg": "تم تحويل {id} من {sal} إلى {ent}.\nالصندوق لا يزال نشطاً."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "ماسح ذكي - Smart Manager",

@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Код муніципалітету:",
     "wz_f_cod_nivelform": "Код рівня освіти:",
     "step_centro_trabajo": "ЦЕНТР РОБОТИ",
-    "wz_rep_principal": "— Основний представник за замовчуванням —"
+    "wz_rep_principal": "— Основний представник за замовчуванням —",
+    "btn_cambio_cajero": "ЗМІНА КАСИРА",
+    "id_cajero_saliente": "Зміна касира — Касир, ЩО ЗВІЛЬНЯЄТЬСЯ ({id})",
+    "id_cajero_entrante": "Зміна касира — Касир, ЩО ПРИСТУПАЄ ({id})",
+    "cambio_no_responsable_title": "Касса непередаваного типу",
+    "cambio_no_responsable_msg": "Тільки касир, відповідальний за {id}, може її передати.\nПоточний відповідальний: {resp}",
+    "cambio_mismo_title": "Невалідний касир",
+    "cambio_mismo_msg": "Касир, що приступає, має відрізнятися від касира, що звільняється.",
+    "conteo_cambio_cajero": "ЗМІНА КАСИРА {id} — КАССА",
+    "cambio_cancelado_title": "Зміна скасована",
+    "motivo_cambio_cajero": "Розбіжність у {x} € у касі {id} (касир, що звільняється: {resp}).\nУкажіть причину:",
+    "cambio_otras_divisas": "Інші валюти: {x}",
+    "cambio_ok_title": "Зміна касира — {id}",
+    "cambio_ok_msg": "{id} передана від {sal} до {ent}.\nКаса залишається активною."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Розумний сканер - Smart Manager",

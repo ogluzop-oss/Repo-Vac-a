@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Mã huyện/thành phố:",
     "wz_f_cod_nivelform": "Mã trình độ học vấn:",
     "step_centro_trabajo": "ĐỊA ĐIỂM LÀM VIỆC",
-    "wz_rep_principal": "— Đại diện chính theo mặc định —"
+    "wz_rep_principal": "— Đại diện chính theo mặc định —",
+    "btn_cambio_cajero": "THAY ĐỔI THU NGÂN",
+    "id_cajero_saliente": "Thay đổi thu ngân — Thu ngân RỜI ĐI ({id})",
+    "id_cajero_entrante": "Thay đổi thu ngân — Thu ngân VÀO ({id})",
+    "cambio_no_responsable_title": "Caja intransferible",
+    "cambio_no_responsable_msg": "Chỉ thu ngân phụ trách {id} mới có thể chuyển giao nó.\nNgười phụ trách hiện tại: {resp}",
+    "cambio_mismo_title": "Thu ngân không hợp lệ",
+    "cambio_mismo_msg": "Thu ngân vào phải khác với thu ngân rời đi.",
+    "conteo_cambio_cajero": "THAY ĐỔI THU NGÂN {id} — KIỂM KÊ",
+    "cambio_cancelado_title": "Thay đổi bị hủy",
+    "motivo_cambio_cajero": "Sai số {x} € trong {id} (thu ngân rời đi: {resp}).\nVui lòng cho biết lý do:",
+    "cambio_otras_divisas": "Các đơn vị tiền tệ khác: {x}",
+    "cambio_ok_title": "Thay đổi thu ngân — {id}",
+    "cambio_ok_msg": "{id} được chuyển giao từ {sal} tới {ent}.\nCaja vẫn hoạt động."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Máy Quét Thông Minh - Smart Manager",

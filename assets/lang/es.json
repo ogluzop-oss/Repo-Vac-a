@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Cód. municipio:",
     "wz_f_cod_nivelform": "Cód. nivel formativo:",
     "step_centro_trabajo": "DATOS DEL CONTRATO",
-    "wz_rep_principal": "— Representante principal por defecto —"
+    "wz_rep_principal": "— Representante principal por defecto —",
+    "btn_cambio_cajero": "CAMBIO DE CAJERO",
+    "id_cajero_saliente": "Cambio de cajero — Cajero SALIENTE ({id})",
+    "id_cajero_entrante": "Cambio de cajero — Cajero ENTRANTE ({id})",
+    "cambio_no_responsable_title": "Caja intransferible",
+    "cambio_no_responsable_msg": "Solo el cajero responsable de {id} puede traspasarla.\nResponsable actual: {resp}",
+    "cambio_mismo_title": "Cajero no válido",
+    "cambio_mismo_msg": "El cajero entrante debe ser distinto del saliente.",
+    "conteo_cambio_cajero": "CAMBIO DE CAJERO {id} — ARQUEO",
+    "cambio_cancelado_title": "Cambio cancelado",
+    "motivo_cambio_cajero": "Descuadre de {x} € en {id} (cajero saliente: {resp}).\nIndique el motivo:",
+    "cambio_otras_divisas": "Otras divisas: {x}",
+    "cambio_ok_title": "Cambio de cajero — {id}",
+    "cambio_ok_msg": "{id} traspasada de {sal} a {ent}.\nLa caja sigue activa."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Escáner Inteligente - Smart Manager",

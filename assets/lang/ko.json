@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "시/군/구 코드:",
     "wz_f_cod_nivelform": "교육 수준 코드:",
     "step_centro_trabajo": "근로 센터",
-    "wz_rep_principal": "— 기본 주요 대리인 —"
+    "wz_rep_principal": "— 기본 주요 대리인 —",
+    "btn_cambio_cajero": "계산대 변경",
+    "id_cajero_saliente": "계산대 변경 — 퇴임 계산원 ({id})",
+    "id_cajero_entrante": "계산대 변경 — 신임 계산원 ({id})",
+    "cambio_no_responsable_title": "이전 불가 계산대",
+    "cambio_no_responsable_msg": "{id}의 담당 계산원만 이를 이전할 수 있습니다.\n현재 담당자: {resp}",
+    "cambio_mismo_title": "유효하지 않은 계산원",
+    "cambio_mismo_msg": "신임 계산원은 퇴임 계산원과 달라야 합니다.",
+    "conteo_cambio_cajero": "계산대 변경 {id} — 재점검",
+    "cambio_cancelado_title": "변경 취소됨",
+    "motivo_cambio_cajero": "{x}에서 {id} €의 차이 발생 (퇴임 계산원: {resp}).\n사유를 입력하세요:",
+    "cambio_otras_divisas": "기타 통화: {x}",
+    "cambio_ok_title": "계산대 변경 — {id}",
+    "cambio_ok_msg": "{id}이(가) {sal}에서 {ent}로 이전되었습니다.\n계산대는 계속 활성 상태입니다."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "스마트 스캐너 - Smart Manager",

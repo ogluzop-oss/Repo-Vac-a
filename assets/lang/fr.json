@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Cód. municipio :",
     "wz_f_cod_nivelform": "Cód. niveau de formation :",
     "step_centro_trabajo": "CENTRE DE TRAVAIL",
-    "wz_rep_principal": "— Représentant principal par défaut —"
+    "wz_rep_principal": "— Représentant principal par défaut —",
+    "btn_cambio_cajero": "CHANGEMENT DE CAISSIER",
+    "id_cajero_saliente": "Changement de caissier — Caissier SORTANT ({id})",
+    "id_cajero_entrante": "Changement de caissier — Caissier ENTRANT ({id})",
+    "cambio_no_responsable_title": "Caisse incessible",
+    "cambio_no_responsable_msg": "Seul le caissier responsable de {id} peut la transférer.\nResponsable actuel : {resp}",
+    "cambio_mismo_title": "Caissier invalide",
+    "cambio_mismo_msg": "Le caissier entrant doit être différent du caissier sortant.",
+    "conteo_cambio_cajero": "CHANGEMENT DE CAISSIER {id} — COMPTAGE",
+    "cambio_cancelado_title": "Changement annulé",
+    "motivo_cambio_cajero": "Écart de {x} € dans {id} (caissier sortant : {resp}).\nVeuillez indiquer le motif :",
+    "cambio_otras_divisas": "Autres devises : {x}",
+    "cambio_ok_title": "Changement de caissier — {id}",
+    "cambio_ok_msg": "{id} transférée de {sal} à {ent}.\nLa caisse reste active."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanneur Intelligent - Smart Manager",

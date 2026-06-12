@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Kommunkod:",
     "wz_f_cod_nivelform": "Utbildningsnivåkod:",
     "step_centro_trabajo": "ARBETSCENTER",
-    "wz_rep_principal": "— Huvudrepresentant som standard —"
+    "wz_rep_principal": "— Huvudrepresentant som standard —",
+    "btn_cambio_cajero": "KASSÖRVÄXLING",
+    "id_cajero_saliente": "Kassörväxling — Utgående kassör ({id})",
+    "id_cajero_entrante": "Kassörväxling — Ingående kassör ({id})",
+    "cambio_no_responsable_title": "Icke överförbar kassa",
+    "cambio_no_responsable_msg": "Endast kassören ansvarig för {id} kan överföra den.\nAktuell ansvarig: {resp}",
+    "cambio_mismo_title": "Ogiltig kassör",
+    "cambio_mismo_msg": "Den ingående kassören måste skilja sig från den utgående.",
+    "conteo_cambio_cajero": "KASSÖRVÄXLING {id} — KASSARÄKNING",
+    "cambio_cancelado_title": "Växling avbruten",
+    "motivo_cambio_cajero": "Kassaoväxlighet på {x} € i {id} (utgående kassör: {resp}).\nAnge orsaken:",
+    "cambio_otras_divisas": "Övriga valutor: {x}",
+    "cambio_ok_title": "Kassörväxling — {id}",
+    "cambio_ok_msg": "{id} överförd från {sal} till {ent}.\nKassan förblir aktiv."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

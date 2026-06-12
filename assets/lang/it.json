@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "Cod. municipio:",
     "wz_f_cod_nivelform": "Cod. livello formativo:",
     "step_centro_trabajo": "CENTRO DI LAVORO",
-    "wz_rep_principal": "— Rappresentante principale per impostazione predefinita —"
+    "wz_rep_principal": "— Rappresentante principale per impostazione predefinita —",
+    "btn_cambio_cajero": "CAMBIO DI CASSIERE",
+    "id_cajero_saliente": "Cambio di cassiere — Cassiere IN USCITA ({id})",
+    "id_cajero_entrante": "Cambio di cassiere — Cassiere IN ENTRATA ({id})",
+    "cambio_no_responsable_title": "Cassa non trasferibile",
+    "cambio_no_responsable_msg": "Solo il cassiere responsabile di {id} può trasferirla.\nResponsabile attuale: {resp}",
+    "cambio_mismo_title": "Cassiere non valido",
+    "cambio_mismo_msg": "Il cassiere in entrata deve essere diverso da quello in uscita.",
+    "conteo_cambio_cajero": "CAMBIO DI CASSIERE {id} — CONTROLLO",
+    "cambio_cancelado_title": "Cambio annullato",
+    "motivo_cambio_cajero": "Discrepanza di {x} € in {id} (cassiere in uscita: {resp}).\nIndichi il motivo:",
+    "cambio_otras_divisas": "Altre valute: {x}",
+    "cambio_ok_title": "Cambio di cassiere — {id}",
+    "cambio_ok_msg": "{id} trasferita da {sal} a {ent}.\nLa cassa rimane attiva."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Intelligente - Smart Manager",

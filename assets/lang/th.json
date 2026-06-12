@@ -1317,7 +1317,20 @@
     "wz_f_cod_municipio": "รหัสเขต:",
     "wz_f_cod_nivelform": "รหัสระดับการศึกษา:",
     "step_centro_trabajo": "ศูนย์กลางงาน",
-    "wz_rep_principal": "— ตัวแทนหลักตามค่าเริ่มต้น —"
+    "wz_rep_principal": "— ตัวแทนหลักตามค่าเริ่มต้น —",
+    "btn_cambio_cajero": "การเปลี่ยนแปลงแคชเชียร์",
+    "id_cajero_saliente": "การเปลี่ยนแปลงแคชเชียร์ — แคชเชียร์ที่ออก ({id})",
+    "id_cajero_entrante": "การเปลี่ยนแปลงแคชเชียร์ — แคชเชียร์ที่เข้า ({id})",
+    "cambio_no_responsable_title": "เงินสดไม่สามารถโอนได้",
+    "cambio_no_responsable_msg": "เฉพาะแคชเชียร์ที่รับผิดชอบ {id} เท่านั้นที่สามารถโอนได้\nผู้รับผิดชอบปัจจุบัน: {resp}",
+    "cambio_mismo_title": "แคชเชียร์ไม่ถูกต้อง",
+    "cambio_mismo_msg": "แคชเชียร์ที่เข้าต้องแตกต่างจากแคชเชียร์ที่ออก",
+    "conteo_cambio_cajero": "การเปลี่ยนแปลงแคชเชียร์ {id} — การตรวจนับเงินสด",
+    "cambio_cancelado_title": "ยกเลิกการเปลี่ยนแปลงแล้ว",
+    "motivo_cambio_cajero": "ส่วนต่างเงินสด {x} € ใน {id} (แคชเชียร์ที่ออก: {resp})\nโปรดระบุเหตุผล:",
+    "cambio_otras_divisas": "通货其他: {x}",
+    "cambio_ok_title": "การเปลี่ยนแปลงแคชเชียร์ — {id}",
+    "cambio_ok_msg": "{id} โอนจาก {sal} ไปยัง {ent}\nเงินสดยังคงใช้งานอยู่"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "สแกนเนอร์อัจฉริยะ - Smart Manager",

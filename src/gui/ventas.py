@@ -935,6 +935,29 @@ class _ClipTableTopCorners(QObject):
         return False
 
 
+class _RoundTableCorners(QObject):
+    """Redondea las 4 esquinas exteriores de un QTableWidget con una máscara, de
+    forma que el contorno neón no se corte en ninguna esquina (ni la cabecera ni
+    el cuerpo/scroll)."""
+    def __init__(self, table, radius=8):
+        super().__init__(table)
+        self._r = radius
+        table.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+            from PyQt6.QtCore import QRect
+            bmp = QBitmap(obj.size())
+            bmp.fill(Qt.GlobalColor.color0)
+            p = QPainter(bmp)
+            p.setBrush(Qt.GlobalColor.color1)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(QRect(0, 0, obj.width(), obj.height()), self._r, self._r)
+            p.end()
+            obj.setMask(QRegion(bmp))
+        return False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2946,7 +2969,7 @@ class VentasAnaliticaWindow(QWidget):
         expl = QFrame(); expl.setObjectName("expl_hist")
         expl.setStyleSheet(f"QFrame#expl_hist {{ background: #161B22; border: 1px solid {BORDE}; border-radius: 10px; }}")
         ely = QVBoxLayout(expl); ely.setContentsMargins(18, 12, 18, 12); ely.setSpacing(4)
-        ely.addWidget(_lbl(tr("vta.hist_help_title", default="¿QUÉ ES ESTA PESTAÑA?"), bold=True, size=12, color=CIAN))
+        ely.addWidget(_lbl(tr("vta.hist_help_title", default="¿QUÉ ES ESTA PESTAÑA?"), bold=True, size=13, color=CIAN))
         _help = _lbl(tr(
             "vta.hist_help_body",
             default=(
@@ -3262,7 +3285,7 @@ class VentasAnaliticaWindow(QWidget):
         _hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)   # resto equitativo
         _hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # "Día" a la mitad
         t.setColumnWidth(0, 55)
-        _ClipTableTopCorners(t)
+        _RoundTableCorners(t)   # redondea las 4 esquinas (contorno neón continuo)
         self.tbl_rend = t
         root.addLayout(self._rend_acciones_row())   # imprimir / compartir
         root.addWidget(t, 1)
