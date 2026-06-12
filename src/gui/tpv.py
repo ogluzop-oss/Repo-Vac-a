@@ -2635,8 +2635,8 @@ class TPVWindow(QWidget):
     def _build_numpad(self) -> QFrame:
         card = _card()
         gl = QGridLayout(card)
-        gl.setContentsMargins(12, 12, 12, 12)
-        gl.setSpacing(10)
+        gl.setContentsMargins(10, 10, 10, 10)
+        gl.setSpacing(8)
 
         # Botones grandes, cuadrados y con esquinas redondeadas (estilo TPV táctil).
         _ss_num = (
@@ -2656,7 +2656,7 @@ class TPVWindow(QWidget):
             f"QPushButton:hover{{background:{_ROJO};color:#FFF;}}"
         )
 
-        H = 54  # alto generoso → aspecto cuadrado (crece con el espacio disponible)
+        H = 50  # alto fijo → botones grandes y cuadrados, sin desbordar la columna
         layout_keys = [
             ("7", 0, 0, "num"), ("8", 0, 1, "num"), ("9", 0, 2, "num"),
             ("4", 1, 0, "num"), ("5", 1, 1, "num"), ("6", 1, 2, "num"),
@@ -2667,8 +2667,8 @@ class TPVWindow(QWidget):
             gl.setColumnStretch(c, 1)
         for txt, row, col, sk in layout_keys:
             b = QPushButton(txt)
-            b.setMinimumHeight(H)
-            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            b.setFixedHeight(H)
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setStyleSheet(_ss_num if sk == "num" else (_ss_del if sk == "del" else _ss_fn))
@@ -2748,7 +2748,7 @@ class TPVWindow(QWidget):
         b = QPushButton()
         b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        b.setMinimumHeight(64)
+        b.setMinimumHeight(58)
         b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         b.setStyleSheet(
             f"QPushButton{{background:{_BG2};border:2px solid {col};border-radius:14px;outline:0px;}}"
@@ -2781,29 +2781,29 @@ class TPVWindow(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
 
-        # Resumen pedido
+        # Resumen pedido (compacto)
         card_res = _card()
         cl = QVBoxLayout(card_res)
-        cl.setSpacing(6)
-        cl.setContentsMargins(16, 14, 16, 14)
-        self._lbl_resumen = _lbl(tr("tpv.summary"), bold=True, size=14)
+        cl.setSpacing(3)
+        cl.setContentsMargins(16, 10, 16, 10)
+        self._lbl_resumen = _lbl(tr("tpv.summary"), bold=True, size=13)
         cl.addWidget(self._lbl_resumen)
         cl.addWidget(_sep())
-        self.lbl_n_items  = _lbl(tr("tpv.items", n=0, uds=0), bold=True, size=14, color=_TEXT2)
-        self.lbl_subtotal = _lbl(tr("tpv.subtotal", x="0,00"), bold=True, size=14, color=_TEXT2)
-        self.lbl_dto      = _lbl(tr("tpv.discount_zero"), bold=True, size=14, color=_TEXT2)
+        self.lbl_n_items  = _lbl(tr("tpv.items", n=0, uds=0), bold=True, size=13, color=_TEXT2)
+        self.lbl_subtotal = _lbl(tr("tpv.subtotal", x="0,00"), bold=True, size=13, color=_TEXT2)
+        self.lbl_dto      = _lbl(tr("tpv.discount_zero"), bold=True, size=13, color=_TEXT2)
         cl.addWidget(self.lbl_n_items)
         cl.addWidget(self.lbl_subtotal)
         cl.addWidget(self.lbl_dto)
         cl.addWidget(_sep())
-        self.lbl_total = _lbl(tr("tpv.total", x="0,00"), bold=True, size=20, color=_CIAN)
+        self.lbl_total = _lbl(tr("tpv.total", x="0,00"), bold=True, size=19, color=_CIAN)
         self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignRight)
         cl.addWidget(self.lbl_total)
         lay.addWidget(card_res)
 
         # Botón COBRAR
         self.btn_cobrar = QPushButton(tr("tpv.charge"))
-        self.btn_cobrar.setFixedHeight(62)
+        self.btn_cobrar.setFixedHeight(52)
         self.btn_cobrar.setEnabled(False)
         self.btn_cobrar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cobrar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -2817,8 +2817,8 @@ class TPVWindow(QWidget):
         self.btn_cobrar.clicked.connect(self._realizar_pago)
         lay.addWidget(self.btn_cobrar)
 
-        # Teclado numérico (a la derecha, táctil) — absorbe el alto sobrante
-        lay.addWidget(self._build_numpad(), 1)
+        # Teclado numérico (a la derecha, táctil)
+        lay.addWidget(self._build_numpad())
 
         # Acciones secundarias — tarjetas con icono centrado y texto debajo
         card_acc = _card()
@@ -2861,6 +2861,7 @@ class TPVWindow(QWidget):
         cl3.addWidget(self.lbl_caja_id)
         cl3.addWidget(self.lbl_caja_fondo)
         lay.addWidget(card_cj)
+        lay.addStretch()
         return w
 
     # ─────────────────── RELOJ / INFO CAJA ───────────────────
