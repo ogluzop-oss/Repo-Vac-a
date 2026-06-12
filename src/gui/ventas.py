@@ -3312,6 +3312,119 @@ class VentasAnaliticaWindow(QWidget):
         t.cellChanged.connect(self._rend_on_edit)
         return page
 
+    # ── IA predictiva de facturación (alimentada por HISTÓRICO DE VENTAS) ──────
+    def _prever_facturacion_mensual(self, anio, mes):
+        """Previsión IA de facturación diaria para (anio, mes).
+
+        Se alimenta del histórico de ventas pasadas subido en la pestaña
+        HISTÓRICO DE VENTAS (tabla ``prevision_historico``). Intenta primero un
+        modelo de series temporales (Prophet) y, si no está disponible o hay
+        pocos datos, usa una heurística estacional (día de la semana + día del
+        mes + tendencia). Devuelve ``{dia: importe}``.
+        """
+        import calendar
+        ndias = calendar.monthrange(anio, mes)[1]
+        prevision = {d: 0.0 for d in range(1, ndias + 1)}
+        try:
+            with obtener_conexion() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT fecha, SUM(total_facturado) FROM prevision_historico "
+                    "GROUP BY fecha ORDER BY fecha")
+                filas = cur.fetchall()
+        except Exception:
+            filas = []
+        serie = []
+        for f, t in filas:
+            if f is None:
+                continue
+            fecha = f if hasattr(f, "weekday") else self._parse_fecha(f)
+            if fecha is not None:
+                serie.append((fecha, float(t or 0)))
+        if not serie:
+            return prevision
+        # 1) Modelo de series temporales (IA) si está disponible y hay datos.
+        try:
+            pred = self._prever_prophet(serie, anio, mes, ndias)
+            if pred:
+                return pred
+        except Exception:
+            pass
+        # 2) Heurística estacional como respaldo.
+        return self._prever_heuristico(serie, anio, mes, ndias)
+
+    @staticmethod
+    def _parse_fecha(valor):
+        import datetime as _dt
+        if isinstance(valor, _dt.datetime):
+            return valor.date()
+        if isinstance(valor, _dt.date):
+            return valor
+        for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y"):
+            try:
+                return _dt.datetime.strptime(str(valor)[:19], fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    def _prever_prophet(self, serie, anio, mes, ndias):
+        """Previsión con Prophet (opcional). Devuelve {dia: importe} o None."""
+        try:
+            from prophet import Prophet
+        except Exception:
+            return None
+        if len(serie) < 30:  # datos insuficientes para un modelo fiable
+            return None
+        import logging
+        import pandas as pd
+        # Silenciar el logging ruidoso de cmdstanpy/Prophet.
+        for nm in ("prophet", "cmdstanpy"):
+            logging.getLogger(nm).setLevel(logging.CRITICAL)
+        df = pd.DataFrame(serie, columns=["ds", "y"])
+        df["ds"] = pd.to_datetime(df["ds"])
+        m = Prophet(weekly_seasonality=True, yearly_seasonality=True,
+                    daily_seasonality=False)
+        m.fit(df)
+        fut = pd.DataFrame({"ds": pd.date_range(f"{anio}-{mes:02d}-01", periods=ndias)})
+        fc = m.predict(fut)
+        out = {}
+        for _, r in fc.iterrows():
+            out[r["ds"].day] = round(max(0.0, float(r["yhat"])), 2)
+        return out
+
+    def _prever_heuristico(self, serie, anio, mes, ndias):
+        """Previsión estacional: combina la media del mismo día del mes con el
+        factor del día de la semana, ponderada por tendencia reciente."""
+        import datetime as _dt
+        from collections import defaultdict
+        prevision = {d: 0.0 for d in range(1, ndias + 1)}
+        total = sum(v for _, v in serie)
+        n = len(serie)
+        if n == 0 or total <= 0:
+            return prevision
+        media_dia = total / n
+        dow_sum = defaultdict(float); dow_cnt = defaultdict(int)
+        dom_sum = defaultdict(float); dom_cnt = defaultdict(int)
+        for fecha, v in serie:
+            dow_sum[fecha.weekday()] += v; dow_cnt[fecha.weekday()] += 1
+            dom_sum[fecha.day] += v; dom_cnt[fecha.day] += 1
+        # Tendencia: ratio media de la última mitad vs primera mitad de la serie.
+        mitad = n // 2
+        tendencia = 1.0
+        if mitad >= 1:
+            prim = sum(v for _, v in serie[:mitad]) / mitad
+            ult = sum(v for _, v in serie[mitad:]) / (n - mitad)
+            if prim > 0:
+                tendencia = max(0.5, min(2.0, ult / prim))
+        for d in range(1, ndias + 1):
+            fecha = _dt.date(anio, mes, d)
+            base = (dom_sum[d] / dom_cnt[d]) if dom_cnt[d] else media_dia
+            wd = fecha.weekday()
+            factor_dow = (dow_sum[wd] / dow_cnt[wd]) / media_dia if dow_cnt[wd] and media_dia else 1.0
+            pred = (base * 0.5 + media_dia * factor_dow * 0.5) * tendencia
+            prevision[d] = round(max(0.0, pred), 2)
+        return prevision
+
     def _rend_datos_auto(self, anio, mes):
         """Datos auto por día (TPV/autocobro + fichajes), con override manual guardado."""
         import calendar
@@ -3333,14 +3446,13 @@ class VentasAnaliticaWindow(QWidget):
                 for d, mins in cur.fetchall():
                     if d in data:
                         data[d]["horas"] = round(float(mins or 0) / 60.0, 2)
-                # Previsión IA: media histórica de facturación para ese día del mes.
+                # Previsión IA: modelo predictivo alimentado por el histórico de
+                # ventas subido en la pestaña HISTÓRICO DE VENTAS (prevision_historico).
                 try:
-                    cur.execute(
-                        "SELECT DAY(fecha), AVG(total_facturado) FROM prevision_historico "
-                        "WHERE MONTH(fecha)=%s GROUP BY DAY(fecha)", (mes,))
-                    for d, avg in cur.fetchall():
-                        if d in data and avg is not None:
-                            data[d]["prev"] = round(float(avg), 2)
+                    pred = self._prever_facturacion_mensual(anio, mes)
+                    for d, v in pred.items():
+                        if d in data:
+                            data[d]["prev"] = v
                 except Exception:
                     pass
                 try:
