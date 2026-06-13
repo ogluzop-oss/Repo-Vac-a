@@ -2242,7 +2242,7 @@ class VentasAnaliticaWindow(QWidget):
         i18n.conectar_retraduccion(self, self._retraducir)
 
     def _retraducir(self):
-        _tab_def = ["BUSCAR VENTAS", "RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
+        _tab_def = ["RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
         for i, btn in enumerate(self._sidebar_btns):
             _d = _tab_def[i] if i < len(_tab_def) else ""
             btn.setText(tr(self._tab_keys[i], default=_d))
@@ -2260,7 +2260,7 @@ class VentasAnaliticaWindow(QWidget):
 
         self.stack = QStackedWidget()
         self.stack.setStyleSheet(f"background: {BG};")
-        self.stack.addWidget(self._panel_buscar_ventas())
+        # BUSCAR VENTAS se ha migrado a la ventana de BÚSQUEDA/REIMPRESIÓN del TPV.
         self.stack.addWidget(self._panel_resumen_ventas())
         self.stack.addWidget(self._panel_prevision())
         self.stack.addWidget(self._panel_rendimiento())
@@ -2288,8 +2288,8 @@ class VentasAnaliticaWindow(QWidget):
         )
         ly.addWidget(titulo)
 
-        self._tab_keys = ["vta.tab_search", "vta.tab_summary", "vta.tab_forecast", "vta.tab_rendimiento"]
-        _tab_def = ["BUSCAR VENTAS", "RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
+        self._tab_keys = ["vta.tab_summary", "vta.tab_forecast", "vta.tab_rendimiento"]
+        _tab_def = ["RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
         for i, texto in enumerate(_tab_def):
             btn = QPushButton(tr(self._tab_keys[i], default=texto))
             btn.setObjectName("btn_sidebar")
@@ -2317,8 +2317,8 @@ class VentasAnaliticaWindow(QWidget):
         self.stack.setCurrentIndex(idx)
         for i, btn in enumerate(self._sidebar_btns):
             btn.setStyleSheet(_SS_SIDEBAR_BTN_ACTIVE if i == idx else _SS_SIDEBAR_BTN)
-        # Pestaña RENDIMIENTO: refresca al mes actual (auto-actualización mensual).
-        if idx == 3 and hasattr(self, "tbl_rend"):
+        # Pestaña RENDIMIENTO (ahora idx 2): refresca al mes actual.
+        if idx == 2 and hasattr(self, "tbl_rend"):
             import datetime as _now_dt
             _hoy = _now_dt.date.today()
             if (getattr(self, "_rend_anio", None), getattr(self, "_rend_mes", None)) != (_hoy.year, _hoy.month):

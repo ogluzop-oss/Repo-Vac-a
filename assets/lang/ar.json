@@ -103,7 +103,8 @@
     "return_policy": "لديك {d} أيام لتقديم طلب استرجاع من خلال تقديم هذا الإيصال.",
     "pay_mixed": "مختلط",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "إيصال الهدية"
   },
   "tpv": {
     "title": "نظام نقاط البيع — Smart Manager",
@@ -289,7 +290,13 @@
     "refund_done_title": "اكتمل الاسترجاع",
     "error_title": "خطأ",
     "ban_intro": "هذه العناصر مستثناة من الإرجاع (تظهر مع شطب). يمكن إرجاع باقي الإيصال:",
-    "ban_titulo": "🚫 عناصر غير قابلة للإرجاع"
+    "ban_titulo": "🚫 عناصر غير قابلة للإرجاع",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  اختر صندوقك",

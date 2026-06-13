@@ -97,9 +97,9 @@ def construir_datos_ticket(venta_id, fecha, id_caja, empleado, lineas, pago,
     }
 
 
-def reimprimir_ticket(venta_id) -> str | None:
-    """Reconstruye y regenera el PDF de un ticket existente (marcado COPIA).
-    Devuelve la ruta del PDF o None."""
+def reimprimir_ticket(venta_id, regalo: bool = False) -> str | None:
+    """Reconstruye y regenera el PDF de un ticket existente (marcado COPIA, o
+    TICKET REGALO sin precios si regalo=True). Devuelve la ruta del PDF o None."""
     import datetime as _dt
 
     from src.db.ventas_busqueda import obtener_venta_completa
@@ -132,11 +132,13 @@ def reimprimir_ticket(venta_id) -> str | None:
                    "nif": v.get("cliente_nif")}
     datos = construir_datos_ticket(
         venta_id=v.get("id"), fecha=fecha, id_caja=f"CAJA-{int(n_caja):02d}",
-        empleado=v.get("empleado") or "—", lineas=lineas, pago=pago, copia=True,
-        cliente=cliente)
+        empleado=v.get("empleado") or "—", lineas=lineas, pago=pago,
+        copia=not regalo, cliente=cliente)
+    datos["regalo"] = regalo
 
     carpeta = os.path.join(_ROOT, "documentos", "tickets")
     os.makedirs(carpeta, exist_ok=True)
-    ruta = os.path.join(carpeta, f"ticket_COPIA_{fecha.strftime('%Y%m%d_%H%M%S')}_{v.get('id')}.pdf")
+    pref = "REGALO" if regalo else "COPIA"
+    ruta = os.path.join(carpeta, f"ticket_{pref}_{fecha.strftime('%Y%m%d_%H%M%S')}_{v.get('id')}.pdf")
     generar_ticket_pdf(datos, ruta)
     return ruta

@@ -103,7 +103,8 @@
     "return_policy": "Dispõe de {d} dias para devoluções apresentando este ticket.",
     "pay_mixed": "Misto",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "TICKET PRESENTE"
   },
   "tpv": {
     "title": "POS — Smart Manager",
@@ -289,7 +290,13 @@
     "btn_cancel": "CANCELAR",
     "authorized_by": "✔ Autorizado por {nombre}",
     "ban_intro": "Estes artigos ficam EXCLUÍDOS da devolução (aparecem riscados). O restante do ticket pode ser devolvido:",
-    "ban_titulo": "🚫 Artigos não devolvíveis"
+    "ban_titulo": "🚫 Artigos não devolvíveis",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  SELECIONE SEU CAIXA",

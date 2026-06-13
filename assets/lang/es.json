@@ -103,7 +103,8 @@
     "return_policy": "Dispone de {d} días para devoluciones presentando este ticket.",
     "pay_mixed": "Mixto",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "TICKET REGALO"
   },
   "tpv": {
     "title": "TPV — Smart Manager",
@@ -289,7 +290,13 @@
     "refund_done_title": "Devolución completada",
     "error_title": "Error",
     "ban_intro": "Estos artículos quedan EXCLUIDOS de la devolución (aparecen tachados). El resto del ticket sí se puede devolver:",
-    "ban_titulo": "🚫 Artículos no devolubles"
+    "ban_titulo": "🚫 Artículos no devolubles",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  SELECCIONA TU CAJA",

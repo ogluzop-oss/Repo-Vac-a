@@ -7,8 +7,9 @@ import json
 import logging
 import os
 
-from PyQt6.QtCore import QPointF, QSize, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, QPointF, QSize, Qt, QTimer
 from PyQt6.QtGui import (
+    QBitmap,
     QColor,
     QIcon,
     QIntValidator,
@@ -17,6 +18,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
+    QRegion,
     QShortcut,
 )
 from PyQt6.QtWidgets import (
@@ -124,6 +126,40 @@ def _solo_texto(s: str) -> str:
     import re
     out = re.sub(r"^[^0-9A-Za-zÁÉÍÓÚÑÜáéíóúñü]+", "", s or "").strip()
     return out or (s or "")
+
+
+class _RoundTableCorners(QObject):
+    """Redondea las 4 esquinas exteriores de un QTableWidget con una máscara
+    (incl. cabeceras y cuerpo) para que el contorno neón no se corte."""
+    def __init__(self, table, radius=10):
+        super().__init__(table)
+        self._r = radius
+        table.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+            from PyQt6.QtCore import QRect
+            bmp = QBitmap(obj.size()); bmp.fill(Qt.GlobalColor.color0)
+            p = QPainter(bmp); p.setBrush(Qt.GlobalColor.color1); p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(QRect(0, 0, obj.width(), obj.height()), self._r, self._r)
+            p.end(); obj.setMask(QRegion(bmp))
+        return False
+
+
+def _ss_tabla_neon() -> str:
+    """Estilo de tabla con contorno neón, cabeceras redondeadas y hover swap."""
+    return (
+        f"QTableWidget{{background:{_BG};color:{_TEXT};border:2px solid {_CIAN};"
+        f"border-radius:10px;gridline-color:{_BORDE};font-family:'{_FONT}';font-size:12px;"
+        f"selection-background-color:rgba(0,255,198,0.18);selection-color:{_CIAN};}}"
+        f"QTableWidget::item{{padding:6px 10px;}}"
+        f"QTableWidget::item:alternate{{background:#0B0F14;}}"
+        f"QHeaderView::section{{background:{_BG2};color:{_CIAN};border:none;"
+        f"border-bottom:2px solid {_CIAN};padding:9px 8px;font-weight:900;font-family:'{_FONT}';}}"
+        f"QHeaderView::section:first{{border-top-left-radius:8px;}}"
+        f"QHeaderView::section:last{{border-top-right-radius:8px;}}"
+        f"QHeaderView::section:hover{{background:{_CIAN};color:#0D1117;}}"
+    )
 
 
 def _sep() -> QFrame:
@@ -2081,12 +2117,8 @@ class _DevolucionDialog(QDialog):
         ])
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.verticalHeader().setVisible(False)
-        self.tabla.setStyleSheet(
-            f"QTableWidget{{background:{_BG};color:{_TEXT};border:1px solid {_BORDE};"
-            f"font-family:'{_FONT}';font-size:13px;gridline-color:{_BORDE};}}"
-            f"QHeaderView::section{{background:{_BG2};color:{_TEXT2};border:none;"
-            f"border-bottom:1px solid {_BORDE};padding:8px;font-weight:700;}}"
-        )
+        self.tabla.setStyleSheet(_ss_tabla_neon())
+        _RoundTableCorners(self.tabla)
         hh = self.tabla.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -2097,11 +2129,27 @@ class _DevolucionDialog(QDialog):
         fila = QHBoxLayout()
         col_m = QVBoxLayout()
         col_m.addWidget(_lbl(tr("devol.reason_label"), bold=True, size=12, color=_TEXT2))
-        self.inp_motivo = QLineEdit()
-        self.inp_motivo.setPlaceholderText(tr("devol.reason_placeholder"))
+        self.inp_motivo = QComboBox()
+        self.inp_motivo.setEditable(True)  # permite un motivo libre si se elige "Otro"
+        self.inp_motivo.setFixedHeight(40)
+        self.inp_motivo.lineEdit().setPlaceholderText(tr("devol.reason_placeholder"))
+        for _m in [
+            tr("devol.reason_defecto", default="Producto defectuoso / tara"),
+            tr("devol.reason_talla", default="Talla o medida incorrecta"),
+            tr("devol.reason_no_deseado", default="No deseado / cambio de opinión"),
+            tr("devol.reason_equivocado", default="Producto equivocado"),
+            tr("devol.reason_caducado", default="Producto caducado / mal estado"),
+            tr("devol.reason_otro", default="Otro motivo"),
+        ]:
+            self.inp_motivo.addItem(_m)
+        self.inp_motivo.setCurrentIndex(-1)
         self.inp_motivo.setStyleSheet(
-            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
-            f"border-radius:8px;padding:8px;font-size:13px;}}QLineEdit:focus{{border-color:{_CIAN};}}"
+            f"QComboBox{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:6px 10px;font-size:13px;font-family:'{_FONT}';}}"
+            f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
+            f"QComboBox::drop-down{{border:none;width:24px;}}"
+            f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
+            f"border-radius:8px;outline:none;selection-background-color:{_CIAN};selection-color:#0D1117;}}"
         )
         col_m.addWidget(self.inp_motivo)
         fila.addLayout(col_m, 2)
@@ -2282,7 +2330,7 @@ class _DevolucionDialog(QDialog):
         if not self._eval or not self._eval.get("existe"):
             return
         venta = self._eval["venta"]
-        motivo = self.inp_motivo.text().strip()
+        motivo = self.inp_motivo.currentText().strip()
         if not motivo:
             QMessageBox.warning(self, tr("devol.reason_required_title"), tr("devol.reason_required_msg"))
             return
@@ -2458,104 +2506,172 @@ class _ClienteDialog(QDialog):
 # ============================================================
 
 class _BuscarTicketDialog(QDialog):
-    """Localiza ventas por QR/código de barras escaneado, nº de ticket, fecha o
-    importe, y permite reimprimir el ticket (copia) o abrirlo."""
+    """Búsqueda, localización y reimpresión de tickets a pantalla completa.
+    Filtros: nº ticket/código escaneado, artículo, rango de fechas (calendario)
+    y horas, empleado, caja, forma de pago y rango de importes. Permite
+    reimprimir (copia) o emitir TICKET REGALO (sin precios)."""
+
+    _ISS = None
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumSize(820, 560)
         self._build()
+        try:
+            scr = QApplication.primaryScreen().availableGeometry()
+            self.setGeometry(scr)
+        except Exception:
+            self.setMinimumSize(1100, 700)
+
+    def _inp(self, ph="", w=None):
+        e = QLineEdit(); e.setFixedHeight(34)
+        if w:
+            e.setFixedWidth(w)
+        e.setPlaceholderText(ph)
+        e.setStyleSheet(
+            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        return e
+
+    def _combo(self, items, w=None):
+        cb = QComboBox(); cb.setFixedHeight(34)
+        if w:
+            cb.setFixedWidth(w)
+        cb.setMaxVisibleItems(8)
+        cb.setStyleSheet(
+            f"QComboBox{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
+            f"QComboBox::drop-down{{border:none;width:22px;}}"
+            f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
+            f"border-radius:8px;outline:none;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+        for label, data in items:
+            cb.addItem(label, data)
+        return cb
+
+    def _lbl_r(self, txt, w=84):
+        l = _lbl(txt, bold=True, size=12, color=_TEXT2)
+        l.setFixedWidth(w)
+        l.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        return l
 
     def _build(self):
         card = QFrame(self); card.setObjectName("bt")
         card.setStyleSheet(f"QFrame#bt{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
-        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
-        ly = QVBoxLayout(card); ly.setContentsMargins(24, 20, 24, 20); ly.setSpacing(12)
+        root = QVBoxLayout(self); root.setContentsMargins(10, 10, 10, 10); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(28, 22, 28, 22); ly.setSpacing(12)
 
         hdr = QHBoxLayout()
-        hdr.addWidget(_lbl("🔎  " + tr("tpv.find_title", default="BUSCAR / REIMPRIMIR TICKET"), bold=True, size=16, color=_CIAN))
+        hdr.addWidget(_lbl("🔎  " + tr("tpv.find_title", default="BUSCAR / REIMPRIMIR TICKET"), bold=True, size=17, color=_CIAN))
         hdr.addStretch()
-        bx = QPushButton("✕"); bx.setFixedSize(34, 34); bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx = QPushButton("✕"); bx.setFixedSize(36, 36); bx.setCursor(Qt.CursorShape.PointingHandCursor)
         bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
         bx.clicked.connect(self.reject); hdr.addWidget(bx)
         ly.addLayout(hdr)
+        ly.addWidget(_sep())
 
-        # Fila de filtros
-        f = QHBoxLayout(); f.setSpacing(8)
-        _iss = (f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
-                f"border-radius:8px;padding:6px 10px;font-size:13px;font-family:'{_FONT}';}}"
-                f"QLineEdit:focus{{border-color:{_CIAN};}}")
-        self.inp_q = QLineEdit(); self.inp_q.setStyleSheet(_iss)
-        self.inp_q.setPlaceholderText(tr("tpv.find_q_ph", default="Escanear QR / código de barras o nº de ticket…"))
-        self.inp_q.returnPressed.connect(self._buscar)
-        self.inp_desde = QLineEdit(); self.inp_desde.setFixedWidth(110); self.inp_desde.setStyleSheet(_iss)
-        self.inp_desde.setPlaceholderText("DD/MM/AAAA")
-        self.inp_hasta = QLineEdit(); self.inp_hasta.setFixedWidth(110); self.inp_hasta.setStyleSheet(_iss)
-        self.inp_hasta.setPlaceholderText("DD/MM/AAAA")
-        self.inp_imp = QLineEdit(); self.inp_imp.setFixedWidth(100); self.inp_imp.setStyleSheet(_iss)
-        self.inp_imp.setPlaceholderText(tr("tpv.find_amount", default="Importe"))
+        from src.gui.ventas import _date_neon  # calendario neón (mismo que BUSCAR VENTAS)
+        from PyQt6.QtCore import QDate
+        hoy = QDate.currentDate()
+
+        # Fila 1: Nº ticket (escáner) + Artículo
+        r1 = QHBoxLayout(); r1.setSpacing(8)
+        self.inp_ticket = self._inp(tr("tpv.find_q_ph", default="Escanear QR / código de barras o nº de ticket…"))
+        self.inp_ticket.returnPressed.connect(self._buscar)
+        self.inp_articulo = self._inp(tr("vta.ph_article", default="Código o nombre de artículo"))
+        r1.addWidget(self._lbl_r(tr("vta.lbl_ticket", default="Nº Ticket"))); r1.addWidget(self.inp_ticket, 1)
+        r1.addSpacing(10)
+        r1.addWidget(self._lbl_r(tr("vta.lbl_article", default="Artículo"), 70)); r1.addWidget(self.inp_articulo, 1)
+        ly.addLayout(r1)
+
+        # Fila 2: Fechas (calendario) + Horas
+        r2 = QHBoxLayout(); r2.setSpacing(8)
+        self.fecha_desde = _date_neon(hoy.addDays(-30))
+        self.fecha_hasta = _date_neon(hoy)
+        self.hora_desde = self._inp(tr("vta.ph_time_from", default="Hora desde (HH:MM)"))
+        self.hora_hasta = self._inp(tr("vta.ph_time_to", default="Hora hasta (HH:MM)"))
+        r2.addWidget(self._lbl_r(tr("vta.lbl_date_from", default="Fecha desde"))); r2.addWidget(self.fecha_desde, 1); r2.addSpacing(8)
+        r2.addWidget(self._lbl_r(tr("vta.lbl_date_to", default="Fecha hasta"))); r2.addWidget(self.fecha_hasta, 1); r2.addSpacing(8)
+        r2.addWidget(self._lbl_r(tr("vta.lbl_time_from", default="Hora desde"))); r2.addWidget(self.hora_desde, 1); r2.addSpacing(8)
+        r2.addWidget(self._lbl_r(tr("vta.lbl_time_to", default="Hora hasta"))); r2.addWidget(self.hora_hasta, 1)
+        ly.addLayout(r2)
+
+        # Fila 3: Empleado + Caja + Forma de pago + Precios
+        r3 = QHBoxLayout(); r3.setSpacing(8)
+        from src.db.ventas_busqueda import obtener_empleados
+        emp_items = [(tr("vta.opt_all_m", default="Todos"), "")] + [(e, e) for e in obtener_empleados()]
+        self.cmb_emp = self._combo(emp_items)
+        self.cmb_caja = self._combo([(tr("vta.opt_all_f", default="Todas"), "")] + [(str(i), str(i)) for i in range(1, 21)])
+        self.cmb_pago = self._combo([
+            (tr("vta.opt_all_m", default="Todos"), ""), (tr("vta.pay_cash", default="efectivo"), "efectivo"),
+            (tr("vta.pay_card", default="tarjeta"), "tarjeta"), ("mixto", "mixto"),
+            (tr("vta.pay_coupon", default="cupón"), "cupón")])
+        self.inp_pmin = self._inp(tr("vta.ph_price_min", default="Importe mínimo"), 120)
+        self.inp_pmax = self._inp(tr("vta.ph_price_max", default="Importe máximo"), 120)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_employee", default="Empleado"))); r3.addWidget(self.cmb_emp, 1); r3.addSpacing(8)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_register", default="Caja"), 48)); r3.addWidget(self.cmb_caja); r3.addSpacing(8)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_payment", default="Forma de pago"), 100)); r3.addWidget(self.cmb_pago); r3.addSpacing(8)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_price_min", default="Precio mín."), 84)); r3.addWidget(self.inp_pmin)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_price_max", default="Precio máx."), 84)); r3.addWidget(self.inp_pmax)
+        ly.addLayout(r3)
+
+        # Botonera
+        bb = QHBoxLayout(); bb.setSpacing(10)
         b_buscar = _btn(tr("tpv.find_btn", default="BUSCAR"), color_bg=_CIAN, color_fg="#0D1117",
                         color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=38)
         b_buscar.clicked.connect(self._buscar)
-        f.addWidget(self.inp_q, 1)
-        f.addWidget(_lbl(tr("tpv.find_from", default="Desde"), size=11, color=_TEXT2)); f.addWidget(self.inp_desde)
-        f.addWidget(_lbl(tr("tpv.find_to", default="Hasta"), size=11, color=_TEXT2)); f.addWidget(self.inp_hasta)
-        f.addWidget(self.inp_imp)
-        f.addWidget(b_buscar)
-        ly.addLayout(f)
+        b_limpiar = _btn(tr("vta.btn_clear", default="LIMPIAR"), h=38)
+        b_limpiar.clicked.connect(self._limpiar)
+        bb.addWidget(b_buscar); bb.addWidget(b_limpiar); bb.addStretch()
+        ly.addLayout(bb)
 
+        # Tabla (columnas como BUSCAR VENTAS + Cliente): esquinas redondeadas,
+        # contorno neón y hover swap en cabeceras.
         self.tabla = QTableWidget(0, 7)
         self.tabla.setHorizontalHeaderLabels([
-            tr("tpv.find_c_id", default="Venta"), tr("tpv.find_c_date", default="Fecha"),
-            tr("tpv.find_c_total", default="Total"), tr("tpv.find_c_pay", default="Pago"),
-            tr("tpv.find_c_cli", default="Cliente"), tr("tpv.find_c_caja", default="Caja"),
-            tr("tpv.find_c_items", default="Artículos")])
+            tr("vta.col_ticket", default="Ticket"), tr("vta.col_date", default="Fecha"),
+            tr("vta.col_employee", default="Empleado"), tr("vta.col_register", default="Caja"),
+            tr("vta.col_payment", default="Forma de pago"), tr("tpv.find_c_cli", default="Cliente"),
+            tr("vta.col_total", default="Total")])
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tabla.setAlternatingRowColors(True)
         self.tabla.verticalHeader().setVisible(False)
-        self.tabla.setStyleSheet(
-            f"QTableWidget{{background:{_BG};color:{_TEXT};border:1px solid {_BORDE};border-radius:10px;"
-            f"font-family:'{_FONT}';font-size:12px;gridline-color:{_BORDE};}}"
-            f"QTableWidget::item:selected{{background:#1C2128;color:{_CIAN};}}"
-            f"QHeaderView::section{{background:{_BG2};color:{_TEXT2};border:none;"
-            f"border-bottom:1px solid {_BORDE};padding:6px;font-weight:700;}}")
-        hh = self.tabla.horizontalHeader()
-        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed); self.tabla.setColumnWidth(0, 70)
-        self.tabla.doubleClicked.connect(self._reimprimir)
+        self.tabla.setStyleSheet(_ss_tabla_neon())
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        _RoundTableCorners(self.tabla)
+        self.tabla.doubleClicked.connect(lambda: self._emitir(regalo=False))
         ly.addWidget(self.tabla, 1)
 
         self.lbl_info = _lbl("", size=11, color=_TEXT2)
         br = QHBoxLayout(); br.addWidget(self.lbl_info); br.addStretch()
-        b_re = _btn("🖨  " + tr("tpv.find_reprint", default="REIMPRIMIR"), color_bg=_VERDE, color_fg="#0D1117",
-                    color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=40)
-        b_re.clicked.connect(self._reimprimir)
-        br.addWidget(b_re)
+        b_re = _btn("🖨  " + tr("tpv.find_reprint", default="REIMPRIMIR"), color_bg=_CIAN, color_fg="#0D1117",
+                    color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=42)
+        b_re.clicked.connect(lambda: self._emitir(regalo=False))
+        b_gift = _btn("🎁  " + tr("vta.btn_gift", default="TICKET REGALO"), color_bg=_VERDE, color_fg="#0D1117",
+                      color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=42)
+        b_gift.clicked.connect(lambda: self._emitir(regalo=True))
+        br.addWidget(b_re); br.addWidget(b_gift)
         ly.addLayout(br)
-        QTimer.singleShot(0, self.inp_q.setFocus)
+        QTimer.singleShot(0, self.inp_ticket.setFocus)
         self._buscar()
 
-    @staticmethod
-    def _fecha_sql(txt):
-        txt = (txt or "").strip()
-        if not txt:
-            return None
-        for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
-            try:
-                return datetime.datetime.strptime(txt, fmt).strftime("%Y-%m-%d")
-            except ValueError:
-                continue
-        return None
+    def _limpiar(self):
+        from PyQt6.QtCore import QDate
+        hoy = QDate.currentDate()
+        for w in (self.inp_ticket, self.inp_articulo, self.hora_desde, self.hora_hasta,
+                  self.inp_pmin, self.inp_pmax):
+            w.clear()
+        self.fecha_desde.setDate(hoy.addDays(-30)); self.fecha_hasta.setDate(hoy)
+        for cb in (self.cmb_emp, self.cmb_caja, self.cmb_pago):
+            cb.setCurrentIndex(0)
+        self._buscar()
 
     def _buscar(self):
         from src.db.ventas_busqueda import buscar_ventas
-        try:
-            imp = float(self.inp_imp.text().replace(",", ".")) if self.inp_imp.text().strip() else None
-        except ValueError:
-            imp = None
         idemp = None
         try:
             from src.db.empresa import empresa_actual_id
@@ -2563,24 +2679,35 @@ class _BuscarTicketDialog(QDialog):
         except Exception:
             pass
         filas = buscar_ventas(
-            texto=self.inp_q.text().strip() or None,
-            fecha_desde=self._fecha_sql(self.inp_desde.text()),
-            fecha_hasta=self._fecha_sql(self.inp_hasta.text()),
-            importe=imp, id_empresa=idemp)
+            ticket=self.inp_ticket.text().strip() or None,
+            articulo=self.inp_articulo.text().strip() or None,
+            fecha_desde=self.fecha_desde.date().toString("yyyy-MM-dd"),
+            fecha_hasta=self.fecha_hasta.date().toString("yyyy-MM-dd"),
+            hora_desde=self.hora_desde.text().strip() or None,
+            hora_hasta=self.hora_hasta.text().strip() or None,
+            empleado=(self.cmb_emp.currentData() or "").strip() or None,
+            caja=(self.cmb_caja.currentData() or "").strip() or None,
+            forma_pago=(self.cmb_pago.currentData() or "").strip() or None,
+            precio_min=self.inp_pmin.text().strip() or None,
+            precio_max=self.inp_pmax.text().strip() or None,
+            id_empresa=idemp)
         self.tabla.setRowCount(len(filas))
         for r, v in enumerate(filas):
             fecha = v.get("fecha")
             fecha_txt = fecha.strftime("%d/%m/%Y %H:%M") if hasattr(fecha, "strftime") else str(fecha or "")
-            vals = [str(v.get("id")), fecha_txt, divisas.formatear(v.get("total", 0)),
-                    str(v.get("forma_pago") or "—"), str(v.get("cliente_nombre") or "—"),
-                    f"CAJA-{int(v.get('numero_caja') or 1):02d}", str(v.get("n_items") or 0)]
+            vals = [f"T-{int(v.get('id') or 0):06d}", fecha_txt, str(v.get("empleado") or "—"),
+                    f"CAJA-{int(v.get('numero_caja') or 1):02d}", str(v.get("forma_pago") or "—"),
+                    str(v.get("cliente_nombre") or "—"), divisas.formatear(v.get("total", 0))]
             for c, t in enumerate(vals):
                 it = QTableWidgetItem(t)
+                it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 it.setData(Qt.ItemDataRole.UserRole, v.get("id"))
+                if c == 6:
+                    it.setForeground(QColor(_CIAN))
                 self.tabla.setItem(r, c, it)
         self.lbl_info.setText(tr("tpv.find_count", default="{n} resultado(s)", n=len(filas)))
 
-    def _reimprimir(self):
+    def _emitir(self, regalo=False):
         row = self.tabla.currentRow()
         if row < 0:
             return
@@ -2590,7 +2717,7 @@ class _BuscarTicketDialog(QDialog):
             return
         try:
             from src.utils.ticket_data import reimprimir_ticket
-            ruta = reimprimir_ticket(venta_id)
+            ruta = reimprimir_ticket(venta_id, regalo=regalo)
             if ruta:
                 import os as _os
                 import platform
@@ -2604,7 +2731,7 @@ class _BuscarTicketDialog(QDialog):
                 _mm(self, tr("tpv.find_err_t", default="Sin datos"),
                     tr("tpv.find_err", default="No se pudo recuperar la venta."), "warning")
         except Exception as e:
-            logger.warning("Error reimprimiendo ticket: %s", e)
+            logger.warning("Error emitiendo ticket: %s", e)
 
 
 # ============================================================

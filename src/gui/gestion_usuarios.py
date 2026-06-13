@@ -7133,6 +7133,25 @@ class ConfiguracionWindow(QWidget):
         col_pf = QVBoxLayout()
         col_pf.addWidget(self._de_lbl(tr("cfg.de_pais_fiscal", default="País fiscal (determina el IVA):")))
         self._de_pais_fiscal = _NeonComboBox(); self._de_pais_fiscal.setFixedHeight(38)
+        self._de_pais_fiscal.setObjectName("de_pf_cb")
+        # Auto-estilado (el filtro global no resetea el stylesheet → el borde
+        # persiste tras abrir/cerrar) y máx. 5 opciones visibles con scrollbar.
+        self._de_pais_fiscal.setProperty("horario_cb", True)
+        self._de_pais_fiscal.setMaxVisibleItems(5)
+        self._de_pais_fiscal.setStyleSheet(
+            "QComboBox#de_pf_cb{combobox-popup:0;background:#161B22;color:white;"
+            f"border:2px solid {_BORDE};border-radius:8px;padding:0 12px;font-size:12px;font-family:'Segoe UI';}}"
+            f"QComboBox#de_pf_cb:hover,QComboBox#de_pf_cb:on,QComboBox#de_pf_cb:focus{{border-color:{_CIAN};}}"
+            "QComboBox#de_pf_cb::drop-down{border:none;width:24px;}"
+            "QComboBox#de_pf_cb QAbstractItemView{background:#0D1117;color:#E6EDF3;"
+            f"border:2px solid {_CIAN};border-radius:10px;outline:none;padding:2px;"
+            f"selection-background-color:{_CIAN};selection-color:#0D1117;}}"
+            "QComboBox#de_pf_cb QAbstractItemView::item{min-height:30px;padding:2px 10px;}"
+            "QComboBox#de_pf_cb QAbstractItemView QScrollBar:vertical{background:#0D1117;width:10px;margin:3px;border-radius:5px;}"
+            f"QComboBox#de_pf_cb QAbstractItemView QScrollBar::handle:vertical{{background:{_CIAN};border-radius:5px;min-height:28px;}}"
+            "QComboBox#de_pf_cb QAbstractItemView QScrollBar::add-line:vertical,"
+            "QComboBox#de_pf_cb QAbstractItemView QScrollBar::sub-line:vertical{height:0;}"
+        )
         for p in _fisc.paises_disponibles():
             self._de_pais_fiscal.addItem(f"{p['nombre']}  ·  IVA {p['iva']:g}%", p["code"])
         _pf = (emp.get("pais_fiscal") or "ES").upper()

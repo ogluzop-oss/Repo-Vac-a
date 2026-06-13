@@ -103,7 +103,8 @@
     "return_policy": "Vous disposez de {d} jours pour les retours en présentant ce ticket.",
     "pay_mixed": "Mixte",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "TICKET CADEAU"
   },
   "tpv": {
     "title": "Caisse — Smart Manager",
@@ -289,7 +290,13 @@
     "error_title": "Erreur",
     "ticket_num": "Nº Ticket:",
     "ban_intro": "Ces articles sont EXCLUS du retour (ils apparaissent barrés). Le reste du ticket peut être retourné :",
-    "ban_titulo": "🚫 Articles non retournables"
+    "ban_titulo": "🚫 Articles non retournables",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  SÉLECTIONNE TA CAISSE",

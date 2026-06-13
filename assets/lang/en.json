@@ -103,7 +103,8 @@
     "return_policy": "You have {d} days for returns presenting this receipt.",
     "pay_mixed": "Mixed",
     "copy": "COPY",
-    "customer": "Customer"
+    "customer": "Customer",
+    "gift": "GIFT RECEIPT"
   },
   "tpv": {
     "title": "POS — Smart Manager",
@@ -289,7 +290,13 @@
     "refund_done_title": "Refund completed",
     "error_title": "Error",
     "ban_intro": "These items are EXCLUDED from the return (shown struck through). The rest of the ticket can still be returned:",
-    "ban_titulo": "🚫 Non-returnable items"
+    "ban_titulo": "🚫 Non-returnable items",
+    "reason_defecto": "Defective product",
+    "reason_talla": "Wrong size",
+    "reason_no_deseado": "Unwanted / changed mind",
+    "reason_equivocado": "Wrong product",
+    "reason_caducado": "Expired / damaged",
+    "reason_otro": "Other reason"
   },
   "sel_caja": {
     "header": "🏧  SELECT YOUR REGISTER",

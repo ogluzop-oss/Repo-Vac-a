@@ -103,7 +103,8 @@
     "return_policy": "Sie haben {d} Tage Zeit für Rückgaben mit diesem Ticket.",
     "pay_mixed": "Gemischt",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "GESCHENKTICKET"
   },
   "tpv": {
     "title": "Kasse — Smart Manager",
@@ -289,7 +290,13 @@
     "refund_done_title": "Rückgabe abgeschlossen",
     "error_title": "Fehler",
     "ban_intro": "Diese Artikel sind VON DER RÜCKGABE AUSGESCHLOSSEN (durchgestrichen). Der Rest des Belegs kann zurückgegeben werden:",
-    "ban_titulo": "🚫 Nicht zurückgebbare Artikel"
+    "ban_titulo": "🚫 Nicht zurückgebbare Artikel",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  WÄHLE DEINE KASSE",

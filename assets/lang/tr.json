@@ -103,7 +103,8 @@
     "return_policy": "Bu fişi sunarak {d} gün içinde iade edebilirsiniz.",
     "pay_mixed": "Karma",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "HEDİYE FİŞİ"
   },
   "tpv": {
     "col_qty": "Miktar",
@@ -289,7 +290,13 @@
     "error_title": "Hata",
     "ticket_num": "Nº Ticket:",
     "ban_intro": "Bu ürünler İADE dışında tutulmuştur (üzeri çizili görünür). Biletin geri kalanı iade edilebilir:",
-    "ban_titulo": "🚫 İade edilemeyen ürünler"
+    "ban_titulo": "🚫 İade edilemeyen ürünler",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  KASANIZI SEÇİN",

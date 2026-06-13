@@ -103,7 +103,8 @@
     "return_policy": "您有{d}天的时间凭此票据办理退货。",
     "pay_mixed": "混合",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "礼品票据"
   },
   "tpv": {
     "exit": "✕  退出",
@@ -289,7 +290,13 @@
     "refund_done_title": "退货已完成",
     "error_title": "错误",
     "ban_intro": "这些商品被排除在退货范围外（显示为删除线）。票据上的其他商品可以退货：",
-    "ban_titulo": "🚫 不可退货商品"
+    "ban_titulo": "🚫 不可退货商品",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  选择收银台",

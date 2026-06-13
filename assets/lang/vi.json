@@ -103,7 +103,8 @@
     "return_policy": "Quý khách có {d} ngày để hoàn trả với vé này.",
     "pay_mixed": "Hỗn hợp",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "PHIẾU QUÀ TẶNG"
   },
   "tpv": {
     "exit": "✕  THOÁT",
@@ -289,7 +290,13 @@
     "refund_done_title": "Hoàn trả hoàn tất",
     "error_title": "Lỗi",
     "ban_intro": "Những mặt hàng này bị LOẠI TRỪ khỏi hoàn lại (hiển thị bị gạch ngang). Phần còn lại của hóa đơn có thể hoàn lại:",
-    "ban_titulo": "🚫 Mặt hàng không thể hoàn lại"
+    "ban_titulo": "🚫 Mặt hàng không thể hoàn lại",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  CHỌN TỦ TIỀN CỦA BẠN",

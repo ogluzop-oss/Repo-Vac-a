@@ -103,7 +103,8 @@
     "return_policy": "У вас есть {d} дней для возврата товара, предъявив этот чек.",
     "pay_mixed": "Смешанный платеж",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "ПОДАРОЧНЫЙ ЧЕК"
   },
   "tpv": {
     "title": "ККМ — Smart Manager",
@@ -289,7 +290,13 @@
     "terminal_rejected": "Возврат отклонен:\n{msg}",
     "refund_done_title": "Возврат завершен",
     "ban_intro": "Эти товары ИСКЛЮЧЕНЫ из возврата (они помечены зачеркиванием). Остальная часть чека может быть возвращена:",
-    "ban_titulo": "🚫 Товары, не подлежащие возврату"
+    "ban_titulo": "🚫 Товары, не подлежащие возврату",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  ВЫБЕРИТЕ ВАШУ КАССУ",

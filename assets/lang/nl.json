@@ -103,7 +103,8 @@
     "return_policy": "U heeft {d} dagen om retourzendingen in te dienen met dit bon.",
     "pay_mixed": "Gemengd",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "CADEAUTICKET"
   },
   "tpv": {
     "exit": "✕  AFSLUITEN",
@@ -289,7 +290,13 @@
     "refund_done_title": "Retour voltooid",
     "error_title": "Fout",
     "ban_intro": "Deze artikelen zijn UITGESLOTEN van retour (doorgestreept weergegeven). De rest van het bon kan wel worden geretourneerd:",
-    "ban_titulo": "🚫 Niet-retourneerbare artikelen"
+    "ban_titulo": "🚫 Niet-retourneerbare artikelen",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  SELECTEER JE KASSA",

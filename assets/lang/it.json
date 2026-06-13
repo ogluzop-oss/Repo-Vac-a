@@ -103,7 +103,8 @@
     "return_policy": "Dispone di {d} giorni per resi presentando questo scontrino.",
     "pay_mixed": "Misto",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "SCONTRINO REGALO"
   },
   "tpv": {
     "title": "Cassa — Smart Manager",
@@ -289,7 +290,13 @@
     "refund_done_title": "Reso completato",
     "error_title": "Errore",
     "ban_intro": "Questi articoli sono ESCLUSI dalla restituzione (risultano barrati). Il resto dello scontrino è possibile restituirlo:",
-    "ban_titulo": "🚫 Articoli non restituibili"
+    "ban_titulo": "🚫 Articoli non restituibili",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  SELEZIONA LA TUA CASSA",

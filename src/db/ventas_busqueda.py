@@ -46,11 +46,27 @@ def _cols(cur, tabla) -> set:
     return {r["Field"] if isinstance(r, dict) else r[0] for r in cur.fetchall()}
 
 
+def obtener_empleados(id_empresa=None) -> list[str]:
+    """Lista de empleados distintos que aparecen en ventas (para el combo)."""
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT empleado FROM ventas "
+                        "WHERE empleado IS NOT NULL AND empleado<>'' ORDER BY empleado")
+            return [(r["empleado"] if isinstance(r, dict) else r[0]) for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
 def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
-                  importe=None, id_empresa=None, limite=200) -> list[dict]:
-    """Busca ventas por nº de ticket/código escaneado, rango de fechas y/o
-    importe. Devuelve filas {id, fecha, total, forma_pago, empleado,
-    numero_caja, n_items} ordenadas por fecha descendente."""
+                  importe=None, id_empresa=None, limite=1000,
+                  ticket=None, articulo=None, hora_desde=None, hora_hasta=None,
+                  empleado=None, caja=None, forma_pago=None,
+                  precio_min=None, precio_max=None) -> list[dict]:
+    """Busca ventas por múltiples filtros (código escaneado/nº ticket, artículo,
+    rango de fechas y horas, empleado, caja, forma de pago, rango de importes).
+    Devuelve filas {id, fecha, total, forma_pago, empleado, numero_caja,
+    cliente_nombre, n_items} ordenadas por fecha descendente."""
     filtros, params = [], []
     if texto:
         info = parsear_codigo_ticket(texto)
@@ -60,12 +76,34 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
             filtros.append("(CAST(v.id AS CHAR) LIKE %s OR v.empleado LIKE %s "
                            "OR v.cliente_nombre LIKE %s OR v.cliente_nif LIKE %s)")
             params += [f"%{texto}%"] * 4
+    if ticket:
+        info = parsear_codigo_ticket(ticket)
+        if info["venta_id"] is not None:
+            filtros.append("v.id = %s"); params.append(info["venta_id"])
+        else:
+            filtros.append("CAST(v.id AS CHAR) LIKE %s"); params.append(f"%{ticket}%")
+    if articulo:
+        filtros.append("EXISTS (SELECT 1 FROM venta_items vi WHERE vi.venta_id=v.id "
+                       "AND (vi.codigo_articulo=%s OR vi.nombre LIKE %s))")
+        params += [articulo, f"%{articulo}%"]
     if fecha_desde:
         filtros.append("DATE(v.fecha) >= %s"); params.append(fecha_desde)
     if fecha_hasta:
         filtros.append("DATE(v.fecha) <= %s"); params.append(fecha_hasta)
+    if hora_desde and hora_hasta:
+        filtros.append("TIME(v.fecha) BETWEEN %s AND %s"); params += [hora_desde, hora_hasta]
+    if empleado:
+        filtros.append("v.empleado LIKE %s"); params.append(f"%{empleado}%")
+    if caja and str(caja).isdigit():
+        filtros.append("v.numero_caja = %s"); params.append(int(caja))
+    if forma_pago:
+        filtros.append("v.forma_pago = %s"); params.append(forma_pago)
     if importe is not None:
         filtros.append("ABS(v.total - %s) < 0.005"); params.append(float(importe))
+    if precio_min not in (None, ""):
+        filtros.append("v.total >= %s"); params.append(float(precio_min))
+    if precio_max not in (None, ""):
+        filtros.append("v.total <= %s"); params.append(float(precio_max))
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:

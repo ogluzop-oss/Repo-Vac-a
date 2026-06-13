@@ -103,7 +103,8 @@
     "return_policy": "Anda memiliki {d} hari untuk pengembalian dengan menyajikan tiket ini.",
     "pay_mixed": "Campuran",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "TIKET HADIAH"
   },
   "tpv": {
     "exit": "✕  KELUAR",
@@ -289,7 +290,13 @@
     "error_title": "Kesalahan",
     "col_subtotal": "Subtotal",
     "ban_intro": "Artikel-artikel ini DIKECUALIKAN dari pengembalian (ditampilkan dengan coret). Sisa dari tiket dapat dikembalikan:",
-    "ban_titulo": "🚫 Artikel yang tidak dapat dikembalikan"
+    "ban_titulo": "🚫 Artikel yang tidak dapat dikembalikan",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  PILIH KASIRMU",

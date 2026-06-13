@@ -103,7 +103,8 @@
     "return_policy": "คุณมีเวลา {d} วันในการคืนสินค้าโดยแสดงใบเสร็จนี้",
     "pay_mixed": "แบบผสม",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "ตั๋วของขวัญ"
   },
   "tpv": {
     "exit": "✕  ออก",
@@ -289,7 +290,13 @@
     "refund_done_title": "การคืนสินค้าเสร็จสิ้น",
     "error_title": "ข้อผิดพลาด",
     "ban_intro": "รายการเหล่านี้ถูกยกเว้นจากการคืนสินค้า (ปรากฏเป็นขีดฆ่า) ส่วนที่เหลือของใบเสร็จสามารถคืนได้:",
-    "ban_titulo": "🚫 รายการที่ไม่สามารถคืนได้"
+    "ban_titulo": "🚫 รายการที่ไม่สามารถคืนได้",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  เลือกแคชเชียร์ของคุณ",

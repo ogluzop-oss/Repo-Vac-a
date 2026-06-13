@@ -103,7 +103,8 @@
     "return_policy": "У вас є {d} днів для повернення товару, подавши цей чек.",
     "pay_mixed": "Змішаний",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "ПОДАРУНКОВА КВИТАНЦІЯ"
   },
   "tpv": {
     "title": "POS — Smart Manager",
@@ -289,7 +290,13 @@
     "refund_done_title": "Повернення завершено",
     "error_title": "Помилка",
     "ban_intro": "Ці товари ВИКЛЮЧЕНІ з повернення (відображаються з викресленням). Решта чека можна повернути:",
-    "ban_titulo": "🚫 Товари, які не можна повернути"
+    "ban_titulo": "🚫 Товари, які не можна повернути",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  ВИБЕРІТЬ ВАШУ КАСУ",

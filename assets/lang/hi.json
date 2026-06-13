@@ -103,7 +103,8 @@
     "return_policy": "इस टिकट को प्रस्तुत करते हुए आप {d} दिनों के लिए रिटर्न के लिए पात्र हैं।",
     "pay_mixed": "मिश्रित",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "उपहार टिकट"
   },
   "tpv": {
     "exit": "✕  बाहर निकलें",
@@ -289,7 +290,13 @@
     "refund_done_title": "रिटर्न पूर्ण",
     "error_title": "त्रुटि",
     "ban_intro": "ये आइटम रिटर्न से बाहर रखे गए हैं (ये काटे गए दिखाई देते हैं)। बाकी टिकट को रिटर्न किया जा सकता है:",
-    "ban_titulo": "🚫 रिटर्न न की जा सकने वाली आइटमें"
+    "ban_titulo": "🚫 रिटर्न न की जा सकने वाली आइटमें",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  अपना कैश रजिस्टर चुनें",

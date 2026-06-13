@@ -103,7 +103,8 @@
     "return_policy": "Du har {d} dagar på dig att returnera denna kvittot.",
     "pay_mixed": "Blandat",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "PRESENTKVITTO"
   },
   "tpv": {
     "col_qty": "Mängd",
@@ -289,7 +290,13 @@
     "refund_done_title": "Återbetalning slutförd",
     "error_title": "Fel",
     "ban_intro": "Dessa artiklar är UTESLUTNA från returen (visas genomstrukna). Resten av kvittot kan returneras:",
-    "ban_titulo": "🚫 Icke-returerbara artiklar"
+    "ban_titulo": "🚫 Icke-returerbara artiklar",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  VÄLJ DIN KASSA",

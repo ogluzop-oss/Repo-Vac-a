@@ -172,6 +172,7 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
     iva_por_tipo = {r: [v["base"], v["cuota"], v["total"]] for r, v in _dg["por_tipo"].items()}
     base_total = _dg["base"]
     iva_total = _dg["cuota"]
+    _regalo = bool(datos.get("regalo"))  # ticket regalo: oculta TODOS los importes
 
     # Forma de pago legible
     fp_raw = str(pago.get("forma_pago", "")).strip().lower()
@@ -268,6 +269,8 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         texto(nombre, _FB, 11, center=True)
     if datos.get("copia"):
         texto("— " + L("copy", "COPIA") + " —", _FB, 9, center=True, color=(0.6, 0.1, 0.1))
+    if _regalo:
+        texto("— " + L("gift", "TICKET REGALO") + " —", _FB, 9, center=True, color=(0.0, 0.4, 0.3))
     dir_completa = emp.get("direccion_completa") or emp.get("direccion") or ""
     for ln in [
         (f"{L('cif', 'CIF')}: {emp.get('cif')}" if emp.get("cif") else ""),
@@ -310,7 +313,8 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
     def _f_head(c, y):
         c.setFont(_FB, 7)
         c.drawString(XL, y - 7, L("col_desc", "DESCRIPCIÓN"))
-        c.drawRightString(XR, y - 7, L("col_amount", "IMPORTE"))
+        if not _regalo:
+            c.drawRightString(XR, y - 7, L("col_amount", "IMPORTE"))
     add(11, _f_head)
 
     for i, it in enumerate(items):
@@ -322,25 +326,26 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         dto = float(it.get("descuento_pct", 0) or 0)
         es_granel = it.get("granel") or it.get("modo_venta") == "PESO" or it.get("peso")
 
-        # Nombre (con importe bruto a la derecha)
+        # Nombre (con importe bruto a la derecha; oculto en ticket regalo)
         for j, ln in enumerate(_wrap(nombre_it, _FB, 8, CW - 22 * mm)):
             def _f(c, y, _ln=ln, _j=j, _bruto=bruto):
                 c.setFont(_FB, 8); c.drawString(XL, y - 8, _ln)
-                if _j == 0:
+                if _j == 0 and not _regalo:
                     c.setFont(_FN, 8); c.drawRightString(XR, y - 8, M(_bruto))
             add(11, _f)
-        # Detalle cantidad × precio (o peso × precio/kg para granel)
-        if es_granel and it.get("peso"):
+        # Detalle: cantidad × precio (o peso × precio/kg); en regalo, solo cantidad
+        if _regalo:
+            det = f"{cant:g} ud."
+        elif es_granel and it.get("peso"):
             det = f"{float(it['peso']):.3f} {it.get('unidad','kg')} × {M(it.get('precio_kg', 0))}/{it.get('unidad','kg')}"
         else:
-            cant_txt = (f"{cant:g}")
-            det = f"{cant_txt} × {M(precio)}"
+            det = f"{cant:g} × {M(precio)}"
         def _fd(c, y, _det=det):
             c.setFont(_FN, 7); c.setFillColorRGB(0.35, 0.35, 0.35)
             c.drawString(XL + 3 * mm, y - 7, _det); c.setFillColorRGB(0, 0, 0)
         add(10, _fd)
-        # Descuento de línea
-        if dto > 0:
+        # Descuento de línea (oculto en ticket regalo)
+        if dto > 0 and not _regalo:
             desc_imp = round(bruto - sub, 2)
             def _fdto(c, y, _dto=dto, _imp=desc_imp):
                 c.setFont(_FN, 7); c.setFillColorRGB(0.0, 0.45, 0.30)
@@ -351,20 +356,21 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
 
     sep()
 
-    # 5) SUBTOTAL / DESCUENTOS / BASE
-    if descuento_total > 0.005:
+    # 5) SUBTOTAL / DESCUENTOS / BASE (oculto en ticket regalo)
+    if not _regalo and descuento_total > 0.005:
         linea_kv(L("subtotal_products", "Subtotal productos"), M(subtotal_bruto))
         linea_kv(L("discounts", "Descuentos"), f"-{M(descuento_total)}")
-    sep()
+    if not _regalo:
+        sep()
 
-    # 6) DESGLOSE FISCAL — al final, nunca por línea.
+    # 6) DESGLOSE FISCAL — al final, nunca por línea (oculto en ticket regalo).
     #    Un solo tipo de IVA → bloque simple (Base imponible / IVA (r%)).
     #    Varios tipos → tabla por tipo (preparado para fiscalidad multi-tipo).
-    if len(iva_por_tipo) <= 1:
+    if not _regalo and len(iva_por_tipo) <= 1:
         r = next(iter(iva_por_tipo), 0.0)
         linea_kv(L("vat_base_total", "Base imponible"), M(base_total))
         linea_kv(f"{L('vat', 'IVA')} ({r:g}%)", M(iva_total))
-    else:
+    elif not _regalo:
         def _f_ivah(c, y):
             c.setFont(_FB, 7)
             c.drawString(XL, y - 7, L("vat", "IVA"))
@@ -384,36 +390,37 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         linea_kv(L("vat_base_total", "Base imponible"), M(base_total), size=7)
         linea_kv(L("vat_total", "Total IVA"), M(iva_total), size=7)
 
-    sep()
+    if not _regalo:
+        sep()
 
-    # 7) TOTAL DESTACADO
-    def _f_total(c, y):
-        c.setFont(_FB, 8); c.drawString(XL, y - 8, "")
-        c.setLineWidth(1.0); c.rect(XL, y - 24, CW, 22, stroke=1, fill=0)
-        c.setFont(_FB, 9); c.drawString(XL + 3 * mm, y - 17, L("total_to_pay", "TOTAL A PAGAR"))
-        c.setFont(_FB, 14); c.drawRightString(XR - 3 * mm, y - 18, M(total))
-    add(28, _f_total)
-    espacio(4)
+        # 7) TOTAL DESTACADO
+        def _f_total(c, y):
+            c.setFont(_FB, 8); c.drawString(XL, y - 8, "")
+            c.setLineWidth(1.0); c.rect(XL, y - 24, CW, 22, stroke=1, fill=0)
+            c.setFont(_FB, 9); c.drawString(XL + 3 * mm, y - 17, L("total_to_pay", "TOTAL A PAGAR"))
+            c.setFont(_FB, 14); c.drawRightString(XR - 3 * mm, y - 18, M(total))
+        add(28, _f_total)
+        espacio(4)
 
-    # 8) DESGLOSE DE PAGO
-    if forma_pago:
-        linea_kv(L("payment", "Forma de pago"), forma_pago, bold_v=True)
-    cambio = pago.get("cambio") or 0.0
-    if fp_raw == "mixto":
-        if pago.get("efectivo"):
-            linea_kv(L("pay_cash", "Efectivo"), M(pago.get("efectivo")), size=7)
-        if pago.get("tarjeta"):
-            linea_kv(L("card_amount", "Tarjeta"), M(pago.get("tarjeta")), size=7)
-        if cambio > 0.005:
-            linea_kv(L("change", "Cambio"), M(cambio), size=7)
-    elif fp_raw == "tarjeta":
-        if pago.get("tarjeta_info"):
-            texto(pago.get("tarjeta_info"), _FN, 7, gap=2)
-    else:  # efectivo (u otros)
-        if pago.get("entregado") is not None:
-            linea_kv(L("delivered", "Entregado"), M(pago.get("entregado")), size=7)
-        if cambio > 0.005:
-            linea_kv(L("change", "Cambio"), M(cambio), size=7)
+        # 8) DESGLOSE DE PAGO
+        if forma_pago:
+            linea_kv(L("payment", "Forma de pago"), forma_pago, bold_v=True)
+        cambio = pago.get("cambio") or 0.0
+        if fp_raw == "mixto":
+            if pago.get("efectivo"):
+                linea_kv(L("pay_cash", "Efectivo"), M(pago.get("efectivo")), size=7)
+            if pago.get("tarjeta"):
+                linea_kv(L("card_amount", "Tarjeta"), M(pago.get("tarjeta")), size=7)
+            if cambio > 0.005:
+                linea_kv(L("change", "Cambio"), M(cambio), size=7)
+        elif fp_raw == "tarjeta":
+            if pago.get("tarjeta_info"):
+                texto(pago.get("tarjeta_info"), _FN, 7, gap=2)
+        else:  # efectivo (u otros)
+            if pago.get("entregado") is not None:
+                linea_kv(L("delivered", "Entregado"), M(pago.get("entregado")), size=7)
+            if cambio > 0.005:
+                linea_kv(L("change", "Cambio"), M(cambio), size=7)
 
     sep()
 

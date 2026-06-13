@@ -103,7 +103,8 @@
     "return_policy": "Masz {d} dni na zwroty, prezentując ten bilet.",
     "pay_mixed": "Mieszane",
     "copy": "COPIA",
-    "customer": "Cliente"
+    "customer": "Cliente",
+    "gift": "PARAGON PODARUNKOWY"
   },
   "tpv": {
     "col_qty": "Ilość",
@@ -289,7 +290,13 @@
     "refund_done_title": "Zwrot ukończony",
     "error_title": "Błąd",
     "ban_intro": "Te artykuły są WYKLUCZONE ze zwrotu (są przekreślone). Resztę paragonu można zwrócić:",
-    "ban_titulo": "🚫 Artykuły niemożliwe do zwrotu"
+    "ban_titulo": "🚫 Artykuły niemożliwe do zwrotu",
+    "reason_defecto": "Producto defectuoso / tara",
+    "reason_talla": "Talla o medida incorrecta",
+    "reason_no_deseado": "No deseado / cambio de opinión",
+    "reason_equivocado": "Producto equivocado",
+    "reason_caducado": "Producto caducado / mal estado",
+    "reason_otro": "Otro motivo"
   },
   "sel_caja": {
     "header": "🏧  WYBIERZ SWOJĄ KASĘ",
