@@ -2520,7 +2520,12 @@ class _BuscarTicketDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # NO translúcido: a pantalla completa no hace falta y, con QDateEdit dentro,
+        # provoca que el campo se vuelva ventana nativa con MINMAXINFO degenerado
+        # (Windows entra en bucle de setGeometry al recolocar hijos → cuelgue).
+        # Fondo sólido = _BG, que coincide con el de la tarjeta → esquinas limpias.
+        self.setObjectName("buscar_ticket_dlg")
+        self.setStyleSheet(f"#buscar_ticket_dlg {{ background: {_BG}; }}")
         self._build()
         try:
             scr = QApplication.primaryScreen().availableGeometry()
