@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "провести зміну касира",
     "auth_apertura_fuerte": "відкрити сейф",
     "auth_cierre_fuerte": "закрити сейф",
-    "auth_movimiento": "зареєструвати рух готівки"
+    "auth_movimiento": "зареєструвати рух готівки",
+    "de_pais_fiscal": "Податкова країна (визначає ПДВ):",
+    "de_iva_auto": "Застосований ПДВ (автоматично):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Розумний сканер - Smart Manager",

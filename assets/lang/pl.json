@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "dokonać zmiany kasjera",
     "auth_apertura_fuerte": "otworzyć sejf",
     "auth_cierre_fuerte": "zamknąć sejf",
-    "auth_movimiento": "zarejestrować ruch gotówki"
+    "auth_movimiento": "zarejestrować ruch gotówki",
+    "de_pais_fiscal": "Kraj podatkowy (określa VAT):",
+    "de_iva_auto": "Zastosowany VAT (automatycznie):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Inteligentny skaner — Smart Manager",

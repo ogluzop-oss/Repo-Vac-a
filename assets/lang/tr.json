@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "kasiyer değişimi yapmak",
     "auth_apertura_fuerte": "kasa açmak",
     "auth_cierre_fuerte": "kasa kapatmak",
-    "auth_movimiento": "nakit hareketi kaydetmek"
+    "auth_movimiento": "nakit hareketi kaydetmek",
+    "de_pais_fiscal": "Vergi mükellefiyet ülkesi (KDV'yi belirler):",
+    "de_iva_auto": "Uygulanan KDV (otomatik):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Akıllı Tarayıcı - Smart Manager",

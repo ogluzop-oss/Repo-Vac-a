@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "произвести смену кассира",
     "auth_apertura_fuerte": "открыть сейф",
     "auth_cierre_fuerte": "закрыть сейф",
-    "auth_movimiento": "зарегистрировать движение денежных средств"
+    "auth_movimiento": "зарегистрировать движение денежных средств",
+    "de_pais_fiscal": "Налоговая страна (определяет НДС):",
+    "de_iva_auto": "Применённый НДС (автоматический):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Интеллектуальный сканер - Smart Manager",

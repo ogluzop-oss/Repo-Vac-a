@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "genomföra ett kassiörbyte",
     "auth_apertura_fuerte": "öppna kassaskåpet",
     "auth_cierre_fuerte": "stänga kassaskåpet",
-    "auth_movimiento": "registrera en kontantrörelse"
+    "auth_movimiento": "registrera en kontantrörelse",
+    "de_pais_fiscal": "Skatteland (bestämmer momsen):",
+    "de_iva_auto": "Tillämpad moms (automatisk):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligent Scanner - Smart Manager",

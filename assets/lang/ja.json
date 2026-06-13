@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "レジ係の交代を実行する",
     "auth_apertura_fuerte": "金庫を開く",
     "auth_cierre_fuerte": "金庫を閉じる",
-    "auth_movimiento": "現金移動を記録する"
+    "auth_movimiento": "現金移動を記録する",
+    "de_pais_fiscal": "税務国（VAT/消費税を決定）:",
+    "de_iva_auto": "適用VAT/消費税（自動）:"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "インテリジェント スキャナー - Smart Manager",

@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "effettuare un cambio cassiere",
     "auth_apertura_fuerte": "aprire la cassaforte",
     "auth_cierre_fuerte": "chiudere la cassaforte",
-    "auth_movimiento": "registrare un movimento di cassa"
+    "auth_movimiento": "registrare un movimento di cassa",
+    "de_pais_fiscal": "Paese fiscale (determina l'IVA):",
+    "de_iva_auto": "IVA applicata (automatico):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Intelligente - Smart Manager",

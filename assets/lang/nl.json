@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "een kassawisseling uitvoeren",
     "auth_apertura_fuerte": "de kluis openen",
     "auth_cierre_fuerte": "de kluis sluiten",
-    "auth_movimiento": "een contantbewegeing registreren"
+    "auth_movimiento": "een contantbewegeing registreren",
+    "de_pais_fiscal": "Fiscaal land (bepaalt de btw):",
+    "de_iva_auto": "Toegepaste btw (automatisch):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligente Scanner - Smart Manager",

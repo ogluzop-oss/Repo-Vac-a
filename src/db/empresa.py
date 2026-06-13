@@ -163,6 +163,8 @@ def actualizar_empresa(id_empresa: str, **campos) -> bool:
         "convenio_colectivo",
         # Códigos oficiales (SEPE)
         "cod_pais", "cod_provincia", "cod_municipio", "cod_actividad",
+        # País fiscal (determina el IVA; ver src/utils/fiscalidad.py)
+        "pais_fiscal",
     )
     sets = {k: v for k, v in campos.items() if k in permitidos}
     if not sets:
@@ -278,6 +280,15 @@ def datos_corporativos(id_empresa=None, id_tienda=None, id_centro=None,
     return {"empresa": empresa, "representante": representante, "centro": centro}
 
 
+def _iva_de(pais_fiscal: str) -> float:
+    """IVA principal del país fiscal (import perezoso para evitar ciclos)."""
+    try:
+        from src.utils import fiscalidad
+        return fiscalidad.iva_de_pais(pais_fiscal)
+    except Exception:
+        return 21.0
+
+
 def info_documento(id_empresa=None, id_centro=None, id_representante=None) -> dict:
     """Vista PLANA de los datos corporativos para los generadores de documentos
     (facturas, albaranes, pedidos, traspasos, certificados, tickets, informes…).
@@ -315,6 +326,9 @@ def info_documento(id_empresa=None, id_centro=None, id_representante=None) -> di
         "cod_provincia": e.get("cod_provincia") or "",
         "cod_municipio": e.get("cod_municipio") or "",
         "cod_actividad": e.get("cod_actividad") or "",
+        # Fiscalidad: país fiscal e IVA principal derivado (no modifica precios)
+        "pais_fiscal": e.get("pais_fiscal") or "ES",
+        "iva": _iva_de(e.get("pais_fiscal") or "ES"),
         "rep_nombre": " ".join(x for x in [rep.get("nombre"), rep.get("apellidos")] if x).strip(),
         "rep_nif": rep.get("dni_nie") or "",
         "rep_cargo": rep.get("cargo") or "",

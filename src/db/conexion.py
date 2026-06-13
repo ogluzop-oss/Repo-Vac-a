@@ -263,7 +263,8 @@ def ensure_schema(force: bool = False):
                     ADD COLUMN IF NOT EXISTS cod_pais            VARCHAR(10)  DEFAULT NULL,
                     ADD COLUMN IF NOT EXISTS cod_provincia       VARCHAR(10)  DEFAULT NULL,
                     ADD COLUMN IF NOT EXISTS cod_municipio       VARCHAR(15)  DEFAULT NULL,
-                    ADD COLUMN IF NOT EXISTS cod_actividad       VARCHAR(15)  DEFAULT NULL
+                    ADD COLUMN IF NOT EXISTS cod_actividad       VARCHAR(15)  DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS pais_fiscal         VARCHAR(2)   DEFAULT 'ES'
                 """)
                 cur.execute(f"""
                     CREATE TABLE IF NOT EXISTS representantes_legales (

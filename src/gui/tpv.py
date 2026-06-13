@@ -3340,8 +3340,8 @@ class TPVWindow(QWidget):
                 from src.db.empresa import empresa_actual_id, info_documento
                 _i = info_documento()
                 empresa = {
-                    "nombre": _i.get("nombre"), "cif": _i.get("cif"),
-                    "direccion_completa": _i.get("direccion_completa"),
+                    "nombre": _i.get("nombre"), "nombre_comercial": _i.get("nombre_comercial"),
+                    "cif": _i.get("cif"), "direccion_completa": _i.get("direccion_completa"),
                     "pais": _i.get("pais"), "telefono": _i.get("telefono"),
                     "email": _i.get("email"),
                 }
@@ -3357,10 +3357,18 @@ class TPVWindow(QWidget):
             except Exception:
                 cfg = {}
 
+            # IVA automático según el PAÍS FISCAL de la empresa (no toca precios:
+            # el PVP ya incluye IVA; solo se usa para el desglose del ticket).
+            try:
+                from src.utils import fiscalidad
+                iva_rate = fiscalidad.iva_empresa()
+            except Exception:
+                iva_rate = 21.0
+
             items = [
                 {"nombre": l.get("nombre"), "cantidad": l.get("cantidad", 1),
                  "precio": l.get("precio", 0), "subtotal": l.get("subtotal", 0),
-                 "descuento_pct": l.get("descuento_pct", 0), "iva": l.get("iva", 21),
+                 "descuento_pct": l.get("descuento_pct", 0), "iva": iva_rate,
                  "modo_venta": l.get("modo_venta"), "peso": l.get("peso"),
                  "precio_kg": l.get("precio_kg"), "granel": l.get("modo_venta") == "PESO"}
                 for l in lineas
@@ -3394,8 +3402,9 @@ class TPVWindow(QWidget):
                 "moneda": divisas.divisa_actual(),
                 "config": cfg,
                 "hash": doc_hash,
+                # QR multiempresa: ticket | fecha | empresa | tienda | venta | importe
                 "qr": f"SMART|{ticket_num}|{fecha.strftime('%Y-%m-%d %H:%M')}|"
-                      f"{id_empresa}|{tienda.get('codigo') or ''}|{pago.get('total', 0)}",
+                      f"{id_empresa}|{tienda.get('codigo') or ''}|{venta_id}|{pago.get('total', 0)}",
             }
             generar_ticket_pdf(datos, archivo)
         except Exception as e:

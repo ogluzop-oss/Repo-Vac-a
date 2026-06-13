@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "melakukan pergantian kasir",
     "auth_apertura_fuerte": "membuka brankas",
     "auth_cierre_fuerte": "menutup brankas",
-    "auth_movimiento": "mencatat pergerakan kas"
+    "auth_movimiento": "mencatat pergerakan kas",
+    "de_pais_fiscal": "Negara fiskal (menentukan PPN):",
+    "de_iva_auto": "PPN yang diterapkan (otomatis):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Pemindai Cerdas - Smart Manager",

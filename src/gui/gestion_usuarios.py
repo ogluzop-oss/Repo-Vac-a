@@ -7126,6 +7126,34 @@ class ConfiguracionWindow(QWidget):
                 self._de_fields[key] = inp; col.addWidget(inp)
                 rl.addLayout(col)
             il.addLayout(rl)
+
+        # ── País fiscal (determina el IVA automáticamente; no toca precios) ──
+        from src.utils import fiscalidad as _fisc
+        rl_pf = QHBoxLayout(); rl_pf.setSpacing(8)
+        col_pf = QVBoxLayout()
+        col_pf.addWidget(self._de_lbl(tr("cfg.de_pais_fiscal", default="País fiscal (determina el IVA):")))
+        self._de_pais_fiscal = _NeonComboBox(); self._de_pais_fiscal.setFixedHeight(38)
+        for p in _fisc.paises_disponibles():
+            self._de_pais_fiscal.addItem(f"{p['nombre']}  ·  IVA {p['iva']:g}%", p["code"])
+        _pf = (emp.get("pais_fiscal") or "ES").upper()
+        _ix = self._de_pais_fiscal.findData(_pf)
+        if _ix >= 0:
+            self._de_pais_fiscal.setCurrentIndex(_ix)
+        self._de_pais_fiscal.setEnabled(self._de_admin)
+        col_pf.addWidget(self._de_pais_fiscal)
+        col_iva = QVBoxLayout()
+        col_iva.addWidget(self._de_lbl(tr("cfg.de_iva_auto", default="IVA aplicado (automático):")))
+        self._de_iva_lbl = self._de_inp(f"{_fisc.iva_de_pais(_pf):g} %")
+        self._de_iva_lbl.setReadOnly(True)
+        col_iva.addWidget(self._de_iva_lbl)
+
+        def _pf_changed(_i):
+            code = self._de_pais_fiscal.currentData()
+            self._de_iva_lbl.setText(f"{_fisc.iva_de_pais(code):g} %")
+        self._de_pais_fiscal.currentIndexChanged.connect(_pf_changed)
+        rl_pf.addLayout(col_pf, 1); rl_pf.addLayout(col_iva, 1)
+        il.addLayout(rl_pf)
+
         bg = QHBoxLayout(); bg.addStretch()
         self._de_btn_guardar = self._de_btn_verde(
             tr("cfg.de_guardar", default="GUARDAR DATOS DE EMPRESA"), self._de_guardar_empresa)
@@ -7157,6 +7185,8 @@ class ConfiguracionWindow(QWidget):
         if not getattr(self, "_de_admin", False):
             return
         campos = {k: e.text().strip() for k, e in self._de_fields.items()}
+        if hasattr(self, "_de_pais_fiscal"):
+            campos["pais_fiscal"] = self._de_pais_fiscal.currentData() or "ES"
         self._de_emp_mod.actualizar_empresa(self._de_emp_mod.empresa_actual_id(), **campos)
         mostrar_mensaje(
             self, tr("cfg.de_ok_t", default="Datos guardados"),

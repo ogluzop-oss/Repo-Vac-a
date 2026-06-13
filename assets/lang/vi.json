@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "thực hiện thay đổi nhân viên quầy",
     "auth_apertura_fuerte": "mở két sắt",
     "auth_cierre_fuerte": "đóng két sắt",
-    "auth_movimiento": "ghi nhận một giao dịch tiền mặt"
+    "auth_movimiento": "ghi nhận một giao dịch tiền mặt",
+    "de_pais_fiscal": "Quốc gia thuế (xác định VAT):",
+    "de_iva_auto": "VAT áp dụng (tự động):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Máy Quét Thông Minh - Smart Manager",

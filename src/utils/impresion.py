@@ -259,8 +259,9 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         except Exception as e:
             logger.warning("No se pudo dibujar el logo del ticket: %s", e)
 
-    # 2) CABECERA FISCAL
-    nombre = emp.get("nombre") or emp.get("razon_social") or L("title", "SMART MANAGER")
+    # 2) CABECERA FISCAL (si no hay logo, el nombre comercial es el fallback)
+    nombre = (emp.get("nombre_comercial") or emp.get("nombre")
+              or emp.get("razon_social") or L("title", "SMART MANAGER"))
     texto(nombre, _FB, 11, center=True)
     dir_completa = emp.get("direccion_completa") or emp.get("direccion") or ""
     for ln in [
@@ -345,25 +346,32 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         linea_kv(L("discounts", "Descuentos"), f"-{M(descuento_total)}")
     sep()
 
-    # 6) TABLA DE IVA
-    def _f_ivah(c, y):
-        c.setFont(_FB, 7)
-        c.drawString(XL, y - 7, L("vat", "IVA"))
-        c.drawString(XL + 16 * mm, y - 7, L("base", "Base"))
-        c.drawString(XL + 36 * mm, y - 7, L("vat_fee", "Cuota"))
-        c.drawRightString(XR, y - 7, L("col_amount", "Importe"))
-    add(11, _f_ivah)
-    for r in sorted(iva_por_tipo.keys()):
-        base, cuota, pvp = iva_por_tipo[r]
-        def _f(c, y, _r=r, _b=base, _c=cuota, _p=pvp):
-            c.setFont(_FN, 7)
-            c.drawString(XL, y - 7, f"{_r:g}%")
-            c.drawString(XL + 16 * mm, y - 7, M(round(_b, 2)))
-            c.drawString(XL + 36 * mm, y - 7, M(round(_c, 2)))
-            c.drawRightString(XR, y - 7, M(round(_p, 2)))
-        add(10, _f)
-    linea_kv(L("vat_base_total", "Base imponible"), M(base_total), size=7)
-    linea_kv(L("vat_total", "Total IVA"), M(iva_total), size=7)
+    # 6) DESGLOSE FISCAL — al final, nunca por línea.
+    #    Un solo tipo de IVA → bloque simple (Base imponible / IVA (r%)).
+    #    Varios tipos → tabla por tipo (preparado para fiscalidad multi-tipo).
+    if len(iva_por_tipo) <= 1:
+        r = next(iter(iva_por_tipo), 0.0)
+        linea_kv(L("vat_base_total", "Base imponible"), M(base_total))
+        linea_kv(f"{L('vat', 'IVA')} ({r:g}%)", M(iva_total))
+    else:
+        def _f_ivah(c, y):
+            c.setFont(_FB, 7)
+            c.drawString(XL, y - 7, L("vat", "IVA"))
+            c.drawString(XL + 16 * mm, y - 7, L("base", "Base"))
+            c.drawString(XL + 36 * mm, y - 7, L("vat_fee", "Cuota"))
+            c.drawRightString(XR, y - 7, L("col_amount", "Importe"))
+        add(11, _f_ivah)
+        for r in sorted(iva_por_tipo.keys()):
+            base, cuota, pvp = iva_por_tipo[r]
+            def _f(c, y, _r=r, _b=base, _c=cuota, _p=pvp):
+                c.setFont(_FN, 7)
+                c.drawString(XL, y - 7, f"{_r:g}%")
+                c.drawString(XL + 16 * mm, y - 7, M(round(_b, 2)))
+                c.drawString(XL + 36 * mm, y - 7, M(round(_c, 2)))
+                c.drawRightString(XR, y - 7, M(round(_p, 2)))
+            add(10, _f)
+        linea_kv(L("vat_base_total", "Base imponible"), M(base_total), size=7)
+        linea_kv(L("vat_total", "Total IVA"), M(iva_total), size=7)
 
     sep()
 

@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "계산원 변경하기",
     "auth_apertura_fuerte": "금고 열기",
     "auth_cierre_fuerte": "금고 닫기",
-    "auth_movimiento": "현금 이동 기록하기"
+    "auth_movimiento": "현금 이동 기록하기",
+    "de_pais_fiscal": "세금 관할권 (VAT 결정):",
+    "de_iva_auto": "적용된 VAT (자동):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "스마트 스캐너 - Smart Manager",

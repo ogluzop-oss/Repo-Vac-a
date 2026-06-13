@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "realizar un cambio de cajero",
     "auth_apertura_fuerte": "abrir la caja fuerte",
     "auth_cierre_fuerte": "cerrar la caja fuerte",
-    "auth_movimiento": "registrar un movimiento de efectivo"
+    "auth_movimiento": "registrar un movimiento de efectivo",
+    "de_pais_fiscal": "País fiscal (determina el IVA):",
+    "de_iva_auto": "IVA aplicado (automático):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Escáner Inteligente - Smart Manager",

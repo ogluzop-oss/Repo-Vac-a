@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "realizar uma troca de caixa",
     "auth_apertura_fuerte": "abrir o cofre",
     "auth_cierre_fuerte": "fechar o cofre",
-    "auth_movimiento": "registrar um movimento de caixa"
+    "auth_movimiento": "registrar um movimento de caixa",
+    "de_pais_fiscal": "País fiscal (determina o IVA):",
+    "de_iva_auto": "IVA aplicado (automático):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanner Inteligente - Smart Manager",

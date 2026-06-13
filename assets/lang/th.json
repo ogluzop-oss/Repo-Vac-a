@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "ทำการเปลี่ยนแคชเชียร์",
     "auth_apertura_fuerte": "เปิดตู้เซฟ",
     "auth_cierre_fuerte": "ปิดตู้เซฟ",
-    "auth_movimiento": "บันทึกการเคลื่อนไหวเงินสด"
+    "auth_movimiento": "บันทึกการเคลื่อนไหวเงินสด",
+    "de_pais_fiscal": "ประเทศที่จดทะเบียนภาษี (กำหนด VAT):",
+    "de_iva_auto": "VAT ที่ใช้ (อัตโนมัติ):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "สแกนเนอร์อัจฉริยะ - Smart Manager",

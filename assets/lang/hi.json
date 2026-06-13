@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "कैशियर परिवर्तन करें",
     "auth_apertura_fuerte": "तिजोरी खोलें",
     "auth_cierre_fuerte": "तिजोरी बंद करें",
-    "auth_movimiento": "नकद आंदोलन दर्ज करें"
+    "auth_movimiento": "नकद आंदोलन दर्ज करें",
+    "de_pais_fiscal": "कर देश (वैट निर्धारित करता है):",
+    "de_iva_auto": "लागू किया गया वैट (स्वचालित):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "स्मार्ट स्कैनर - Smart Manager",

@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "进行收银员交接",
     "auth_apertura_fuerte": "打开保险箱",
     "auth_cierre_fuerte": "关闭保险箱",
-    "auth_movimiento": "记录现金流动"
+    "auth_movimiento": "记录现金流动",
+    "de_pais_fiscal": "税务国家(决定增值税):",
+    "de_iva_auto": "应用的增值税(自动):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "智能扫描仪 - Smart Manager",

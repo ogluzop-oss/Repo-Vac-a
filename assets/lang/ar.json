@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "إجراء تبديل أمين الصندوق",
     "auth_apertura_fuerte": "فتح خزنة النقود",
     "auth_cierre_fuerte": "إغلاق خزنة النقود",
-    "auth_movimiento": "تسجيل حركة نقدية"
+    "auth_movimiento": "تسجيل حركة نقدية",
+    "de_pais_fiscal": "الدول الضريبية (تحدد ضريبة القيمة المضافة):",
+    "de_iva_auto": "ضريبة القيمة المضافة المطبقة (تلقائي):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "ماسح ذكي - Smart Manager",

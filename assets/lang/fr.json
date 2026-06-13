@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "effectuer un changement de caissier",
     "auth_apertura_fuerte": "ouvrir le coffre-fort",
     "auth_cierre_fuerte": "fermer le coffre-fort",
-    "auth_movimiento": "enregistrer un mouvement de trésorerie"
+    "auth_movimiento": "enregistrer un mouvement de trésorerie",
+    "de_pais_fiscal": "Pays fiscal (détermine la TVA):",
+    "de_iva_auto": "TVA appliquée (automatique):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Scanneur Intelligent - Smart Manager",

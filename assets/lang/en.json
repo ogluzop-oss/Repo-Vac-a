@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "perform a cashier handover",
     "auth_apertura_fuerte": "open the safe",
     "auth_cierre_fuerte": "close the safe",
-    "auth_movimiento": "register a cash movement"
+    "auth_movimiento": "register a cash movement",
+    "de_pais_fiscal": "Tax country (sets VAT):",
+    "de_iva_auto": "Applied VAT (automatic):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Smart Scanner - Smart Manager",

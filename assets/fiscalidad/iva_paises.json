@@ -1,0 +1,38 @@
+{
+  "_meta": {
+    "descripcion": "Tipos de IVA principales por país (fuente única, editable). El país se asocia a su divisa para filtrar por las divisas soportadas. Actualizar 'iva' y 'actualizado' si cambia la legislación.",
+    "version": 1
+  },
+  "paises": {
+    "ES": {"nombre": "España",              "divisa": "EUR", "iva": 21.0,  "actualizado": "2025-01-01"},
+    "FR": {"nombre": "Francia",             "divisa": "EUR", "iva": 20.0,  "actualizado": "2025-01-01"},
+    "DE": {"nombre": "Alemania",            "divisa": "EUR", "iva": 19.0,  "actualizado": "2025-01-01"},
+    "IT": {"nombre": "Italia",              "divisa": "EUR", "iva": 22.0,  "actualizado": "2025-01-01"},
+    "PT": {"nombre": "Portugal",            "divisa": "EUR", "iva": 23.0,  "actualizado": "2025-01-01"},
+    "NL": {"nombre": "Países Bajos",        "divisa": "EUR", "iva": 21.0,  "actualizado": "2025-01-01"},
+    "BE": {"nombre": "Bélgica",             "divisa": "EUR", "iva": 21.0,  "actualizado": "2025-01-01"},
+    "IE": {"nombre": "Irlanda",             "divisa": "EUR", "iva": 23.0,  "actualizado": "2025-01-01"},
+    "AT": {"nombre": "Austria",             "divisa": "EUR", "iva": 20.0,  "actualizado": "2025-01-01"},
+    "GR": {"nombre": "Grecia",              "divisa": "EUR", "iva": 24.0,  "actualizado": "2025-01-01"},
+    "FI": {"nombre": "Finlandia",           "divisa": "EUR", "iva": 25.5,  "actualizado": "2025-01-01"},
+    "GB": {"nombre": "Reino Unido",         "divisa": "GBP", "iva": 20.0,  "actualizado": "2025-01-01"},
+    "US": {"nombre": "Estados Unidos",      "divisa": "USD", "iva": 0.0,   "actualizado": "2025-01-01"},
+    "CH": {"nombre": "Suiza",               "divisa": "CHF", "iva": 8.1,   "actualizado": "2025-01-01"},
+    "CA": {"nombre": "Canadá",              "divisa": "CAD", "iva": 5.0,   "actualizado": "2025-01-01"},
+    "AU": {"nombre": "Australia",           "divisa": "AUD", "iva": 10.0,  "actualizado": "2025-01-01"},
+    "NZ": {"nombre": "Nueva Zelanda",       "divisa": "NZD", "iva": 15.0,  "actualizado": "2025-01-01"},
+    "JP": {"nombre": "Japón",               "divisa": "JPY", "iva": 10.0,  "actualizado": "2025-01-01"},
+    "CN": {"nombre": "China",               "divisa": "CNY", "iva": 13.0,  "actualizado": "2025-01-01"},
+    "IN": {"nombre": "India",               "divisa": "INR", "iva": 18.0,  "actualizado": "2025-01-01"},
+    "KR": {"nombre": "Corea del Sur",       "divisa": "KRW", "iva": 10.0,  "actualizado": "2025-01-01"},
+    "SG": {"nombre": "Singapur",            "divisa": "SGD", "iva": 9.0,   "actualizado": "2025-01-01"},
+    "AE": {"nombre": "Emiratos Árabes Unidos", "divisa": "AED", "iva": 5.0, "actualizado": "2025-01-01"},
+    "SA": {"nombre": "Arabia Saudí",        "divisa": "SAR", "iva": 15.0,  "actualizado": "2025-01-01"},
+    "MX": {"nombre": "México",              "divisa": "MXN", "iva": 16.0,  "actualizado": "2025-01-01"},
+    "BR": {"nombre": "Brasil",              "divisa": "BRL", "iva": 17.0,  "actualizado": "2025-01-01"},
+    "AR": {"nombre": "Argentina",           "divisa": "ARS", "iva": 21.0,  "actualizado": "2025-01-01"},
+    "CL": {"nombre": "Chile",               "divisa": "CLP", "iva": 19.0,  "actualizado": "2025-01-01"},
+    "CO": {"nombre": "Colombia",            "divisa": "COP", "iva": 19.0,  "actualizado": "2025-01-01"},
+    "ZA": {"nombre": "Sudáfrica",           "divisa": "ZAR", "iva": 15.0,  "actualizado": "2025-01-01"}
+  }
+}

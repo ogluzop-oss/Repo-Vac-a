@@ -1355,7 +1355,9 @@
     "auth_cambio_cajero": "einen Kassiererwechsel durchführen",
     "auth_apertura_fuerte": "den Tresor öffnen",
     "auth_cierre_fuerte": "den Tresor schließen",
-    "auth_movimiento": "eine Bargeldtransaktion erfassen"
+    "auth_movimiento": "eine Bargeldtransaktion erfassen",
+    "de_pais_fiscal": "Steuerlandmeldung (bestimmt die MwSt):",
+    "de_iva_auto": "Angewandte MwSt (automatisch):"
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Intelligenter Scanner - Smart Manager",
