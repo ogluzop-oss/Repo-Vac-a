@@ -7,7 +7,7 @@ import json
 import logging
 import os
 
-from PyQt6.QtCore import QEvent, QObject, QPointF, QSize, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, QSize, Qt, QTimer
 from PyQt6.QtGui import (
     QBitmap,
     QColor,
@@ -18,6 +18,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
+    QPolygon,
     QRegion,
     QShortcut,
 )
@@ -2509,6 +2510,88 @@ class _ClienteDialog(QDialog):
 # BLOQUE — BÚSQUEDA / REIMPRESIÓN DE TICKETS
 # ============================================================
 
+class _FechaFilter(QWidget):
+    """Filtro de fecha SIN QDateEdit. Evita el bug de Windows por el que un
+    QAbstractSpinBox dentro de un diálogo frameless se vuelve ventana nativa con
+    MINMAXINFO degenerado (maxtrack ancho 0) y entra en bucle de setGeometry →
+    cuelgue. Aquí es un QLineEdit de solo lectura + calendario neón como overlay
+    hijo de la ventana (posición determinista)."""
+
+    def __init__(self, qdate, parent=None):
+        super().__init__(parent)
+        self._date = qdate
+        self._popup = None
+        self._backdrop = None
+        lay = QHBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
+        self._le = QLineEdit(qdate.toString("dd/MM/yyyy"))
+        self._le.setReadOnly(True); self._le.setFixedHeight(34)
+        self._le.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._le.setStyleSheet(
+            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 26px 0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QLineEdit:hover{{border-color:{_CIAN};}}")
+        self._le.mousePressEvent = lambda _e: self._toggle()
+        lay.addWidget(self._le)
+
+    def paintEvent(self, event):
+        # Triángulo cian pintado sobre el lado derecho del campo.
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cx = self.width() - 15; cy = self.height() // 2
+        p.setBrush(QColor(_CIAN)); p.setPen(Qt.PenStyle.NoPen)
+        p.drawPolygon(QPolygon([QPoint(cx - 5, cy - 3), QPoint(cx + 5, cy - 3), QPoint(cx, cy + 4)]))
+        p.end()
+
+    def date(self):
+        return self._date
+
+    def setDate(self, d):
+        self._date = d
+        self._le.setText(d.toString("dd/MM/yyyy"))
+
+    def _toggle(self):
+        if self._popup is not None:
+            self._close(); return
+        from src.gui.ventas import _VentasCalendarWidget
+        win = self.window()
+        bd = QWidget(win); bd.setGeometry(0, 0, win.width(), win.height())
+        bd.setStyleSheet("background: transparent;")
+        bd.mousePressEvent = lambda _e: self._close()
+        bd.show(); bd.raise_(); self._backdrop = bd
+
+        fr = QFrame(win)
+        fr.setStyleSheet(f"QFrame{{background:#11181D;border:2px solid {_CIAN};border-radius:12px;}}")
+        v = QVBoxLayout(fr); v.setContentsMargins(11, 11, 11, 11); v.setSpacing(0)
+        cal = _VentasCalendarWidget(fr); cal.setSelectedDate(self._date); v.addWidget(cal)
+        cal.clicked.connect(lambda qd: (self.setDate(qd), self._close()))
+        fr.setFixedSize(cal.minimumWidth() + 22, cal.minimumHeight() + 22)
+        tl = self.mapTo(win, QPoint(0, self.height()))
+        x = max(6, min(tl.x(), win.width() - fr.width() - 6))
+        y = tl.y()
+        if y + fr.height() > win.height() - 4:
+            y = self.mapTo(win, QPoint(0, 0)).y() - fr.height()
+        fr.move(x, max(6, y)); fr.show(); fr.raise_(); self._popup = fr
+
+        def _retry(c=cal, n=8):
+            try:
+                if c._ensure_custom_nav():
+                    return
+            except Exception:
+                pass
+            if n > 0:
+                QTimer.singleShot(30, lambda: _retry(c, n - 1))
+        QTimer.singleShot(0, _retry)
+
+    def _close(self):
+        for a in ("_popup", "_backdrop"):
+            w = getattr(self, a, None)
+            if w is not None:
+                try:
+                    w.hide(); w.deleteLater()
+                except RuntimeError:
+                    pass
+                setattr(self, a, None)
+
+
 class _BuscarTicketDialog(QDialog):
     """Búsqueda, localización y reimpresión de tickets a pantalla completa.
     Filtros: nº ticket/código escaneado, artículo, rango de fechas (calendario)
@@ -2589,7 +2672,6 @@ class _BuscarTicketDialog(QDialog):
         ly.addLayout(hdr)
         ly.addWidget(_sep())
 
-        from src.gui.ventas import _date_neon  # calendario neón (mismo que BUSCAR VENTAS)
         from PyQt6.QtCore import QDate
         hoy = QDate.currentDate()
 
@@ -2605,8 +2687,8 @@ class _BuscarTicketDialog(QDialog):
 
         # Fila 2: Fechas (calendario) + Horas
         r2 = QHBoxLayout(); r2.setSpacing(8)
-        self.fecha_desde = _date_neon(hoy.addDays(-30))
-        self.fecha_hasta = _date_neon(hoy)
+        self.fecha_desde = _FechaFilter(hoy.addDays(-30))
+        self.fecha_hasta = _FechaFilter(hoy)
         self.hora_desde = self._inp(tr("vta.ph_time_from", default="Hora desde (HH:MM)"))
         self.hora_hasta = self._inp(tr("vta.ph_time_to", default="Hora hasta (HH:MM)"))
         r2.addWidget(self._lbl_r(tr("vta.lbl_date_from", default="Fecha desde"))); r2.addWidget(self.fecha_desde, 1); r2.addSpacing(8)
