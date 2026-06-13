@@ -2510,6 +2510,18 @@ class _ClienteDialog(QDialog):
 # BLOQUE — BÚSQUEDA / REIMPRESIÓN DE TICKETS
 # ============================================================
 
+class _TriLineEdit(QLineEdit):
+    """QLineEdit que pinta un triángulo cian en su extremo derecho (indicador de
+    desplegable). Se pinta sobre el propio campo, así no queda tapado."""
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cx = self.width() - 15; cy = self.height() // 2
+        p.setBrush(QColor(_CIAN)); p.setPen(Qt.PenStyle.NoPen)
+        p.drawPolygon(QPolygon([QPoint(cx - 5, cy - 3), QPoint(cx + 5, cy - 3), QPoint(cx, cy + 4)]))
+        p.end()
+
+
 class _FechaFilter(QWidget):
     """Filtro de fecha SIN QDateEdit. Evita el bug de Windows por el que un
     QAbstractSpinBox dentro de un diálogo frameless se vuelve ventana nativa con
@@ -2523,7 +2535,7 @@ class _FechaFilter(QWidget):
         self._popup = None
         self._backdrop = None
         lay = QHBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
-        self._le = QLineEdit(qdate.toString("dd/MM/yyyy"))
+        self._le = _TriLineEdit(qdate.toString("dd/MM/yyyy"))
         self._le.setReadOnly(True); self._le.setFixedHeight(34)
         self._le.setCursor(Qt.CursorShape.PointingHandCursor)
         self._le.setStyleSheet(
@@ -2532,14 +2544,6 @@ class _FechaFilter(QWidget):
             f"QLineEdit:hover{{border-color:{_CIAN};}}")
         self._le.mousePressEvent = lambda _e: self._toggle()
         lay.addWidget(self._le)
-
-    def paintEvent(self, event):
-        # Triángulo cian pintado sobre el lado derecho del campo.
-        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        cx = self.width() - 15; cy = self.height() // 2
-        p.setBrush(QColor(_CIAN)); p.setPen(Qt.PenStyle.NoPen)
-        p.drawPolygon(QPolygon([QPoint(cx - 5, cy - 3), QPoint(cx + 5, cy - 3), QPoint(cx, cy + 4)]))
-        p.end()
 
     def date(self):
         return self._date
@@ -2691,8 +2695,8 @@ class _BuscarTicketDialog(QDialog):
         self.fecha_hasta = _FechaFilter(hoy)
         self.hora_desde = self._inp(tr("vta.ph_time_from", default="Hora desde (HH:MM)"))
         self.hora_hasta = self._inp(tr("vta.ph_time_to", default="Hora hasta (HH:MM)"))
-        r2.addWidget(self._lbl_r(tr("vta.lbl_date_from", default="Fecha desde"))); r2.addWidget(self.fecha_desde, 1); r2.addSpacing(8)
-        r2.addWidget(self._lbl_r(tr("vta.lbl_date_to", default="Fecha hasta"))); r2.addWidget(self.fecha_hasta, 1); r2.addSpacing(8)
+        r2.addWidget(self._lbl_r(tr("tpv.find_date_from", default="Fecha inicio"))); r2.addWidget(self.fecha_desde, 1); r2.addSpacing(8)
+        r2.addWidget(self._lbl_r(tr("tpv.find_date_to", default="Fecha fin"))); r2.addWidget(self.fecha_hasta, 1); r2.addSpacing(8)
         r2.addWidget(self._lbl_r(tr("vta.lbl_time_from", default="Hora desde"))); r2.addWidget(self.hora_desde, 1); r2.addSpacing(8)
         r2.addWidget(self._lbl_r(tr("vta.lbl_time_to", default="Hora hasta"))); r2.addWidget(self.hora_hasta, 1)
         ly.addLayout(r2)

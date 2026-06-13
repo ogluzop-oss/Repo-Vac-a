@@ -191,7 +191,9 @@
     "cli_use": "USAR SELECCIONADO",
     "cli_generic_short": "Cliente genérico",
     "cli_label": "Cliente",
-    "find_c_cli": "Cliente"
+    "find_c_cli": "Cliente",
+    "find_date_from": "Fecha inicio",
+    "find_date_to": "Fecha fin"
   },
   "albaran": {
     "doc_title": "DOKUMENT TRANSFERU",

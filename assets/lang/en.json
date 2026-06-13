@@ -191,7 +191,9 @@
     "cli_use": "USE SELECTED",
     "cli_generic_short": "Generic customer",
     "cli_label": "Customer",
-    "find_c_cli": "Customer"
+    "find_c_cli": "Customer",
+    "find_date_from": "Start date",
+    "find_date_to": "End date"
   },
   "albaran": {
     "doc_title": "TRANSFER DELIVERY NOTE",
