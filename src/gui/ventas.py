@@ -392,6 +392,7 @@ class _NeonDateEdit(QDateEdit):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._cal_popup = None
+        self._cal_backdrop = None
         # Sin popup nativo ni botones de spin: usamos showPopup() propio.
         self.setCalendarPopup(False)
         self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
@@ -419,6 +420,15 @@ class _NeonDateEdit(QDateEdit):
         # OVERLAY hijo de la ventana → posición DETERMINISTA (sin ventana nativa
         # ni dependencia del gestor de ventanas, que centraba el primer popup).
         win = self.window()
+        # Backdrop transparente que cubre la ventana: cierra el calendario al
+        # hacer clic fuera (sin filtro de eventos global, que congelaba la app).
+        backdrop = QWidget(win)
+        backdrop.setGeometry(0, 0, win.width(), win.height())
+        backdrop.setStyleSheet("background: transparent;")
+        backdrop.mousePressEvent = lambda _e: self.hidePopup()
+        backdrop.show(); backdrop.raise_()
+        self._cal_backdrop = backdrop
+
         popup = _NeonCalFrame(win)
         MARGIN = 11
         lay = QVBoxLayout(popup)
@@ -452,10 +462,6 @@ class _NeonDateEdit(QDateEdit):
         popup.raise_()
         self._cal_popup = popup
 
-        app = QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)   # cerrar al hacer clic fuera
-
         def _retry_nav(c=cal, retries=8):
             try:
                 if c._ensure_custom_nav():
@@ -469,34 +475,16 @@ class _NeonDateEdit(QDateEdit):
 
         QTimer.singleShot(0, _retry_nav)
 
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.MouseButtonPress and self._cal_popup is not None:
-            try:
-                w = QApplication.widgetAt(event.globalPosition().toPoint())
-            except Exception:
-                w = None
-            # No cerrar si el clic cae en el calendario, en el propio campo, o en
-            # otra ventana top-level (los popups de mes/año del calendario).
-            if w is not None and (
-                w is self._cal_popup or self._cal_popup.isAncestorOf(w)
-                or w is self or self.isAncestorOf(w)
-                or w.window() is not self._cal_popup.window()
-            ):
-                return False
-            self.hidePopup()
-        return False
-
     def hidePopup(self):
-        app = QApplication.instance()
-        if app is not None:
-            app.removeEventFilter(self)
-        if self._cal_popup is not None:
-            try:
-                self._cal_popup.hide()
-                self._cal_popup.deleteLater()
-            except RuntimeError:
-                pass
-            self._cal_popup = None
+        for attr in ("_cal_popup", "_cal_backdrop"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                try:
+                    w.hide()
+                    w.deleteLater()
+                except RuntimeError:
+                    pass
+                setattr(self, attr, None)
 
 
 class _VentasCalendarWidget(QCalendarWidget):
