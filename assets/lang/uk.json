@@ -101,7 +101,8 @@
     "delivered": "Видано",
     "card_amount": "Карта",
     "return_policy": "У вас є {d} днів для повернення товару, подавши цей чек.",
-    "pay_mixed": "Змішаний"
+    "pay_mixed": "Змішаний",
+    "copy": "COPIA"
   },
   "tpv": {
     "title": "POS — Smart Manager",
@@ -153,7 +154,25 @@
     "del_item_title": "Видалити товар",
     "del_item_msg": "Бажаєте видалити «{nombre}» з квитанції?",
     "del_item_ok": "ВИДАЛИТИ",
-    "agregar": "ДОДАТИ"
+    "agregar": "ДОДАТИ",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "ПОШУК",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Продаж",
+    "find_c_date": "Дата",
+    "find_c_total": "Всього",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Працівник",
+    "find_c_caja": "Каса",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Немає даних",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "НАКЛАДНА ТРАНСФЕРУ",

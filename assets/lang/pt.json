@@ -101,7 +101,8 @@
     "delivered": "Entregue",
     "card_amount": "Cartão",
     "return_policy": "Dispõe de {d} dias para devoluções apresentando este ticket.",
-    "pay_mixed": "Misto"
+    "pay_mixed": "Misto",
+    "copy": "COPIA"
   },
   "tpv": {
     "title": "POS — Smart Manager",
@@ -153,7 +154,25 @@
     "del_item_title": "Eliminar artigo",
     "del_item_msg": "¿Deseja eliminar «{nombre}» do ticket?",
     "agregar": "ADICIONAR",
-    "del_item_ok": "ELIMINAR"
+    "del_item_ok": "ELIMINAR",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "PESQUISAR",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Venta",
+    "find_c_date": "Data",
+    "find_c_total": "Total",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Funcionário",
+    "find_c_caja": "Caixa",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Sem dados",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "GUIA DE TRANSFERÊNCIA",

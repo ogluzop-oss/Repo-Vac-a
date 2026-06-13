@@ -101,7 +101,8 @@
     "delivered": "Levererad",
     "card_amount": "Kort",
     "return_policy": "Du har {d} dagar på dig att returnera denna kvittot.",
-    "pay_mixed": "Blandat"
+    "pay_mixed": "Blandat",
+    "copy": "COPIA"
   },
   "tpv": {
     "col_qty": "Mängd",
@@ -153,7 +154,25 @@
     "del_item_msg": "Vill du ta bort «{nombre}» från kvittot?",
     "del_item_ok": "TA BORT",
     "agregar": "LÄGG TILL",
-    "title": "TPV — Smart Manager"
+    "title": "TPV — Smart Manager",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "SÖK",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Försäljning",
+    "find_c_date": "Datum",
+    "find_c_total": "Totalt",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Anställd",
+    "find_c_caja": "Kassa",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Ingen data",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "ÖVERFÖRINGSSEDEL",

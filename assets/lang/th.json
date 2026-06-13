@@ -101,7 +101,8 @@
     "delivered": "จ่ายแล้ว",
     "card_amount": "บัตร",
     "return_policy": "คุณมีเวลา {d} วันในการคืนสินค้าโดยแสดงใบเสร็จนี้",
-    "pay_mixed": "แบบผสม"
+    "pay_mixed": "แบบผสม",
+    "copy": "COPIA"
   },
   "tpv": {
     "exit": "✕  ออก",
@@ -153,7 +154,25 @@
     "del_item_msg": "คุณต้องการลบ «{nombre}» ออกจากบัตรเครดิตหรือไม่?",
     "del_item_ok": "ลบ",
     "agregar": "เพิ่ม",
-    "title": "TPV — Smart Manager"
+    "title": "TPV — Smart Manager",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "ค้นหา",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "ขาย",
+    "find_c_date": "วันที่",
+    "find_c_total": "รวมทั้งสิ้น",
+    "find_c_pay": "Pago",
+    "find_c_emp": "พนักงาน",
+    "find_c_caja": "แคชเชียร์",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "ไม่มีข้อมูล",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "ใบตรวจสอบการโอนย้าย",

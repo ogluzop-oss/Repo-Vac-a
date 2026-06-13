@@ -101,7 +101,8 @@
     "delivered": "Entregado",
     "card_amount": "Tarjeta",
     "return_policy": "Dispone de {d} días para devoluciones presentando este ticket.",
-    "pay_mixed": "Mixto"
+    "pay_mixed": "Mixto",
+    "copy": "COPIA"
   },
   "tpv": {
     "title": "TPV — Smart Manager",
@@ -153,7 +154,25 @@
     "del_item_title": "Eliminar artículo",
     "del_item_msg": "¿Deseas eliminar «{nombre}» del ticket?",
     "del_item_ok": "ELIMINAR",
-    "agregar": "AGREGAR"
+    "agregar": "AGREGAR",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "BUSCAR",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Venta",
+    "find_c_date": "Fecha",
+    "find_c_total": "Total",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Empleado",
+    "find_c_caja": "Caja",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Sin datos",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "ALBARÁN DE TRASPASO",

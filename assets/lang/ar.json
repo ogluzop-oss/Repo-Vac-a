@@ -101,7 +101,8 @@
     "delivered": "تم الدفع",
     "card_amount": "بطاقة",
     "return_policy": "لديك {d} أيام لتقديم طلب استرجاع من خلال تقديم هذا الإيصال.",
-    "pay_mixed": "مختلط"
+    "pay_mixed": "مختلط",
+    "copy": "COPIA"
   },
   "tpv": {
     "title": "نظام نقاط البيع — Smart Manager",
@@ -153,7 +154,25 @@
     "del_item_title": "حذف المنتج",
     "del_item_msg": "هل تريد حذف «{nombre}» من الإيصال؟",
     "del_item_ok": "حذف",
-    "agregar": "إضافة"
+    "agregar": "إضافة",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "بحث",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "المبيعات",
+    "find_c_date": "التاريخ",
+    "find_c_total": "الإجمالي",
+    "find_c_pay": "Pago",
+    "find_c_emp": "الموظف",
+    "find_c_caja": "الصندوق",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "لا توجد بيانات",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "إشعار النقل",

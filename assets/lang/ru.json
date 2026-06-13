@@ -101,7 +101,8 @@
     "delivered": "Получено",
     "card_amount": "Карта",
     "return_policy": "У вас есть {d} дней для возврата товара, предъявив этот чек.",
-    "pay_mixed": "Смешанный платеж"
+    "pay_mixed": "Смешанный платеж",
+    "copy": "COPIA"
   },
   "tpv": {
     "title": "ККМ — Smart Manager",
@@ -153,7 +154,25 @@
     "del_item_title": "Удалить товар",
     "del_item_msg": "Вы хотите удалить «{nombre}» из чека?",
     "del_item_ok": "УДАЛИТЬ",
-    "agregar": "ДОБАВИТЬ"
+    "agregar": "ДОБАВИТЬ",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "ПОИСК",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Продажа",
+    "find_c_date": "Дата",
+    "find_c_total": "Итого",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Сотрудник",
+    "find_c_caja": "Касса",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Нет данных",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "НАКЛАДНАЯ О ПЕРЕДАЧЕ",

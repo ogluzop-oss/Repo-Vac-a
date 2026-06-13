@@ -101,7 +101,8 @@
     "delivered": "Teslim Edildi",
     "card_amount": "Kart",
     "return_policy": "Bu fişi sunarak {d} gün içinde iade edebilirsiniz.",
-    "pay_mixed": "Karma"
+    "pay_mixed": "Karma",
+    "copy": "COPIA"
   },
   "tpv": {
     "col_qty": "Miktar",
@@ -153,7 +154,25 @@
     "del_item_msg": "«{nombre}» öğesini ticketten silmek istiyor musunuz?",
     "del_item_ok": "SİL",
     "agregar": "EKLE",
-    "title": "TPV — Smart Manager"
+    "title": "TPV — Smart Manager",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "ARA",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Satış",
+    "find_c_date": "Tarih",
+    "find_c_total": "Toplam",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Çalışan",
+    "find_c_caja": "Kasa",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Veri yok",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "TRANSFER SENEDI",

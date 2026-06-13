@@ -101,7 +101,8 @@
     "delivered": "Tendered",
     "card_amount": "Card",
     "return_policy": "You have {d} days for returns presenting this receipt.",
-    "pay_mixed": "Mixed"
+    "pay_mixed": "Mixed",
+    "copy": "COPY"
   },
   "tpv": {
     "title": "POS — Smart Manager",
@@ -153,7 +154,25 @@
     "del_item_title": "Remove item",
     "del_item_msg": "Remove «{nombre}» from the ticket?",
     "del_item_ok": "REMOVE",
-    "agregar": "ADD"
+    "agregar": "ADD",
+    "tickets": "Tickets",
+    "find_title": "FIND / REPRINT RECEIPT",
+    "find_q_ph": "Scan QR / barcode or receipt no.…",
+    "find_amount": "Amount",
+    "find_btn": "SEARCH",
+    "find_from": "From",
+    "find_to": "To",
+    "find_c_id": "Sale",
+    "find_c_date": "Date",
+    "find_c_total": "Total",
+    "find_c_pay": "Payment",
+    "find_c_emp": "Employee",
+    "find_c_caja": "Register",
+    "find_c_items": "Items",
+    "find_reprint": "REPRINT",
+    "find_count": "{n} result(s)",
+    "find_err_t": "No data",
+    "find_err": "Could not retrieve the sale."
   },
   "albaran": {
     "doc_title": "TRANSFER DELIVERY NOTE",

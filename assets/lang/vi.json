@@ -101,7 +101,8 @@
     "delivered": "Đã giao",
     "card_amount": "Thẻ",
     "return_policy": "Quý khách có {d} ngày để hoàn trả với vé này.",
-    "pay_mixed": "Hỗn hợp"
+    "pay_mixed": "Hỗn hợp",
+    "copy": "COPIA"
   },
   "tpv": {
     "exit": "✕  THOÁT",
@@ -153,7 +154,25 @@
     "del_item_msg": "Bạn có muốn xóa «{nombre}» khỏi hóa đơn?",
     "del_item_ok": "XÓA",
     "agregar": "THÊM",
-    "title": "TPV — Smart Manager"
+    "title": "TPV — Smart Manager",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "TÌM KIẾM",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Bán hàng",
+    "find_c_date": "Ngày",
+    "find_c_total": "Tổng",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Nhân viên",
+    "find_c_caja": "Quầy",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Không có dữ liệu",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "PHIẾU CHUYỂN KHO",

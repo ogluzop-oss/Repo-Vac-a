@@ -101,7 +101,8 @@
     "delivered": "Bezahlt",
     "card_amount": "Karte",
     "return_policy": "Sie haben {d} Tage Zeit für Rückgaben mit diesem Ticket.",
-    "pay_mixed": "Gemischt"
+    "pay_mixed": "Gemischt",
+    "copy": "COPIA"
   },
   "tpv": {
     "title": "Kasse — Smart Manager",
@@ -153,7 +154,25 @@
     "del_item_title": "Artikel löschen",
     "del_item_msg": "Möchtest du «{nombre}» von der Rechnung löschen?",
     "del_item_ok": "LÖSCHEN",
-    "agregar": "HINZUFÜGEN"
+    "agregar": "HINZUFÜGEN",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "SUCHEN",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Venta",
+    "find_c_date": "Datum",
+    "find_c_total": "Gesamt",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Mitarbeiter",
+    "find_c_caja": "Kasse",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Keine Daten",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "UMLAGERUNGSLIEFERSCHEIN",

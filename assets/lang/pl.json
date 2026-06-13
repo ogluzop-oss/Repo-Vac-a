@@ -101,7 +101,8 @@
     "delivered": "Dostarczone",
     "card_amount": "Karta",
     "return_policy": "Masz {d} dni na zwroty, prezentując ten bilet.",
-    "pay_mixed": "Mieszane"
+    "pay_mixed": "Mieszane",
+    "copy": "COPIA"
   },
   "tpv": {
     "col_qty": "Ilość",
@@ -153,7 +154,25 @@
     "del_item_title": "Usuń artykuł",
     "del_item_msg": "Czy chcesz usunąć «{nombre}» z paragonu?",
     "del_item_ok": "USUŃ",
-    "agregar": "DODAJ"
+    "agregar": "DODAJ",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "SZUKAJ",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Sprzedaż",
+    "find_c_date": "Data",
+    "find_c_total": "Razem",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Pracownik",
+    "find_c_caja": "Kasa",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Brak danych",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "DOKUMENT TRANSFERU",

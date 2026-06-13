@@ -101,7 +101,8 @@
     "delivered": "已支付",
     "card_amount": "卡",
     "return_policy": "您有{d}天的时间凭此票据办理退货。",
-    "pay_mixed": "混合"
+    "pay_mixed": "混合",
+    "copy": "COPIA"
   },
   "tpv": {
     "exit": "✕  退出",
@@ -153,7 +154,25 @@
     "del_item_msg": "是否要从票据中删除«{nombre}»?",
     "del_item_ok": "删除",
     "agregar": "添加",
-    "title": "TPV — Smart Manager"
+    "title": "TPV — Smart Manager",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "搜索",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "销售",
+    "find_c_date": "日期",
+    "find_c_total": "总计",
+    "find_c_pay": "Pago",
+    "find_c_emp": "员工",
+    "find_c_caja": "收银台",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "无数据",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "转运单据",

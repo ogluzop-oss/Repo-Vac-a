@@ -101,7 +101,8 @@
     "delivered": "प्रदान किया गया",
     "card_amount": "कार्ड",
     "return_policy": "इस टिकट को प्रस्तुत करते हुए आप {d} दिनों के लिए रिटर्न के लिए पात्र हैं।",
-    "pay_mixed": "मिश्रित"
+    "pay_mixed": "मिश्रित",
+    "copy": "COPIA"
   },
   "tpv": {
     "exit": "✕  बाहर निकलें",
@@ -153,7 +154,25 @@
     "del_item_msg": "क्या आप टिकट से «{nombre}» हटाना चाहते हैं?",
     "del_item_ok": "हटाएं",
     "agregar": "जोड़ें",
-    "title": "TPV — Smart Manager"
+    "title": "TPV — Smart Manager",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "खोजें",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "बिक्रय",
+    "find_c_date": "तारीख",
+    "find_c_total": "कुल",
+    "find_c_pay": "Pago",
+    "find_c_emp": "कर्मचारी",
+    "find_c_caja": "कैश रजिस्टर",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "कोई डेटा नहीं",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "स्थानांतरण रसीद",

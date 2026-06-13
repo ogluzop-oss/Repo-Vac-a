@@ -101,7 +101,8 @@
     "delivered": "Diberikan",
     "card_amount": "Kartu",
     "return_policy": "Anda memiliki {d} hari untuk pengembalian dengan menyajikan tiket ini.",
-    "pay_mixed": "Campuran"
+    "pay_mixed": "Campuran",
+    "copy": "COPIA"
   },
   "tpv": {
     "exit": "✕  KELUAR",
@@ -153,7 +154,25 @@
     "col_disc": "Dto%",
     "col_subtotal": "Subtotal",
     "subtotal": "Subtotal: {x}",
-    "total": "TOTAL: {x}"
+    "total": "TOTAL: {x}",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "CARI",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Penjualan",
+    "find_c_date": "Tanggal",
+    "find_c_total": "Total",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Karyawan",
+    "find_c_caja": "Kasir",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Tidak ada data",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "DOKUMEN TRANSFER",

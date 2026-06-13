@@ -152,8 +152,7 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
     subtotal_bruto = 0.0
     descuento_total = 0.0
     total = 0.0
-    iva_por_tipo: dict = {}
-    for it in items:
+    for it in items:  # sumas comerciales (no fiscales)
         cant = float(it.get("cantidad", 1) or 1)
         precio = float(it.get("precio", 0) or 0)
         sub = float(it.get("subtotal", cant * precio) or 0)
@@ -161,17 +160,18 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         subtotal_bruto += bruto
         descuento_total += round(bruto - sub, 2)
         total += sub
-        r = float(it.get("iva", 21) or 0)
-        base = sub / (1 + r / 100) if r else sub
-        iva_por_tipo.setdefault(r, [0.0, 0.0, 0.0])
-        iva_por_tipo[r][0] += base           # base
-        iva_por_tipo[r][1] += (sub - base)   # cuota
-        iva_por_tipo[r][2] += sub            # pvp
     total = round(total, 2) if items else float(pago.get("total", 0) or 0)
     subtotal_bruto = round(subtotal_bruto, 2)
     descuento_total = round(descuento_total, 2)
-    base_total = round(sum(v[0] for v in iva_por_tipo.values()), 2)
-    iva_total = round(sum(v[1] for v in iva_por_tipo.values()), 2)
+    # Desglose de IVA desde la FUENTE ÚNICA (sin aritmética fiscal aquí).
+    try:
+        from src.utils import fiscalidad
+        _dg = fiscalidad.desglose_iva_lineas(items, tipo_general=datos.get("iva_general"))
+    except Exception:
+        _dg = {"por_tipo": {}, "base": total, "cuota": 0.0, "total": total}
+    iva_por_tipo = {r: [v["base"], v["cuota"], v["total"]] for r, v in _dg["por_tipo"].items()}
+    base_total = _dg["base"]
+    iva_total = _dg["cuota"]
 
     # Forma de pago legible
     fp_raw = str(pago.get("forma_pago", "")).strip().lower()
@@ -243,7 +243,8 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
 
     # 1) LOGO
     logo = datos.get("logo")
-    if logo and os.path.exists(logo):
+    _logo_ok = bool(logo and os.path.exists(logo))
+    if _logo_ok:
         try:
             from reportlab.lib.utils import ImageReader
             ir = ImageReader(logo)
@@ -259,10 +260,14 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         except Exception as e:
             logger.warning("No se pudo dibujar el logo del ticket: %s", e)
 
-    # 2) CABECERA FISCAL (si no hay logo, el nombre comercial es el fallback)
-    nombre = (emp.get("nombre_comercial") or emp.get("nombre")
-              or emp.get("razon_social") or L("title", "SMART MANAGER"))
-    texto(nombre, _FB, 11, center=True)
+    # 2) CABECERA FISCAL. El logo SUSTITUYE al nombre textual cuando existe;
+    #    si no hay logo, se muestra el nombre comercial como fallback.
+    if not _logo_ok:
+        nombre = (emp.get("nombre_comercial") or emp.get("nombre")
+                  or emp.get("razon_social") or L("title", "SMART MANAGER"))
+        texto(nombre, _FB, 11, center=True)
+    if datos.get("copia"):
+        texto("— " + L("copy", "COPIA") + " —", _FB, 9, center=True, color=(0.6, 0.1, 0.1))
     dir_completa = emp.get("direccion_completa") or emp.get("direccion") or ""
     for ln in [
         (f"{L('cif', 'CIF')}: {emp.get('cif')}" if emp.get("cif") else ""),

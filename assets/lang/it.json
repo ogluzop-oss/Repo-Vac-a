@@ -101,7 +101,8 @@
     "delivered": "Consegnato",
     "card_amount": "Carta",
     "return_policy": "Dispone di {d} giorni per resi presentando questo scontrino.",
-    "pay_mixed": "Misto"
+    "pay_mixed": "Misto",
+    "copy": "COPIA"
   },
   "tpv": {
     "title": "Cassa — Smart Manager",
@@ -153,7 +154,25 @@
     "del_item_title": "Elimina articolo",
     "del_item_msg": "Desideri eliminare «{nombre}» dal ticket?",
     "del_item_ok": "ELIMINA",
-    "agregar": "AGGIUNGI"
+    "agregar": "AGGIUNGI",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "CERCA",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "Venta",
+    "find_c_date": "Data",
+    "find_c_total": "Totale",
+    "find_c_pay": "Pago",
+    "find_c_emp": "Dipendente",
+    "find_c_caja": "Cassa",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "Nessun dato",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "BOLLA DI TRASFERIMENTO",

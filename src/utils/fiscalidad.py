@@ -111,3 +111,42 @@ def pais_fiscal_empresa(id_empresa=None) -> str:
 def iva_empresa(id_empresa=None) -> float:
     """Tipo de IVA (%) que corresponde a la empresa según su país fiscal."""
     return iva_de_pais(pais_fiscal_empresa(id_empresa))
+
+
+# ── Desglose fiscal: FUENTE ÚNICA para TODOS los documentos ───────────────────
+# Los precios son PVP (IVA incluido); estas funciones solo descomponen, nunca
+# alteran el importe final. Cualquier generador (ticket, factura, presupuesto,
+# devolución, albarán valorado, informe…) debe usar ESTAS funciones y no
+# reimplementar la aritmética del IVA.
+
+def desglose_iva(total_pvp, id_empresa=None, tipo=None) -> dict:
+    """Descompone un importe IVA-incluido en {tipo, base, cuota, total}.
+    `tipo` (porcentaje) opcional; si no, usa el IVA de la empresa."""
+    r = float(tipo) if tipo is not None else iva_empresa(id_empresa)
+    total = round(float(total_pvp or 0), 2)
+    base = round(total / (1 + r / 100), 2) if r else total
+    return {"tipo": r, "base": base, "cuota": round(total - base, 2), "total": total}
+
+
+def desglose_iva_lineas(lineas, id_empresa=None, tipo_general=None) -> dict:
+    """Desglose por tipo de IVA de una lista de líneas (cada una con 'subtotal'
+    PVP y, opcionalmente, 'iva'; si no, se usa `tipo_general` o el IVA de la
+    empresa). Devuelve {'por_tipo': {r: {base,cuota,total}}, 'base','cuota','total'}."""
+    base_emp = float(tipo_general) if tipo_general is not None else iva_empresa(id_empresa)
+    por_tipo: dict = {}
+    for ln in lineas or []:
+        sub = round(float(ln.get("subtotal", 0) or 0), 2)
+        r = float(ln.get("iva", base_emp) if ln.get("iva") is not None else base_emp)
+        d = desglose_iva(sub, tipo=r)
+        acc = por_tipo.setdefault(r, {"base": 0.0, "cuota": 0.0, "total": 0.0})
+        acc["base"] += d["base"]; acc["cuota"] += d["cuota"]; acc["total"] += d["total"]
+    for r, acc in por_tipo.items():
+        acc["base"] = round(acc["base"], 2)
+        acc["cuota"] = round(acc["cuota"], 2)
+        acc["total"] = round(acc["total"], 2)
+    return {
+        "por_tipo": por_tipo,
+        "base": round(sum(a["base"] for a in por_tipo.values()), 2),
+        "cuota": round(sum(a["cuota"] for a in por_tipo.values()), 2),
+        "total": round(sum(a["total"] for a in por_tipo.values()), 2),
+    }

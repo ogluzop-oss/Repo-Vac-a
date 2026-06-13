@@ -101,7 +101,8 @@
     "delivered": "지급됨",
     "card_amount": "카드",
     "return_policy": "Dispone de {d} días para devoluciones presentando este ticket.",
-    "pay_mixed": "혼합"
+    "pay_mixed": "혼합",
+    "copy": "COPIA"
   },
   "tpv": {
     "exit": "✕  나가기",
@@ -153,7 +154,25 @@
     "del_item_msg": "«{nombre}»을(를) 영수증에서 삭제하시겠습니까?",
     "del_item_ok": "삭제",
     "agregar": "추가",
-    "title": "TPV — Smart Manager"
+    "title": "TPV — Smart Manager",
+    "tickets": "Tickets",
+    "find_title": "BUSCAR / REIMPRIMIR TICKET",
+    "find_q_ph": "Escanear QR / código de barras o nº de ticket…",
+    "find_amount": "Importe",
+    "find_btn": "검색",
+    "find_from": "Desde",
+    "find_to": "Hasta",
+    "find_c_id": "판매",
+    "find_c_date": "날짜",
+    "find_c_total": "합계",
+    "find_c_pay": "Pago",
+    "find_c_emp": "직원",
+    "find_c_caja": "계산대",
+    "find_c_items": "Artículos",
+    "find_reprint": "REIMPRIMIR",
+    "find_count": "{n} resultado(s)",
+    "find_err_t": "데이터 없음",
+    "find_err": "No se pudo recuperar la venta."
   },
   "albaran": {
     "doc_title": "이송 인수증",

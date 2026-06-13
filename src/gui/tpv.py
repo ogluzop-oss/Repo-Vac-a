@@ -2325,6 +2325,160 @@ class _DevolucionDialog(QDialog):
 
 
 # ============================================================
+# BLOQUE — BÚSQUEDA / REIMPRESIÓN DE TICKETS
+# ============================================================
+
+class _BuscarTicketDialog(QDialog):
+    """Localiza ventas por QR/código de barras escaneado, nº de ticket, fecha o
+    importe, y permite reimprimir el ticket (copia) o abrirlo."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMinimumSize(820, 560)
+        self._build()
+
+    def _build(self):
+        card = QFrame(self); card.setObjectName("bt")
+        card.setStyleSheet(f"QFrame#bt{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(24, 20, 24, 20); ly.setSpacing(12)
+
+        hdr = QHBoxLayout()
+        hdr.addWidget(_lbl("🔎  " + tr("tpv.find_title", default="BUSCAR / REIMPRIMIR TICKET"), bold=True, size=16, color=_CIAN))
+        hdr.addStretch()
+        bx = QPushButton("✕"); bx.setFixedSize(34, 34); bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
+        bx.clicked.connect(self.reject); hdr.addWidget(bx)
+        ly.addLayout(hdr)
+
+        # Fila de filtros
+        f = QHBoxLayout(); f.setSpacing(8)
+        _iss = (f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+                f"border-radius:8px;padding:6px 10px;font-size:13px;font-family:'{_FONT}';}}"
+                f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        self.inp_q = QLineEdit(); self.inp_q.setStyleSheet(_iss)
+        self.inp_q.setPlaceholderText(tr("tpv.find_q_ph", default="Escanear QR / código de barras o nº de ticket…"))
+        self.inp_q.returnPressed.connect(self._buscar)
+        self.inp_desde = QLineEdit(); self.inp_desde.setFixedWidth(110); self.inp_desde.setStyleSheet(_iss)
+        self.inp_desde.setPlaceholderText("DD/MM/AAAA")
+        self.inp_hasta = QLineEdit(); self.inp_hasta.setFixedWidth(110); self.inp_hasta.setStyleSheet(_iss)
+        self.inp_hasta.setPlaceholderText("DD/MM/AAAA")
+        self.inp_imp = QLineEdit(); self.inp_imp.setFixedWidth(100); self.inp_imp.setStyleSheet(_iss)
+        self.inp_imp.setPlaceholderText(tr("tpv.find_amount", default="Importe"))
+        b_buscar = _btn(tr("tpv.find_btn", default="BUSCAR"), color_bg=_CIAN, color_fg="#0D1117",
+                        color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=38)
+        b_buscar.clicked.connect(self._buscar)
+        f.addWidget(self.inp_q, 1)
+        f.addWidget(_lbl(tr("tpv.find_from", default="Desde"), size=11, color=_TEXT2)); f.addWidget(self.inp_desde)
+        f.addWidget(_lbl(tr("tpv.find_to", default="Hasta"), size=11, color=_TEXT2)); f.addWidget(self.inp_hasta)
+        f.addWidget(self.inp_imp)
+        f.addWidget(b_buscar)
+        ly.addLayout(f)
+
+        self.tabla = QTableWidget(0, 7)
+        self.tabla.setHorizontalHeaderLabels([
+            tr("tpv.find_c_id", default="Venta"), tr("tpv.find_c_date", default="Fecha"),
+            tr("tpv.find_c_total", default="Total"), tr("tpv.find_c_pay", default="Pago"),
+            tr("tpv.find_c_emp", default="Empleado"), tr("tpv.find_c_caja", default="Caja"),
+            tr("tpv.find_c_items", default="Artículos")])
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tabla.verticalHeader().setVisible(False)
+        self.tabla.setStyleSheet(
+            f"QTableWidget{{background:{_BG};color:{_TEXT};border:1px solid {_BORDE};border-radius:10px;"
+            f"font-family:'{_FONT}';font-size:12px;gridline-color:{_BORDE};}}"
+            f"QTableWidget::item:selected{{background:#1C2128;color:{_CIAN};}}"
+            f"QHeaderView::section{{background:{_BG2};color:{_TEXT2};border:none;"
+            f"border-bottom:1px solid {_BORDE};padding:6px;font-weight:700;}}")
+        hh = self.tabla.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed); self.tabla.setColumnWidth(0, 70)
+        self.tabla.doubleClicked.connect(self._reimprimir)
+        ly.addWidget(self.tabla, 1)
+
+        self.lbl_info = _lbl("", size=11, color=_TEXT2)
+        br = QHBoxLayout(); br.addWidget(self.lbl_info); br.addStretch()
+        b_re = _btn("🖨  " + tr("tpv.find_reprint", default="REIMPRIMIR"), color_bg=_VERDE, color_fg="#0D1117",
+                    color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=40)
+        b_re.clicked.connect(self._reimprimir)
+        br.addWidget(b_re)
+        ly.addLayout(br)
+        QTimer.singleShot(0, self.inp_q.setFocus)
+        self._buscar()
+
+    @staticmethod
+    def _fecha_sql(txt):
+        txt = (txt or "").strip()
+        if not txt:
+            return None
+        for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+            try:
+                return datetime.datetime.strptime(txt, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+        return None
+
+    def _buscar(self):
+        from src.db.ventas_busqueda import buscar_ventas
+        try:
+            imp = float(self.inp_imp.text().replace(",", ".")) if self.inp_imp.text().strip() else None
+        except ValueError:
+            imp = None
+        idemp = None
+        try:
+            from src.db.empresa import empresa_actual_id
+            idemp = empresa_actual_id()
+        except Exception:
+            pass
+        filas = buscar_ventas(
+            texto=self.inp_q.text().strip() or None,
+            fecha_desde=self._fecha_sql(self.inp_desde.text()),
+            fecha_hasta=self._fecha_sql(self.inp_hasta.text()),
+            importe=imp, id_empresa=idemp)
+        self.tabla.setRowCount(len(filas))
+        for r, v in enumerate(filas):
+            fecha = v.get("fecha")
+            fecha_txt = fecha.strftime("%d/%m/%Y %H:%M") if hasattr(fecha, "strftime") else str(fecha or "")
+            vals = [str(v.get("id")), fecha_txt, divisas.formatear(v.get("total", 0)),
+                    str(v.get("forma_pago") or "—"), str(v.get("empleado") or "—"),
+                    f"CAJA-{int(v.get('numero_caja') or 1):02d}", str(v.get("n_items") or 0)]
+            for c, t in enumerate(vals):
+                it = QTableWidgetItem(t)
+                it.setData(Qt.ItemDataRole.UserRole, v.get("id"))
+                self.tabla.setItem(r, c, it)
+        self.lbl_info.setText(tr("tpv.find_count", default="{n} resultado(s)", n=len(filas)))
+
+    def _reimprimir(self):
+        row = self.tabla.currentRow()
+        if row < 0:
+            return
+        it = self.tabla.item(row, 0)
+        venta_id = it.data(Qt.ItemDataRole.UserRole) if it else None
+        if venta_id is None:
+            return
+        try:
+            from src.utils.ticket_data import reimprimir_ticket
+            ruta = reimprimir_ticket(venta_id)
+            if ruta:
+                import os as _os
+                import platform
+                import subprocess
+                if platform.system() == "Windows":
+                    _os.startfile(ruta)
+                else:
+                    subprocess.Popen(["xdg-open", ruta])
+            else:
+                from assets.estilo_global import mostrar_mensaje as _mm
+                _mm(self, tr("tpv.find_err_t", default="Sin datos"),
+                    tr("tpv.find_err", default="No se pudo recuperar la venta."), "warning")
+        except Exception as e:
+            logger.warning("Error reimprimiendo ticket: %s", e)
+
+
+# ============================================================
 # BLOQUE — VENTANA PRINCIPAL TPV
 # ============================================================
 
@@ -2840,16 +2994,18 @@ class TPVWindow(QWidget):
         self.btn_devolucion, ld = self._btn_accion_card("↩", tr("tpv.refund"), _CIAN, self._abrir_devolucion)
         self.btn_retener,    lr = self._btn_accion_card("⏸", tr("tpv.hold"), _CIAN, self._retener)
         self.btn_recuperar,  lc = self._btn_accion_card("📂", tr("tpv.recover"), _CIAN, self._recuperar)
+        self.btn_tickets,    lt2 = self._btn_accion_card("🔎", tr("tpv.tickets", default="Tickets"), _CIAN, self._abrir_buscar_tickets)
         self._btn_vaciar,    lv = self._btn_accion_card("🗑", tr("tpv.empty_cart"), _ROJO, self._vaciar, danger=True)
         self._acc_labels = {"tpv.scale": lb, "tpv.refund": ld, "tpv.hold": lr,
-                            "tpv.recover": lc, "tpv.empty_cart": lv}
+                            "tpv.recover": lc, "tpv.tickets": lt2, "tpv.empty_cart": lv}
         self.btn_retener.setEnabled(False)
 
         grid_acc.addWidget(self.btn_bascula,    0, 0)
         grid_acc.addWidget(self.btn_devolucion, 0, 1)
         grid_acc.addWidget(self.btn_retener,    0, 2)
         grid_acc.addWidget(self.btn_recuperar,  1, 0)
-        grid_acc.addWidget(self._btn_vaciar,    1, 1)
+        grid_acc.addWidget(self.btn_tickets,    1, 1)
+        grid_acc.addWidget(self._btn_vaciar,    1, 2)
         cl2.addLayout(grid_acc)
         lay.addWidget(card_acc)
         lay.addStretch()
@@ -3150,6 +3306,10 @@ class TPVWindow(QWidget):
                 self._lineas = rec.get("lineas", [])
                 self._refresh_tabla()
 
+    def _abrir_buscar_tickets(self):
+        """Búsqueda/reimpresión de tickets (QR/código de barras/nº/fecha/importe)."""
+        _BuscarTicketDialog(parent=self).exec()
+
     # ─────────────────── FUNCIONES ENTERPRISE ────────────────
 
     def _abrir_bascula(self):
@@ -3326,86 +3486,12 @@ class TPVWindow(QWidget):
                 _TICKETS_DIR,
                 f"ticket_{fecha.strftime('%Y%m%d_%H%M%S')}_{venta_id}.pdf"
             )
-            from src.utils import divisas
             from src.utils.impresion import generar_ticket_pdf
-            try:
-                n_caja = int(str(self._id_caja).split("-")[-1])
-            except Exception:
-                n_caja = 1
-            ticket_num = f"TCK-{fecha.strftime('%Y%m%d')}-{int(venta_id or 0):05d}"
-
-            # Cabecera corporativa (fuente única) + tienda/centro
-            empresa, tienda, id_empresa = {}, {}, ""
-            try:
-                from src.db.empresa import empresa_actual_id, info_documento
-                _i = info_documento()
-                empresa = {
-                    "nombre": _i.get("nombre"), "nombre_comercial": _i.get("nombre_comercial"),
-                    "cif": _i.get("cif"), "direccion_completa": _i.get("direccion_completa"),
-                    "pais": _i.get("pais"), "telefono": _i.get("telefono"),
-                    "email": _i.get("email"),
-                }
-                tienda = {"nombre": _i.get("centro_nombre"), "codigo": _i.get("centro_codigo")}
-                id_empresa = empresa_actual_id() or ""
-            except Exception:
-                pass
-
-            # Configuración del ticket (texto legal / mensaje / plazo devolución)
-            try:
-                from src.db.config_ticket import obtener_config_ticket
-                cfg = obtener_config_ticket()
-            except Exception:
-                cfg = {}
-
-            # IVA automático según el PAÍS FISCAL de la empresa (no toca precios:
-            # el PVP ya incluye IVA; solo se usa para el desglose del ticket).
-            try:
-                from src.utils import fiscalidad
-                iva_rate = fiscalidad.iva_empresa()
-            except Exception:
-                iva_rate = 21.0
-
-            items = [
-                {"nombre": l.get("nombre"), "cantidad": l.get("cantidad", 1),
-                 "precio": l.get("precio", 0), "subtotal": l.get("subtotal", 0),
-                 "descuento_pct": l.get("descuento_pct", 0), "iva": iva_rate,
-                 "modo_venta": l.get("modo_venta"), "peso": l.get("peso"),
-                 "precio_kg": l.get("precio_kg"), "granel": l.get("modo_venta") == "PESO"}
-                for l in lineas
-            ]
-
-            pago_d = {
-                "forma_pago": pago.get("forma_pago", ""),
-                "total": pago.get("total", 0),
-                "entregado": pago.get("entregado"),
-                "cambio": pago.get("cambio", 0.0),
-                "efectivo": pago.get("efectivo_neto"),
-                "tarjeta": pago.get("tarjeta"),
-            }
-
-            import hashlib
-            traza = f"{venta_id}|{fecha.isoformat()}|{pago.get('total',0)}|{len(lineas)}"
-            doc_hash = hashlib.sha256(traza.encode()).hexdigest()
-
-            datos = {
-                "logo": _LOGO_CORP_PATH if os.path.exists(_LOGO_CORP_PATH) else None,
-                "empresa": empresa,
-                "tienda": tienda,
-                "operacion": {
-                    "ticket_num": ticket_num, "venta_id": venta_id,
-                    "caja": self._id_caja, "terminal": f"TPV-{n_caja:02d}",
-                    "empleado": self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else "—"),
-                    "fecha": fecha.strftime("%d/%m/%Y  %H:%M:%S"),
-                },
-                "items": items,
-                "pago": pago_d,
-                "moneda": divisas.divisa_actual(),
-                "config": cfg,
-                "hash": doc_hash,
-                # QR multiempresa: ticket | fecha | empresa | tienda | venta | importe
-                "qr": f"SMART|{ticket_num}|{fecha.strftime('%Y-%m-%d %H:%M')}|"
-                      f"{id_empresa}|{tienda.get('codigo') or ''}|{venta_id}|{pago.get('total', 0)}",
-            }
+            from src.utils.ticket_data import construir_datos_ticket
+            empleado = self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else "—")
+            datos = construir_datos_ticket(
+                venta_id=venta_id, fecha=fecha, id_caja=self._id_caja,
+                empleado=empleado, lineas=lineas, pago=pago, copia=False)
             generar_ticket_pdf(datos, archivo)
         except Exception as e:
             logger.warning(f"No se pudo generar el ticket PDF: {e}")
