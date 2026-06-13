@@ -8,6 +8,7 @@ from PyQt6.QtGui import QBitmap, QColor, QFont, QIcon, QPainter, QPainterPath, Q
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
+    QApplication,
     QCalendarWidget,
     QComboBox,
     QDateEdit,
@@ -343,12 +344,19 @@ class _PopupBorderOverlay(QWidget):
 
 
 class _NeonCalFrame(QFrame):
-    """Ventana popup con fondo #11181D y borde neón.
-    Usa setMask para esquinas redondeadas — más fiable que WA_TranslucentBackground en Windows."""
+    """Marco del calendario con fondo #11181D y borde neón (esquinas redondeadas
+    por máscara). Si se pasa `parent`, es un OVERLAY hijo de la ventana (sin
+    ventana nativa propia → posición determinista, sin depender del WM)."""
 
-    def __init__(self):
-        super().__init__(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
-        self.setStyleSheet("background: #11181D; border: none;")
+    def __init__(self, parent=None):
+        if parent is not None:
+            super().__init__(parent)
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        else:
+            super().__init__(None, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setObjectName("neon_cal_frame")
+        self.setStyleSheet(
+            "QFrame#neon_cal_frame{background:#11181D;border:2px solid " + CIAN + ";border-radius:14px;}")
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -403,18 +411,15 @@ class _NeonDateEdit(QDateEdit):
         super().mousePressEvent(event)
 
     def showPopup(self):
+        # Si ya está abierto, lo cerramos (toggle).
         if self._cal_popup is not None:
-            try:
-                if self._cal_popup.isVisible():
-                    return
-            except RuntimeError:
-                pass
-            self._cal_popup = None
+            self.hidePopup()
+            return
 
-        popup = _NeonCalFrame()
-        popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-
-        # 11px = 2px border + 9px inner gap; calendar never overlaps the border
+        # OVERLAY hijo de la ventana → posición DETERMINISTA (sin ventana nativa
+        # ni dependencia del gestor de ventanas, que centraba el primer popup).
+        win = self.window()
+        popup = _NeonCalFrame(win)
         MARGIN = 11
         lay = QVBoxLayout(popup)
         lay.setContentsMargins(MARGIN, MARGIN, MARGIN, MARGIN)
@@ -426,11 +431,7 @@ class _NeonDateEdit(QDateEdit):
 
         def _on_date_clicked(qdate):
             self.setDate(qdate)
-            try:
-                popup.close()
-            except RuntimeError:
-                pass
-            self._cal_popup = None
+            self.hidePopup()
 
         cal.clicked.connect(_on_date_clicked)
 
@@ -438,23 +439,22 @@ class _NeonDateEdit(QDateEdit):
             cal.minimumWidth() + 2 * MARGIN,
             cal.minimumHeight() + 2 * MARGIN,
         )
-        # Posicionar justo bajo el campo. En Windows, el WM centra el PRIMER
-        # top-level si se mueve antes de crear su handle nativo; por eso forzamos
-        # winId() (crea el handle), movemos antes y después de show(), y
-        # reaplicamos en varios ticks para ganar la carrera con el WM.
-        def _colocar(_p=popup):
-            try:
-                _p.move(self.mapToGlobal(QPoint(0, self.height())))
-            except RuntimeError:
-                pass
-        popup.winId()          # crea el handle nativo antes de posicionar
-        _colocar()
+        # Coordenadas DENTRO de la ventana (no globales): justo bajo el campo;
+        # si no cabe abajo, se abre hacia arriba; clamp a los bordes.
+        tl = self.mapTo(win, QPoint(0, self.height()))
+        x, y = tl.x(), tl.y()
+        if y + popup.height() > win.height() - 4:
+            y = self.mapTo(win, QPoint(0, 0)).y() - popup.height()
+        x = max(6, min(x, win.width() - popup.width() - 6))
+        y = max(6, y)
+        popup.move(x, y)
         popup.show()
-        _colocar()
         popup.raise_()
-        for _delay in (0, 30, 90):
-            QTimer.singleShot(_delay, _colocar)
         self._cal_popup = popup
+
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)   # cerrar al hacer clic fuera
 
         def _retry_nav(c=cal, retries=8):
             try:
@@ -469,15 +469,34 @@ class _NeonDateEdit(QDateEdit):
 
         QTimer.singleShot(0, _retry_nav)
 
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.MouseButtonPress and self._cal_popup is not None:
+            try:
+                w = QApplication.widgetAt(event.globalPosition().toPoint())
+            except Exception:
+                w = None
+            # No cerrar si el clic cae en el calendario, en el propio campo, o en
+            # otra ventana top-level (los popups de mes/año del calendario).
+            if w is not None and (
+                w is self._cal_popup or self._cal_popup.isAncestorOf(w)
+                or w is self or self.isAncestorOf(w)
+                or w.window() is not self._cal_popup.window()
+            ):
+                return False
+            self.hidePopup()
+        return False
+
     def hidePopup(self):
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
         if self._cal_popup is not None:
             try:
-                self._cal_popup.close()
+                self._cal_popup.hide()
+                self._cal_popup.deleteLater()
             except RuntimeError:
                 pass
             self._cal_popup = None
-        else:
-            super().hidePopup()
 
 
 class _VentasCalendarWidget(QCalendarWidget):
