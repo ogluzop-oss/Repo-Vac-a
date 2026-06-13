@@ -353,6 +353,32 @@ def ensure_schema(force: bool = False):
                 except Exception as _e:
                     logger.warning("No se pudo añadir articulos.iva: %s", _e)
 
+                # CLIENTES (captura en el flujo de venta del TPV; multiempresa).
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS clientes (
+                        id          INT AUTO_INCREMENT PRIMARY KEY,
+                        nombre      VARCHAR(150) NOT NULL,
+                        nif         VARCHAR(20)           DEFAULT NULL,
+                        telefono    VARCHAR(30)           DEFAULT NULL,
+                        email       VARCHAR(150)          DEFAULT NULL,
+                        direccion   VARCHAR(255)          DEFAULT NULL,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+                        estado      VARCHAR(20)  NOT NULL DEFAULT 'activo',
+                        fecha_alta  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        KEY idx_cli_nombre (nombre),
+                        KEY idx_cli_nif (nif)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                # Cliente asociado a la venta (denormalizado para ticket/búsqueda).
+                try:
+                    cur.execute(
+                        "ALTER TABLE ventas "
+                        "ADD COLUMN IF NOT EXISTS cliente_id INT DEFAULT NULL, "
+                        "ADD COLUMN IF NOT EXISTS cliente_nombre VARCHAR(150) DEFAULT NULL, "
+                        "ADD COLUMN IF NOT EXISTS cliente_nif VARCHAR(20) DEFAULT NULL")
+                except Exception as _e:
+                    logger.warning("No se pudo añadir ventas.cliente_*: %s", _e)
+
                 # Configuración del ticket por empresa (texto legal, mensaje de
                 # despedida y plazo de devolución). Fuente única para el generador.
                 cur.execute("""

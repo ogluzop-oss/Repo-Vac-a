@@ -2325,6 +2325,135 @@ class _DevolucionDialog(QDialog):
 
 
 # ============================================================
+# BLOQUE — SELECCIÓN / ALTA DE CLIENTE
+# ============================================================
+
+class _ClienteDialog(QDialog):
+    """Selecciona un cliente existente, da de alta uno nuevo, o usa el cliente
+    genérico (sin identificar). Devuelve el cliente elegido vía get_cliente()."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMinimumSize(620, 520)
+        self._cliente: dict | None = None
+        self._build()
+
+    def _build(self):
+        card = QFrame(self); card.setObjectName("cl")
+        card.setStyleSheet(f"QFrame#cl{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(24, 20, 24, 20); ly.setSpacing(12)
+
+        hdr = QHBoxLayout()
+        hdr.addWidget(_lbl("👤  " + tr("tpv.cli_title", default="CLIENTE DE LA VENTA"), bold=True, size=16, color=_CIAN))
+        hdr.addStretch()
+        bx = QPushButton("✕"); bx.setFixedSize(34, 34); bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
+        bx.clicked.connect(self.reject); hdr.addWidget(bx)
+        ly.addLayout(hdr)
+
+        _iss = (f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+                f"border-radius:8px;padding:6px 10px;font-size:13px;font-family:'{_FONT}';}}"
+                f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        f = QHBoxLayout(); f.setSpacing(8)
+        self.inp_buscar = QLineEdit(); self.inp_buscar.setStyleSheet(_iss)
+        self.inp_buscar.setPlaceholderText(tr("tpv.cli_search_ph", default="Buscar por nombre, NIF, teléfono o email…"))
+        self.inp_buscar.returnPressed.connect(self._buscar)
+        b_b = _btn(tr("tpv.find_btn", default="BUSCAR"), color_bg=_CIAN, color_fg="#0D1117",
+                   color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=38)
+        b_b.clicked.connect(self._buscar)
+        f.addWidget(self.inp_buscar, 1); f.addWidget(b_b)
+        ly.addLayout(f)
+
+        self.tabla = QTableWidget(0, 4)
+        self.tabla.setHorizontalHeaderLabels([
+            tr("tpv.cli_c_name", default="Nombre"), tr("tpv.cli_c_nif", default="NIF"),
+            tr("tpv.cli_c_phone", default="Teléfono"), tr("tpv.cli_c_email", default="Email")])
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tabla.verticalHeader().setVisible(False)
+        self.tabla.setStyleSheet(
+            f"QTableWidget{{background:{_BG};color:{_TEXT};border:1px solid {_BORDE};border-radius:10px;"
+            f"font-family:'{_FONT}';font-size:12px;gridline-color:{_BORDE};}}"
+            f"QTableWidget::item:selected{{background:#1C2128;color:{_CIAN};}}"
+            f"QHeaderView::section{{background:{_BG2};color:{_TEXT2};border:none;"
+            f"border-bottom:1px solid {_BORDE};padding:6px;font-weight:700;}}")
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla.doubleClicked.connect(self._usar_seleccionado)
+        ly.addWidget(self.tabla, 1)
+
+        # Alta rápida de cliente nuevo
+        nb = QFrame(); nb.setStyleSheet(f"QFrame{{background:{_BG2};border:1px solid {_BORDE};border-radius:10px;}}")
+        nl = QVBoxLayout(nb); nl.setContentsMargins(12, 10, 12, 10); nl.setSpacing(6)
+        nl.addWidget(_lbl(tr("tpv.cli_new", default="NUEVO CLIENTE"), bold=True, size=12, color=_TEXT2))
+        r1 = QHBoxLayout(); r1.setSpacing(8)
+        self.n_nombre = QLineEdit(); self.n_nombre.setStyleSheet(_iss); self.n_nombre.setPlaceholderText(tr("tpv.cli_name", default="Nombre / Razón social"))
+        self.n_nif = QLineEdit(); self.n_nif.setStyleSheet(_iss); self.n_nif.setPlaceholderText(tr("tpv.cli_nif", default="NIF / CIF")); self.n_nif.setFixedWidth(140)
+        r1.addWidget(self.n_nombre, 1); r1.addWidget(self.n_nif)
+        nl.addLayout(r1)
+        r2 = QHBoxLayout(); r2.setSpacing(8)
+        self.n_tel = QLineEdit(); self.n_tel.setStyleSheet(_iss); self.n_tel.setPlaceholderText(tr("tpv.cli_phone", default="Teléfono")); self.n_tel.setFixedWidth(140)
+        self.n_email = QLineEdit(); self.n_email.setStyleSheet(_iss); self.n_email.setPlaceholderText(tr("tpv.cli_email", default="Email"))
+        b_alta = _btn(tr("tpv.cli_create", default="CREAR Y USAR"), color_bg=_VERDE, color_fg="#0D1117",
+                      color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=38)
+        b_alta.clicked.connect(self._crear_y_usar)
+        r2.addWidget(self.n_tel); r2.addWidget(self.n_email, 1); r2.addWidget(b_alta)
+        nl.addLayout(r2)
+        ly.addWidget(nb)
+
+        # Acciones inferiores
+        br = QHBoxLayout()
+        b_gen = _btn(tr("tpv.cli_generic", default="CLIENTE GENÉRICO"), h=40)
+        b_gen.clicked.connect(self._usar_generico)
+        b_use = _btn("✔  " + tr("tpv.cli_use", default="USAR SELECCIONADO"), color_bg=_CIAN, color_fg="#0D1117",
+                     color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=40)
+        b_use.clicked.connect(self._usar_seleccionado)
+        br.addWidget(b_gen); br.addStretch(); br.addWidget(b_use)
+        ly.addLayout(br)
+        QTimer.singleShot(0, self.inp_buscar.setFocus)
+        self._buscar()
+
+    def _buscar(self):
+        from src.db.clientes import buscar_clientes
+        filas = buscar_clientes(self.inp_buscar.text().strip())
+        self.tabla.setRowCount(len(filas))
+        for r, c in enumerate(filas):
+            for col, key in enumerate(("nombre", "nif", "telefono", "email")):
+                it = QTableWidgetItem(str(c.get(key) or "—"))
+                it.setData(Qt.ItemDataRole.UserRole, c)
+                self.tabla.setItem(r, col, it)
+
+    def _usar_seleccionado(self):
+        row = self.tabla.currentRow()
+        if row < 0:
+            return
+        it = self.tabla.item(row, 0)
+        self._cliente = it.data(Qt.ItemDataRole.UserRole) if it else None
+        self.accept()
+
+    def _usar_generico(self):
+        self._cliente = None
+        self.accept()
+
+    def _crear_y_usar(self):
+        from src.db.clientes import crear_cliente, obtener_cliente
+        nombre = self.n_nombre.text().strip()
+        if not nombre:
+            self.n_nombre.setFocus(); return
+        cid = crear_cliente(nombre, nif=self.n_nif.text().strip(),
+                            telefono=self.n_tel.text().strip(), email=self.n_email.text().strip())
+        if cid:
+            self._cliente = obtener_cliente(cid)
+            self.accept()
+
+    def get_cliente(self) -> dict | None:
+        return self._cliente
+
+
+# ============================================================
 # BLOQUE — BÚSQUEDA / REIMPRESIÓN DE TICKETS
 # ============================================================
 
@@ -2381,7 +2510,7 @@ class _BuscarTicketDialog(QDialog):
         self.tabla.setHorizontalHeaderLabels([
             tr("tpv.find_c_id", default="Venta"), tr("tpv.find_c_date", default="Fecha"),
             tr("tpv.find_c_total", default="Total"), tr("tpv.find_c_pay", default="Pago"),
-            tr("tpv.find_c_emp", default="Empleado"), tr("tpv.find_c_caja", default="Caja"),
+            tr("tpv.find_c_cli", default="Cliente"), tr("tpv.find_c_caja", default="Caja"),
             tr("tpv.find_c_items", default="Artículos")])
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -2443,7 +2572,7 @@ class _BuscarTicketDialog(QDialog):
             fecha = v.get("fecha")
             fecha_txt = fecha.strftime("%d/%m/%Y %H:%M") if hasattr(fecha, "strftime") else str(fecha or "")
             vals = [str(v.get("id")), fecha_txt, divisas.formatear(v.get("total", 0)),
-                    str(v.get("forma_pago") or "—"), str(v.get("empleado") or "—"),
+                    str(v.get("forma_pago") or "—"), str(v.get("cliente_nombre") or "—"),
                     f"CAJA-{int(v.get('numero_caja') or 1):02d}", str(v.get("n_items") or 0)]
             for c, t in enumerate(vals):
                 it = QTableWidgetItem(t)
@@ -2493,6 +2622,7 @@ class TPVWindow(QWidget):
         self._id_caja: str | None = None
         self._empleado_tpv: str = ""
         self._empleado_id_tpv = None
+        self._cliente: dict | None = None   # None = cliente genérico
         self._auth_cancelled: bool = False  # login cancelado → _abrir_tpv_en_stack no muestra el TPV
 
         self.setWindowTitle(tr("tpv.title"))
@@ -2956,6 +3086,21 @@ class TPVWindow(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
 
+        # Selector de cliente (genérico por defecto) — captura en el flujo de venta
+        self.btn_cliente = QPushButton()
+        self.btn_cliente.setFixedHeight(38)
+        self.btn_cliente.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_cliente.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_cliente.setStyleSheet(
+            f"QPushButton{{background:{_BG2};color:{_CIAN};border:2px solid {_BORDE};"
+            f"border-radius:10px;font-family:'{_FONT}';font-weight:900;font-size:13px;"
+            f"text-align:left;padding:0 14px;outline:0px;}}"
+            f"QPushButton:hover{{border-color:{_CIAN};}}"
+        )
+        self.btn_cliente.clicked.connect(self._seleccionar_cliente)
+        lay.addWidget(self.btn_cliente)
+        self._refrescar_cliente_btn()
+
         # Botón COBRAR
         self.btn_cobrar = QPushButton(tr("tpv.charge"))
         self.btn_cobrar.setFixedHeight(52)
@@ -3310,6 +3455,23 @@ class TPVWindow(QWidget):
         """Búsqueda/reimpresión de tickets (QR/código de barras/nº/fecha/importe)."""
         _BuscarTicketDialog(parent=self).exec()
 
+    def _seleccionar_cliente(self):
+        """Selecciona/da de alta el cliente de la venta (o genérico)."""
+        dlg = _ClienteDialog(parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._cliente = dlg.get_cliente()  # None = genérico
+            self._refrescar_cliente_btn()
+
+    def _refrescar_cliente_btn(self):
+        if not hasattr(self, "btn_cliente"):
+            return
+        cli = getattr(self, "_cliente", None)
+        if cli:
+            nif = f"  ·  {cli.get('nif')}" if cli.get("nif") else ""
+            self.btn_cliente.setText(f"👤  {cli.get('nombre', '')}{nif}")
+        else:
+            self.btn_cliente.setText("👤  " + tr("tpv.cli_generic_short", default="Cliente genérico"))
+
     # ─────────────────── FUNCIONES ENTERPRISE ────────────────
 
     def _abrir_bascula(self):
@@ -3369,19 +3531,22 @@ class TPVWindow(QWidget):
         except Exception:
             n_caja = 1
 
+        cli = getattr(self, "_cliente", None) or {}
         venta_id = None
         try:
             with obtener_conexion() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "INSERT INTO ventas (fecha, total, forma_pago, empleado, numero_caja) "
-                        "VALUES (%s, %s, %s, %s, %s)",
+                        "INSERT INTO ventas (fecha, total, forma_pago, empleado, numero_caja, "
+                        "cliente_id, cliente_nombre, cliente_nif) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                         (
                             fecha.strftime("%Y-%m-%d %H:%M:%S"),
                             total,
                             forma_pago,
                             self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else None),
                             n_caja,
+                            cli.get("id"), cli.get("nombre"), cli.get("nif"),
                         ),
                     )
                     venta_id = cur.lastrowid
@@ -3446,8 +3611,10 @@ class TPVWindow(QWidget):
             pass
         QTimer.singleShot(8000, self._cd_clear_result_mode)
 
-        # Limpiar carrito
+        # Limpiar carrito y volver a cliente genérico para la siguiente venta
         self._lineas = []
+        self._cliente = None
+        self._refrescar_cliente_btn()
         self._refresh_tabla()
         self.inp_sku.setFocus()
 
@@ -3491,7 +3658,8 @@ class TPVWindow(QWidget):
             empleado = self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else "—")
             datos = construir_datos_ticket(
                 venta_id=venta_id, fecha=fecha, id_caja=self._id_caja,
-                empleado=empleado, lineas=lineas, pago=pago, copia=False)
+                empleado=empleado, lineas=lineas, pago=pago, copia=False,
+                cliente=getattr(self, "_cliente", None))
             generar_ticket_pdf(datos, archivo)
         except Exception as e:
             logger.warning(f"No se pudo generar el ticket PDF: {e}")

@@ -102,7 +102,8 @@
     "card_amount": "Cartão",
     "return_policy": "Dispõe de {d} dias para devoluções apresentando este ticket.",
     "pay_mixed": "Misto",
-    "copy": "COPIA"
+    "copy": "COPIA",
+    "customer": "Cliente"
   },
   "tpv": {
     "title": "POS — Smart Manager",
@@ -172,7 +173,24 @@
     "find_reprint": "REIMPRIMIR",
     "find_count": "{n} resultado(s)",
     "find_err_t": "Sem dados",
-    "find_err": "No se pudo recuperar la venta."
+    "find_err": "No se pudo recuperar la venta.",
+    "cli_title": "CLIENTE DE LA VENTA",
+    "cli_search_ph": "Buscar por nombre, NIF, teléfono o email…",
+    "cli_c_name": "Nome",
+    "cli_c_nif": "NIF",
+    "cli_c_phone": "Teléfono",
+    "cli_c_email": "Email",
+    "cli_new": "NUEVO CLIENTE",
+    "cli_name": "Nombre / Razón social",
+    "cli_nif": "NIF / CIF",
+    "cli_phone": "Teléfono",
+    "cli_email": "Email",
+    "cli_create": "CREAR Y USAR",
+    "cli_generic": "CLIENTE GENÉRICO",
+    "cli_use": "USAR SELECCIONADO",
+    "cli_generic_short": "Cliente genérico",
+    "cli_label": "Cliente",
+    "find_c_cli": "Cliente"
   },
   "albaran": {
     "doc_title": "GUIA DE TRANSFERÊNCIA",

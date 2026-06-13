@@ -102,7 +102,8 @@
     "card_amount": "Card",
     "return_policy": "You have {d} days for returns presenting this receipt.",
     "pay_mixed": "Mixed",
-    "copy": "COPY"
+    "copy": "COPY",
+    "customer": "Customer"
   },
   "tpv": {
     "title": "POS — Smart Manager",
@@ -172,7 +173,24 @@
     "find_reprint": "REPRINT",
     "find_count": "{n} result(s)",
     "find_err_t": "No data",
-    "find_err": "Could not retrieve the sale."
+    "find_err": "Could not retrieve the sale.",
+    "cli_title": "SALE CUSTOMER",
+    "cli_search_ph": "Search by name, tax ID, phone or email…",
+    "cli_c_name": "Name",
+    "cli_c_nif": "Tax ID",
+    "cli_c_phone": "Phone",
+    "cli_c_email": "Email",
+    "cli_new": "NEW CUSTOMER",
+    "cli_name": "Name / Company",
+    "cli_nif": "Tax ID",
+    "cli_phone": "Phone",
+    "cli_email": "Email",
+    "cli_create": "CREATE & USE",
+    "cli_generic": "GENERIC CUSTOMER",
+    "cli_use": "USE SELECTED",
+    "cli_generic_short": "Generic customer",
+    "cli_label": "Customer",
+    "find_c_cli": "Customer"
   },
   "albaran": {
     "doc_title": "TRANSFER DELIVERY NOTE",

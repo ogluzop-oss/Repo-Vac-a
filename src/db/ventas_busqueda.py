@@ -57,8 +57,9 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
         if info["venta_id"] is not None:
             filtros.append("v.id = %s"); params.append(info["venta_id"])
         else:
-            filtros.append("(CAST(v.id AS CHAR) LIKE %s OR v.empleado LIKE %s)")
-            params += [f"%{texto}%", f"%{texto}%"]
+            filtros.append("(CAST(v.id AS CHAR) LIKE %s OR v.empleado LIKE %s "
+                           "OR v.cliente_nombre LIKE %s OR v.cliente_nif LIKE %s)")
+            params += [f"%{texto}%"] * 4
     if fecha_desde:
         filtros.append("DATE(v.fecha) >= %s"); params.append(fecha_desde)
     if fecha_hasta:
@@ -74,6 +75,7 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
             where = (" WHERE " + " AND ".join(filtros)) if filtros else ""
             cur.execute(
                 "SELECT v.id, v.fecha, v.total, v.forma_pago, v.empleado, v.numero_caja, "
+                "v.cliente_nombre, "
                 "(SELECT COUNT(*) FROM venta_items vi WHERE vi.venta_id = v.id) AS n_items "
                 f"FROM ventas v{where} ORDER BY v.fecha DESC, v.id DESC LIMIT %s",
                 (*params, int(limite)))
@@ -85,7 +87,8 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
                 else:
                     res.append({"id": r[0], "fecha": r[1], "total": r[2],
                                 "forma_pago": r[3], "empleado": r[4],
-                                "numero_caja": r[5], "n_items": r[6]})
+                                "numero_caja": r[5], "cliente_nombre": r[6],
+                                "n_items": r[7]})
             return res
     except Exception as e:
         logger.error("Error buscar_ventas: %s", e)

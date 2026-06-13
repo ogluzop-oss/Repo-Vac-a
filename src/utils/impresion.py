@@ -297,6 +297,12 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         linea_kv(L("employee", "Empleado"), oper.get("empleado"))
     if oper.get("fecha"):
         linea_kv(L("date", "Fecha"), oper.get("fecha"))
+    _cli = datos.get("cliente") or {}
+    if _cli.get("nombre"):
+        _cn = _cli.get("nombre")
+        if _cli.get("nif"):
+            _cn += f" ({_cli.get('nif')})"
+        linea_kv(L("customer", "Cliente"), _cn)
 
     sep()
 

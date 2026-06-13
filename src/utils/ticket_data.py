@@ -15,13 +15,14 @@ _LOGO_CORP_PATH = os.path.join(_ROOT, "documentos", "logo_corporativo.png")
 
 
 def construir_datos_ticket(venta_id, fecha, id_caja, empleado, lineas, pago,
-                           copia: bool = False) -> dict:
+                           copia: bool = False, cliente: dict | None = None) -> dict:
     """Construye el dict de datos del ticket desde la fuente única corporativa.
 
     - `fecha`: datetime.
     - `lineas`: [{nombre, cantidad, precio, subtotal, descuento_pct,
       modo_venta?, peso?, precio_kg?}].
     - `pago`: {forma_pago, total, entregado?, cambio?, efectivo_neto?, tarjeta?}.
+    - `cliente`: {nombre, nif} o None (cliente genérico).
     """
     from src.utils import divisas
 
@@ -74,6 +75,7 @@ def construir_datos_ticket(venta_id, fecha, id_caja, empleado, lineas, pago,
         "logo": _LOGO_CORP_PATH if os.path.exists(_LOGO_CORP_PATH) else None,
         "empresa": empresa,
         "tienda": tienda,
+        "cliente": cliente or None,
         "copia": copia,
         "operacion": {
             "ticket_num": ticket_num, "venta_id": venta_id,
@@ -124,9 +126,14 @@ def reimprimir_ticket(venta_id) -> str | None:
     ]
     n_caja = v.get("numero_caja") or 1
     pago = {"forma_pago": v.get("forma_pago", ""), "total": float(v.get("total", 0) or 0)}
+    cliente = None
+    if v.get("cliente_nombre"):
+        cliente = {"id": v.get("cliente_id"), "nombre": v.get("cliente_nombre"),
+                   "nif": v.get("cliente_nif")}
     datos = construir_datos_ticket(
         venta_id=v.get("id"), fecha=fecha, id_caja=f"CAJA-{int(n_caja):02d}",
-        empleado=v.get("empleado") or "—", lineas=lineas, pago=pago, copia=True)
+        empleado=v.get("empleado") or "—", lineas=lineas, pago=pago, copia=True,
+        cliente=cliente)
 
     carpeta = os.path.join(_ROOT, "documentos", "tickets")
     os.makedirs(carpeta, exist_ok=True)
