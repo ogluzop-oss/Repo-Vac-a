@@ -129,19 +129,26 @@ def _solo_texto(s: str) -> str:
 
 
 class _RoundTableCorners(QObject):
-    """Redondea las 4 esquinas exteriores de un QTableWidget con una máscara
-    (incl. cabeceras y cuerpo) para que el contorno neón no se corte."""
+    """Redondea las esquinas exteriores de un QTableWidget con una máscara: las 4
+    del widget y, además, las superiores de la cabecera (para que el contorno
+    neón no se corte arriba)."""
     def __init__(self, table, radius=10):
         super().__init__(table)
         self._r = radius
+        self._table = table
         table.installEventFilter(self)
+        table.horizontalHeader().installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show) and obj.width() > 0:
             from PyQt6.QtCore import QRect
+            if obj is self._table:
+                rect = QRect(0, 0, obj.width(), obj.height())          # 4 esquinas
+            else:  # cabecera: redondear solo arriba (extiende el rect por abajo)
+                rect = QRect(0, 0, obj.width(), obj.height() + self._r)
             bmp = QBitmap(obj.size()); bmp.fill(Qt.GlobalColor.color0)
             p = QPainter(bmp); p.setBrush(Qt.GlobalColor.color1); p.setPen(Qt.PenStyle.NoPen)
-            p.drawRoundedRect(QRect(0, 0, obj.width(), obj.height()), self._r, self._r)
+            p.drawRoundedRect(rect, self._r, self._r)
             p.end(); obj.setMask(QRegion(bmp))
         return False
 
@@ -2423,12 +2430,9 @@ class _ClienteDialog(QDialog):
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tabla.verticalHeader().setVisible(False)
-        self.tabla.setStyleSheet(
-            f"QTableWidget{{background:{_BG};color:{_TEXT};border:1px solid {_BORDE};border-radius:10px;"
-            f"font-family:'{_FONT}';font-size:12px;gridline-color:{_BORDE};}}"
-            f"QTableWidget::item:selected{{background:#1C2128;color:{_CIAN};}}"
-            f"QHeaderView::section{{background:{_BG2};color:{_TEXT2};border:none;"
-            f"border-bottom:1px solid {_BORDE};padding:6px;font-weight:700;}}")
+        self.tabla.setAlternatingRowColors(True)
+        self.tabla.setStyleSheet(_ss_tabla_neon())
+        _RoundTableCorners(self.tabla)
         self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tabla.doubleClicked.connect(self._usar_seleccionado)
         ly.addWidget(self.tabla, 1)
@@ -2535,18 +2539,26 @@ class _BuscarTicketDialog(QDialog):
             f"QLineEdit:focus{{border-color:{_CIAN};}}")
         return e
 
-    def _combo(self, items, w=None):
+    def _combo(self, items, w=None, maxvis=8):
         cb = QComboBox(); cb.setFixedHeight(34)
         if w:
             cb.setFixedWidth(w)
-        cb.setMaxVisibleItems(8)
+        cb.setMaxVisibleItems(maxvis)
         cb.setStyleSheet(
-            f"QComboBox{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            # combobox-popup:0 → popup en modo lista: respeta maxVisibleItems y
+            # muestra scrollbar cuando hay más opciones.
+            f"QComboBox{{combobox-popup:0;background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
             f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
             f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
             f"QComboBox::drop-down{{border:none;width:22px;}}"
             f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
-            f"border-radius:8px;outline:none;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+            f"border-radius:8px;outline:none;padding:2px;"
+            f"selection-background-color:{_CIAN};selection-color:#0D1117;}}"
+            f"QComboBox QAbstractItemView::item{{min-height:28px;padding:2px 10px;}}"
+            f"QComboBox QAbstractItemView QScrollBar:vertical{{background:#0D1117;width:10px;margin:3px;border-radius:5px;}}"
+            f"QComboBox QAbstractItemView QScrollBar::handle:vertical{{background:{_CIAN};border-radius:5px;min-height:28px;}}"
+            f"QComboBox QAbstractItemView QScrollBar::add-line:vertical,"
+            f"QComboBox QAbstractItemView QScrollBar::sub-line:vertical{{height:0;}}")
         for label, data in items:
             cb.addItem(label, data)
         return cb
@@ -2602,12 +2614,14 @@ class _BuscarTicketDialog(QDialog):
         r3 = QHBoxLayout(); r3.setSpacing(8)
         from src.db.ventas_busqueda import obtener_empleados
         emp_items = [(tr("vta.opt_all_m", default="Todos"), "")] + [(e, e) for e in obtener_empleados()]
-        self.cmb_emp = self._combo(emp_items)
-        self.cmb_caja = self._combo([(tr("vta.opt_all_f", default="Todas"), "")] + [(str(i), str(i)) for i in range(1, 21)])
+        self.cmb_emp = self._combo(emp_items, maxvis=5)
+        self.cmb_caja = self._combo(
+            [(tr("vta.opt_all_f", default="Todas"), "")] + [(str(i), str(i)) for i in range(1, 21)],
+            w=120, maxvis=5)   # máx 5 visibles + scrollbar; ancho para que "Todas" se vea
         self.cmb_pago = self._combo([
             (tr("vta.opt_all_m", default="Todos"), ""), (tr("vta.pay_cash", default="efectivo"), "efectivo"),
             (tr("vta.pay_card", default="tarjeta"), "tarjeta"), ("mixto", "mixto"),
-            (tr("vta.pay_coupon", default="cupón"), "cupón")])
+            (tr("vta.pay_coupon", default="cupón"), "cupón")], w=150)
         self.inp_pmin = self._inp(tr("vta.ph_price_min", default="Importe mínimo"), 120)
         self.inp_pmax = self._inp(tr("vta.ph_price_max", default="Importe máximo"), 120)
         r3.addWidget(self._lbl_r(tr("vta.lbl_employee", default="Empleado"))); r3.addWidget(self.cmb_emp, 1); r3.addSpacing(8)

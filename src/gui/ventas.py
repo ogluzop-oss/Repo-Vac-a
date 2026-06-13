@@ -4,9 +4,10 @@ import os
 from datetime import datetime
 
 from PyQt6.QtCore import QDate, QEvent, QObject, QPoint, QRectF, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QBitmap, QColor, QFont, QIcon, QPainter, QPainterPath, QPalette, QPen, QRegion
+from PyQt6.QtGui import QBitmap, QColor, QFont, QIcon, QPainter, QPainterPath, QPalette, QPen, QPolygon, QRegion
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QAbstractSpinBox,
     QCalendarWidget,
     QComboBox,
     QDateEdit,
@@ -376,11 +377,30 @@ class _NeonCalFrame(QFrame):
 
 
 class _NeonDateEdit(QDateEdit):
-    """QDateEdit con popup de calendario con borde neón y esquinas redondeadas."""
+    """QDateEdit con popup de calendario propio (borde neón, esquinas redondeadas,
+    posicionado bajo el campo en cualquier ventana). Dibuja su propio triángulo
+    y abre el calendario al pulsar en su zona derecha."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._cal_popup = None
+        # Sin popup nativo ni botones de spin: usamos showPopup() propio.
+        self.setCalendarPopup(False)
+        self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cx, cy = self.width() - 14, self.height() // 2
+        tri = QPolygon([QPoint(cx - 5, cy - 3), QPoint(cx + 5, cy - 3), QPoint(cx, cy + 4)])
+        p.setBrush(QColor(CIAN)); p.setPen(Qt.PenStyle.NoPen)
+        p.drawPolygon(tri); p.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and event.position().x() >= self.width() - 30:
+            self.showPopup(); event.accept(); return
+        super().mousePressEvent(event)
 
     def showPopup(self):
         if self._cal_popup is not None:
@@ -1280,14 +1300,11 @@ def _do_calendar_nav(cal):
 
 
 def _date_neon(val: QDate = None):
+    # _NeonDateEdit usa su propio popup (showPopup) → no se activa el nativo.
     de = _NeonDateEdit(val or QDate.currentDate())
-    de.setCalendarPopup(True)
     de.setDisplayFormat("dd/MM/yyyy")
     de.setStyleSheet(_SS_NEON_INPUT)
     de.setFixedHeight(34)
-    cal = _VentasCalendarWidget(de)
-    cal.setMinimumSize(318, 258)
-    de.setCalendarWidget(cal)
     return de
 
 

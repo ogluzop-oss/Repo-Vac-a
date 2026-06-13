@@ -47,15 +47,30 @@ def _cols(cur, tabla) -> set:
 
 
 def obtener_empleados(id_empresa=None) -> list[str]:
-    """Lista de empleados distintos que aparecen en ventas (para el combo)."""
+    """TODOS los perfiles de empleado (de la tabla usuarios, tengan o no caja o
+    ventas) + cualquier empleado histórico que aparezca en ventas. Así se puede
+    localizar la venta de un cajero aunque ahora no esté trabajando."""
+    nombres = []
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SHOW COLUMNS FROM usuarios")
+            cols = {r["Field"] if isinstance(r, dict) else r[0] for r in cur.fetchall()}
+            col = "nombre" if "nombre" in cols else "usuario"
+            cur.execute(f"SELECT {col} FROM usuarios WHERE activo=1 AND {col} IS NOT NULL "
+                        f"AND {col}<>'' ORDER BY {col}")
+            nombres = [(r[col] if isinstance(r, dict) else r[0]) for r in cur.fetchall()]
             cur.execute("SELECT DISTINCT empleado FROM ventas "
-                        "WHERE empleado IS NOT NULL AND empleado<>'' ORDER BY empleado")
-            return [(r["empleado"] if isinstance(r, dict) else r[0]) for r in cur.fetchall()]
+                        "WHERE empleado IS NOT NULL AND empleado<>''")
+            hist = [(r["empleado"] if isinstance(r, dict) else r[0]) for r in cur.fetchall()]
     except Exception:
-        return []
+        hist = []
+    # Unir sin duplicar (ignorando may/min), conservando orden alfabético.
+    vistos = {n.casefold() for n in nombres}
+    for h in hist:
+        if h and h.casefold() not in vistos:
+            nombres.append(h); vistos.add(h.casefold())
+    return sorted(nombres, key=lambda s: s.casefold())
 
 
 def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
