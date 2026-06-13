@@ -438,9 +438,18 @@ class _NeonDateEdit(QDateEdit):
             cal.minimumWidth() + 2 * MARGIN,
             cal.minimumHeight() + 2 * MARGIN,
         )
-        popup.move(self.mapToGlobal(QPoint(0, self.height())))
+        # Posicionar DESPUÉS de show(): en Windows, mover un top-level frameless
+        # ANTES del primer show() se ignora (el WM lo centra) → el primer
+        # calendario aparecía descolocado. Re-aplicamos en el siguiente tick.
+        def _colocar(_p=popup):
+            try:
+                _p.move(self.mapToGlobal(QPoint(0, self.height())))
+            except RuntimeError:
+                pass
         popup.show()
+        _colocar()
         popup.raise_()
+        QTimer.singleShot(0, _colocar)
         self._cal_popup = popup
 
         def _retry_nav(c=cal, retries=8):
