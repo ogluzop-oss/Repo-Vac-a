@@ -117,6 +117,13 @@ def cambiar_contexto_tienda(id_tienda) -> dict | None:
     # Origen (para la traza) → destino.
     origen = {"empresa": emp_db.empresa_actual_id(), "tienda": emp_db.tienda_actual_id()}
     destino_empresa = tienda.get("id_empresa") or EMPRESA_DEFAULT_ID
+    # Aislamiento de STOCK (3b.1-2c): persistir el stock de la tienda saliente y
+    # cargar el de la entrante en el stock de trabajo (articulos.Stock_tienda).
+    try:
+        from src.db import stock as stock_db
+        stock_db.cambiar_stock_de_tienda(origen["tienda"], tienda.get("id"), origen["empresa"])
+    except Exception as _e:
+        logger.debug("Sincronización de stock por tienda omitida: %s", _e)
     emp_db.set_empresa_actual(destino_empresa)
     emp_db.set_tienda_actual(tienda.get("id"))
 

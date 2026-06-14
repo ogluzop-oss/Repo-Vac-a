@@ -111,6 +111,12 @@ class SesionUsuario:
             )
             set_empresa_actual(datos_usuario.get("id_empresa") or EMPRESA_DEFAULT_ID)
             set_tienda_actual(datos_usuario.get("tienda_id"))
+            # Stock de trabajo = el de la tienda del usuario (aislamiento 3b.1-2c).
+            try:
+                from src.db import stock as _stock
+                _stock.cargar_stock(datos_usuario.get("tienda_id"))
+            except Exception:
+                pass
         except Exception as e:
             logger.debug("No se pudo fijar el contexto de empresa: %s", e)
         logger.info(
@@ -121,6 +127,12 @@ class SesionUsuario:
         """Limpia la sesión y restablece el contexto de tenant a la empresa por
         defecto. Crucial para que main.py detecte el logout."""
         nombre = self.obtener_nombre()
+        # Persistir el stock de trabajo en la tienda activa antes de salir (3b.1-2c).
+        try:
+            from src.db import stock as _stock
+            _stock.flush_stock()
+        except Exception:
+            pass
         self.usuario_actual = None
         self.hora_inicio = None
         try:
