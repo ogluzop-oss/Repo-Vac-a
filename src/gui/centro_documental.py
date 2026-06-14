@@ -181,11 +181,11 @@ class CentroDocumentalWindow(QWidget):
             if activo:
                 b.setStyleSheet(
                     f"QPushButton{{background:{_CIAN};color:{_BG};border:none;border-radius:9px;"
-                    f"text-align:left;font-family:'Segoe UI';font-weight:900;font-size:12px;padding:0 8px;}}")
+                    f"text-align:left;font-family:'Segoe UI';font-weight:900;font-size:14px;padding:0 8px;}}")
             else:
                 b.setStyleSheet(
                     f"QPushButton{{background:transparent;color:{_TEXT};border:none;border-radius:9px;"
-                    f"text-align:left;font-family:'Segoe UI';font-weight:700;font-size:12px;padding:0 8px;}}"
+                    f"text-align:left;font-family:'Segoe UI';font-weight:700;font-size:14px;padding:0 8px;}}"
                     f"QPushButton:hover{{background:#11312B;color:{_CIAN};}}")
 
     def _build_panel(self) -> QVBoxLayout:
@@ -227,8 +227,14 @@ class CentroDocumentalWindow(QWidget):
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tabla.verticalHeader().setVisible(False)
+        vh = self.tabla.verticalHeader()
+        vh.setVisible(False)
+        # Filas más altas para que los chips de acción (32×30) quepan completos
+        # (antes se recortaban y solo se veía el borde superior).
+        vh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        vh.setDefaultSectionSize(46)
         self.tabla.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tabla.setWordWrap(False)  # texto en una sola línea (sin celdas a 2 líneas)
         hh = self.tabla.horizontalHeader()
         hh.setHighlightSections(False)
         # Documento se estira; el resto, ancho fijo moderado (sin scroll horizontal,
