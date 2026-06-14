@@ -213,6 +213,7 @@
     "cancel": "Cancel",
     "charge": "CHARGE",
     "exact": "✓  Exact amount",
+    "exact_label": "Exact amount tendered:",
     "amount_given": "Amount given ({sym}):",
     "change": "Change: {x}",
     "change_dash": "Change: —",

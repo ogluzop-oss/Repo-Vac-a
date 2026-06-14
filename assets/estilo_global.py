@@ -431,6 +431,11 @@ def _set_widget_cursor(widget):
         return
     try:
         if any(_safe_instance(widget, klass) for klass in (QLineEdit, QTextEdit, QPlainTextEdit)):
+            # Un campo de solo lectura que actúa como botón (p. ej. el filtro de
+            # fecha con triángulo) puede pedir conservar su cursor (manita) en vez
+            # del IBeam de texto.
+            if widget.property("smKeepCursor"):
+                return
             widget.setCursor(Qt.CursorShape.IBeamCursor)
             return
         clickable = (

@@ -314,7 +314,7 @@ def _confirmar(parent, titulo: str, mensaje: str,
     v.setContentsMargins(24, 22, 24, 22)
     v.setSpacing(12)
     v.addWidget(_lbl(titulo, bold=True, size=16, color=_CIAN))
-    msg = _lbl(mensaje, size=13, color=_TEXT)
+    msg = _lbl(mensaje, bold=True, size=13, color=_TEXT)  # Segoe UI Bold
     msg.setWordWrap(True)
     v.addWidget(msg)
     v.addSpacing(4)
@@ -1160,36 +1160,52 @@ class _RetenidasDialog(QDialog):
 # ============================================================
 
 class _PagoDialog(QDialog):
+    _NUMPAD_W = 250  # ancho del teclado numérico y del botón de importe exacto
+
     def __init__(self, total: float, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("pago.title"))
-        self.setFixedWidth(900)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Pantalla completa con un único contorno (el del QDialog global). Sin
+        # translucidez ni borde de tarjeta interno (evita el doble contorno).
         self.setObjectName("dlg_cobrar")
-        self._drag_pos = None
+        self.setStyleSheet(f"#dlg_cobrar {{ background: {_BG}; }}")
         self._total     = total
         self._resultado: dict | None = None
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            self.setMinimumSize(1000, 640)
 
-        _outer = QVBoxLayout(self)
-        _outer.setContentsMargins(0, 0, 0, 0)
-        _cuerpo = QFrame()
-        _cuerpo.setObjectName("cuerpo_cobrar")
-        _cuerpo.setStyleSheet(
-            f"QFrame#cuerpo_cobrar{{background:{_BG};border:2px solid {_CIAN};"
-            f"border-radius:22px;}}"
-        )
-        _outer.addWidget(_cuerpo)
-        # Cuerpo en dos columnas: izquierda (contenido) + derecha (teclado numérico).
-        body = QHBoxLayout(_cuerpo)
-        body.setContentsMargins(28, 24, 28, 24)
-        body.setSpacing(22)
-        lay = QVBoxLayout()
-        lay.setSpacing(14)
-        body.addLayout(lay, 1)
-        body.addWidget(self._build_pago_numpad(), 0, Qt.AlignmentFlag.AlignTop)
+        # Contenido centrado en dos columnas sobre el fondo a pantalla completa.
+        root = QVBoxLayout(self)
+        root.setContentsMargins(40, 30, 40, 30)
+        root.addStretch()
+        body = QHBoxLayout(); body.setSpacing(40)
+        root.addLayout(body)
+        root.addStretch()
 
-        lay.addWidget(_lbl(tr("pago.total_label", x=divisas.formatear(total)), bold=True, size=18, color=_CIAN))
+        body.addStretch()
+        # Columna izquierda: información de cobro.
+        izq = QWidget(); izq.setFixedWidth(480)
+        lay = QVBoxLayout(izq); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(14)
+        body.addWidget(izq, 0, Qt.AlignmentFlag.AlignTop)
+
+        # Columna derecha: teclado numérico + importe entregado exacto (mismo ancho).
+        der = QVBoxLayout(); der.setSpacing(12)
+        der.addWidget(self._build_pago_numpad(), 0, Qt.AlignmentFlag.AlignTop)
+        self.btn_exacto = _btn(
+            f"{tr('pago.exact_label', default='Importe entregado exacto:')}\n{divisas.formatear(total)}",
+            color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
+            hover_bg="#FFF", hover_fg="#0D1117", h=58)
+        self.btn_exacto.setFixedWidth(self._NUMPAD_W)
+        self.btn_exacto.clicked.connect(self._pago_exacto)
+        der.addWidget(self.btn_exacto)
+        der.addStretch()
+        body.addLayout(der, 0)
+        body.addStretch()
+
+        lay.addWidget(_lbl(tr("pago.total_label", x=divisas.formatear(total)), bold=True, size=20, color=_CIAN))
         lay.addWidget(_sep())
 
         # Tabs forma de pago
@@ -1228,20 +1244,6 @@ class _PagoDialog(QDialog):
         self.btn_cobrar.clicked.connect(self._cobrar)
 
         self._tab(0)
-
-    # --- arrastre de ventana frameless ---
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event):
-        if self._drag_pos is not None and event.buttons() == Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-
-    def mouseReleaseEvent(self, event):
-        self._drag_pos = None
 
     # --- tabs ---
 
@@ -1289,20 +1291,15 @@ class _PagoDialog(QDialog):
             grid.addWidget(b, i // 3, i % 3)
         lay.addLayout(grid)
 
-        # Importe exacto: rellena el total exacto y cobra directamente (pago justo).
-        self.btn_exacto = _btn(tr("pago.exact", default="✓  Importe exacto"),
-                               color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
-                               hover_bg="#FFF", hover_fg="#0D1117", h=40)
-        self.btn_exacto.clicked.connect(self._pago_exacto)
-        lay.addWidget(self.btn_exacto)
-
         self.lbl_cambio = _lbl(tr("pago.change", x="0,00"), bold=True, size=13, color=_VERDE)
         lay.addWidget(self.lbl_cambio)
         self._actualizar_cambio()
         return w
 
     def _pago_exacto(self):
-        """Rellena la cantidad exacta del total y procede al cobro en un clic."""
+        """Importe entregado exacto: cambia a efectivo, rellena el total exacto y
+        cobra en un clic (pago justo)."""
+        self._tab(0)
         self.inp_ef.setText(f"{self._total:.2f}")
         self._cobrar()
 
@@ -1320,22 +1317,24 @@ class _PagoDialog(QDialog):
     def _build_pago_numpad(self) -> QFrame:
         card = QFrame()
         card.setObjectName("pago_numpad")
-        card.setFixedWidth(250)
+        card.setFixedWidth(self._NUMPAD_W)
         card.setStyleSheet(
             f"QFrame#pago_numpad{{background:{_BG2};border:1px solid {_BORDE};border-radius:14px;}}")
         gl = QGridLayout(card)
         gl.setContentsMargins(12, 12, 12, 12)
         gl.setSpacing(8)
 
+        # min-width:0 anula el `QDialog QPushButton{min-width:120px}` global, que si
+        # no haría que los 3 botones no cupieran en el ancho del teclado.
         _ss_num = (
             f"QPushButton{{background:{_BG};color:{_TEXT};border:2px solid {_BORDE};"
-            f"border-radius:14px;font-family:'{_FONT}';font-weight:900;font-size:22px;}}"
+            f"border-radius:14px;font-family:'{_FONT}';font-weight:900;font-size:22px;min-width:0;}}"
             f"QPushButton:hover{{background:{_CIAN};color:#0D1117;border-color:{_CIAN};}}"
             f"QPushButton:pressed{{background:{_CIAN};color:#0D1117;}}"
         )
         _ss_del = (
             f"QPushButton{{background:{_BG};color:{_ROJO};border:2px solid {_ROJO};"
-            f"border-radius:14px;font-family:'{_FONT}';font-weight:900;font-size:20px;}}"
+            f"border-radius:14px;font-family:'{_FONT}';font-weight:900;font-size:20px;min-width:0;}}"
             f"QPushButton:hover{{background:{_ROJO};color:#FFF;}}"
         )
         layout_keys = [
@@ -1531,10 +1530,16 @@ class _BasculaDialog(QDialog):
             pass
         self.setWindowTitle(tr("bascula.title"))
         self.setModal(True)
-        self.setMinimumSize(900, 640)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Pantalla completa con un único contorno (el del QDialog global). Sin
+        # translucidez para no recrear el handle nativo (cuelgues) y sin borde de
+        # tarjeta interno (evita el doble contorno).
         self.setObjectName("dlg_bascula")
+        self.setStyleSheet(f"#dlg_bascula {{ background: {_BG}; }}")
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            self.setMinimumSize(900, 640)
         self._drag_pos = None
         self._build_ui()
         self._cargar_productos()
@@ -1551,8 +1556,7 @@ class _BasculaDialog(QDialog):
         _cuerpo = QFrame()
         _cuerpo.setObjectName("cuerpo_ventana")
         _cuerpo.setStyleSheet(
-            f"QFrame#cuerpo_ventana{{background:{_BG};border:2px solid {_CIAN};"
-            f"border-radius:24px;}}"
+            f"QFrame#cuerpo_ventana{{background:{_BG};border:none;border-radius:24px;}}"
         )
         _outer.addWidget(_cuerpo)
         root = QVBoxLayout(_cuerpo)
@@ -2622,6 +2626,9 @@ class _FechaFilter(QWidget):
         lay = QHBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
         self._le = _TriLineEdit(qdate.toString("dd/MM/yyyy"))
         self._le.setReadOnly(True); self._le.setFixedHeight(34)
+        # smKeepCursor: que el filtro global de estilo no le imponga el IBeam de
+        # texto; este campo actúa como botón desplegable (cursor manita).
+        self._le.setProperty("smKeepCursor", True)
         self._le.setCursor(Qt.CursorShape.PointingHandCursor)
         self._le.setStyleSheet(
             f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"

@@ -227,7 +227,8 @@
     "err_cash_over": "L'import en efectiu no pot superar el total.",
     "total_label": "Total a cobrar:  {x}",
     "charge": "COBRAR",
-    "mixed_total": "Total: {x}"
+    "mixed_total": "Total: {x}",
+    "exact_label": "Import lliurat exacte:"
   },
   "bascula": {
     "title": "Venda a Granel",

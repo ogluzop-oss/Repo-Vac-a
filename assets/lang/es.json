@@ -213,6 +213,7 @@
     "cancel": "Cancelar",
     "charge": "COBRAR",
     "exact": "✓  Importe exacto",
+    "exact_label": "Importe entregado exacto:",
     "amount_given": "Importe entregado ({sym}):",
     "change": "Cambio: {x}",
     "change_dash": "Cambio: —",
