@@ -451,6 +451,11 @@ def ensure_schema(force: bool = False):
                         INDEX idx_po_estado (estado)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                # Control idempotente de descuento de stock del canal online:
+                # se descuenta al confirmar el pago y se repone si se cancela.
+                cur.execute(
+                    "ALTER TABLE pedidos_online "
+                    "ADD COLUMN IF NOT EXISTS stock_descontado TINYINT(1) NOT NULL DEFAULT 0")
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS pedidos_online_items (
                         id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,

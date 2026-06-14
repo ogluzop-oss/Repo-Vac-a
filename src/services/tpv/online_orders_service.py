@@ -279,6 +279,8 @@ def cambiar_estado(id_pedido: str, nuevo_estado: str) -> bool:
             conn.commit()
         if nuevo_estado == "PAGADO":
             _on_pagado(id_pedido)
+        elif nuevo_estado == "CANCELADO":
+            _reponer_stock_pedido(id_pedido)
         return True
     except Exception as e:
         logger.error("cambiar_estado(%s): %s", id_pedido, e)
@@ -390,12 +392,94 @@ def generar_justificante_pago(id_pedido: str) -> str | None:
         es_justificante=True)
 
 
+def _marcar_stock_descontado(id_pedido: str, valor: int) -> None:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE pedidos_online SET stock_descontado=%s WHERE id_pedido=%s",
+                        (valor, id_pedido))
+            conn.commit()
+    except Exception as e:
+        logger.debug("marcar_stock_descontado(%s): %s", id_pedido, e)
+
+
+def _descontar_stock_pedido(id_pedido: str) -> None:
+    """Descuenta del inventario las líneas de un pedido online (idempotente).
+
+    Usa el descuento canónico con bloqueo de fila (central→tienda). Solo actúa
+    una vez por pedido (flag ``stock_descontado``). No bloquea el cambio de
+    estado: si una línea no tiene stock, se registra y se continúa."""
+    pedido = obtener_pedido(id_pedido)
+    if not pedido or int(pedido.get("stock_descontado") or 0):
+        return
+    try:
+        from src.db.conexion import descontar_stock
+    except Exception as e:
+        logger.warning("descontar_stock no disponible (%s): %s", id_pedido, e)
+        return
+    detalle = []
+    for it in pedido.get("items", []):
+        codigo = it.get("codigo_articulo")
+        cant = int(it.get("cantidad", 0) or 0)
+        if not codigo or cant <= 0:
+            continue
+        try:
+            ok, _t, _ti = descontar_stock(codigo, cant)
+        except Exception as e:
+            ok = False
+            logger.warning("descontar_stock(%s, %s): %s", codigo, cant, e)
+        detalle.append(f"{codigo}x{cant}{'' if ok else '(sin stock)'}")
+        if not ok:
+            logger.warning("Pedido online %s: sin stock para %s x%s", id_pedido, codigo, cant)
+    _marcar_stock_descontado(id_pedido, 1)
+    _auditar_stock(id_pedido, "DESCUENTO_STOCK_ONLINE", detalle)
+
+
+def _reponer_stock_pedido(id_pedido: str) -> None:
+    """Repone el stock de un pedido online cancelado (solo si se había descontado)."""
+    pedido = obtener_pedido(id_pedido)
+    if not pedido or not int(pedido.get("stock_descontado") or 0):
+        return
+    detalle = []
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            for it in pedido.get("items", []):
+                codigo = it.get("codigo_articulo")
+                cant = int(it.get("cantidad", 0) or 0)
+                if not codigo or cant <= 0:
+                    continue
+                cur.execute(
+                    "UPDATE articulos SET Stock_total = COALESCE(Stock_total,0) + %s "
+                    "WHERE codigo = %s", (cant, codigo))
+                detalle.append(f"{codigo}x{cant}")
+            conn.commit()
+    except Exception as e:
+        logger.warning("reponer_stock_pedido(%s): %s", id_pedido, e)
+        return
+    _marcar_stock_descontado(id_pedido, 0)
+    _auditar_stock(id_pedido, "REPOSICION_STOCK_ONLINE", detalle)
+
+
+def _auditar_stock(id_pedido: str, accion: str, detalle: list) -> None:
+    try:
+        from src.db.conexion import log_auditoria
+        usuario = _ctx()[3] or "sistema"
+        log_auditoria(usuario, accion, "pedidos_online",
+                      f"{id_pedido}: {', '.join(detalle) or '-'}")
+    except Exception as e:
+        logger.debug("auditar_stock(%s): %s", id_pedido, e)
+
+
 def _on_pagado(id_pedido: str) -> None:
     """Acciones automáticas al confirmarse el pago de un pedido online."""
     try:
         generar_justificante_pago(id_pedido)
     except Exception as e:
         logger.warning("No se pudo generar el justificante de pago (%s): %s",
+                       id_pedido, e)
+    try:
+        _descontar_stock_pedido(id_pedido)
+    except Exception as e:
+        logger.warning("No se pudo descontar el stock del pedido (%s): %s",
                        id_pedido, e)
 
 
