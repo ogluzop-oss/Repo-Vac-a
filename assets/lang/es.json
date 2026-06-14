@@ -193,7 +193,11 @@
     "cli_label": "Cliente",
     "find_c_cli": "Cliente",
     "find_date_from": "Fecha inicio",
-    "find_date_to": "Fecha fin"
+    "find_date_to": "Fecha fin",
+    "recover_title": "Recuperar venta",
+    "recover_msg": "Ya hay artículos en el carrito. ¿Qué quieres hacer con la venta recuperada?",
+    "recover_add": "SUMAR ARTÍCULOS",
+    "recover_replace": "REEMPLAZAR"
   },
   "albaran": {
     "doc_title": "ALBARÁN DE TRASPASO",

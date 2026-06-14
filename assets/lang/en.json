@@ -193,7 +193,11 @@
     "cli_label": "Customer",
     "find_c_cli": "Customer",
     "find_date_from": "Start date",
-    "find_date_to": "End date"
+    "find_date_to": "End date",
+    "recover_title": "Recover sale",
+    "recover_msg": "There are already items in the cart. What do you want to do with the recovered sale?",
+    "recover_add": "ADD ITEMS",
+    "recover_replace": "REPLACE"
   },
   "albaran": {
     "doc_title": "TRANSFER DELIVERY NOTE",

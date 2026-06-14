@@ -193,7 +193,11 @@
     "find_c_total": "Total",
     "find_reprint": "REIMPRIMIR",
     "cli_c_nif": "NIF",
-    "cli_nif": "NIF / CIF"
+    "cli_nif": "NIF / CIF",
+    "recover_title": "Recuperar venda",
+    "recover_msg": "Ja hi ha articles a la cistella. Què vols fer amb la venda recuperada?",
+    "recover_add": "SUMAR ARTICLES",
+    "recover_replace": "REEMPLAÇAR"
   },
   "albaran": {
     "doc_title": "ALBARÀ DE TRASPÀS",

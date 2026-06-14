@@ -332,6 +332,54 @@ def _confirmar(parent, titulo: str, mensaje: str,
     return dlg.exec() == QDialog.DialogCode.Accepted
 
 
+def _elegir_recuperar(parent, titulo, mensaje, txt_sumar, txt_reemplazar) -> str | None:
+    """Diálogo de 3 opciones al recuperar una venta retenida con el carrito no vacío:
+    cancelar, SUMAR (añadir a los artículos actuales) o REEMPLAZAR. Devuelve
+    'sumar', 'reemplazar' o None (cancelar)."""
+    dlg = QDialog(parent)
+    dlg.setModal(True)
+    dlg.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+    dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    dlg.setFixedWidth(520)
+    res = {"v": None}
+    outer = QVBoxLayout(dlg)
+    outer.setContentsMargins(0, 0, 0, 0)
+    cuerpo = QFrame()
+    cuerpo.setObjectName("cuerpo_confirm")
+    cuerpo.setStyleSheet(
+        f"QFrame#cuerpo_confirm{{background:{_BG};border:2px solid {_CIAN};border-radius:20px;}}")
+    outer.addWidget(cuerpo)
+    v = QVBoxLayout(cuerpo)
+    v.setContentsMargins(24, 22, 24, 22)
+    v.setSpacing(12)
+    v.addWidget(_lbl(titulo, bold=True, size=16, color=_CIAN))
+    msg = _lbl(mensaje, bold=True, size=13, color=_TEXT)  # Segoe UI Bold
+    msg.setWordWrap(True)
+    v.addWidget(msg)
+    v.addSpacing(4)
+    fila = QHBoxLayout()
+    fila.setSpacing(10)
+    b_cancel = _btn(tr("common.cancel", default="Cancelar").upper(), h=46)
+    b_sumar = _btn(txt_sumar, color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
+                   hover_bg="#FFFFFF", hover_fg="#0D1117", h=46)
+    b_reemp = _btn(txt_reemplazar, color_bg=_VERDE, color_fg="#0D1117", color_border=_VERDE,
+                   hover_bg="#FFFFFF", hover_fg="#0D1117", h=46)
+
+    def _set(val):
+        res["v"] = val
+        dlg.accept()
+
+    b_cancel.clicked.connect(dlg.reject)
+    b_sumar.clicked.connect(lambda: _set("sumar"))
+    b_reemp.clicked.connect(lambda: _set("reemplazar"))
+    fila.addWidget(b_cancel)
+    fila.addWidget(b_sumar)
+    fila.addWidget(b_reemp)
+    v.addLayout(fila)
+    dlg.exec()
+    return res["v"]
+
+
 def _aviso_modal(parent, titulo: str, mensaje: str):
     """Aviso centrado en una ventana frameless con un único botón ENTENDIDO.
     Modal pero con su propia ventana (no congela como QMessageBox sobre frameless
@@ -1254,7 +1302,7 @@ class _PagoDialog(QDialog):
         body.setSpacing(48)
 
         # Columna izquierda: información de cobro.
-        izq = QWidget(); izq.setFixedWidth(470)
+        izq = QWidget(); izq.setFixedWidth(540)
         lay = QVBoxLayout(izq); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(16)
         body.addWidget(izq, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -1363,7 +1411,7 @@ class _PagoDialog(QDialog):
         # cada divisa tiene su propio conjunto de billetes, así que el nº de
         # botones cambia con la divisa seleccionada.
         grid = QGridLayout()
-        grid.setSpacing(8)
+        grid.setSpacing(12)
         billetes = [d for d in divisas.denominaciones(descendente=False)
                     if d["tipo"] == "billete"]
         for i, d in enumerate(billetes):
@@ -2242,35 +2290,32 @@ class _DevolucionDialog(QDialog):
         self._checks = []
         self.setWindowTitle(tr("devol.title"))
         self.setModal(True)
-        self.setMinimumSize(760, 600)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Pantalla completa con un único contorno (el del QDialog global). Sin
+        # translucidez ni borde de tarjeta interno (sin doble contorno).
         self.setObjectName("dlg_devolucion")
-        self._drag_pos = None
+        self.setStyleSheet(f"#dlg_devolucion {{ background: {_BG}; }}")
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            self.setMinimumSize(760, 600)
         self._build_ui()
 
-    # Arrastre de ventana frameless
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event):
-        if self._drag_pos is not None and event.buttons() == Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-
-    def mouseReleaseEvent(self, event):
-        self._drag_pos = None
+    def showEvent(self, e):
+        super().showEvent(e)
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            pass
 
     def _build_ui(self):
         _outer = QVBoxLayout(self)
-        _outer.setContentsMargins(0, 0, 0, 0)
+        # Margen para no tapar el contorno neón del QDialog global.
+        _outer.setContentsMargins(12, 12, 12, 12)
         _cuerpo = QFrame()
         _cuerpo.setObjectName("cuerpo_devolucion")
         _cuerpo.setStyleSheet(
-            f"QFrame#cuerpo_devolucion{{background:{_BG};border:2px solid {_CIAN};"
-            f"border-radius:22px;}}"
+            f"QFrame#cuerpo_devolucion{{background:{_BG};border:none;border-radius:22px;}}"
         )
         _outer.addWidget(_cuerpo)
         root = QVBoxLayout(_cuerpo)
@@ -2335,12 +2380,16 @@ class _DevolucionDialog(QDialog):
             self.inp_motivo.addItem(_m)
         self.inp_motivo.setCurrentIndex(-1)
         self.inp_motivo.setStyleSheet(
-            f"QComboBox{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            # combobox-popup:0 → popup de LISTA justo debajo del campo (sin él, Qt usa
+            # un menú nativo que el filtro global reposicionaba desplazado a la derecha).
+            f"QComboBox{{combobox-popup:0;background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
             f"border-radius:8px;padding:6px 10px;font-size:13px;font-family:'{_FONT}';}}"
             f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
             f"QComboBox::drop-down{{border:none;width:24px;}}"
             f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
-            f"border-radius:8px;outline:none;selection-background-color:{_CIAN};selection-color:#0D1117;}}"
+            f"border-radius:8px;outline:none;padding:2px;"
+            f"selection-background-color:{_CIAN};selection-color:#0D1117;}}"
+            f"QComboBox QAbstractItemView::item{{min-height:30px;padding:2px 10px;}}"
         )
         col_m.addWidget(self.inp_motivo)
         fila.addLayout(col_m, 2)
@@ -2706,15 +2755,19 @@ class _ScrollCombo(QComboBox):
     def showPopup(self):
         super().showPopup()
         view = self.view()
-        if self.count() > self._maxvis:
-            row_h = view.sizeHintForRow(0)
-            if row_h <= 0:
-                row_h = 30
-            alto = row_h * self._maxvis + 2 * view.frameWidth() + 4
-            popup = view.parentWidget() or view
-            popup.setMaximumHeight(alto)
-            popup.resize(popup.width(), alto)
-            view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        n = self.count()
+        visibles = min(n, self._maxvis)          # nunca más de maxvis filas a la vez
+        row_h = view.sizeHintForRow(0)
+        if row_h <= 0:
+            row_h = 30
+        alto = row_h * visibles + 2 * view.frameWidth() + 4
+        popup = view.parentWidget() or view
+        popup.setMaximumHeight(alto)
+        popup.resize(popup.width(), alto)
+        # Scrollbar solo si hay más opciones de las visibles.
+        view.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded if n > self._maxvis
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
 
 class _TriLineEdit(QLineEdit):
@@ -2916,7 +2969,7 @@ class _BuscarTicketDialog(QDialog):
         r3 = QHBoxLayout(); r3.setSpacing(8)
         from src.db.ventas_busqueda import obtener_empleados
         emp_items = [(tr("vta.opt_all_m", default="Todos"), "")] + [(e, e) for e in obtener_empleados()]
-        self.cmb_emp = self._combo(emp_items, maxvis=3)   # máx 3 visibles + scrollbar
+        self.cmb_emp = self._combo(emp_items, maxvis=2)   # máx 2 visibles + scrollbar
         self.cmb_caja = self._combo(
             [(tr("vta.opt_all_f", default="Todas"), "")] + [(str(i), str(i)) for i in range(1, 21)],
             w=120, maxvis=5)   # máx 5 visibles + scrollbar; ancho para que "Todas" se vea
@@ -3879,19 +3932,28 @@ class TPVWindow(QWidget):
         self.inp_sku.setFocus()
 
     def _recuperar(self):
+        accion = "reemplazar"
         if self._lineas:
-            if not _confirmar(
-                self, "Recuperar venta",
-                "Hay artículos en el carrito. ¿Deseas reemplazarlos?",
-                txt_ok="REEMPLAZAR",
-            ):
+            accion = _elegir_recuperar(
+                self,
+                tr("tpv.recover_title", default="Recuperar venta"),
+                tr("tpv.recover_msg",
+                   default="Ya hay artículos en el carrito. ¿Qué quieres hacer con la venta recuperada?"),
+                tr("tpv.recover_add", default="SUMAR ARTÍCULOS"),
+                tr("tpv.recover_replace", default="REEMPLAZAR"),
+            )
+            if accion is None:
                 return
 
         dlg = _RetenidasDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             rec = dlg.get_recuperada()
             if rec:
-                self._lineas = rec.get("lineas", [])
+                nuevas = rec.get("lineas", [])
+                if accion == "sumar":
+                    self._lineas = (self._lineas or []) + nuevas
+                else:
+                    self._lineas = nuevas
                 self._refresh_tabla()
 
     def _abrir_buscar_tickets(self):
