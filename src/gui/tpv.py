@@ -1297,11 +1297,12 @@ class _PagoDialog(QDialog):
         return w
 
     def _pago_exacto(self):
-        """Importe entregado exacto: cambia a efectivo, rellena el total exacto y
-        cobra en un clic (pago justo)."""
+        """Importe entregado exacto: cambia a efectivo y rellena el campo 'importe
+        entregado' con el total. NO cobra: deja la transacción lista para que el
+        cajero la finalice con el botón verde COBRAR."""
         self._tab(0)
         self.inp_ef.setText(f"{self._total:.2f}")
-        self._cobrar()
+        self.inp_ef.setFocus()
 
     # --- teclado numérico ---
 
