@@ -17,6 +17,7 @@ import os
 import shutil
 
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -109,6 +110,7 @@ class CentroDocumentalWindow(QWidget):
         self._docs = []                  # filas mostradas (para resolver acciones)
         self._emp_map = {}
         self._tienda_map = {}
+        self.setWindowTitle("Smart Manager — " + tr("doc.titulo", default="DOCUMENTOS"))
         self.setStyleSheet(f"background:{_BG};")
         self._build()
         QTimer.singleShot(0, self._cargar_inicial)
@@ -232,7 +234,7 @@ class CentroDocumentalWindow(QWidget):
         # Documento se estira; el resto, ancho fijo moderado (sin scroll horizontal,
         # dejando el máximo espacio a la columna Documento).
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        anchos = {1: 95, 2: 70, 3: 60, 4: 120, 5: 95, 6: 110, 7: 72, 8: 206}
+        anchos = {1: 88, 2: 84, 3: 56, 4: 128, 5: 90, 6: 104, 7: 88, 8: 214}
         for c, w in anchos.items():
             hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Fixed)
             self.tabla.setColumnWidth(c, w)
@@ -330,6 +332,22 @@ class CentroDocumentalWindow(QWidget):
         self._refrescar()
 
     @staticmethod
+    def _fmt_fecha(val):
+        """Fecha de la tabla en formato corto y legible: dd/mm/aaaa HH:MM."""
+        if not val:
+            return ""
+        import datetime as _dt
+        if isinstance(val, _dt.datetime):
+            return val.strftime("%d/%m/%Y %H:%M")
+        s = str(val)
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                return _dt.datetime.strptime(s[:19], fmt).strftime("%d/%m/%Y %H:%M")
+            except ValueError:
+                continue
+        return s[:16]
+
+    @staticmethod
     def _fecha_sql(txt):
         txt = (txt or "").strip()
         if not txt:
@@ -365,8 +383,7 @@ class CentroDocumentalWindow(QWidget):
             tipo_lbl = tr(doc_db.TIPOS.get(tipo, "doc.tipo_otros"), default=tipo)
             emp = self._emp_map.get(d.get("id_empresa"), "")
             tnd = self._tienda_map.get(d.get("id_tienda"), "—") if d.get("id_tienda") else "—"
-            fecha = d.get("fecha_generacion")
-            fecha = str(fecha)[:19] if fecha else ""
+            fecha = self._fmt_fecha(d.get("fecha_generacion"))
             valores = [
                 d.get("nombre") or "", tipo_lbl, emp, tnd, fecha,
                 d.get("trabajador") or "—", d.get("referencia") or "—",
@@ -385,24 +402,26 @@ class CentroDocumentalWindow(QWidget):
 
     def _acciones_widget(self, d) -> QWidget:
         w = QWidget(); w.setStyleSheet("background:transparent;")
-        lay = QHBoxLayout(w); lay.setContentsMargins(2, 2, 2, 2); lay.setSpacing(4)
+        lay = QHBoxLayout(w); lay.setContentsMargins(2, 1, 2, 1); lay.setSpacing(3)
 
         def mini(icono, tip, slot, danger=False):
-            b = QPushButton(icono); b.setFixedSize(30, 28)
+            b = QPushButton(icono); b.setFixedSize(32, 30)
             b.setCursor(Qt.CursorShape.PointingHandCursor); b.setToolTip(tip)
-            c = _ROJO if danger else _CIAN
+            # Emojis a color (Segoe UI Emoji) sobre un chip; los dingbats monocromos
+            # finos (✉/⬇) se veían apagados, por eso se usan emojis de color.
+            b.setFont(QFont("Segoe UI Emoji", 12))
+            hov = _ROJO if danger else _CIAN
             b.setStyleSheet(
-                f"QPushButton{{background:{_BG};color:{c};border:1px solid {_BORDE};"
-                f"border-radius:7px;font-size:13px;}}"
-                f"QPushButton:hover{{background:{c};color:{_BG};border-color:{c};}}")
+                f"QPushButton{{background:{_BG2};border:1px solid {_BORDE};border-radius:7px;}}"
+                f"QPushButton:hover{{background:{hov};border-color:{hov};}}")
             b.clicked.connect(lambda: slot(d))
             return b
 
         lay.addWidget(mini("👁", tr("doc.ver", default="Ver"), self._ver))
-        lay.addWidget(mini("⬇", tr("doc.descargar", default="Descargar"), self._descargar))
+        lay.addWidget(mini("📥", tr("doc.descargar", default="Descargar"), self._descargar))
         lay.addWidget(mini("🖨", tr("doc.imprimir", default="Imprimir"), self._imprimir))
         lay.addWidget(mini("🔗", tr("doc.compartir", default="Compartir"), self._compartir))
-        lay.addWidget(mini("✉", tr("doc.correo", default="Enviar por correo"), self._enviar_correo))
+        lay.addWidget(mini("📧", tr("doc.correo", default="Enviar por correo"), self._enviar_correo))
         if sesion_global.es_admin():
             lay.addWidget(mini("🗑", tr("doc.eliminar", default="Eliminar"), self._eliminar, danger=True))
         lay.addStretch()
