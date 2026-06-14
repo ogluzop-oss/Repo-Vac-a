@@ -156,6 +156,9 @@ def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str 
             cambiar_referencia_externa(id_pedido, ref)
     except Exception as e:
         logger.warning("Sincronización e-commerce falló (pedido %s): %s", id_pedido, e)
+    # Si el pedido nace ya PAGADO, emite el justificante de pago.
+    if estado == "PAGADO":
+        _on_pagado(id_pedido)
     return id_pedido
 
 
@@ -194,6 +197,52 @@ def listar_pedidos_online(id_empresa=None, id_tienda="auto", estado=None,
         return []
 
 
+# Estados que cuentan como venta confirmada para las analíticas (todo lo que no
+# está pendiente de cobro ni cancelado).
+ESTADOS_FACTURABLES = ("PAGADO", "PREPARANDO", "ENVIADO", "ENTREGADO")
+
+
+def facturacion_por_dia(fecha_desde=None, fecha_hasta=None,
+                        id_empresa=None, id_tienda="auto") -> dict:
+    """Facturación de pedidos online por día (clave 'YYYY-MM-DD' -> total) de la
+    empresa/tienda ACTIVAS. Solo cuenta estados facturables. Integra el canal
+    online en las analíticas de Ventas."""
+    try:
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        if id_empresa is None:
+            id_empresa = empresa_actual_id()
+        if id_tienda == "auto":
+            id_tienda = tienda_actual_id()
+    except Exception:
+        if id_tienda == "auto":
+            id_tienda = None
+    filtros, params = ["id_empresa=%s"], [id_empresa]
+    if id_tienda is not None:
+        filtros.append("id_tienda=%s"); params.append(id_tienda)
+    filtros.append("estado IN (%s)" % ",".join(["%s"] * len(ESTADOS_FACTURABLES)))
+    params += list(ESTADOS_FACTURABLES)
+    if fecha_desde:
+        filtros.append("DATE(fecha) >= %s"); params.append(str(fecha_desde)[:10])
+    if fecha_hasta:
+        filtros.append("DATE(fecha) <= %s"); params.append(str(fecha_hasta)[:10])
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DATE(fecha) AS d, COALESCE(SUM(total),0) AS t "
+                "FROM pedidos_online WHERE " + " AND ".join(filtros) + " GROUP BY DATE(fecha)",
+                tuple(params))
+            out = {}
+            for r in cur.fetchall():
+                d = r["d"] if isinstance(r, dict) else r[0]
+                t = r["t"] if isinstance(r, dict) else r[1]
+                if d is not None:
+                    out[str(d)[:10]] = float(t or 0)
+            return out
+    except Exception as e:
+        logger.error("facturacion_por_dia: %s", e)
+        return {}
+
+
 def obtener_pedido(id_pedido: str) -> dict | None:
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -228,15 +277,18 @@ def cambiar_estado(id_pedido: str, nuevo_estado: str) -> bool:
             cur.execute("UPDATE pedidos_online SET estado=%s WHERE id_pedido=%s",
                         (nuevo_estado, id_pedido))
             conn.commit()
+        if nuevo_estado == "PAGADO":
+            _on_pagado(id_pedido)
         return True
     except Exception as e:
         logger.error("cambiar_estado(%s): %s", id_pedido, e)
         return False
 
 
-def generar_comprobante(id_pedido: str) -> str | None:
-    """Genera el comprobante PDF del pedido online y lo registra en el centro
-    documental (tipo 'pedido'). Devuelve la ruta o None."""
+def _generar_pdf_pedido(id_pedido: str, titulo: str, prefijo: str,
+                        es_justificante: bool = False) -> str | None:
+    """Genera un PDF (comprobante o justificante) de un pedido online y lo
+    registra en el centro documental (tipo 'pedido'). Devuelve la ruta o None."""
     import os
     pedido = obtener_pedido(id_pedido)
     if not pedido:
@@ -246,7 +298,7 @@ def generar_comprobante(id_pedido: str) -> str | None:
         from reportlab.lib.units import mm
         from reportlab.pdfgen import canvas
     except Exception as e:
-        logger.warning("reportlab no disponible para el comprobante: %s", e)
+        logger.warning("reportlab no disponible para %s: %s", prefijo, e)
         return None
     try:
         from src.db.empresa import info_documento
@@ -259,7 +311,7 @@ def generar_comprobante(id_pedido: str) -> str | None:
     except Exception:
         carpeta = os.path.join("documentos", "pedidos")
     os.makedirs(carpeta, exist_ok=True)
-    ruta = os.path.join(carpeta, f"comprobante_pedido_{id_pedido}.pdf")
+    ruta = os.path.join(carpeta, f"{prefijo}_{id_pedido}.pdf")
     try:
         c = canvas.Canvas(ruta, pagesize=A4)
         W, H = A4
@@ -274,17 +326,21 @@ def generar_comprobante(id_pedido: str) -> str | None:
                 c.drawString(20 * mm, y, str(ln)[:90]); y -= 4.5 * mm
         y -= 4 * mm
         c.setFont("Helvetica-Bold", 13)
-        c.drawString(20 * mm, y, "COMPROBANTE DE PEDIDO ONLINE"); y -= 8 * mm
+        c.drawString(20 * mm, y, titulo); y -= 8 * mm
         c.setFont("Helvetica", 9)
         fecha = str(pedido.get("fecha") or "")[:19]
-        for ln in (f"Pedido: {id_pedido}", f"Fecha: {fecha}",
-                   f"Estado: {pedido.get('estado','')}",
-                   f"Plataforma: {pedido.get('plataforma','')}",
-                   f"Trabajador: {pedido.get('trabajador') or '-'}",
-                   f"Cliente: {pedido.get('cliente_nombre') or '-'}",
-                   f"Tel.: {pedido.get('cliente_telefono') or '-'}   "
-                   f"Email: {pedido.get('cliente_email') or '-'}",
-                   f"Envío: {pedido.get('direccion_envio') or '-'}"):
+        cabecera = [f"Pedido: {id_pedido}", f"Fecha: {fecha}",
+                    f"Estado: {pedido.get('estado','')}",
+                    f"Plataforma: {pedido.get('plataforma','')}",
+                    f"Trabajador: {pedido.get('trabajador') or '-'}",
+                    f"Cliente: {pedido.get('cliente_nombre') or '-'}",
+                    f"Tel.: {pedido.get('cliente_telefono') or '-'}   "
+                    f"Email: {pedido.get('cliente_email') or '-'}",
+                    f"Envío: {pedido.get('direccion_envio') or '-'}"]
+        if es_justificante:
+            ref = pedido.get("referencia_externa")
+            cabecera.append("PAGO CONFIRMADO" + (f"   Ref.: {ref}" if ref else ""))
+        for ln in cabecera:
             c.drawString(20 * mm, y, ln[:100]); y -= 5 * mm
         y -= 3 * mm
         c.setFont("Helvetica-Bold", 9)
@@ -300,12 +356,13 @@ def generar_comprobante(id_pedido: str) -> str | None:
             y -= 5 * mm
         y -= 2 * mm; c.line(120 * mm, y, 190 * mm, y); y -= 6 * mm
         c.setFont("Helvetica-Bold", 11)
-        c.drawRightString(190 * mm, y, f"TOTAL: {float(pedido.get('total',0)):.2f}")
+        etiqueta_total = "TOTAL PAGADO: " if es_justificante else "TOTAL: "
+        c.drawRightString(190 * mm, y, f"{etiqueta_total}{float(pedido.get('total',0)):.2f}")
         c.setFont("Helvetica", 7)
         c.drawString(20 * mm, 15 * mm, f"Trazabilidad: {id_pedido}")
         c.showPage(); c.save()
     except Exception as e:
-        logger.error("generar_comprobante(%s): %s", id_pedido, e)
+        logger.error("_generar_pdf_pedido(%s, %s): %s", id_pedido, prefijo, e)
         return None
     # Registrar en el centro documental.
     try:
@@ -315,8 +372,31 @@ def generar_comprobante(id_pedido: str) -> str | None:
             cliente=pedido.get("cliente_nombre"), trabajador=pedido.get("trabajador"),
             importe=pedido.get("total"), estado=pedido.get("estado"))
     except Exception as e:
-        logger.debug("No se pudo registrar el comprobante: %s", e)
+        logger.debug("No se pudo registrar %s: %s", prefijo, e)
     return ruta
+
+
+def generar_comprobante(id_pedido: str) -> str | None:
+    """Comprobante PDF del pedido online (centro documental, tipo 'pedido')."""
+    return _generar_pdf_pedido(
+        id_pedido, "COMPROBANTE DE PEDIDO ONLINE", "comprobante_pedido")
+
+
+def generar_justificante_pago(id_pedido: str) -> str | None:
+    """Justificante de pago PDF del pedido online. Se genera automáticamente al
+    pasar el pedido a PAGADO (centro documental, tipo 'pedido')."""
+    return _generar_pdf_pedido(
+        id_pedido, "JUSTIFICANTE DE PAGO", "justificante_pago",
+        es_justificante=True)
+
+
+def _on_pagado(id_pedido: str) -> None:
+    """Acciones automáticas al confirmarse el pago de un pedido online."""
+    try:
+        generar_justificante_pago(id_pedido)
+    except Exception as e:
+        logger.warning("No se pudo generar el justificante de pago (%s): %s",
+                       id_pedido, e)
 
 
 def cambiar_referencia_externa(id_pedido: str, referencia: str) -> bool:

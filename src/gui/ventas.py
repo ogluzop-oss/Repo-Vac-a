@@ -2368,6 +2368,11 @@ class VentasAnaliticaWindow(QWidget):
                     )
                 datos = cur.fetchall()
 
+                # Integra el canal de venta online en la facturación total
+                # (cuando no se filtra por artículo/sección, que son del TPV).
+                if not art and not secc:
+                    datos = self._merge_facturacion_online(datos, desde, hasta)
+
                 # Top 10
                 cur.execute(
                     "SELECT vi.codigo_articulo, vi.nombre, SUM(vi.cantidad) AS uds "
@@ -2817,6 +2822,31 @@ class VentasAnaliticaWindow(QWidget):
                 serie.append((fecha, float(t or 0)))
         return serie
 
+    @staticmethod
+    def _facturacion_online_por_dia(desde=None, hasta=None):
+        """{‘YYYY-MM-DD’: total} de pedidos online facturables de la tienda activa."""
+        try:
+            from src.services.tpv import online_orders_service as oos
+            return oos.facturacion_por_dia(desde, hasta)
+        except Exception:
+            return {}
+
+    def _merge_facturacion_online(self, datos, desde, hasta):
+        """Suma la facturación online (por día) a la serie de ventas del TPV.
+
+        ``datos`` = lista de filas (dia, total). Devuelve una lista equivalente
+        ordenada por día, con los importes online integrados."""
+        online = self._facturacion_online_por_dia(desde, hasta)
+        if not online:
+            return datos
+        acc = {}
+        for r in datos:
+            acc_key = str(r[0])[:10]
+            acc[acc_key] = acc.get(acc_key, 0.0) + float(r[1] or 0)
+        for dia, total in online.items():
+            acc[dia] = acc.get(dia, 0.0) + float(total or 0)
+        return [(d, acc[d]) for d in sorted(acc)]
+
     def _serie_ventas_tpv(self):
         """Serie diaria [(fecha, importe)] de las ventas reales del TPV/autocobro."""
         try:
@@ -3065,6 +3095,16 @@ class VentasAnaliticaWindow(QWidget):
                 for d, tot, cnt in cur.fetchall():
                     if d in data:
                         data[d]["fact"] = float(tot or 0); data[d]["clientes"] = int(cnt or 0)
+                # Integra la facturación del canal online por día.
+                desde = f"{anio:04d}-{mes:02d}-01"
+                hasta = f"{anio:04d}-{mes:02d}-{ndias:02d}"
+                for fecha_iso, total in self._facturacion_online_por_dia(desde, hasta).items():
+                    try:
+                        d = int(fecha_iso[8:10])
+                    except (ValueError, IndexError):
+                        continue
+                    if d in data:
+                        data[d]["fact"] += float(total or 0)
                 cur.execute(
                     "SELECT DAY(entrada), COALESCE(SUM(TIMESTAMPDIFF(MINUTE, entrada, salida)),0) "
                     "FROM fichajes WHERE salida IS NOT NULL AND YEAR(entrada)=%s AND MONTH(entrada)=%s "
