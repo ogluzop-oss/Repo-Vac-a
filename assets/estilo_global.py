@@ -570,7 +570,9 @@ def _apply_combo_extras(widget):
                 f"  outline: 0px;"
                 f"}}"
                 f"QListView#_sm_combo_view QScrollBar:vertical {{"
-                f"  background: transparent; width: 12px; margin: 2px 0px;"
+                # margen también a derecha (y arriba/abajo) para que la barra quede
+                # METIDA hacia dentro y no corte el contorno neón redondeado del popup.
+                f"  background: transparent; width: 10px; margin: 6px 5px 6px 0px;"
                 f"}}"
                 f"QListView#_sm_combo_view QScrollBar::handle:vertical {{"
                 f"  background: {COLOR_CIAN}; min-height: 24px; border-radius: 6px;"

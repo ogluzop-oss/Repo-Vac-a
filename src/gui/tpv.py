@@ -2390,16 +2390,8 @@ class _DevolucionDialog(QDialog):
             f"border-radius:8px;outline:none;padding:2px;"
             f"selection-background-color:{_CIAN};selection-color:#0D1117;}}"
             f"QComboBox QAbstractItemView::item{{min-height:30px;padding:2px 10px;}}"
-            # Scrollbar metida hacia dentro (margen) para no cortar el contorno neón
-            # del desplegable en las esquinas.
-            f"QComboBox QAbstractItemView QScrollBar:vertical{{background:transparent;width:12px;"
-            f"margin:6px 5px 6px 0;border-radius:4px;}}"
-            f"QComboBox QAbstractItemView QScrollBar::handle:vertical{{background:{_CIAN};"
-            f"border-radius:4px;min-height:28px;}}"
-            f"QComboBox QAbstractItemView QScrollBar::add-line:vertical,"
-            f"QComboBox QAbstractItemView QScrollBar::sub-line:vertical{{height:0;}}"
-            f"QComboBox QAbstractItemView QScrollBar::add-page:vertical,"
-            f"QComboBox QAbstractItemView QScrollBar::sub-page:vertical{{background:transparent;}}"
+            # (El estilo de la scrollbar del popup lo aplica el filtro global
+            # _apply_combo_extras → _sm_combo_view, ya con margen para no cortar el borde.)
         )
         col_m.addWidget(self.inp_motivo)
         fila.addLayout(col_m, 2)
