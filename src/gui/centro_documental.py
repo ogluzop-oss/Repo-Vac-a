@@ -17,7 +17,6 @@ import os
 import shutil
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -46,6 +45,7 @@ logger = logging.getLogger("gui.documentos")
 
 _BG = "#0E1117"
 _BG2 = "#161B22"
+_SIDEBAR = "#111418"   # color de las sidebars del resto de la app
 _CIAN = "#00FFC6"
 _BORDE = "#30363D"
 _TEXT = "#E6EDF3"
@@ -117,11 +117,17 @@ class CentroDocumentalWindow(QWidget):
 
     # ---------------------------------------------------------------- construcción
     def _build(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(24, 18, 24, 18)
-        root.setSpacing(14)
+        # Sidebar a toda altura (izquierda) + panel derecho con cabecera y tabla,
+        # igual que el resto de pantallas de la app.
+        root = QHBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        root.addWidget(self._build_sidebar(), 0)
+        right = QWidget(); right.setStyleSheet(f"background:{_BG};")
+        rcol = QVBoxLayout(right); rcol.setContentsMargins(24, 18, 24, 18); rcol.setSpacing(14)
+        rcol.addLayout(self._build_header())
+        rcol.addLayout(self._build_panel(), 1)
+        root.addWidget(right, 1)
 
-        # Cabecera: título + empresa/tienda + volver.
+    def _build_header(self) -> QHBoxLayout:
         cab = QHBoxLayout()
         titulo = QLabel("🗂  " + tr("doc.titulo", default="DOCUMENTOS"))
         titulo.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;"
@@ -130,7 +136,7 @@ class CentroDocumentalWindow(QWidget):
         cab.addSpacing(18)
         self.lbl_ctx = QLabel("")
         self.lbl_ctx.setStyleSheet(f"color:{_DIM};font-family:'Segoe UI';font-weight:700;"
-                                   f"font-size:12px;background:transparent;")
+                                   f"font-size:14px;background:transparent;")
         cab.addWidget(self.lbl_ctx)
         cab.addStretch()
         if self._volver:
@@ -142,26 +148,25 @@ class CentroDocumentalWindow(QWidget):
                 f"QPushButton:hover{{background:{_CIAN};color:{_BG};}}")
             bvol.clicked.connect(self._volver_menu)
             cab.addWidget(bvol)
-        root.addLayout(cab)
-
-        cuerpo = QHBoxLayout(); cuerpo.setSpacing(14)
-        cuerpo.addWidget(self._build_sidebar(), 0)
-        cuerpo.addLayout(self._build_panel(), 1)
-        root.addLayout(cuerpo, 1)
+        return cab
 
     def _build_sidebar(self) -> QWidget:
-        wrap = QFrame(); wrap.setObjectName("sideWrap"); wrap.setFixedWidth(232)
-        wrap.setStyleSheet(f"QFrame#sideWrap{{background:{_BG2};border:2px solid {_BORDE};"
-                           f"border-radius:14px;}}")
-        lay = QVBoxLayout(wrap); lay.setContentsMargins(10, 12, 10, 12); lay.setSpacing(4)
+        # Sidebar al estilo del resto de la app: riel oscuro + border-right, sin
+        # tarjeta redondeada; botones gris→blanco al pasar; activo en cian.
+        wrap = QFrame(); wrap.setObjectName("sideWrap"); wrap.setFixedWidth(250)
+        wrap.setStyleSheet(f"QFrame#sideWrap{{background:{_SIDEBAR};border:none;"
+                           f"border-right:1px solid {_BORDE};}}")
+        lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
         cab = QLabel(tr("doc.categorias", default="CATEGORÍAS"))
-        cab.setStyleSheet(f"color:{_DIM};font-family:'Segoe UI';font-weight:900;"
-                          f"font-size:11px;background:transparent;padding:2px 6px 6px 6px;")
+        cab.setStyleSheet("color:#FFFFFF;font-family:'Segoe UI';font-weight:900;"
+                          "font-size:13px;letter-spacing:1.5px;background:transparent;"
+                          "border:none;padding:0 0 16px 28px;")
         lay.addWidget(cab)
         for tipo, icono, clave, defecto in _CATEGORIAS:
-            b = QPushButton(f"  {icono}  {tr(clave, default=defecto)}")
+            b = QPushButton(f"  {icono}   {tr(clave, default=defecto)}")
+            b.setObjectName("btn_sidebar")
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setCheckable(True); b.setFixedHeight(36)
+            b.setCheckable(True); b.setFixedHeight(42)
             b.clicked.connect(lambda _c, t=tipo: self._seleccionar_categoria(t))
             self._cat_btns[tipo] = b
             lay.addWidget(b)
@@ -169,24 +174,24 @@ class CentroDocumentalWindow(QWidget):
         self._estilar_categorias()
         return wrap
 
+    _SS_CAT = (
+        "QPushButton{{background:transparent;color:#8B949E;text-align:left;"
+        "padding:6px 8px 6px 24px;border:none;border-radius:0px;font-family:'Segoe UI';"
+        "font-weight:900;font-size:14px;letter-spacing:0.5px;}}"
+        "QPushButton:hover{{background:#FFFFFF;color:{sb};}}")
+    _SS_CAT_ACT = (
+        "QPushButton{{background:{ci};color:{bg};text-align:left;"
+        "padding:6px 8px 6px 24px;border:none;border-radius:0px;font-family:'Segoe UI';"
+        "font-weight:900;font-size:14px;letter-spacing:0.5px;}}")
+
     def _estilar_categorias(self):
+        inact = self._SS_CAT.format(sb=_SIDEBAR)
+        act = self._SS_CAT_ACT.format(ci=_CIAN, bg=_BG)
         for tipo, b in self._cat_btns.items():
-            activo = (tipo == self._tipo_sel)
             n = self._conteo.get(tipo) if hasattr(self, "_conteo") else None
             base = b.text().split("   [")[0]
-            if n:
-                b.setText(f"{base}   [{n}]")
-            else:
-                b.setText(base)
-            if activo:
-                b.setStyleSheet(
-                    f"QPushButton{{background:{_CIAN};color:{_BG};border:none;border-radius:9px;"
-                    f"text-align:left;font-family:'Segoe UI';font-weight:900;font-size:14px;padding:0 8px;}}")
-            else:
-                b.setStyleSheet(
-                    f"QPushButton{{background:transparent;color:{_TEXT};border:none;border-radius:9px;"
-                    f"text-align:left;font-family:'Segoe UI';font-weight:700;font-size:14px;padding:0 8px;}}"
-                    f"QPushButton:hover{{background:#11312B;color:{_CIAN};}}")
+            b.setText(f"{base}   [{n}]" if n else base)
+            b.setStyleSheet(act if tipo == self._tipo_sel else inact)
 
     def _build_panel(self) -> QVBoxLayout:
         col = QVBoxLayout(); col.setSpacing(12)
@@ -410,26 +415,27 @@ class CentroDocumentalWindow(QWidget):
         w = QWidget(); w.setStyleSheet("background:transparent;")
         lay = QHBoxLayout(w); lay.setContentsMargins(2, 1, 2, 1); lay.setSpacing(3)
 
-        def mini(icono, tip, slot, danger=False):
+        def mini(icono, slot, danger=False):
             b = QPushButton(icono); b.setFixedSize(32, 30)
-            b.setCursor(Qt.CursorShape.PointingHandCursor); b.setToolTip(tip)
-            # Emojis a color (Segoe UI Emoji) sobre un chip; los dingbats monocromos
-            # finos (✉/⬇) se veían apagados, por eso se usan emojis de color.
-            b.setFont(QFont("Segoe UI Emoji", 12))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            # Sin font propia: con la fuente por defecto los emojis de color SÍ
+            # renderizan (como en la barra lateral). Sin tooltip (no casa con el
+            # diseño global de la app).
             hov = _ROJO if danger else _CIAN
             b.setStyleSheet(
-                f"QPushButton{{background:{_BG2};border:1px solid {_BORDE};border-radius:7px;}}"
+                f"QPushButton{{background:{_BG2};border:1px solid {_BORDE};border-radius:7px;"
+                f"font-size:15px;}}"
                 f"QPushButton:hover{{background:{hov};border-color:{hov};}}")
             b.clicked.connect(lambda: slot(d))
             return b
 
-        lay.addWidget(mini("👁", tr("doc.ver", default="Ver"), self._ver))
-        lay.addWidget(mini("📥", tr("doc.descargar", default="Descargar"), self._descargar))
-        lay.addWidget(mini("🖨", tr("doc.imprimir", default="Imprimir"), self._imprimir))
-        lay.addWidget(mini("🔗", tr("doc.compartir", default="Compartir"), self._compartir))
-        lay.addWidget(mini("📧", tr("doc.correo", default="Enviar por correo"), self._enviar_correo))
+        lay.addWidget(mini("👁", self._ver))
+        lay.addWidget(mini("📥", self._descargar))
+        lay.addWidget(mini("🖨", self._imprimir))
+        lay.addWidget(mini("🔗", self._compartir))
+        lay.addWidget(mini("📧", self._enviar_correo))
         if sesion_global.es_admin():
-            lay.addWidget(mini("🗑", tr("doc.eliminar", default="Eliminar"), self._eliminar, danger=True))
+            lay.addWidget(mini("🗑", self._eliminar, danger=True))
         lay.addStretch()
         return w
 

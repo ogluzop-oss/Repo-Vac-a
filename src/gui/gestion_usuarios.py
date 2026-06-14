@@ -53,7 +53,6 @@ from PyQt6.QtWidgets import (
 )
 
 from assets.estilo_global import (
-    construir_tabla_estilizada,
     mostrar_confirmacion,
     mostrar_mensaje,
 )
@@ -8998,10 +8997,11 @@ class ConfiguracionWindow(QWidget):
         # ── Módulos (4 botones de selección) ─────────────────────────────────
         # EMPRESA se retiró: los datos de empresa se gestionan en la pestaña
         # "DATOS DE EMPRESA" (fuente única).
+        # AUDITORÍA Y REGISTRO DE DOCUMENTOS se retiró: el repositorio documental
+        # está ahora centralizado en el menú → DOCUMENTOS (centro_documental.py).
         MODULOS = [
             ("👷  " + tr("cfg.mod_laboral", default="LABORAL"),   "#3FB950"),
             ("📋  " + tr("cfg.mod_fiscal", default="FISCAL"),    "#58A6FF"),
-            ("🔍  " + tr("cfg.mod_auditoria", default="AUDITORÍA"), "#F0883E"),
         ]
         mod_row = QHBoxLayout(); mod_row.setSpacing(8)
         self._fis_mod_btns = []
@@ -9025,7 +9025,6 @@ class ConfiguracionWindow(QWidget):
 
         self._fis_stack.addWidget(self._fis_modulo_laboral())
         self._fis_stack.addWidget(self._fis_modulo_fiscal())
-        self._fis_stack.addWidget(self._fis_modulo_auditoria())
         outer.addWidget(self._fis_stack)
 
         self._fis_mod_btns[0].setChecked(True)
@@ -9034,14 +9033,6 @@ class ConfiguracionWindow(QWidget):
     def _fis_cambiar_modulo(self, idx):
         for i, b in enumerate(self._fis_mod_btns):
             b.setChecked(i == idx)
-        # Rebuild the AUDITORÍA widget (ahora índice 2) en cada visita para que
-        # refleje los archivos en disco sin necesidad de reiniciar sesión.
-        if idx == 2:
-            old = self._fis_stack.widget(2)
-            nuevo = self._fis_modulo_auditoria()
-            self._fis_stack.removeWidget(old)
-            old.deleteLater()
-            self._fis_stack.insertWidget(2, nuevo)
         self._fis_stack.setCurrentIndex(idx)
 
     def _fis_card_btn(self, icono, titulo, descripcion, tipo_wizard):
@@ -9195,173 +9186,6 @@ class ConfiguracionWindow(QWidget):
             mostrar_mensaje(self, tr("cfg.saved_title", default="Guardado"), tr("cfg.emp_saved", default="Datos de empresa guardados correctamente."), "success")
         except Exception as e:
             mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.emp_save_err", default="No se pudieron guardar los datos: {e}", e=e), "error")
-
-    def _fis_modulo_auditoria(self):
-        w = QWidget()
-        ly = QVBoxLayout(w); ly.setContentsMargins(4, 10, 12, 10); ly.setSpacing(10)
-        lbl = QLabel(tr("cfg.audit_title", default="AUDITORÍA Y REGISTRO DE DOCUMENTOS"))
-        lbl.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:13px;")
-        ly.addWidget(lbl)
-
-        carpeta = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "documentos", "fiscalidad"))
-        archivos = []
-        try:
-            if os.path.exists(carpeta):
-                archivos = sorted(
-                    [f for f in os.listdir(carpeta) if f.endswith(".pdf")],
-                    reverse=True
-                )[:50]
-        except Exception:
-            pass
-
-        if archivos:
-            # Use construir_tabla_estilizada for a single consistent neon border
-            tbl_frame, tbl = construir_tabla_estilizada()
-            tbl.setColumnCount(2)
-            tbl.setHorizontalHeaderLabels([tr("cfg.col_document", default="DOCUMENTO"), tr("cfg.col_gen_date", default="FECHA GENERACIÓN")])
-            tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-            tbl.setColumnWidth(1, 320)
-            tbl.setRowCount(len(archivos))
-            tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-            tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-            tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-            tbl.verticalHeader().setVisible(False)
-            tbl.setShowGrid(False)
-            tbl.setAlternatingRowColors(True)
-
-            _ruta_carpeta = carpeta
-            for r, fname in enumerate(archivos):
-                parts = fname.replace(".pdf", "").split("_")
-                try:
-                    d = parts[-2]
-                    t = parts[-1]
-                    fecha = tr("cfg.date_hour", default="FECHA: {d}  HORA: {t}", d=f"{d[6:8]}/{d[4:6]}/{d[:4]}", t=f"{t[:2]}:{t[2:4]}")
-                except Exception:
-                    fecha = "_".join(parts[-2:]) if len(parts) >= 2 else ""
-                item_doc = QTableWidgetItem(f"  📄  {fname}")
-                item_doc.setFlags(item_doc.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                tbl.setItem(r, 0, item_doc)
-                item_f = QTableWidgetItem(f"  {fecha}")
-                item_f.setFlags(item_f.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                tbl.setItem(r, 1, item_f)
-
-            def _open_pdf(row, _col, _folder=_ruta_carpeta, _files=archivos):
-                try:
-                    os.startfile(os.path.join(_folder, _files[row]))
-                except Exception as ex:
-                    mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.open_err", default="No se pudo abrir el archivo:\n{ex}", ex=ex), "error")
-
-            tbl.cellDoubleClicked.connect(_open_pdf)
-
-            # Overlay approach: paint the 4 corner areas on top of all children
-            # using the container's own background colour.  This hides any row
-            # content that bleeds outside the neon border's rounded arc without
-            # clipping the viewport — so row hover/selection highlights stay
-            # perfectly rectangular.
-            class _CornerCover(QWidget):
-                _PANEL = QColor("#1A1D23")   # same as contenedor_tabla_estandar bg
-
-                def __init__(self, parent):
-                    super().__init__(parent)
-                    self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-                    self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
-                    self.setGeometry(parent.rect())
-
-                def paintEvent(self, event):   # noqa: N802
-                    p = QPainter(self)
-                    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-                    r, W, H = 20.0, float(self.width()), float(self.height())
-                    full = QPainterPath()
-                    full.addRect(QRectF(0, 0, W, H))
-                    inner = QPainterPath()
-                    inner.addRoundedRect(QRectF(0, 0, W, H), r, r)
-                    # Fill the 4 corner triangles with the panel background
-                    p.fillPath(full.subtracted(inner), self._PANEL)
-                    # Redraw the neon border arc on top so it stays crisp
-                    p.setPen(QPen(QColor(_CIAN), 2.0))
-                    p.setBrush(Qt.BrushStyle.NoBrush)
-                    p.drawRoundedRect(QRectF(1, 1, W - 2, H - 2), r - 1, r - 1)
-                    p.end()
-
-            _cover = _CornerCover(tbl_frame)
-
-            _mask_pending = [False]
-
-            def _apply_masks():
-                _mask_pending[0] = False
-                fr = tbl_frame.rect()
-                if fr.width() > 0 and fr.height() > 0:
-                    path = QPainterPath()
-                    path.addRoundedRect(QRectF(fr), 20, 20)
-                    tbl_frame.setMask(QRegion(path.toFillPolygon().toPolygon()))
-                _cover.setGeometry(tbl_frame.rect())
-                _cover.raise_()
-                _cover.update()
-
-            def _schedule_masks():
-                if not _mask_pending[0]:
-                    _mask_pending[0] = True
-                    QTimer.singleShot(0, _apply_masks)
-
-            class _MaskFilter(QObject):
-                def eventFilter(self_, obj, event):  # noqa: N805
-                    if event.type() == QEvent.Type.Resize:
-                        _schedule_masks()
-                    return False
-
-            tbl_frame.installEventFilter(_MaskFilter(tbl_frame))
-            QTimer.singleShot(50, _apply_masks)
-
-            ly.addWidget(tbl_frame)
-
-            def _eliminar_doc():
-                # currentRow() persists after focus moves to the button
-                row = tbl.currentRow()
-                if row < 0:
-                    idxs = tbl.selectionModel().selectedRows()
-                    row = idxs[0].row() if idxs else -1
-                if row < 0 or row >= len(archivos):
-                    mostrar_mensaje(self, tr("cfg.sel_doc_title", default="Selección"),
-                                    tr("cfg.sel_doc_msg", default="Selecciona un documento de la tabla primero."),
-                                    "warning")
-                    return
-                fname_del = archivos[row]
-                ruta_del = os.path.join(carpeta, fname_del)
-                if not mostrar_confirmacion(self, tr("cfg.del_doc_title", default="Eliminar documento"),
-                                            tr("cfg.del_doc_confirm", default="¿Eliminar permanentemente:\n{x}?", x=fname_del)):
-                    return
-                try:
-                    if os.path.exists(ruta_del):
-                        os.remove(ruta_del)
-                    else:
-                        mostrar_mensaje(self, tr("cfg.error_title", default="Error"),
-                                        tr("cfg.file_not_found", default="Archivo no encontrado:\n{x}", x=ruta_del), "error")
-                        return
-                    tbl.removeRow(row)
-                    archivos.pop(row)
-                    mostrar_mensaje(self, tr("cfg.deleted_title", default="Eliminado"),
-                                    tr("cfg.doc_deleted", default="Documento eliminado correctamente."), "success")
-                except Exception as ex:
-                    mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.del_err", default="No se pudo eliminar:\n{ex}", ex=ex), "error")
-
-            btn_del = QPushButton("🗑  " + tr("cfg.del_selected", default="ELIMINAR SELECCIONADO"))
-            btn_del.setFixedHeight(36)
-            btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_del.setStyleSheet(
-                "QPushButton{background:#0D1117;color:#F85149;border:2px solid #F85149;"
-                "border-radius:8px;font-family:'Segoe UI';font-weight:900;font-size:12px;padding:0 14px;}"
-                "QPushButton:hover{background:#F85149;color:white;}"
-            )
-            btn_del.clicked.connect(lambda: _eliminar_doc())
-            ly.addWidget(btn_del, alignment=Qt.AlignmentFlag.AlignRight)
-        else:
-            lbl_v = QLabel(tr("cfg.no_docs", default="No hay documentos generados todavía."))
-            lbl_v.setStyleSheet("color:#6E7681;font-family:'Segoe UI';font-size:13px;")
-            lbl_v.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            ly.addWidget(lbl_v)
-
-        ly.addStretch()
-        return w
 
     # --- PESTAÑA 2: PLAZO DEVOLUCIÓN ---
     def _crear_page_plazo_devolucion(self):
