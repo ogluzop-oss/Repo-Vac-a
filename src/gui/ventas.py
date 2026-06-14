@@ -562,6 +562,15 @@ class _VentasCalendarWidget(QCalendarWidget):
             """
         )
         self.setMinimumSize(318, 258)
+        # Defensa anti-cuelgue: el editor de año interno (QAbstractSpinBox) que el
+        # CSS deja en 0x0 puede, si se vuelve ventana nativa estando visible,
+        # generar un MINMAXINFO degenerado (bucle de setGeometry en Windows =
+        # cuelgue). Lo ocultamos de inmediato (la navegación la hace el nav propio).
+        for _nm, _kl in (("qt_calendar_yearedit", QSpinBox),
+                         ("qt_calendar_monthbutton", QToolButton)):
+            _w = self.findChild(_kl, _nm)
+            if _w is not None:
+                _w.hide()
         self.currentPageChanged.connect(lambda _y, _m: self._sync_nav_texts())
 
     def showEvent(self, event):
@@ -582,6 +591,13 @@ class _VentasCalendarWidget(QCalendarWidget):
                 return
             sz = popup.size()
             if sz.width() <= 0 or sz.height() <= 0:
+                return
+            # Si el calendario está EMBEBIDO en una ventana normal (p. ej. el filtro
+            # de fecha del buscador, que lo mete en un QFrame hijo del diálogo), su
+            # window() es esa ventana grande: NO hay que enmascararla ni cubrirla
+            # (lo hacía y dejaba el diálogo tapado/colgado). Solo se enmascara un
+            # popup dedicado (de tamaño próximo al del calendario).
+            if sz.width() > self.width() + 80 or sz.height() > self.height() + 80:
                 return
             bmp = QBitmap(sz)
             bmp.fill(Qt.GlobalColor.color0)

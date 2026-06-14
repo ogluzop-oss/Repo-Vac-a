@@ -1160,52 +1160,55 @@ class _RetenidasDialog(QDialog):
 # ============================================================
 
 class _PagoDialog(QDialog):
-    _NUMPAD_W = 250  # ancho del teclado numérico y del botón de importe exacto
+    _NUMPAD_W = 270  # ancho del teclado numérico y del botón de importe exacto
 
     def __init__(self, total: float, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("pago.title"))
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        # Pantalla completa con un único contorno (el del QDialog global). Sin
-        # translucidez ni borde de tarjeta interno (evita el doble contorno).
+        # Pantalla completa (geometría fijada en showEvent) con un único contorno:
+        # el del QDialog global. Sin translucidez ni borde interno (sin doble
+        # contorno). El contenido va en un panel centrado para no verse vacío.
         self.setObjectName("dlg_cobrar")
         self.setStyleSheet(f"#dlg_cobrar {{ background: {_BG}; }}")
         self._total     = total
         self._resultado: dict | None = None
-        try:
-            self.setGeometry(QApplication.primaryScreen().availableGeometry())
-        except Exception:
-            self.setMinimumSize(1000, 640)
 
-        # Contenido centrado en dos columnas sobre el fondo a pantalla completa.
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 30, 40, 30)
+        root.setContentsMargins(0, 0, 0, 0)
         root.addStretch()
-        body = QHBoxLayout(); body.setSpacing(40)
-        root.addLayout(body)
+        fila = QHBoxLayout(); fila.addStretch()
+        root.addLayout(fila)
         root.addStretch()
 
-        body.addStretch()
+        panel = QFrame(); panel.setObjectName("pago_panel")
+        panel.setStyleSheet(f"QFrame#pago_panel{{background:{_BG2};border:none;border-radius:26px;}}")
+        fila.addWidget(panel)
+        fila.addStretch()
+
+        body = QHBoxLayout(panel)
+        body.setContentsMargins(48, 40, 48, 40)
+        body.setSpacing(48)
+
         # Columna izquierda: información de cobro.
-        izq = QWidget(); izq.setFixedWidth(480)
-        lay = QVBoxLayout(izq); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(14)
+        izq = QWidget(); izq.setFixedWidth(470)
+        lay = QVBoxLayout(izq); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(16)
         body.addWidget(izq, 0, Qt.AlignmentFlag.AlignTop)
 
         # Columna derecha: teclado numérico + importe entregado exacto (mismo ancho).
-        der = QVBoxLayout(); der.setSpacing(12)
+        der = QVBoxLayout(); der.setSpacing(14)
         der.addWidget(self._build_pago_numpad(), 0, Qt.AlignmentFlag.AlignTop)
         self.btn_exacto = _btn(
             f"{tr('pago.exact_label', default='Importe entregado exacto:')}\n{divisas.formatear(total)}",
             color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
-            hover_bg="#FFF", hover_fg="#0D1117", h=58)
+            hover_bg="#FFF", hover_fg="#0D1117", h=60)
         self.btn_exacto.setFixedWidth(self._NUMPAD_W)
         self.btn_exacto.clicked.connect(self._pago_exacto)
         der.addWidget(self.btn_exacto)
         der.addStretch()
         body.addLayout(der, 0)
-        body.addStretch()
 
-        lay.addWidget(_lbl(tr("pago.total_label", x=divisas.formatear(total)), bold=True, size=20, color=_CIAN))
+        lay.addWidget(_lbl(tr("pago.total_label", x=divisas.formatear(total)), bold=True, size=22, color=_CIAN))
         lay.addWidget(_sep())
 
         # Tabs forma de pago
@@ -1213,10 +1216,11 @@ class _PagoDialog(QDialog):
         tabs.setSpacing(6)
         self._tab_btns = []
         for label in (tr("pago.tab_cash"), tr("pago.tab_card"), tr("pago.tab_mixed")):
-            b = _btn(label, h=36)
+            b = _btn(label, h=42)
             tabs.addWidget(b)
             self._tab_btns.append(b)
         lay.addLayout(tabs)
+        lay.addSpacing(2)
 
         self._stack = QStackedWidget()
         self._stack.setStyleSheet("background:transparent;")
@@ -1229,9 +1233,9 @@ class _PagoDialog(QDialog):
 
         br = QHBoxLayout()
         btn_cancelar = _btn(tr("pago.cancel"), color_fg=_ROJO, color_border=_ROJO,
-                            hover_bg=_ROJO, hover_fg="#FFF", h=42)
+                            hover_bg=_ROJO, hover_fg="#FFF", h=50)
         self.btn_cobrar = _btn(tr("pago.charge"), color_bg=_VERDE, color_fg="#0D1117",
-                               color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=42)
+                               color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=50)
         br.addWidget(btn_cancelar)
         br.addStretch()
         br.addWidget(self.btn_cobrar)
@@ -1244,6 +1248,15 @@ class _PagoDialog(QDialog):
         self.btn_cobrar.clicked.connect(self._cobrar)
 
         self._tab(0)
+
+    def showEvent(self, e):
+        # Fijar la geometría a pantalla completa en el show (setGeometry en
+        # __init__ no siempre se respeta antes del primer show en Windows).
+        super().showEvent(e)
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            pass
 
     # --- tabs ---
 
@@ -1348,7 +1361,7 @@ class _PagoDialog(QDialog):
             gl.setColumnStretch(c, 1)
         for txt, row, col, sk in layout_keys:
             b = QPushButton(txt)
-            b.setFixedHeight(48)
+            b.setFixedHeight(54)
             b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -1790,6 +1803,15 @@ class _BasculaDialog(QDialog):
 
     def mouseReleaseEvent(self, event):
         self._drag_pos = None
+
+    def showEvent(self, e):
+        # Fijar pantalla completa en el show (setGeometry en __init__ no siempre se
+        # respeta antes del primer show en Windows → la ventana salía pequeña).
+        super().showEvent(e)
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            pass
 
     def closeEvent(self, e):
         try:
