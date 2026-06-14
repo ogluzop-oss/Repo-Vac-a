@@ -67,7 +67,9 @@
     "card_tpv": "TPV",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
-    "card_documentos": "Documents"
+    "card_documentos": "Documents",
+    "cambiar_tienda": "Canviar de botiga",
+    "sin_tienda": "Sense botiga activa"
   },
   "ticket": {
     "date": "Data",
@@ -1685,5 +1687,13 @@
     "ok_t": "Fet",
     "descargado": "Document desat.",
     "compartido": "Ruta copiada i carpeta oberta."
+  },
+  "tienda": {
+    "titulo": "CANVIAR DE BOTIGA",
+    "sub": "Selecciona la botiga que vols gestionar.",
+    "empresa": "Empresa",
+    "cancelar": "CANCEL·LAR",
+    "vacio": "No hi ha botigues per a aquesta empresa.",
+    "actual": "ACTUAL"
   }
 }

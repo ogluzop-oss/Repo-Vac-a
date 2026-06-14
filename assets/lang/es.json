@@ -61,6 +61,8 @@
     "card_tpv": "TPV",
     "card_documentos": "Documentos",
     "card_salir": "Salir",
+    "cambiar_tienda": "Cambiar de tienda",
+    "sin_tienda": "Sin tienda activa",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
     "card_correo": "Correo",
@@ -68,6 +70,14 @@
     "cita_sub": "Tienes eventos programados para hoy:",
     "cita_entendido": "ENTENDIDO",
     "cita_ver": "VER CITA"
+  },
+  "tienda": {
+    "titulo": "CAMBIAR DE TIENDA",
+    "sub": "Selecciona la tienda que quieres gestionar.",
+    "empresa": "Empresa",
+    "cancelar": "CANCELAR",
+    "vacio": "No hay tiendas para esta empresa.",
+    "actual": "ACTUAL"
   },
   "doc": {
     "titulo": "DOCUMENTOS",

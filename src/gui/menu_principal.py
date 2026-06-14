@@ -283,6 +283,21 @@ class MenuPrincipal(QWidget):
             """)
         self.ref_label.hide()
         left_hbox.addWidget(self.ref_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # ── Selector de tienda (multitienda, F1) — solo SUPERADMIN / ADMINISTRADOR.
+        self.btn_tienda = None
+        if self.perfil in ("SUPERADMIN", "ADMINISTRADOR"):
+            self.btn_tienda = QPushButton("")
+            self.btn_tienda.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_tienda.setToolTip(tr("menu.cambiar_tienda", default="Cambiar de tienda"))
+            self.btn_tienda.setStyleSheet(
+                "QPushButton{background:#0E1117;color:#E6EDF3;border:2px solid #00FFC6;"
+                "border-radius:10px;text-align:left;padding:5px 14px;font-family:'Segoe UI';"
+                "font-weight:900;font-size:11px;letter-spacing:0.5px;}"
+                "QPushButton:hover{background:#11312B;}")
+            self.btn_tienda.clicked.connect(self._abrir_selector_tienda)
+            left_hbox.addWidget(self.btn_tienda, 0, Qt.AlignmentFlag.AlignVCenter)
+            self._actualizar_chip_tienda()
         left_hbox.addStretch()
 
         top_bar.addWidget(left_panel, 1)   # stretch=1 → mirrors right side
@@ -918,6 +933,52 @@ class MenuPrincipal(QWidget):
         self.activateWindow()
         QApplication.processEvents()
         logger.info("Navegación: Regreso al menú principal confirmado.")
+
+    # ============================================================
+    # MULTITIENDA (F1) — selector / cambio de tienda en caliente
+    # ============================================================
+    def _actualizar_chip_tienda(self):
+        """Refresca el texto del chip de la barra superior: empresa + tienda/código."""
+        if not getattr(self, "btn_tienda", None):
+            return
+        try:
+            from src.db import empresa as _emp
+            from src.db import tiendas as _t
+            e = _emp.obtener_empresa(_emp.empresa_actual_id()) or {}
+            nombre_emp = (e.get("nombre_comercial") or e.get("razon_social")
+                          or e.get("nombre_empresa") or e.get("codigo_empresa") or "—")
+            tid = _emp.tienda_actual_id()
+            if tid is not None:
+                td = _t.obtener_tienda(tid) or {}
+                linea2 = f"{td.get('codigo_tienda', '')} · {td.get('nombre', '')}".strip(" ·")
+            else:
+                linea2 = tr("menu.sin_tienda", default="Sin tienda activa")
+            self.btn_tienda.setText(f"🏪  {nombre_emp}\n{linea2}")
+        except Exception:
+            pass
+
+    def _abrir_selector_tienda(self):
+        """Abre el selector de tienda; si se cambia, recarga el contexto."""
+        try:
+            from src.gui.selector_tienda import SelectorTiendaDialog
+            dlg = SelectorTiendaDialog(self)
+            dlg.exec()
+            if dlg.get_resultado():
+                self._recargar_contexto_tienda()
+        except Exception as e:
+            logger.error("Error al abrir el selector de tienda: %s", e, exc_info=True)
+
+    def _recargar_contexto_tienda(self):
+        """Tras cambiar de tienda: cierra los módulos abiertos (se reabrirán con el
+        nuevo contexto) y refresca la barra superior."""
+        for _v_id, v in list(self._ventanas.items()):
+            try:
+                v.close(); v.deleteLater()
+            except Exception:
+                pass
+        self._ventanas = {}
+        self._actualizar_chip_tienda()
+        self.showMaximized(); self.raise_(); self.activateWindow()
 
     def cerrar_ventana_activa(self) -> bool:
         """

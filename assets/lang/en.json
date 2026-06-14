@@ -61,6 +61,8 @@
     "card_tpv": "POS",
     "card_documentos": "Documents",
     "card_salir": "Exit",
+    "cambiar_tienda": "Switch store",
+    "sin_tienda": "No active store",
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
     "card_correo": "Email",
@@ -68,6 +70,14 @@
     "cita_sub": "You have events scheduled for today:",
     "cita_entendido": "GOT IT",
     "cita_ver": "VIEW APPOINTMENT"
+  },
+  "tienda": {
+    "titulo": "SWITCH STORE",
+    "sub": "Select the store you want to manage.",
+    "empresa": "Company",
+    "cancelar": "CANCEL",
+    "vacio": "No stores for this company.",
+    "actual": "CURRENT"
   },
   "doc": {
     "titulo": "DOCUMENTS",
