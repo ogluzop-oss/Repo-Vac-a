@@ -421,6 +421,50 @@ def ensure_schema(force: bool = False):
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
 
+                # ── VENTA ONLINE desde TPV (F2) — infraestructura neutra ──
+                # Pedido online generado desde una tienda (artículo sin stock local,
+                # envío desde almacén central, etc.). Cuenta para el trabajador y la
+                # tienda origen. Preparado para conectar Shopify/WooCommerce/
+                # PrestaShop/web propia vía capa de servicio (plataforma +
+                # referencia_externa); NO acoplado a ninguna plataforma.
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS pedidos_online (
+                        id_pedido          CHAR(36)     NOT NULL PRIMARY KEY,
+                        id_empresa         CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_tienda          INT                   DEFAULT NULL,
+                        id_usuario         INT                   DEFAULT NULL,
+                        trabajador         VARCHAR(255)          DEFAULT NULL,
+                        cliente_id         INT                   DEFAULT NULL,
+                        cliente_nombre     VARCHAR(255)          DEFAULT NULL,
+                        cliente_telefono   VARCHAR(50)           DEFAULT NULL,
+                        cliente_email      VARCHAR(255)          DEFAULT NULL,
+                        direccion_envio    VARCHAR(500)          DEFAULT NULL,
+                        total              DECIMAL(12,2) NOT NULL DEFAULT 0,
+                        estado             VARCHAR(20)  NOT NULL DEFAULT 'PENDIENTE',
+                        plataforma         VARCHAR(30)  NOT NULL DEFAULT 'interno',
+                        referencia_externa VARCHAR(120)          DEFAULT NULL,
+                        observaciones      TEXT                  DEFAULT NULL,
+                        fecha              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        fecha_actualizacion DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_po_empresa (id_empresa),
+                        INDEX idx_po_tienda (id_tienda),
+                        INDEX idx_po_estado (estado)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS pedidos_online_items (
+                        id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_pedido       CHAR(36)     NOT NULL,
+                        codigo_articulo VARCHAR(50)           DEFAULT NULL,
+                        nombre          VARCHAR(255)          DEFAULT NULL,
+                        cantidad        INT          NOT NULL DEFAULT 1,
+                        precio_unitario DECIMAL(12,2) NOT NULL DEFAULT 0,
+                        subtotal        DECIMAL(12,2) NOT NULL DEFAULT 0,
+                        origen_stock    VARCHAR(20)  NOT NULL DEFAULT 'central',
+                        INDEX idx_poi_pedido (id_pedido)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
                 # Identidad: empresa → tienda → correo. El correo es un SERVICIO
                 # asociado, nunca la clave principal. Preparado para licenciamiento
