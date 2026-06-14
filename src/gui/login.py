@@ -1,6 +1,6 @@
 import os
 
-from PyQt6.QtCore import QPropertyAnimation, QRect, QSize, Qt
+from PyQt6.QtCore import QPropertyAnimation, QSize, Qt
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPalette, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -10,8 +10,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QStyle,
-    QStyledItemDelegate,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -42,6 +40,20 @@ def _resolver_logo():
 
 _LOGO_CORP_PATH = _resolver_logo()
 
+
+def _ruta_bandera(code):
+    """Ruta del PNG de bandera para el código de idioma (compatible PyInstaller).
+    Las banderas reemplazan a los emojis 🇪🇸/🇬🇧… que Windows pinta como dos letras."""
+    try:
+        from src.utils import recursos
+        ruta = recursos.ruta_recurso("assets", "flags", f"{code}.png")
+        if os.path.exists(ruta):
+            return ruta
+    except Exception:
+        pass
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, "assets", "flags", f"{code}.png")
+
 try:
     from assets.estilo_global import aplicar_estilo_widget
 except Exception:
@@ -49,46 +61,6 @@ except Exception:
 
 from src.utils import i18n
 from src.utils.i18n import tr
-
-
-class _LangItemDelegate(QStyledItemDelegate):
-    """Dibuja cada idioma con el código de país (ES, GB, FR...) un punto MÁS GRANDE
-    que el nombre. Los códigos son emojis de bandera que Windows pinta como las dos
-    letras del indicador regional (más pequeñas), así que los agrandamos aquí."""
-
-    def paint(self, painter, option, index):
-        texto = index.data(Qt.ItemDataRole.DisplayRole) or ""
-        if "  " in texto:
-            code, name = texto.split("  ", 1)
-        else:
-            code, name = "", texto
-        painter.save()
-        if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, QColor("#00FFC6"))
-            painter.setPen(QColor("#0D1117"))
-        elif option.state & QStyle.StateFlag.State_MouseOver:
-            painter.fillRect(option.rect, QColor("#11312B"))
-            painter.setPen(QColor("#E6EDF3"))
-        else:
-            painter.setPen(QColor("#E6EDF3"))
-        base = QFont(option.font)
-        if base.pointSize() <= 0:
-            base.setPointSize(10)
-        big = QFont(base)
-        big.setPointSize(base.pointSize() + 1)
-        r = option.rect.adjusted(12, 0, -12, 0)
-        flags = int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        painter.setFont(big)
-        painter.drawText(r, flags, code)
-        cw = painter.fontMetrics().horizontalAdvance(code + "  ")
-        painter.setFont(base)
-        painter.drawText(QRect(r.left() + cw, r.top(), r.width() - cw, r.height()), flags, name)
-        painter.restore()
-
-    def sizeHint(self, option, index):
-        s = super().sizeHint(option, index)
-        s.setHeight(max(s.height(), 34))
-        return s
 
 
 class _LangCombo(QComboBox):
@@ -445,9 +417,9 @@ class LoginWindow(QWidget):
 
         actual = i18n.current_language()
         idx_actual = 0
+        combo.setIconSize(QSize(28, 19))
         for i, (code, info) in enumerate(i18n.LANGUAGES.items()):
-            etiqueta = f"{info.get('flag', '')}  {info.get('native', code)}".strip()
-            combo.addItem(etiqueta, code)
+            combo.addItem(QIcon(_ruta_bandera(code)), info.get("native", code), code)
             if code == actual:
                 idx_actual = i
         combo.setCurrentIndex(idx_actual)
@@ -455,8 +427,6 @@ class LoginWindow(QWidget):
         # Solo 5 idiomas visibles a la vez; el resto, vía scrollbar (como el
         # resto de desplegables de la app).
         combo.setMaxVisibleItems(5)
-        # Delegate: código de país 1pt más grande que el nombre.
-        combo.setItemDelegate(_LangItemDelegate(combo))
         combo.setStyleSheet(
             "QComboBox#login_lang_combo{"
             # combobox-popup:0 → fuerza el popup en modo lista (no menú nativo),
