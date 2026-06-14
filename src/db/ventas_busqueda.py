@@ -77,7 +77,7 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
                   importe=None, id_empresa=None, limite=1000,
                   ticket=None, articulo=None, hora_desde=None, hora_hasta=None,
                   empleado=None, caja=None, forma_pago=None,
-                  precio_min=None, precio_max=None) -> list[dict]:
+                  precio_min=None, precio_max=None, id_tienda="auto") -> list[dict]:
     """Busca ventas por múltiples filtros (código escaneado/nº ticket, artículo,
     rango de fechas y horas, empleado, caja, forma de pago, rango de importes).
     Devuelve filas {id, fecha, total, forma_pago, empleado, numero_caja,
@@ -119,12 +119,24 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
         filtros.append("v.total >= %s"); params.append(float(precio_min))
     if precio_max not in (None, ""):
         filtros.append("v.total <= %s"); params.append(float(precio_max))
+    # Aislamiento por tenant (3b.1): por defecto, empresa y tienda ACTIVAS.
+    try:
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        if id_empresa is None:
+            id_empresa = empresa_actual_id()
+        if id_tienda == "auto":
+            id_tienda = tienda_actual_id()
+    except Exception:
+        if id_tienda == "auto":
+            id_tienda = None
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
             cols = _cols(cur, "ventas")
             if "id_empresa" in cols and id_empresa:
                 filtros.append("v.id_empresa = %s"); params.append(id_empresa)
+            if "id_tienda" in cols and id_tienda is not None:
+                filtros.append("v.id_tienda = %s"); params.append(id_tienda)
             where = (" WHERE " + " AND ".join(filtros)) if filtros else ""
             cur.execute(
                 "SELECT v.id, v.fecha, v.total, v.forma_pago, v.empleado, v.numero_caja, "

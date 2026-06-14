@@ -4041,14 +4041,19 @@ class TPVWindow(QWidget):
             n_caja = 1
 
         cli = getattr(self, "_cliente", None) or {}
+        # Aislamiento por tenant: la venta se registra bajo la empresa y la tienda
+        # ACTIVAS (multitienda, Fase 3b.1).
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        _id_empresa = empresa_actual_id()
+        _id_tienda = tienda_actual_id()
         venta_id = None
         try:
             with obtener_conexion() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO ventas (fecha, total, forma_pago, empleado, numero_caja, "
-                        "cliente_id, cliente_nombre, cliente_nif) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                        "cliente_id, cliente_nombre, cliente_nif, id_empresa, id_tienda) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                         (
                             fecha.strftime("%Y-%m-%d %H:%M:%S"),
                             total,
@@ -4056,6 +4061,7 @@ class TPVWindow(QWidget):
                             self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else None),
                             n_caja,
                             cli.get("id"), cli.get("nombre"), cli.get("nif"),
+                            _id_empresa, _id_tienda,
                         ),
                     )
                     venta_id = cur.lastrowid
