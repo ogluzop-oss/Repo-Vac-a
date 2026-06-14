@@ -200,7 +200,8 @@
     "recover_title": "Recuperar venda",
     "recover_msg": "Ja hi ha articles a la cistella. Què vols fer amb la venda recuperada?",
     "recover_add": "SUMAR ARTICLES",
-    "recover_replace": "REEMPLAÇAR"
+    "recover_replace": "REEMPLAÇAR",
+    "online": "Venda online"
   },
   "albaran": {
     "doc_title": "ALBARÀ DE TRASPÀS",
@@ -1697,5 +1698,38 @@
     "cancelar": "CANCEL·LAR",
     "vacio": "No hi ha botigues per a aquesta empresa.",
     "actual": "ACTUAL"
+  },
+  "online": {
+    "title": "VENDA ONLINE",
+    "cod_ph": "Codi d'article…",
+    "consultar": "CONSULTAR",
+    "articulo": "Article",
+    "disp_vacio": "Consulta un article per veure'n la disponibilitat.",
+    "cant": "Quant.",
+    "cantidad": "Quantitat",
+    "add": "AFEGIR LÍNIA",
+    "quitar": "TREURE",
+    "col_cod": "Codi",
+    "col_art": "Article",
+    "col_cant": "Quant.",
+    "col_precio": "Preu",
+    "col_sub": "Subtotal",
+    "total": "TOTAL:  {x}",
+    "cliente": "CLIENT I ENVIAMENT",
+    "cli_nombre": "Nom / Raó social",
+    "cli_tel": "Telèfon",
+    "cli_email": "Correu",
+    "cli_dir": "Adreça d'enviament",
+    "buscar_cli": "CERCAR CLIENT",
+    "estado": "Estat de la comanda",
+    "crear": "CREAR COMANDA",
+    "no_art": "No s'ha trobat l'article «{c}».",
+    "disp_linea": "Botiga: {t}   ·   Central: {c}   ·   Altres botigues: {o}   ·   Online: {n}",
+    "consulta_primero": "Consulta primer un article.",
+    "sin_lineas": "Afegeix com a mínim un article.",
+    "sin_cliente": "Indica el nom del client.",
+    "error": "No s'ha pogut crear la comanda.",
+    "ok_t": "Comanda online creada",
+    "ok": "Comanda {p} registrada i comprovant generat."
   }
 }

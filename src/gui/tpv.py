@@ -1940,6 +1940,268 @@ class _BasculaDialog(QDialog):
         super().closeEvent(e)
 
 
+class _VentaOnlineDialog(QDialog):
+    """Venta online desde tienda (F2): consulta de disponibilidad multi-origen
+    (tienda/central/otras tiendas/online), captura de cliente y envío, estado y
+    generación del pedido online + comprobante."""
+
+    def __init__(self, empleado="—", id_caja="—", parent=None):
+        super().__init__(parent)
+        self._empleado = empleado
+        self._id_caja = id_caja
+        self._lineas = []          # [{codigo,nombre,cantidad,precio,subtotal,origen_stock}]
+        self._cliente = {}
+        self._art = None           # disponibilidad del artículo consultado
+        self.setWindowTitle(tr("online.title", default="VENTA ONLINE"))
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setObjectName("dlg_online")
+        self.setStyleSheet(f"#dlg_online {{ background: {_BG}; }}")
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            self.setMinimumSize(1100, 700)
+        self._build()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            pass
+
+    def _inp(self, ph="", w=None):
+        e = QLineEdit(); e.setFixedHeight(34); e.setPlaceholderText(ph)
+        if w:
+            e.setFixedWidth(w)
+        e.setStyleSheet(
+            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        return e
+
+    def _build(self):
+        root = QVBoxLayout(self); root.setContentsMargins(12, 12, 12, 12)
+        card = QFrame(self); card.setObjectName("vo")
+        card.setStyleSheet(f"QFrame#vo{{background:{_BG};border:none;border-radius:18px;}}")
+        root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(28, 22, 28, 22); ly.setSpacing(14)
+
+        hdr = QHBoxLayout()
+        hdr.addWidget(_lbl("🌐  " + tr("online.title", default="VENTA ONLINE"),
+                           bold=True, size=18, color=_CIAN))
+        hdr.addStretch()
+        bx = QPushButton("✕"); bx.setFixedSize(36, 36); bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
+                         f"border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
+        bx.clicked.connect(self.reject); hdr.addWidget(bx)
+        ly.addLayout(hdr); ly.addWidget(_sep())
+
+        body = QHBoxLayout(); body.setSpacing(24); ly.addLayout(body, 1)
+        body.addLayout(self._col_articulos(), 1)
+        body.addWidget(self._col_cliente(), 0)
+
+    # ── columna izquierda: artículo + disponibilidad + líneas ──
+    def _col_articulos(self):
+        col = QVBoxLayout(); col.setSpacing(10)
+        r1 = QHBoxLayout(); r1.setSpacing(8)
+        self.inp_codigo = self._inp(tr("online.cod_ph", default="Código de artículo…"))
+        self.inp_codigo.returnPressed.connect(self._consultar)
+        b_cons = _btn(tr("online.consultar", default="CONSULTAR"), color_fg=_CIAN,
+                      color_border=_CIAN, hover_bg=_CIAN, h=34)
+        b_cons.clicked.connect(self._consultar)
+        r1.addWidget(_lbl(tr("online.articulo", default="Artículo"), bold=True, size=12, color=_TEXT2))
+        r1.addWidget(self.inp_codigo, 1); r1.addWidget(b_cons)
+        col.addLayout(r1)
+
+        self.lbl_disp = _lbl(tr("online.disp_vacio", default="Consulta un artículo para ver su disponibilidad."),
+                             size=12, color=_TEXT2)
+        self.lbl_disp.setWordWrap(True)
+        disp_card = _card(); dl = QVBoxLayout(disp_card); dl.setContentsMargins(14, 10, 14, 10)
+        dl.addWidget(self.lbl_disp)
+        col.addWidget(disp_card)
+
+        r2 = QHBoxLayout(); r2.setSpacing(8)
+        self.inp_cant = self._inp(tr("online.cant", default="Cant."), 90)
+        self.inp_cant.setText("1")
+        r2.addWidget(_lbl(tr("online.cantidad", default="Cantidad"), bold=True, size=12, color=_TEXT2))
+        r2.addWidget(self.inp_cant)
+        b_add = _btn(tr("online.add", default="AÑADIR LÍNEA"), color_bg=_CIAN, color_fg="#0D1117",
+                     color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=34)
+        b_add.clicked.connect(self._add_linea)
+        b_quit = _btn(tr("online.quitar", default="QUITAR"), color_fg=_ROJO, color_border=_ROJO,
+                      hover_bg=_ROJO, hover_fg="#FFF", h=34)
+        b_quit.clicked.connect(self._quitar_linea)
+        r2.addWidget(b_add); r2.addStretch(); r2.addWidget(b_quit)
+        col.addLayout(r2)
+
+        self.tabla = QTableWidget(0, 5)
+        self.tabla.setHorizontalHeaderLabels([
+            tr("online.col_cod", default="Código"), tr("online.col_art", default="Artículo"),
+            tr("online.col_cant", default="Cant."), tr("online.col_precio", default="Precio"),
+            tr("online.col_sub", default="Subtotal")])
+        self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla.verticalHeader().setVisible(False)
+        hh = self.tabla.horizontalHeader()
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        for cidx in (0, 2, 3, 4):
+            hh.setSectionResizeMode(cidx, QHeaderView.ResizeMode.Fixed)
+        self.tabla.setColumnWidth(0, 110); self.tabla.setColumnWidth(2, 70)
+        self.tabla.setColumnWidth(3, 100); self.tabla.setColumnWidth(4, 110)
+        self.tabla.setStyleSheet(_ss_tabla_neon())
+        _RoundTableCorners(self.tabla)
+        col.addWidget(self.tabla, 1)
+
+        self.lbl_total = _lbl(tr("online.total", default="TOTAL:  {x}", x=divisas.formatear(0)), bold=True, size=16, color=_CIAN)
+        self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        col.addWidget(self.lbl_total)
+        return col
+
+    # ── columna derecha: cliente + envío + estado + crear ──
+    def _col_cliente(self):
+        w = QFrame(); w.setFixedWidth(360); w.setObjectName("voc")
+        w.setStyleSheet(f"QFrame#voc{{background:{_BG2};border:1px solid {_BORDE};border-radius:14px;}}")
+        col = QVBoxLayout(w); col.setContentsMargins(16, 14, 16, 16); col.setSpacing(10)
+        col.addWidget(_lbl(tr("online.cliente", default="CLIENTE Y ENVÍO"), bold=True, size=13, color=_CIAN))
+        self.inp_cli_nombre = self._inp(tr("online.cli_nombre", default="Nombre / Razón social"))
+        self.inp_cli_tel = self._inp(tr("online.cli_tel", default="Teléfono"))
+        self.inp_cli_email = self._inp(tr("online.cli_email", default="Email"))
+        self.inp_cli_dir = self._inp(tr("online.cli_dir", default="Dirección de envío"))
+        b_buscar = _btn(tr("online.buscar_cli", default="BUSCAR CLIENTE"), color_fg=_CIAN,
+                        color_border=_CIAN, hover_bg=_CIAN, h=34)
+        b_buscar.clicked.connect(self._buscar_cliente)
+        col.addWidget(b_buscar)
+        for ww in (self.inp_cli_nombre, self.inp_cli_tel, self.inp_cli_email, self.inp_cli_dir):
+            col.addWidget(ww)
+
+        col.addSpacing(6)
+        col.addWidget(_lbl(tr("online.estado", default="Estado del pedido"), bold=True, size=12, color=_TEXT2))
+        from src.services.tpv.online_orders_service import ESTADOS
+        self.cmb_estado = QComboBox(); self.cmb_estado.setFixedHeight(36)
+        self.cmb_estado.setStyleSheet(
+            f"QComboBox{{combobox-popup:0;background:{_BG};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
+            f"QComboBox::drop-down{{border:none;width:22px;}}"
+            f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
+            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+        for e in ESTADOS:
+            self.cmb_estado.addItem(e, e)
+        col.addWidget(self.cmb_estado)
+        col.addStretch()
+        b_crear = _btn(tr("online.crear", default="CREAR PEDIDO"), color_bg=_VERDE, color_fg="#0D1117",
+                       color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=48)
+        b_crear.clicked.connect(self._crear)
+        col.addWidget(b_crear)
+        return w
+
+    # ── lógica ──
+    def _msg(self, titulo, texto, nivel="info"):
+        try:
+            from assets.estilo_global import mostrar_mensaje as _mm
+            _mm(self, titulo, texto, nivel=nivel)
+        except Exception:
+            pass
+
+    def _consultar(self):
+        codigo = self.inp_codigo.text().strip()
+        if not codigo:
+            return
+        from src.services.tpv import online_orders_service as OS
+        disp = OS.consultar_disponibilidad(codigo)
+        if not disp.get("nombre"):
+            self._art = None
+            self.lbl_disp.setText(tr("online.no_art", default="No se encontró el artículo «{c}».", c=codigo))
+            return
+        self._art = disp
+        otras = ", ".join(f"{t['nombre']}: {t['stock']}" for t in disp["otras_tiendas"]) or "—"
+        self.lbl_disp.setText(
+            f"<b>{disp['nombre']}</b>  ·  {divisas.formatear(disp['precio'])}<br>"
+            + tr("online.disp_linea",
+                 default="Tienda: {t}   ·   Central: {c}   ·   Otras tiendas: {o}   ·   Online: {n}",
+                 t=disp["tienda"], c=disp["central"], o=otras, n=disp["online"]))
+
+    def _add_linea(self):
+        if not self._art:
+            self._msg(tr("online.title", default="VENTA ONLINE"),
+                      tr("online.consulta_primero", default="Consulta primero un artículo."), "warning")
+            return
+        try:
+            cant = max(1, int(float(self.inp_cant.text().replace(",", "."))))
+        except ValueError:
+            cant = 1
+        precio = float(self._art.get("precio") or 0)
+        self._lineas.append({
+            "codigo": self._art["codigo"], "nombre": self._art["nombre"],
+            "cantidad": cant, "precio": precio, "subtotal": round(cant * precio, 2),
+            "origen_stock": "central",
+        })
+        self._refrescar_tabla()
+
+    def _quitar_linea(self):
+        r = self.tabla.currentRow()
+        if 0 <= r < len(self._lineas):
+            self._lineas.pop(r)
+            self._refrescar_tabla()
+
+    def _refrescar_tabla(self):
+        self.tabla.setRowCount(0)
+        total = 0.0
+        for l in self._lineas:
+            r = self.tabla.rowCount(); self.tabla.insertRow(r)
+            total += l["subtotal"]
+            vals = [l["codigo"], l["nombre"], str(l["cantidad"]),
+                    divisas.formatear(l["precio"]), divisas.formatear(l["subtotal"])]
+            for c, v in enumerate(vals):
+                it = QTableWidgetItem(str(v))
+                if c in (2, 3, 4):
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.tabla.setItem(r, c, it)
+        self.lbl_total.setText(tr("online.total", default="TOTAL:  {x}", x=divisas.formatear(total)))
+
+    def _buscar_cliente(self):
+        dlg = _ClienteDialog(parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            cli = dlg.get_cliente() or {}
+            self._cliente = cli
+            self.inp_cli_nombre.setText(cli.get("nombre") or "")
+            self.inp_cli_tel.setText(cli.get("telefono") or "")
+            self.inp_cli_email.setText(cli.get("email") or "")
+
+    def _crear(self):
+        if not self._lineas:
+            self._msg(tr("online.title", default="VENTA ONLINE"),
+                      tr("online.sin_lineas", default="Añade al menos un artículo."), "warning")
+            return
+        nombre = self.inp_cli_nombre.text().strip()
+        if not nombre:
+            self._msg(tr("online.title", default="VENTA ONLINE"),
+                      tr("online.sin_cliente", default="Indica el nombre del cliente."), "warning")
+            return
+        cliente = {
+            "id": (self._cliente or {}).get("id"),
+            "nombre": nombre,
+            "telefono": self.inp_cli_tel.text().strip(),
+            "email": self.inp_cli_email.text().strip(),
+        }
+        from src.services.tpv import online_orders_service as OS
+        pid = OS.crear_pedido_online(
+            cliente, self._lineas, direccion_envio=self.inp_cli_dir.text().strip(),
+            estado=self.cmb_estado.currentData() or "PENDIENTE")
+        if not pid:
+            self._msg(tr("online.title", default="VENTA ONLINE"),
+                      tr("online.error", default="No se pudo crear el pedido."), "error")
+            return
+        try:
+            OS.generar_comprobante(pid)
+        except Exception:
+            pass
+        self._msg(tr("online.ok_t", default="Pedido online creado"),
+                  tr("online.ok", default="Pedido {p} registrado y comprobante generado.", p=pid), "success")
+        self.accept()
+
+
 class _GestionGranelDialog(QDialog):
     """Gestión de productos a granel (precio, estado, alta). Sólo gerente/admin."""
 
@@ -3640,9 +3902,11 @@ class TPVWindow(QWidget):
         self.btn_retener,    lr = self._btn_accion_card("⏸", tr("tpv.hold"), _CIAN, self._retener)
         self.btn_recuperar,  lc = self._btn_accion_card("📂", tr("tpv.recover"), _CIAN, self._recuperar)
         self.btn_tickets,    lt2 = self._btn_accion_card("🔎", tr("tpv.tickets", default="Tickets"), _CIAN, self._abrir_buscar_tickets)
+        self.btn_online,     lon = self._btn_accion_card("🌐", tr("tpv.online", default="Venta online"), _CIAN, self._abrir_venta_online)
         self._btn_vaciar,    lv = self._btn_accion_card("🗑", tr("tpv.empty_cart"), _ROJO, self._vaciar, danger=True)
         self._acc_labels = {"tpv.scale": lb, "tpv.refund": ld, "tpv.hold": lr,
-                            "tpv.recover": lc, "tpv.tickets": lt2, "tpv.empty_cart": lv}
+                            "tpv.recover": lc, "tpv.tickets": lt2,
+                            "tpv.online": lon, "tpv.empty_cart": lv}
         self.btn_retener.setEnabled(False)
 
         grid_acc.addWidget(self.btn_bascula,    0, 0)
@@ -3650,7 +3914,8 @@ class TPVWindow(QWidget):
         grid_acc.addWidget(self.btn_retener,    0, 2)
         grid_acc.addWidget(self.btn_recuperar,  1, 0)
         grid_acc.addWidget(self.btn_tickets,    1, 1)
-        grid_acc.addWidget(self._btn_vaciar,    1, 2)
+        grid_acc.addWidget(self.btn_online,     1, 2)
+        grid_acc.addWidget(self._btn_vaciar,    2, 0)
         cl2.addLayout(grid_acc)
         lay.addWidget(card_acc)
         lay.addStretch()
@@ -3963,6 +4228,15 @@ class TPVWindow(QWidget):
     def _abrir_buscar_tickets(self):
         """Búsqueda/reimpresión de tickets (QR/código de barras/nº/fecha/importe)."""
         _BuscarTicketDialog(parent=self).exec()
+
+    def _abrir_venta_online(self):
+        """Venta online desde tienda (F2): consulta de disponibilidad multi-origen,
+        captura de cliente/envío y generación de pedido online."""
+        _VentaOnlineDialog(
+            empleado=getattr(self, "_empleado_tpv", None) or "—",
+            id_caja=getattr(self, "_id_caja", None) or "—",
+            parent=self,
+        ).exec()
 
     def _seleccionar_cliente(self):
         """Selecciona/da de alta el cliente de la venta (o genérico)."""

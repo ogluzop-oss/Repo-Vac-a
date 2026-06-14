@@ -55,22 +55,27 @@ def _ctx():
 def consultar_disponibilidad(codigo: str) -> dict:
     """Disponibilidad de un artículo: stock en la tienda activa, en el almacén
     central, en otras tiendas y online. Permite decidir si se genera el pedido."""
-    out = {"codigo": codigo, "nombre": "", "tienda": 0, "central": 0,
+    out = {"codigo": codigo, "nombre": "", "precio": 0.0, "tienda": 0, "central": 0,
            "otras_tiendas": [], "online": 0}
     try:
         _emp, _tnd, _u, _n = _ctx()
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT nombre, COALESCE(Stock_tienda,0), COALESCE(Stock_central,0) "
+                "SELECT nombre, COALESCE(precio,0), COALESCE(Stock_tienda,0), COALESCE(Stock_central,0) "
                 "FROM articulos WHERE codigo=%s AND id_empresa=%s", (codigo, _emp))
             r = cur.fetchone()
             if r:
                 if isinstance(r, dict):
-                    out["nombre"] = r.get("nombre") or ""
-                    out["tienda"] = int(r.get("Stock_tienda") or 0)
-                    out["central"] = int(r.get("Stock_central") or 0)
+                    vals = list(r.values())
+                    out["nombre"] = vals[0] or ""
+                    out["precio"] = float(vals[1] or 0)
+                    out["tienda"] = int(vals[2] or 0)
+                    out["central"] = int(vals[3] or 0)
                 else:
-                    out["nombre"], out["tienda"], out["central"] = r[0] or "", int(r[1] or 0), int(r[2] or 0)
+                    out["nombre"] = r[0] or ""
+                    out["precio"] = float(r[1] or 0)
+                    out["tienda"] = int(r[2] or 0)
+                    out["central"] = int(r[3] or 0)
             # Stock en OTRAS tiendas (tabla stock_tienda, excluyendo la activa).
             cur.execute(
                 "SELECT st.id_tienda, COALESCE(t.nombre, CONCAT('TND-', st.id_tienda)), st.stock "
@@ -223,6 +228,91 @@ def cambiar_estado(id_pedido: str, nuevo_estado: str) -> bool:
     except Exception as e:
         logger.error("cambiar_estado(%s): %s", id_pedido, e)
         return False
+
+
+def generar_comprobante(id_pedido: str) -> str | None:
+    """Genera el comprobante PDF del pedido online y lo registra en el centro
+    documental (tipo 'pedido'). Devuelve la ruta o None."""
+    import os
+    pedido = obtener_pedido(id_pedido)
+    if not pedido:
+        return None
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.pdfgen import canvas
+    except Exception as e:
+        logger.warning("reportlab no disponible para el comprobante: %s", e)
+        return None
+    try:
+        from src.db.empresa import info_documento
+        emp = info_documento()
+    except Exception:
+        emp = {}
+    try:
+        from src.utils.recursos import ruta_datos
+        carpeta = ruta_datos("pedidos")
+    except Exception:
+        carpeta = os.path.join("documentos", "pedidos")
+    os.makedirs(carpeta, exist_ok=True)
+    ruta = os.path.join(carpeta, f"comprobante_pedido_{id_pedido}.pdf")
+    try:
+        c = canvas.Canvas(ruta, pagesize=A4)
+        W, H = A4
+        y = H - 24 * mm
+        c.setFont("Helvetica-Bold", 15)
+        c.drawString(20 * mm, y, (emp.get("nombre") or "SMART MANAGER")[:60])
+        y -= 6 * mm
+        c.setFont("Helvetica", 9)
+        for ln in (emp.get("direccion_completa"), f"CIF: {emp.get('cif','')}",
+                   emp.get("telefono"), emp.get("email")):
+            if ln:
+                c.drawString(20 * mm, y, str(ln)[:90]); y -= 4.5 * mm
+        y -= 4 * mm
+        c.setFont("Helvetica-Bold", 13)
+        c.drawString(20 * mm, y, "COMPROBANTE DE PEDIDO ONLINE"); y -= 8 * mm
+        c.setFont("Helvetica", 9)
+        fecha = str(pedido.get("fecha") or "")[:19]
+        for ln in (f"Pedido: {id_pedido}", f"Fecha: {fecha}",
+                   f"Estado: {pedido.get('estado','')}",
+                   f"Plataforma: {pedido.get('plataforma','')}",
+                   f"Trabajador: {pedido.get('trabajador') or '-'}",
+                   f"Cliente: {pedido.get('cliente_nombre') or '-'}",
+                   f"Tel.: {pedido.get('cliente_telefono') or '-'}   "
+                   f"Email: {pedido.get('cliente_email') or '-'}",
+                   f"Envío: {pedido.get('direccion_envio') or '-'}"):
+            c.drawString(20 * mm, y, ln[:100]); y -= 5 * mm
+        y -= 3 * mm
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(20 * mm, y, "Artículo"); c.drawString(120 * mm, y, "Cant.")
+        c.drawString(140 * mm, y, "Precio"); c.drawString(170 * mm, y, "Subtotal")
+        y -= 2 * mm; c.line(20 * mm, y, 190 * mm, y); y -= 5 * mm
+        c.setFont("Helvetica", 9)
+        for it in pedido.get("items", []):
+            c.drawString(20 * mm, y, str(it.get("nombre") or it.get("codigo_articulo") or "")[:60])
+            c.drawRightString(132 * mm, y, str(it.get("cantidad", 0)))
+            c.drawRightString(162 * mm, y, f"{float(it.get('precio_unitario',0)):.2f}")
+            c.drawRightString(190 * mm, y, f"{float(it.get('subtotal',0)):.2f}")
+            y -= 5 * mm
+        y -= 2 * mm; c.line(120 * mm, y, 190 * mm, y); y -= 6 * mm
+        c.setFont("Helvetica-Bold", 11)
+        c.drawRightString(190 * mm, y, f"TOTAL: {float(pedido.get('total',0)):.2f}")
+        c.setFont("Helvetica", 7)
+        c.drawString(20 * mm, 15 * mm, f"Trazabilidad: {id_pedido}")
+        c.showPage(); c.save()
+    except Exception as e:
+        logger.error("generar_comprobante(%s): %s", id_pedido, e)
+        return None
+    # Registrar en el centro documental.
+    try:
+        from src.db import documentos as _docreg
+        _docreg.registrar_documento(
+            ruta, tipo="pedido", referencia=id_pedido,
+            cliente=pedido.get("cliente_nombre"), trabajador=pedido.get("trabajador"),
+            importe=pedido.get("total"), estado=pedido.get("estado"))
+    except Exception as e:
+        logger.debug("No se pudo registrar el comprobante: %s", e)
+    return ruta
 
 
 def cambiar_referencia_externa(id_pedido: str, referencia: str) -> bool:

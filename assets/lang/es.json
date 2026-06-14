@@ -263,7 +263,8 @@
     "recover_title": "Recuperar venta",
     "recover_msg": "Ya hay artículos en el carrito. ¿Qué quieres hacer con la venta recuperada?",
     "recover_add": "SUMAR ARTÍCULOS",
-    "recover_replace": "REEMPLAZAR"
+    "recover_replace": "REEMPLAZAR",
+    "online": "Venta online"
   },
   "albaran": {
     "doc_title": "ALBARÁN DE TRASPASO",
@@ -1697,5 +1698,38 @@
     "env_cuerpo": "Documento adjunto generado por Smart Manager AI.",
     "env_sin_buzones": "No hay buzones corporativos activos. Crea uno en la sección Correo.",
     "env_falta_dest": "Introduce un destinatario válido."
+  },
+  "online": {
+    "title": "VENTA ONLINE",
+    "cod_ph": "Código de artículo…",
+    "consultar": "CONSULTAR",
+    "articulo": "Artículo",
+    "disp_vacio": "Consulta un artículo para ver su disponibilidad.",
+    "cant": "Cant.",
+    "cantidad": "Cantidad",
+    "add": "AÑADIR LÍNEA",
+    "quitar": "QUITAR",
+    "col_cod": "Código",
+    "col_art": "Artículo",
+    "col_cant": "Cant.",
+    "col_precio": "Precio",
+    "col_sub": "Subtotal",
+    "total": "TOTAL:  {x}",
+    "cliente": "CLIENTE Y ENVÍO",
+    "cli_nombre": "Nombre / Razón social",
+    "cli_tel": "Teléfono",
+    "cli_email": "Email",
+    "cli_dir": "Dirección de envío",
+    "buscar_cli": "BUSCAR CLIENTE",
+    "estado": "Estado del pedido",
+    "crear": "CREAR PEDIDO",
+    "no_art": "No se encontró el artículo «{c}».",
+    "disp_linea": "Tienda: {t}   ·   Central: {c}   ·   Otras tiendas: {o}   ·   Online: {n}",
+    "consulta_primero": "Consulta primero un artículo.",
+    "sin_lineas": "Añade al menos un artículo.",
+    "sin_cliente": "Indica el nombre del cliente.",
+    "error": "No se pudo crear el pedido.",
+    "ok_t": "Pedido online creado",
+    "ok": "Pedido {p} registrado y comprobante generado."
   }
 }
