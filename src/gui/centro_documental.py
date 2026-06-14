@@ -16,7 +16,8 @@ import logging
 import os
 import shutil
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
+from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -74,28 +76,121 @@ _CATEGORIAS = [
 
 
 def _mapa_empresas() -> dict:
+    """id_empresa → nombre legible (nombre comercial / razón social)."""
     try:
         from src.db.empresa import listar_empresas
-        return {e.get("id_empresa"): (e.get("codigo_empresa") or e.get("nombre_empresa") or "")
-                for e in listar_empresas()}
+        out = {}
+        for e in listar_empresas():
+            out[e.get("id_empresa")] = (
+                e.get("nombre_comercial") or e.get("razon_social")
+                or e.get("nombre_empresa") or e.get("codigo_empresa") or "")
+        return out
     except Exception:
         return {}
 
 
 def _mapa_tiendas() -> dict:
+    """id_tienda → {nombre, id_empresa} para resolver nombre y ámbito."""
     try:
         from src.db.conexion import obtener_conexion
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT id, codigo_tienda, nombre FROM tiendas")
+            cur.execute("SELECT id, codigo_tienda, nombre, id_empresa FROM tiendas")
             out = {}
             for f in cur.fetchall():
                 if isinstance(f, dict):
-                    out[f["id"]] = f.get("codigo_tienda") or f.get("nombre") or str(f["id"])
+                    out[f["id"]] = {"nombre": f.get("nombre") or f.get("codigo_tienda") or str(f["id"]),
+                                    "id_empresa": f.get("id_empresa")}
                 else:
-                    out[f[0]] = f[1] or f[2] or str(f[0])
+                    out[f[0]] = {"nombre": f[2] or f[1] or str(f[0]), "id_empresa": f[3]}
             return out
     except Exception:
         return {}
+
+
+class _AccionesDelegate(QStyledItemDelegate):
+    """Pinta los iconos de acción (vectoriales, sin emojis ni widgets) en la columna
+    Acciones y despacha el clic. Sin widgets por fila → tabla rápida y sin pantalla
+    en blanco al abrir. Acciones: ver, descargar, imprimir, compartir, correo,
+    eliminar (esta última solo si `puede_eliminar`)."""
+
+    _ACC = ["ver", "descargar", "imprimir", "compartir", "correo", "eliminar"]
+    _BW = 30      # ancho de cada chip
+    _GAP = 4
+    _PAD = 6
+
+    def __init__(self, parent, on_action, puede_eliminar: bool):
+        super().__init__(parent)
+        self._on = on_action
+        self._del = puede_eliminar
+
+    def _items(self):
+        return self._ACC if self._del else self._ACC[:-1]
+
+    def _rect_chip(self, cell, i):
+        x = cell.x() + self._PAD + i * (self._BW + self._GAP)
+        y = cell.y() + (cell.height() - 30) / 2
+        return QRectF(x, y, self._BW, 30)
+
+    def paint(self, p, option, index):
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        for i, acc in enumerate(self._items()):
+            r = self._rect_chip(option.rect, i)
+            danger = (acc == "eliminar")
+            col = QColor(_ROJO if danger else _CIAN)
+            # chip
+            p.setPen(QPen(QColor(_BORDE), 1)); p.setBrush(QColor(_BG2))
+            p.drawRoundedRect(r, 7, 7)
+            self._draw_icon(p, acc, r, col)
+        p.restore()
+
+    def _draw_icon(self, p, name, r, color):
+        pen = QPen(color); pen.setWidthF(1.7)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen); p.setBrush(Qt.BrushStyle.NoBrush)
+        cx, cy = r.center().x(), r.center().y()
+        if name == "ver":
+            p.drawEllipse(QPointF(cx, cy), 8.5, 5.2)
+            p.setBrush(color); p.drawEllipse(QPointF(cx, cy), 2.1, 2.1)
+        elif name == "descargar":
+            p.drawLine(QPointF(cx, cy - 7), QPointF(cx, cy + 3))
+            p.drawLine(QPointF(cx - 4, cy - 1), QPointF(cx, cy + 3))
+            p.drawLine(QPointF(cx + 4, cy - 1), QPointF(cx, cy + 3))
+            p.drawLine(QPointF(cx - 6, cy + 6), QPointF(cx + 6, cy + 6))
+        elif name == "imprimir":
+            p.drawRect(QRectF(cx - 4, cy - 8, 8, 4))           # papel arriba
+            p.drawRoundedRect(QRectF(cx - 7, cy - 4, 14, 8), 1.5, 1.5)  # cuerpo
+            p.setBrush(QColor(_BG2)); p.drawRect(QRectF(cx - 4, cy + 1, 8, 6))  # papel salida
+            p.setBrush(Qt.BrushStyle.NoBrush); p.drawRect(QRectF(cx - 4, cy + 1, 8, 6))
+        elif name == "compartir":
+            a = QPointF(cx + 5, cy - 6); b = QPointF(cx - 5, cy); c = QPointF(cx + 5, cy + 6)
+            p.drawLine(b, a); p.drawLine(b, c)
+            p.setBrush(color)
+            for pt in (a, b, c):
+                p.drawEllipse(pt, 2.3, 2.3)
+        elif name == "correo":
+            p.drawRect(QRectF(cx - 8, cy - 5, 16, 11))
+            p.drawLine(QPointF(cx - 8, cy - 5), QPointF(cx, cy + 1))
+            p.drawLine(QPointF(cx + 8, cy - 5), QPointF(cx, cy + 1))
+        elif name == "eliminar":
+            p.drawLine(QPointF(cx - 7, cy - 5), QPointF(cx + 7, cy - 5))   # tapa
+            p.drawLine(QPointF(cx - 2.5, cy - 5), QPointF(cx - 2.5, cy - 7))
+            p.drawLine(QPointF(cx - 2.5, cy - 7), QPointF(cx + 2.5, cy - 7))
+            p.drawLine(QPointF(cx + 2.5, cy - 7), QPointF(cx + 2.5, cy - 5))  # asa
+            p.drawLine(QPointF(cx - 5, cy - 5), QPointF(cx - 4, cy + 8))
+            p.drawLine(QPointF(cx + 5, cy - 5), QPointF(cx + 4, cy + 8))
+            p.drawLine(QPointF(cx - 4, cy + 8), QPointF(cx + 4, cy + 8))     # cubo
+            p.drawLine(QPointF(cx - 1.6, cy - 2), QPointF(cx - 1.6, cy + 5))
+            p.drawLine(QPointF(cx + 1.6, cy - 2), QPointF(cx + 1.6, cy + 5))
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            items = self._items()
+            for i in range(len(items)):
+                if self._rect_chip(option.rect, i).contains(QPointF(event.position())):
+                    self._on(index.row(), items[i])
+                    return True
+        return False
 
 
 class CentroDocumentalWindow(QWidget):
@@ -249,6 +344,9 @@ class CentroDocumentalWindow(QWidget):
         for c, w in anchos.items():
             hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Fixed)
             self.tabla.setColumnWidth(c, w)
+        # Iconos de acción pintados por delegate (sin widgets por fila → rápido).
+        self.tabla.setItemDelegateForColumn(
+            8, _AccionesDelegate(self.tabla, self._accion_dispatch, sesion_global.es_admin()))
         self.tabla.setStyleSheet(f"""
             QTableWidget{{background:transparent;color:{_TEXT};border:none;
                           gridline-color:{_BORDE};font-family:'Segoe UI';font-size:13px;outline:none;}}
@@ -301,25 +399,43 @@ class CentroDocumentalWindow(QWidget):
 
     # ---------------------------------------------------------------- datos
     def _cargar_inicial(self):
-        # Importa al registro los documentos que ya existían en documentos/.
-        try:
-            doc_db.reconciliar_carpeta()
-        except Exception as e:
-            logger.debug("reconciliar_carpeta: %s", e)
+        # 1) Pintar de inmediato lo ya registrado (rápido) → sin pantalla en blanco.
         self._emp_map = _mapa_empresas()
         self._tienda_map = _mapa_tiendas()
         self._actualizar_ctx_label()
         self._refrescar()
+        # 2) Reconciliar la carpeta después del primer pintado (en lote, rápido) y
+        #    refrescar solo si aparecen documentos nuevos.
+        QTimer.singleShot(50, self._reconciliar_bg)
+
+    def _reconciliar_bg(self):
+        try:
+            nuevos = doc_db.reconciliar_carpeta()
+        except Exception as e:
+            logger.debug("reconciliar_carpeta: %s", e); nuevos = 0
+        if nuevos:
+            self._refrescar()
 
     def _actualizar_ctx_label(self):
         try:
             from src.db.empresa import empresa_actual_id, tienda_actual_id
-            emp = self._emp_map.get(empresa_actual_id(), "")
-            tnd = self._tienda_map.get(tienda_actual_id(), "—")
+            eid = empresa_actual_id()
+            emp = self._emp_map.get(eid, "")
             ambito = (tr("doc.ambito_todas", default="todas las empresas")
                       if sesion_global.es_superadmin() else emp)
+            # Tienda activa; si no hay una fijada pero la empresa tiene una sola
+            # tienda, mostrar su nombre (hasta que F1 traiga el selector de tienda).
+            tid = tienda_actual_id()
+            tnd = "—"
+            if tid is not None and tid in self._tienda_map:
+                tnd = self._tienda_map[tid]["nombre"]
+            else:
+                propias = [v["nombre"] for v in self._tienda_map.values()
+                           if v.get("id_empresa") == eid]
+                if len(propias) == 1:
+                    tnd = propias[0]
             self.lbl_ctx.setText(tr("doc.contexto", default="Empresa: {emp}   ·   Tienda: {tnd}",
-                                    emp=ambito, tnd=tnd))
+                                    emp=ambito or "—", tnd=tnd))
         except Exception:
             pass
 
@@ -393,7 +509,8 @@ class CentroDocumentalWindow(QWidget):
             tipo = d.get("tipo_documento") or "otros"
             tipo_lbl = tr(doc_db.TIPOS.get(tipo, "doc.tipo_otros"), default=tipo)
             emp = self._emp_map.get(d.get("id_empresa"), "")
-            tnd = self._tienda_map.get(d.get("id_tienda"), "—") if d.get("id_tienda") else "—"
+            _t = self._tienda_map.get(d.get("id_tienda")) if d.get("id_tienda") else None
+            tnd = _t["nombre"] if _t else "—"
             fecha = self._fmt_fecha(d.get("fecha_generacion"))
             valores = [
                 d.get("nombre") or "", tipo_lbl, emp, tnd, fecha,
@@ -404,40 +521,19 @@ class CentroDocumentalWindow(QWidget):
                 it = QTableWidgetItem(str(v))
                 if c in (1, 2, 3, 4, 7):
                     it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if c == 0:
-                    it.setToolTip(f"{d.get('nombre') or ''}\n{d.get('ruta') or ''}")
                 self.tabla.setItem(r, c, it)
-            self.tabla.setCellWidget(r, 8, self._acciones_widget(d))
+            self.tabla.setItem(r, 8, QTableWidgetItem(""))  # celda pintada por el delegate
         n = len(self._docs)
         self.lbl_estado.setText(tr("doc.n_resultados", default="{n} documento(s)", n=n))
 
-    def _acciones_widget(self, d) -> QWidget:
-        w = QWidget(); w.setStyleSheet("background:transparent;")
-        lay = QHBoxLayout(w); lay.setContentsMargins(2, 1, 2, 1); lay.setSpacing(3)
-
-        def mini(icono, slot, danger=False):
-            b = QPushButton(icono); b.setFixedSize(32, 30)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            # Sin font propia: con la fuente por defecto los emojis de color SÍ
-            # renderizan (como en la barra lateral). Sin tooltip (no casa con el
-            # diseño global de la app).
-            hov = _ROJO if danger else _CIAN
-            b.setStyleSheet(
-                f"QPushButton{{background:{_BG2};border:1px solid {_BORDE};border-radius:7px;"
-                f"font-size:15px;}}"
-                f"QPushButton:hover{{background:{hov};border-color:{hov};}}")
-            b.clicked.connect(lambda: slot(d))
-            return b
-
-        lay.addWidget(mini("👁", self._ver))
-        lay.addWidget(mini("📥", self._descargar))
-        lay.addWidget(mini("🖨", self._imprimir))
-        lay.addWidget(mini("🔗", self._compartir))
-        lay.addWidget(mini("📧", self._enviar_correo))
-        if sesion_global.es_admin():
-            lay.addWidget(mini("🗑", self._eliminar, danger=True))
-        lay.addStretch()
-        return w
+    def _accion_dispatch(self, row, acc):
+        """Despacha el clic en un icono de acción (lo dibuja _AccionesDelegate)."""
+        if row < 0 or row >= len(self._docs):
+            return
+        d = self._docs[row]
+        {"ver": self._ver, "descargar": self._descargar, "imprimir": self._imprimir,
+         "compartir": self._compartir, "correo": self._enviar_correo,
+         "eliminar": self._eliminar}.get(acc, lambda _d: None)(d)
 
     # ---------------------------------------------------------------- acciones
     def _aviso(self, titulo, msg, nivel="info"):
@@ -523,3 +619,4 @@ class CentroDocumentalWindow(QWidget):
     def _volver_menu(self):
         if self._volver:
             self._volver()
+        self.close()  # cerrar de verdad (no dejar la ventana en la barra de tareas)

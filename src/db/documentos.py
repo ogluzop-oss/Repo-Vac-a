@@ -263,51 +263,47 @@ def reconciliar_carpeta() -> int:
     base = _dir_documentos()
     if not os.path.isdir(base):
         return 0
-    # Rutas ya registradas (para no reinsertar).
-    registradas = set()
+    import datetime as _dt
+    nuevos = 0
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT ruta FROM documentos_registro")
             registradas = {(r["ruta"] if isinstance(r, dict) else r[0]) for r in cur.fetchall()}
+            # Recolecta los ficheros nuevos y los inserta en LOTE (una sola
+            # conexión y un solo executemany → apertura del centro mucho más rápida).
+            filas = []
+            for raiz, _dirs, ficheros in os.walk(base):
+                if raiz == base:
+                    continue  # ignorar ficheros sueltos en la raíz de documentos/
+                carpeta = os.path.basename(raiz).strip().lower()
+                if carpeta.startswith(".") or carpeta == "__pycache__":
+                    continue
+                tipo = _CARPETA_TIPO.get(carpeta, "otros")
+                for fn in ficheros:
+                    if os.path.splitext(fn)[1].lower() not in _EXT_DOC:
+                        continue
+                    ruta = os.path.join(raiz, fn)
+                    if ruta in registradas:
+                        continue
+                    try:
+                        fecha = _dt.datetime.fromtimestamp(
+                            os.path.getmtime(ruta)).strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        fecha = None
+                    filas.append((str(uuid.uuid4()), EMPRESA_DEFAULT_ID, tipo, fn,
+                                  ruta, "generado", fecha))
+            if filas:
+                cur.executemany(
+                    "INSERT IGNORE INTO documentos_registro "
+                    "(id_documento, id_empresa, tipo_documento, nombre, ruta, estado, "
+                    " fecha_generacion) VALUES (%s,%s,%s,%s,%s,%s,"
+                    " COALESCE(%s, CURRENT_TIMESTAMP))", filas)
+                conn.commit()
+                nuevos = len(filas)
     except Exception as e:
-        logger.error("Error leyendo rutas registradas: %s", e)
+        logger.error("Error reconciliar_carpeta: %s", e)
         return 0
-
-    import datetime as _dt
-    nuevos = 0
-    for raiz, _dirs, ficheros in os.walk(base):
-        carpeta = os.path.basename(raiz).strip().lower()
-        if raiz == base:
-            continue  # ignorar ficheros sueltos en la raíz de documentos/
-        if carpeta.startswith(".") or carpeta == "__pycache__":
-            continue
-        tipo = _CARPETA_TIPO.get(carpeta, "otros")
-        for fn in ficheros:
-            ext = os.path.splitext(fn)[1].lower()
-            if ext not in _EXT_DOC:
-                continue
-            ruta = os.path.join(raiz, fn)
-            if ruta in registradas:
-                continue
-            try:
-                ts = os.path.getmtime(ruta)
-                fecha = _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
-                fecha = None
-            try:
-                with obtener_conexion() as conn, conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT IGNORE INTO documentos_registro "
-                        "(id_documento, id_empresa, tipo_documento, nombre, ruta, "
-                        " estado, fecha_generacion) VALUES (%s,%s,%s,%s,%s,%s,"
-                        " COALESCE(%s, CURRENT_TIMESTAMP))",
-                        (str(uuid.uuid4()), EMPRESA_DEFAULT_ID, tipo, fn, ruta,
-                         "generado", fecha))
-                    conn.commit()
-                nuevos += 1
-            except Exception as e:
-                logger.debug("No se pudo reconciliar %s: %s", ruta, e)
     if nuevos:
         logger.info("Centro documental: %d documentos reconciliados.", nuevos)
     return nuevos
