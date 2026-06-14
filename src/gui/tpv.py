@@ -1163,7 +1163,7 @@ class _PagoDialog(QDialog):
     def __init__(self, total: float, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("pago.title"))
-        self.setFixedWidth(560)
+        self.setFixedWidth(900)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setObjectName("dlg_cobrar")
@@ -1180,9 +1180,14 @@ class _PagoDialog(QDialog):
             f"border-radius:22px;}}"
         )
         _outer.addWidget(_cuerpo)
-        lay = QVBoxLayout(_cuerpo)
+        # Cuerpo en dos columnas: izquierda (contenido) + derecha (teclado numérico).
+        body = QHBoxLayout(_cuerpo)
+        body.setContentsMargins(28, 24, 28, 24)
+        body.setSpacing(22)
+        lay = QVBoxLayout()
         lay.setSpacing(14)
-        lay.setContentsMargins(28, 24, 28, 24)
+        body.addLayout(lay, 1)
+        body.addWidget(self._build_pago_numpad(), 0, Qt.AlignmentFlag.AlignTop)
 
         lay.addWidget(_lbl(tr("pago.total_label", x=divisas.formatear(total)), bold=True, size=18, color=_CIAN))
         lay.addWidget(_sep())
@@ -1284,10 +1289,90 @@ class _PagoDialog(QDialog):
             grid.addWidget(b, i // 3, i % 3)
         lay.addLayout(grid)
 
+        # Importe exacto: rellena el total exacto y cobra directamente (pago justo).
+        self.btn_exacto = _btn(tr("pago.exact", default="✓  Importe exacto"),
+                               color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
+                               hover_bg="#FFF", hover_fg="#0D1117", h=40)
+        self.btn_exacto.clicked.connect(self._pago_exacto)
+        lay.addWidget(self.btn_exacto)
+
         self.lbl_cambio = _lbl(tr("pago.change", x="0,00"), bold=True, size=13, color=_VERDE)
         lay.addWidget(self.lbl_cambio)
         self._actualizar_cambio()
         return w
+
+    def _pago_exacto(self):
+        """Rellena la cantidad exacta del total y procede al cobro en un clic."""
+        self.inp_ef.setText(f"{self._total:.2f}")
+        self._cobrar()
+
+    # --- teclado numérico ---
+
+    def _active_input(self):
+        """Campo de texto al que afecta el teclado según la pestaña activa."""
+        idx = self._stack.currentIndex()
+        if idx == 0:
+            return self.inp_ef
+        if idx == 2:
+            return getattr(self, "inp_mx_ef", None)
+        return None
+
+    def _build_pago_numpad(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("pago_numpad")
+        card.setFixedWidth(250)
+        card.setStyleSheet(
+            f"QFrame#pago_numpad{{background:{_BG2};border:1px solid {_BORDE};border-radius:14px;}}")
+        gl = QGridLayout(card)
+        gl.setContentsMargins(12, 12, 12, 12)
+        gl.setSpacing(8)
+
+        _ss_num = (
+            f"QPushButton{{background:{_BG};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:14px;font-family:'{_FONT}';font-weight:900;font-size:22px;}}"
+            f"QPushButton:hover{{background:{_CIAN};color:#0D1117;border-color:{_CIAN};}}"
+            f"QPushButton:pressed{{background:{_CIAN};color:#0D1117;}}"
+        )
+        _ss_del = (
+            f"QPushButton{{background:{_BG};color:{_ROJO};border:2px solid {_ROJO};"
+            f"border-radius:14px;font-family:'{_FONT}';font-weight:900;font-size:20px;}}"
+            f"QPushButton:hover{{background:{_ROJO};color:#FFF;}}"
+        )
+        layout_keys = [
+            ("7", 0, 0, "num"), ("8", 0, 1, "num"), ("9", 0, 2, "num"),
+            ("4", 1, 0, "num"), ("5", 1, 1, "num"), ("6", 1, 2, "num"),
+            ("1", 2, 0, "num"), ("2", 2, 1, "num"), ("3", 2, 2, "num"),
+            (".", 3, 0, "num"), ("0", 3, 1, "num"), ("⌫", 3, 2, "del"),
+        ]
+        for c in range(3):
+            gl.setColumnStretch(c, 1)
+        for txt, row, col, sk in layout_keys:
+            b = QPushButton(txt)
+            b.setFixedHeight(48)
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setStyleSheet(_ss_del if sk == "del" else _ss_num)
+            b.clicked.connect(lambda checked, t=txt: self._num_pago(t))
+            gl.addWidget(b, row, col)
+        return card
+
+    def _num_pago(self, tecla: str):
+        inp = self._active_input()
+        if inp is None:
+            return
+        cur = inp.text().strip()
+        if tecla == "⌫":
+            inp.setText(cur[:-1])
+        elif tecla == ".":
+            if "." not in cur:
+                inp.setText((cur or "0") + ".")
+        else:  # dígito
+            if cur in ("", "0", "0.00"):
+                inp.setText(tecla)
+            else:
+                inp.setText(cur + tecla)
+        inp.setFocus()
 
     def _actualizar_cambio(self):
         try:

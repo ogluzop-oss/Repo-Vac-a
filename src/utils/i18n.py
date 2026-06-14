@@ -75,6 +75,7 @@ LANGUAGES = {
     "vi": {"native": "Tiếng Việt",   "flag": "🇻🇳", "rtl": False, "tts": "vi-VN", "stt": "vi-VN"},
     "th": {"native": "ไทย",          "flag": "🇹🇭", "rtl": False, "tts": "th-TH", "stt": "th-TH"},
     "sv": {"native": "Svenska",      "flag": "🇸🇪", "rtl": False, "tts": "sv-SE", "stt": "sv-SE"},
+    "ca": {"native": "Català",       "flag": "🇪🇸", "rtl": False, "tts": "ca-ES", "stt": "ca-ES"},
 }
 
 

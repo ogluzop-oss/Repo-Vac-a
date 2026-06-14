@@ -61,6 +61,7 @@ _LANG_NAMES = {
     "ja": "Japanese", "de": "German", "it": "Italian", "ko": "Korean",
     "tr": "Turkish", "nl": "Dutch", "pl": "Polish", "uk": "Ukrainian",
     "id": "Indonesian", "vi": "Vietnamese", "th": "Thai", "sv": "Swedish",
+    "ca": "Catalan",
 }
 
 # Pista de terminología por dominio.

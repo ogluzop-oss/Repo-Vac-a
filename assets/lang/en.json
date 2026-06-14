@@ -212,6 +212,7 @@
     "tab_mixed": "Mixed",
     "cancel": "Cancel",
     "charge": "CHARGE",
+    "exact": "✓  Exact amount",
     "amount_given": "Amount given ({sym}):",
     "change": "Change: {x}",
     "change_dash": "Change: —",
