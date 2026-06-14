@@ -2663,7 +2663,9 @@ class _BuscarTicketDialog(QDialog):
 
     def _build(self):
         card = QFrame(self); card.setObjectName("bt")
-        card.setStyleSheet(f"QFrame#bt{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        # Sin borde interno: el contorno neón ya lo aporta el chrome de la ventana
+        # (un solo contorno externo, no dos concéntricos).
+        card.setStyleSheet(f"QFrame#bt{{background:{_BG};border:none;border-radius:18px;}}")
         root = QVBoxLayout(self); root.setContentsMargins(10, 10, 10, 10); root.addWidget(card)
         ly = QVBoxLayout(card); ly.setContentsMargins(28, 22, 28, 22); ly.setSpacing(12)
 
