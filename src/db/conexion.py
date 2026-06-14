@@ -1545,6 +1545,16 @@ def registrar_recepcion_completa(id_traspaso, proveedor, usuario, items):
         return False
 
 
+def _tenant_actual_mov():
+    """(id_empresa, id_tienda) ACTIVOS para etiquetar movimientos/auditoría (3b.4).
+    Import perezoso para evitar el ciclo con src.db.empresa."""
+    try:
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        return empresa_actual_id(), tienda_actual_id()
+    except Exception:
+        return EMPRESA_DEFAULT_ID, None
+
+
 def registrar_pale(
     pale_codigo, proveedor, fecha, items, id_traspaso=None, observaciones=""
 ):
@@ -1570,15 +1580,17 @@ def registrar_pale(
 def registrar_pale_entrada(id_pale, codigo_articulo, cantidad):
     """Registra la entrada de un palé como movimiento de stock."""
     try:
+        _emp, _tnd = _tenant_actual_mov()
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO movimientos_stock
-                        (codigo_articulo, tipo_movimiento, cantidad, id_pale, origen, observaciones)
-                    VALUES (%s, 'ENTRADA_PALE', %s, %s, 'EXTERNO', %s)
+                        (codigo_articulo, tipo_movimiento, cantidad, id_pale, origen,
+                         observaciones, id_empresa, id_tienda)
+                    VALUES (%s, 'ENTRADA_PALE', %s, %s, 'EXTERNO', %s, %s, %s)
                     """,
-                    (codigo_articulo, cantidad, str(id_pale), f"Palé {id_pale}"),
+                    (codigo_articulo, cantidad, str(id_pale), f"Palé {id_pale}", _emp, _tnd),
                 )
             conn.commit()
             return True
@@ -1803,13 +1815,15 @@ def log_auditoria(
     detalles: str = None,
     ip_origen: str = None,
 ):
-    """Registra una acción en la tabla de auditoría."""
+    """Registra una acción en la tabla de auditoría (bajo la empresa/tienda activas)."""
     try:
+        _emp, _tnd = _tenant_actual_mov()
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO auditoria_logs (usuario, accion, tabla_afectada, detalles, ip_origen) VALUES (%s, %s, %s, %s, %s)",
-                    (usuario, accion, tabla_afectada, detalles, ip_origen),
+                    "INSERT INTO auditoria_logs (usuario, accion, tabla_afectada, detalles, "
+                    "ip_origen, id_empresa, id_tienda) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (usuario, accion, tabla_afectada, detalles, ip_origen, _emp, _tnd),
                 )
             conn.commit()
     except Exception as e:
