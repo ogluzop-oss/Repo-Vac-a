@@ -1730,6 +1730,26 @@
     "sin_cliente": "Indica el nom del client.",
     "error": "No s'ha pogut crear la comanda.",
     "ok_t": "Comanda online creada",
-    "ok": "Comanda {p} registrada i comprovant generat."
+    "ok": "Comanda {p} registrada i comprovant generat.",
+    "ges_title": "GESTIÓ DE COMANDES ONLINE",
+    "ges_nuevo": "Nova comanda",
+    "ges_n": "{n} comanda(es) online",
+    "ir_web": "Anar al web",
+    "web_sin_url": "Configura la URL de la botiga online.",
+    "gc_pedido": "Comanda",
+    "gc_fecha": "Data",
+    "gc_cliente": "Client",
+    "gc_tel": "Telèfon",
+    "gc_total": "Total",
+    "gc_estado": "Estat",
+    "gc_plat": "Plataforma",
+    "gc_ref": "Ref. web",
+    "cfg_title": "BOTIGA ONLINE",
+    "cfg_plat": "Plataforma",
+    "cfg_url": "URL de la botiga (https://…)",
+    "cfg_key": "API key / Consumer key / Token",
+    "cfg_secret": "API secret (si escau)",
+    "cfg_cancel": "CANCEL·LAR",
+    "cfg_save": "DESAR"
   }
 }

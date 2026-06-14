@@ -1730,6 +1730,26 @@
     "sin_cliente": "Enter the customer name.",
     "error": "Could not create the order.",
     "ok_t": "Online order created",
-    "ok": "Order {p} registered and receipt generated."
+    "ok": "Order {p} registered and receipt generated.",
+    "ges_title": "ONLINE ORDERS MANAGEMENT",
+    "ges_nuevo": "New order",
+    "ges_n": "{n} online order(s)",
+    "ir_web": "Go to website",
+    "web_sin_url": "Configure the online store URL.",
+    "gc_pedido": "Order",
+    "gc_fecha": "Date",
+    "gc_cliente": "Customer",
+    "gc_tel": "Phone",
+    "gc_total": "Total",
+    "gc_estado": "Status",
+    "gc_plat": "Platform",
+    "gc_ref": "Web ref.",
+    "cfg_title": "ONLINE STORE",
+    "cfg_plat": "Platform",
+    "cfg_url": "Store URL (https://…)",
+    "cfg_key": "API key / Consumer key / Token",
+    "cfg_secret": "API secret (if any)",
+    "cfg_cancel": "CANCEL",
+    "cfg_save": "SAVE"
   }
 }

@@ -2202,6 +2202,224 @@ class _VentaOnlineDialog(QDialog):
         self.accept()
 
 
+class _TiendaOnlineConfigDialog(QDialog):
+    """Configuración de la tienda online (plataforma + URL + credenciales API)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(480)
+        self._guardado = False
+        from src.db import ecommerce as _ec
+        self._cfg = _ec.obtener_config()
+        self._build()
+
+    def _inp(self, val=""):
+        e = QLineEdit(val or ""); e.setFixedHeight(36)
+        e.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+                        f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+                        f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        return e
+
+    def _build(self):
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame(); cuerpo.setObjectName("cfgto")
+        cuerpo.setStyleSheet(f"QFrame#cfgto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        outer.addWidget(cuerpo)
+        v = QVBoxLayout(cuerpo); v.setContentsMargins(24, 22, 24, 22); v.setSpacing(10)
+        v.addWidget(_lbl("⚙  " + tr("online.cfg_title", default="TIENDA ONLINE"), bold=True, size=16, color=_CIAN))
+        v.addWidget(_lbl(tr("online.cfg_plat", default="Plataforma"), bold=True, size=12, color=_TEXT2))
+        from src.db.ecommerce import PLATAFORMAS
+        self.cmb = QComboBox(); self.cmb.setFixedHeight(36)
+        self.cmb.setStyleSheet(
+            f"QComboBox{{combobox-popup:0;background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
+            f"QComboBox::drop-down{{border:none;width:22px;}}"
+            f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
+            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+        etiquetas = {"web": "Web propia", "woocommerce": "WooCommerce",
+                     "shopify": "Shopify", "prestashop": "PrestaShop"}
+        for p in PLATAFORMAS:
+            self.cmb.addItem(etiquetas.get(p, p), p)
+        i = self.cmb.findData(self._cfg.get("plataforma", "web"))
+        if i >= 0:
+            self.cmb.setCurrentIndex(i)
+        v.addWidget(self.cmb)
+        v.addWidget(_lbl(tr("online.cfg_url", default="URL de la tienda (https://…)"), bold=True, size=12, color=_TEXT2))
+        self.inp_url = self._inp(self._cfg.get("base_url")); v.addWidget(self.inp_url)
+        v.addWidget(_lbl(tr("online.cfg_key", default="API key / Consumer key / Token"), bold=True, size=12, color=_TEXT2))
+        self.inp_key = self._inp(self._cfg.get("api_key")); v.addWidget(self.inp_key)
+        v.addWidget(_lbl(tr("online.cfg_secret", default="API secret (si aplica)"), bold=True, size=12, color=_TEXT2))
+        self.inp_secret = self._inp(self._cfg.get("api_secret")); v.addWidget(self.inp_secret)
+        v.addSpacing(4)
+        fila = QHBoxLayout(); fila.setSpacing(10)
+        b_cancel = _btn(tr("online.cfg_cancel", default="CANCELAR"), h=44); b_cancel.clicked.connect(self.reject)
+        b_ok = _btn(tr("online.cfg_save", default="GUARDAR"), color_bg=_VERDE, color_fg="#0D1117",
+                    color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=44)
+        b_ok.clicked.connect(self._guardar)
+        fila.addWidget(b_cancel); fila.addWidget(b_ok); v.addLayout(fila)
+
+    def _guardar(self):
+        from src.db import ecommerce as _ec
+        _ec.guardar_config(
+            plataforma=self.cmb.currentData(), base_url=self.inp_url.text().strip(),
+            api_key=self.inp_key.text().strip(), api_secret=self.inp_secret.text().strip())
+        self._guardado = True
+        self.accept()
+
+
+class _GestionPedidosOnlineDialog(QDialog):
+    """Gestión de pedidos online (F2): listado con estados + Ir a la Web + cerrar."""
+
+    def __init__(self, empleado="—", id_caja="—", parent=None):
+        super().__init__(parent)
+        self._empleado = empleado
+        self._id_caja = id_caja
+        self._pedidos = []
+        self.setWindowTitle(tr("online.ges_title", default="GESTIÓN DE PEDIDOS ONLINE"))
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setObjectName("dlg_ges_online")
+        self.setStyleSheet(f"#dlg_ges_online {{ background: {_BG}; }}")
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            self.setMinimumSize(1100, 700)
+        self._build()
+        self._refrescar()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        try:
+            self.setGeometry(QApplication.primaryScreen().availableGeometry())
+        except Exception:
+            pass
+
+    def _build(self):
+        root = QVBoxLayout(self); root.setContentsMargins(12, 12, 12, 12)
+        card = QFrame(self); card.setObjectName("go")
+        card.setStyleSheet(f"QFrame#go{{background:{_BG};border:none;border-radius:18px;}}")
+        root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(28, 22, 28, 22); ly.setSpacing(14)
+
+        hdr = QHBoxLayout()
+        hdr.addWidget(_lbl("🌐  " + tr("online.ges_title", default="GESTIÓN DE PEDIDOS ONLINE"),
+                           bold=True, size=18, color=_CIAN))
+        hdr.addStretch()
+        b_nuevo = _btn("＋  " + tr("online.ges_nuevo", default="Nuevo pedido"), color_fg=_CIAN,
+                       color_border=_CIAN, hover_bg=_CIAN, h=38)
+        b_nuevo.clicked.connect(self._nuevo)
+        b_cfg = _btn("⚙", color_fg=_TEXT2, color_border=_BORDE, hover_bg=_CIAN, h=38)
+        b_cfg.setFixedWidth(46); b_cfg.clicked.connect(self._configurar)
+        b_web = _btn("🌐  " + tr("online.ir_web", default="Ir a la Web"), color_bg=_CIAN, color_fg="#0D1117",
+                     color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=38)
+        b_web.clicked.connect(self._ir_web)
+        bx = QPushButton("✕"); bx.setFixedSize(38, 38); bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
+                         f"border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
+        bx.clicked.connect(self.reject)
+        for b in (b_nuevo, b_cfg, b_web, bx):
+            hdr.addWidget(b)
+        ly.addLayout(hdr); ly.addWidget(_sep())
+
+        cols = [tr("online.gc_pedido", default="Pedido"), tr("online.gc_fecha", default="Fecha"),
+                tr("online.gc_cliente", default="Cliente"), tr("online.gc_tel", default="Teléfono"),
+                tr("online.gc_total", default="Total"), tr("online.gc_estado", default="Estado"),
+                tr("online.gc_plat", default="Plataforma"), tr("online.gc_ref", default="Ref. web")]
+        self.tabla = QTableWidget(0, len(cols))
+        self.tabla.setHorizontalHeaderLabels(cols)
+        self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla.verticalHeader().setVisible(False)
+        self.tabla.verticalHeader().setDefaultSectionSize(44)
+        self.tabla.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        hh = self.tabla.horizontalHeader()
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        for ci, w in {0: 150, 1: 140, 3: 110, 4: 100, 5: 150, 6: 120, 7: 120}.items():
+            hh.setSectionResizeMode(ci, QHeaderView.ResizeMode.Fixed); self.tabla.setColumnWidth(ci, w)
+        self.tabla.setStyleSheet(_ss_tabla_neon())
+        _RoundTableCorners(self.tabla)
+        ly.addWidget(self.tabla, 1)
+
+        self.lbl_estado = _lbl("", size=11, color=_TEXT2)
+        ly.addWidget(self.lbl_estado)
+
+    def _refrescar(self):
+        from src.services.tpv import online_orders_service as OS
+        self._pedidos = OS.listar_pedidos_online()
+        self.tabla.setRowCount(0)
+        for p in self._pedidos:
+            r = self.tabla.rowCount(); self.tabla.insertRow(r)
+            fecha = str(p.get("fecha") or "")[:16]
+            vals = [str(p.get("id_pedido") or "")[:8], fecha, p.get("cliente_nombre") or "—",
+                    p.get("cliente_telefono") or "—", divisas.formatear(float(p.get("total") or 0)),
+                    None, p.get("plataforma") or "—", p.get("referencia_externa") or "—"]
+            for c, val in enumerate(vals):
+                if c == 5:
+                    self.tabla.setCellWidget(r, 5, self._combo_estado(p))
+                    continue
+                it = QTableWidgetItem(str(val))
+                if c in (1, 3, 4, 6, 7):
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.tabla.setItem(r, c, it)
+        self.lbl_estado.setText(tr("online.ges_n", default="{n} pedido(s) online", n=len(self._pedidos)))
+
+    def _combo_estado(self, p):
+        from src.services.tpv.online_orders_service import ESTADOS
+        cb = QComboBox(); cb.setFixedHeight(30)
+        cb.setStyleSheet(
+            f"QComboBox{{combobox-popup:0;background:{_BG};color:{_CIAN};border:1px solid {_BORDE};"
+            f"border-radius:7px;padding:0 8px;font-size:11px;font-family:'{_FONT}';font-weight:900;}}"
+            f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
+            f"QComboBox::drop-down{{border:none;width:18px;}}"
+            f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
+            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+        for e in ESTADOS:
+            cb.addItem(e, e)
+        i = cb.findData(p.get("estado"))
+        if i >= 0:
+            cb.setCurrentIndex(i)
+        cb.currentIndexChanged.connect(lambda _i, pid=p.get("id_pedido"), c=cb: self._cambiar_estado(pid, c.currentData()))
+        return cb
+
+    def _cambiar_estado(self, pid, estado):
+        from src.services.tpv import online_orders_service as OS
+        OS.cambiar_estado(pid, estado)
+
+    def _nuevo(self):
+        _VentaOnlineDialog(empleado=self._empleado, id_caja=self._id_caja, parent=self).exec()
+        self._refrescar()
+
+    def _configurar(self):
+        _TiendaOnlineConfigDialog(parent=self).exec()
+
+    def _ir_web(self):
+        from src.services.tpv.ecommerce import adaptador_actual
+        url = adaptador_actual().url_web()
+        if not url:
+            dlg = _TiendaOnlineConfigDialog(parent=self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            url = adaptador_actual().url_web()
+        if not url:
+            try:
+                from assets.estilo_global import mostrar_mensaje as _mm
+                _mm(self, tr("online.ges_title", default="GESTIÓN DE PEDIDOS ONLINE"),
+                    tr("online.web_sin_url", default="Configura la URL de la tienda online."), "warning")
+            except Exception:
+                pass
+            return
+        if not url.lower().startswith(("http://", "https://")):
+            url = "https://" + url
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
+
+
 class _GestionGranelDialog(QDialog):
     """Gestión de productos a granel (precio, estado, alta). Sólo gerente/admin."""
 
@@ -3902,11 +4120,9 @@ class TPVWindow(QWidget):
         self.btn_retener,    lr = self._btn_accion_card("⏸", tr("tpv.hold"), _CIAN, self._retener)
         self.btn_recuperar,  lc = self._btn_accion_card("📂", tr("tpv.recover"), _CIAN, self._recuperar)
         self.btn_tickets,    lt2 = self._btn_accion_card("🔎", tr("tpv.tickets", default="Tickets"), _CIAN, self._abrir_buscar_tickets)
-        self.btn_online,     lon = self._btn_accion_card("🌐", tr("tpv.online", default="Venta online"), _CIAN, self._abrir_venta_online)
         self._btn_vaciar,    lv = self._btn_accion_card("🗑", tr("tpv.empty_cart"), _ROJO, self._vaciar, danger=True)
         self._acc_labels = {"tpv.scale": lb, "tpv.refund": ld, "tpv.hold": lr,
-                            "tpv.recover": lc, "tpv.tickets": lt2,
-                            "tpv.online": lon, "tpv.empty_cart": lv}
+                            "tpv.recover": lc, "tpv.tickets": lt2, "tpv.empty_cart": lv}
         self.btn_retener.setEnabled(False)
 
         grid_acc.addWidget(self.btn_bascula,    0, 0)
@@ -3914,10 +4130,21 @@ class TPVWindow(QWidget):
         grid_acc.addWidget(self.btn_retener,    0, 2)
         grid_acc.addWidget(self.btn_recuperar,  1, 0)
         grid_acc.addWidget(self.btn_tickets,    1, 1)
-        grid_acc.addWidget(self.btn_online,     1, 2)
-        grid_acc.addWidget(self._btn_vaciar,    2, 0)
+        grid_acc.addWidget(self._btn_vaciar,    1, 2)
         cl2.addLayout(grid_acc)
         lay.addWidget(card_acc)
+
+        # Pedidos online (F2): botón a lo ancho, DEBAJO de las acciones → abre la
+        # pantalla de gestión de pedidos online.
+        self.btn_pedidos_online = QPushButton("🌐  " + tr("tpv.online", default="Venta online"))
+        self.btn_pedidos_online.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_pedidos_online.setFixedHeight(46)
+        self.btn_pedidos_online.setStyleSheet(
+            f"QPushButton{{background:{_BG2};color:{_CIAN};border:2px solid {_CIAN};"
+            f"border-radius:12px;font-family:'{_FONT}';font-weight:900;font-size:14px;}}"
+            f"QPushButton:hover{{background:{_CIAN};color:#0D1117;}}")
+        self.btn_pedidos_online.clicked.connect(self._abrir_gestion_pedidos_online)
+        lay.addWidget(self.btn_pedidos_online)
         lay.addStretch()
         return w
 
@@ -4228,6 +4455,14 @@ class TPVWindow(QWidget):
     def _abrir_buscar_tickets(self):
         """Búsqueda/reimpresión de tickets (QR/código de barras/nº/fecha/importe)."""
         _BuscarTicketDialog(parent=self).exec()
+
+    def _abrir_gestion_pedidos_online(self):
+        """Pantalla de gestión de pedidos online (F2): listado + estados + Ir a la Web."""
+        _GestionPedidosOnlineDialog(
+            empleado=getattr(self, "_empleado_tpv", None) or "—",
+            id_caja=getattr(self, "_id_caja", None) or "—",
+            parent=self,
+        ).exec()
 
     def _abrir_venta_online(self):
         """Venta online desde tienda (F2): consulta de disponibilidad multi-origen,

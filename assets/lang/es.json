@@ -1730,6 +1730,26 @@
     "sin_cliente": "Indica el nombre del cliente.",
     "error": "No se pudo crear el pedido.",
     "ok_t": "Pedido online creado",
-    "ok": "Pedido {p} registrado y comprobante generado."
+    "ok": "Pedido {p} registrado y comprobante generado.",
+    "ges_title": "GESTIÓN DE PEDIDOS ONLINE",
+    "ges_nuevo": "Nuevo pedido",
+    "ges_n": "{n} pedido(s) online",
+    "ir_web": "Ir a la Web",
+    "web_sin_url": "Configura la URL de la tienda online.",
+    "gc_pedido": "Pedido",
+    "gc_fecha": "Fecha",
+    "gc_cliente": "Cliente",
+    "gc_tel": "Teléfono",
+    "gc_total": "Total",
+    "gc_estado": "Estado",
+    "gc_plat": "Plataforma",
+    "gc_ref": "Ref. web",
+    "cfg_title": "TIENDA ONLINE",
+    "cfg_plat": "Plataforma",
+    "cfg_url": "URL de la tienda (https://…)",
+    "cfg_key": "API key / Consumer key / Token",
+    "cfg_secret": "API secret (si aplica)",
+    "cfg_cancel": "CANCELAR",
+    "cfg_save": "GUARDAR"
   }
 }
