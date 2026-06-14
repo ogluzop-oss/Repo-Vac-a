@@ -55,3 +55,47 @@ class AdaptadorWooCommerce(AdaptadorEcommerce):
         except Exception as e:
             logger.warning("WooCommerce crear_pedido falló: %s", e)
         return None
+
+    # Mapeo de estados de WooCommerce a los estados internos.
+    _ESTADOS = {"pending": "PENDIENTE", "on-hold": "PENDIENTE", "processing": "PAGADO",
+                "completed": "ENTREGADO", "cancelled": "CANCELADO",
+                "refunded": "CANCELADO", "failed": "CANCELADO"}
+
+    def listar_pedidos_remotos(self) -> list:
+        if not self.configurado():
+            return []
+        try:
+            import requests
+        except Exception:
+            return []
+        base = self.url_web().rstrip("/")
+        try:
+            resp = requests.get(
+                f"{base}/wp-json/wc/v3/orders", params={"per_page": 50, "orderby": "date"},
+                auth=(self.config["api_key"], self.config["api_secret"]), timeout=20)
+            if resp.status_code != 200:
+                logger.warning("WooCommerce listar respondió %s", resp.status_code)
+                return []
+            out = []
+            for o in resp.json() or []:
+                b = o.get("billing") or {}
+                nombre = " ".join(x for x in (b.get("first_name"), b.get("last_name")) if x)
+                out.append({
+                    "referencia_externa": str(o.get("id") or ""),
+                    "cliente_nombre": nombre or None,
+                    "cliente_telefono": b.get("phone") or None,
+                    "cliente_email": b.get("email") or None,
+                    "direccion_envio": b.get("address_1") or None,
+                    "total": float(o.get("total") or 0),
+                    "estado": self._ESTADOS.get(o.get("status"), "PENDIENTE"),
+                    "fecha": o.get("date_created"),
+                    "items": [{"codigo": it.get("sku") or None, "nombre": it.get("name"),
+                               "cantidad": int(it.get("quantity", 1) or 1),
+                               "precio": float(it.get("price") or 0),
+                               "subtotal": float(it.get("total") or 0)}
+                              for it in (o.get("line_items") or [])],
+                })
+            return out
+        except Exception as e:
+            logger.warning("WooCommerce listar_pedidos_remotos falló: %s", e)
+            return []

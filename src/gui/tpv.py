@@ -2311,6 +2311,9 @@ class _GestionPedidosOnlineDialog(QDialog):
         b_nuevo = _btn("＋  " + tr("online.ges_nuevo", default="Nuevo pedido"), color_fg=_CIAN,
                        color_border=_CIAN, hover_bg=_CIAN, h=38)
         b_nuevo.clicked.connect(self._nuevo)
+        b_import = _btn("⭳  " + tr("online.ges_importar", default="Importar de la web"),
+                       color_fg=_CIAN, color_border=_CIAN, hover_bg=_CIAN, h=38)
+        b_import.clicked.connect(self._importar)
         b_cfg = _btn("⚙", color_fg=_TEXT2, color_border=_BORDE, hover_bg=_CIAN, h=38)
         b_cfg.setFixedWidth(46); b_cfg.clicked.connect(self._configurar)
         b_web = _btn("🌐  " + tr("online.ir_web", default="Ir a la Web"), color_bg=_CIAN, color_fg="#0D1117",
@@ -2320,7 +2323,7 @@ class _GestionPedidosOnlineDialog(QDialog):
         bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
                          f"border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
         bx.clicked.connect(self.reject)
-        for b in (b_nuevo, b_cfg, b_web, bx):
+        for b in (b_nuevo, b_import, b_cfg, b_web, bx):
             hdr.addWidget(b)
         ly.addLayout(hdr); ly.addWidget(_sep())
 
@@ -2394,6 +2397,29 @@ class _GestionPedidosOnlineDialog(QDialog):
 
     def _configurar(self):
         _TiendaOnlineConfigDialog(parent=self).exec()
+
+    def _importar(self):
+        from src.services.tpv import online_orders_service as OS
+        from assets.estilo_global import mostrar_mensaje as _mm
+        try:
+            from src.services.tpv.ecommerce import adaptador_actual
+            if not adaptador_actual().configurado():
+                dlg = _TiendaOnlineConfigDialog(parent=self)
+                if dlg.exec() != QDialog.DialogCode.Accepted:
+                    return
+        except Exception:
+            pass
+        try:
+            res = OS.importar_pedidos_remotos()
+        except Exception as e:
+            _mm(self, tr("online.ges_importar", default="Importar de la web"),
+                tr("online.imp_err", default="No se pudieron importar los pedidos: {e}", e=e), "error")
+            return
+        self._refrescar()
+        _mm(self, tr("online.ges_importar", default="Importar de la web"),
+            tr("online.imp_ok", default="Importados {n} pedido(s) nuevos de {p} ({m} en la web).",
+               n=res.get("importados", 0), p=res.get("plataforma", "web"),
+               m=res.get("total_remotos", 0)), "info")
 
     def _ir_web(self):
         from src.services.tpv.ecommerce import adaptador_actual

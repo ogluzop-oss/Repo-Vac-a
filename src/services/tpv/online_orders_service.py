@@ -162,6 +162,83 @@ def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str 
     return id_pedido
 
 
+def importar_pedidos_remotos(id_empresa=None, id_tienda="auto") -> dict:
+    """Trae los pedidos de la plataforma de e-commerce a la tabla local (espejo).
+
+    Deduplica por ``referencia_externa`` (no reimporta lo ya traído). Es un espejo
+    de solo lectura: NO vuelve a crear el pedido en la plataforma ni descuenta
+    stock local (la plataforma es el sistema de registro de esos pedidos).
+    Devuelve {'importados': n, 'total_remotos': m, 'plataforma': str}."""
+    ctx_emp, ctx_tienda, id_usuario, trabajador = _ctx()
+    if id_empresa is None:
+        id_empresa = ctx_emp
+    if id_tienda == "auto":
+        id_tienda = ctx_tienda
+    try:
+        from src.services.tpv.ecommerce import adaptador_actual
+        ad = adaptador_actual()
+        remotos = ad.listar_pedidos_remotos() or []
+        plataforma = getattr(ad, "nombre", "web")
+    except Exception as e:
+        logger.warning("importar_pedidos_remotos: adaptador no disponible: %s", e)
+        return {"importados": 0, "total_remotos": 0, "plataforma": "web"}
+    # Referencias ya presentes (para deduplicar).
+    existentes = set()
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT referencia_externa FROM pedidos_online "
+                        "WHERE id_empresa=%s AND referencia_externa IS NOT NULL", (id_empresa,))
+            existentes = {str(r[0] if not isinstance(r, dict) else r["referencia_externa"])
+                          for r in cur.fetchall()}
+    except Exception as e:
+        logger.error("importar_pedidos_remotos (existentes): %s", e)
+        return {"importados": 0, "total_remotos": len(remotos), "plataforma": plataforma}
+
+    importados = 0
+    for rem in remotos:
+        ref = str(rem.get("referencia_externa") or "").strip()
+        if not ref or ref in existentes:
+            continue
+        estado = rem.get("estado") if rem.get("estado") in ESTADOS else "PENDIENTE"
+        items = rem.get("items") or []
+        total = rem.get("total")
+        if total is None:
+            total = sum(float(it.get("subtotal") or 0) for it in items)
+        pid = str(uuid.uuid4())
+        try:
+            with obtener_conexion() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO pedidos_online "
+                    "(id_pedido, id_empresa, id_tienda, id_usuario, trabajador, cliente_nombre, "
+                    " cliente_telefono, cliente_email, direccion_envio, total, estado, plataforma, "
+                    " referencia_externa, observaciones) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (pid, id_empresa, id_tienda, id_usuario, trabajador,
+                     rem.get("cliente_nombre"), rem.get("cliente_telefono"),
+                     rem.get("cliente_email"), rem.get("direccion_envio"),
+                     round(float(total or 0), 2), estado, plataforma, ref,
+                     rem.get("observaciones")))
+                for it in items:
+                    cant = int(it.get("cantidad", 1) or 1)
+                    precio = float(it.get("precio", 0) or 0)
+                    sub = float(it.get("subtotal") if it.get("subtotal") is not None else cant * precio)
+                    cur.execute(
+                        "INSERT INTO pedidos_online_items "
+                        "(id_pedido, codigo_articulo, nombre, cantidad, precio_unitario, subtotal, origen_stock) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (pid, it.get("codigo"), it.get("nombre"), cant, precio, sub,
+                         it.get("origen_stock") or "online"))
+                conn.commit()
+            existentes.add(ref)
+            importados += 1
+        except Exception as e:
+            logger.error("importar_pedidos_remotos (insert %s): %s", ref, e)
+    if importados:
+        _auditar_stock("-", "IMPORTAR_PEDIDOS_ONLINE",
+                       [f"{plataforma}:{importados}/{len(remotos)}"])
+    return {"importados": importados, "total_remotos": len(remotos), "plataforma": plataforma}
+
+
 def listar_pedidos_online(id_empresa=None, id_tienda="auto", estado=None,
                           texto=None, limite=1000) -> list[dict]:
     """Lista pedidos online de la empresa/tienda ACTIVAS (aislamiento por tienda)."""
