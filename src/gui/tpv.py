@@ -1173,7 +1173,7 @@ class _BilleteButton(QPushButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(72)
+        self.setFixedHeight(88)
 
     def enterEvent(self, e):
         self.update(); super().enterEvent(e)
@@ -1191,28 +1191,30 @@ class _BilleteButton(QPushButton):
         p.setBrush(QColor(_BG2))
         p.drawRoundedRect(r, 8, 8)
 
+        # Área de imagen (arriba) + área de texto (abajo, el valor del billete).
+        text_h = 20.0
+        img_area = QRectF(r.x() + 6, r.y() + 6, r.width() - 12, r.height() - text_h - 10)
         if not self._pix.isNull():
-            area = r.adjusted(6, 5, -6, -5)
-            # Encajar por anchura (los billetes son apaisados); si así se sale de
-            # alto, recortar por alto. Da botones de tamaño uniforme.
-            scaled = self._pix.scaledToWidth(
-                int(area.width()), Qt.TransformationMode.SmoothTransformation)
-            if scaled.height() > area.height():
-                scaled = self._pix.scaledToHeight(
-                    int(area.height()), Qt.TransformationMode.SmoothTransformation)
-            x = area.x() + (area.width() - scaled.width()) / 2
-            y = area.y() + (area.height() - scaled.height()) / 2
-            path = QPainterPath()
-            path.addRoundedRect(QRectF(x, y, scaled.width(), scaled.height()), 5, 5)
+            # Rellenar el área recortando el sobrante (KeepAspectRatioByExpanding):
+            # TODOS los billetes quedan del MISMO tamaño, ninguno más pequeño.
+            scaled = self._pix.scaled(
+                img_area.size().toSize(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation)
+            x = img_area.x() + (img_area.width() - scaled.width()) / 2
+            y = img_area.y() + (img_area.height() - scaled.height()) / 2
+            path = QPainterPath(); path.addRoundedRect(img_area, 5, 5)
             p.save(); p.setClipPath(path); p.drawPixmap(int(x), int(y), scaled); p.restore()
         else:
-            note = r.adjusted(8, 12, -8, -12)
             p.setBrush(QColor("#2E5E46"))
             p.setPen(QPen(QColor("#3FAE7E"), 1))
-            p.drawRoundedRect(note, 6, 6)
-            p.setPen(QColor("#E6FFF4"))
-            p.setFont(QFont(_FONT, 13, QFont.Weight.Black))
-            p.drawText(note, int(Qt.AlignmentFlag.AlignCenter), self._etiqueta)
+            p.drawRoundedRect(img_area, 6, 6)
+
+        # Valor del billete debajo de la imagen.
+        p.setPen(QColor("#E6EDF3"))
+        p.setFont(QFont(_FONT, 11, QFont.Weight.Black))
+        p.drawText(QRectF(r.x(), r.bottom() - text_h - 1, r.width(), text_h),
+                   int(Qt.AlignmentFlag.AlignCenter), self._etiqueta)
 
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(QPen(QColor(_CIAN if hover else _BORDE), 2))
@@ -2914,14 +2916,14 @@ class _BuscarTicketDialog(QDialog):
         r3 = QHBoxLayout(); r3.setSpacing(8)
         from src.db.ventas_busqueda import obtener_empleados
         emp_items = [(tr("vta.opt_all_m", default="Todos"), "")] + [(e, e) for e in obtener_empleados()]
-        self.cmb_emp = self._combo(emp_items, maxvis=5)
+        self.cmb_emp = self._combo(emp_items, maxvis=3)   # máx 3 visibles + scrollbar
         self.cmb_caja = self._combo(
             [(tr("vta.opt_all_f", default="Todas"), "")] + [(str(i), str(i)) for i in range(1, 21)],
             w=120, maxvis=5)   # máx 5 visibles + scrollbar; ancho para que "Todas" se vea
         self.cmb_pago = self._combo([
             (tr("vta.opt_all_m", default="Todos"), ""), (tr("vta.pay_cash", default="efectivo"), "efectivo"),
             (tr("vta.pay_card", default="tarjeta"), "tarjeta"), ("mixto", "mixto"),
-            (tr("vta.pay_coupon", default="cupón"), "cupón")], w=150)
+            (tr("vta.pay_coupon", default="cupón"), "cupón")], w=150, maxvis=4)  # 4 visibles + scrollbar
         self.inp_pmin = self._inp(tr("vta.ph_price_min", default="Importe mínimo"), 120)
         self.inp_pmax = self._inp(tr("vta.ph_price_max", default="Importe máximo"), 120)
         r3.addWidget(self._lbl_r(tr("vta.lbl_employee", default="Empleado"))); r3.addWidget(self.cmb_emp, 1); r3.addSpacing(8)
