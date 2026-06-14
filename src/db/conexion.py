@@ -530,6 +530,57 @@ def ensure_schema(force: bool = False):
                     except Exception as _e:
                         logger.warning("Fase 0b: id_tienda en %s: %s", _t, _e)
 
+                # ── Fase 3b.1: aislamiento por tienda — base de datos (aditivo) ──
+                # 1) Backfill: el histórico se creó sin tienda (id_tienda NULL).
+                #    Lo asignamos a la TIENDA POR DEFECTO (la de menor id de la
+                #    empresa por defecto) para poder filtrar por tienda sin ocultar
+                #    datos antiguos. Idempotente (solo filas NULL).
+                cur.execute(f"SELECT MIN(id) FROM tiendas WHERE id_empresa='{_emp}'")
+                _row_td = cur.fetchone()
+                _tienda_def = None
+                if _row_td:
+                    _tienda_def = _row_td[0] if not isinstance(_row_td, dict) else list(_row_td.values())[0]
+                if _tienda_def:
+                    for _t in (*_tablas_tienda, "documentos_registro"):
+                        try:
+                            cur.execute(
+                                f"UPDATE {_t} SET id_tienda=%s WHERE id_tienda IS NULL",
+                                (_tienda_def,))
+                        except Exception as _e:
+                            logger.warning("3b.1 backfill id_tienda en %s: %s", _t, _e)
+
+                # 2) Stock POR TIENDA (aislamiento real de existencias). Clave por
+                #    (id_tienda, codigo_articulo). No sustituye aún a articulos.* —
+                #    el wiring de lecturas/escrituras llega en el siguiente paso.
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS stock_tienda (
+                        id_empresa          CHAR(36)    NOT NULL DEFAULT '{_emp}',
+                        id_tienda           INT         NOT NULL,
+                        codigo_articulo     VARCHAR(50) NOT NULL,
+                        stock               INT         NOT NULL DEFAULT 0,
+                        fecha_actualizacion DATETIME    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id_tienda, codigo_articulo),
+                        INDEX idx_st_empresa (id_empresa),
+                        INDEX idx_st_articulo (codigo_articulo)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                # Migración inicial: vuelca el stock actual de articulos a la tienda
+                # por defecto SOLO si la tabla está vacía (idempotente; no pisa datos
+                # reales una vez poblada).
+                if _tienda_def:
+                    cur.execute("SELECT COUNT(*) FROM stock_tienda")
+                    _r = cur.fetchone()
+                    _n_st = (_r[0] if not isinstance(_r, dict) else list(_r.values())[0]) if _r else 0
+                    if not _n_st:
+                        try:
+                            cur.execute(
+                                "INSERT INTO stock_tienda (id_empresa, id_tienda, codigo_articulo, stock) "
+                                "SELECT id_empresa, %s, codigo, COALESCE(Stock_tienda,0) FROM articulos "
+                                "WHERE codigo IS NOT NULL AND codigo<>''",
+                                (_tienda_def,))
+                        except Exception as _e:
+                            logger.warning("3b.1 migración stock_tienda: %s", _e)
+
                 # ── Entidad ALMACÉN adaptada al modelo multiempresa (aditivo) ──
                 # Cada almacén pertenece a una empresa y tiene código/tipo/estado.
                 # Se mantiene el PK INT existente (compatibilidad con el código que
