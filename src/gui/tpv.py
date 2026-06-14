@@ -2365,7 +2365,9 @@ class _DevolucionDialog(QDialog):
         fila = QHBoxLayout()
         col_m = QVBoxLayout()
         col_m.addWidget(_lbl(tr("devol.reason_label"), bold=True, size=12, color=_TEXT2))
-        self.inp_motivo = QComboBox()
+        # _ScrollCombo(6): dimensiona el popup para mostrar los 6 motivos a la vez
+        # (sin scrollbar → sin columna de barra que corte el contorno del popup).
+        self.inp_motivo = _ScrollCombo(6)
         self.inp_motivo.setEditable(True)  # permite un motivo libre si se elige "Otro"
         self.inp_motivo.setFixedHeight(40)
         self.inp_motivo.lineEdit().setPlaceholderText(tr("devol.reason_placeholder"))
