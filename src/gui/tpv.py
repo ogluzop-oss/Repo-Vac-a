@@ -7,10 +7,11 @@ import json
 import logging
 import os
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, QSize, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt, QTimer
 from PyQt6.QtGui import (
     QBitmap,
     QColor,
+    QFont,
     QIcon,
     QIntValidator,
     QKeySequence,
@@ -1159,6 +1160,66 @@ class _RetenidasDialog(QDialog):
 # BLOQUE — DIALOGO DE PAGO
 # ============================================================
 
+class _BilleteButton(QPushButton):
+    """Botón de denominación rápida que muestra la IMAGEN del billete (de
+    assets/currencies/<DIVISA>/banknotes). Si no hay imagen, dibuja una
+    representación estilizada con la etiqueta. Rectangular y alto para el billete."""
+
+    def __init__(self, valor, etiqueta, imagen=None, parent=None):
+        super().__init__(parent)
+        self._valor = valor
+        self._etiqueta = etiqueta
+        self._pix = QPixmap(imagen) if imagen else QPixmap()
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(72)
+
+    def enterEvent(self, e):
+        self.update(); super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.update(); super().leaveEvent(e)
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        hover = self.underMouse()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(_BG2))
+        p.drawRoundedRect(r, 8, 8)
+
+        if not self._pix.isNull():
+            area = r.adjusted(6, 5, -6, -5)
+            # Encajar por anchura (los billetes son apaisados); si así se sale de
+            # alto, recortar por alto. Da botones de tamaño uniforme.
+            scaled = self._pix.scaledToWidth(
+                int(area.width()), Qt.TransformationMode.SmoothTransformation)
+            if scaled.height() > area.height():
+                scaled = self._pix.scaledToHeight(
+                    int(area.height()), Qt.TransformationMode.SmoothTransformation)
+            x = area.x() + (area.width() - scaled.width()) / 2
+            y = area.y() + (area.height() - scaled.height()) / 2
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(x, y, scaled.width(), scaled.height()), 5, 5)
+            p.save(); p.setClipPath(path); p.drawPixmap(int(x), int(y), scaled); p.restore()
+        else:
+            note = r.adjusted(8, 12, -8, -12)
+            p.setBrush(QColor("#2E5E46"))
+            p.setPen(QPen(QColor("#3FAE7E"), 1))
+            p.drawRoundedRect(note, 6, 6)
+            p.setPen(QColor("#E6FFF4"))
+            p.setFont(QFont(_FONT, 13, QFont.Weight.Black))
+            p.drawText(note, int(Qt.AlignmentFlag.AlignCenter), self._etiqueta)
+
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(_CIAN if hover else _BORDE), 2))
+        p.drawRoundedRect(r, 8, 8)
+        p.end()
+
+
 class _PagoDialog(QDialog):
     _NUMPAD_W = 270  # ancho del teclado numérico y del botón de importe exacto
 
@@ -1296,11 +1357,17 @@ class _PagoDialog(QDialog):
         self.inp_ef.textChanged.connect(self._actualizar_cambio)
         lay.addWidget(self.inp_ef)
 
+        # Billetes rápidos según la divisa activa (assets/currencies/<DIVISA>):
+        # cada divisa tiene su propio conjunto de billetes, así que el nº de
+        # botones cambia con la divisa seleccionada.
         grid = QGridLayout()
-        grid.setSpacing(6)
-        for i, val in enumerate([5, 10, 20, 50, 100, 200]):
-            b = _btn(f"{divisas.formatear(val)}", h=32)
-            b.clicked.connect(lambda checked, v=float(val): self.inp_ef.setText(f"{v:.2f}"))
+        grid.setSpacing(8)
+        billetes = [d for d in divisas.denominaciones(descendente=False)
+                    if d["tipo"] == "billete"]
+        for i, d in enumerate(billetes):
+            b = _BilleteButton(d["valor"], d["etiqueta"], d.get("imagen"))
+            b.clicked.connect(
+                lambda checked, v=float(d["valor"]): self.inp_ef.setText(f"{v:.2f}"))
             grid.addWidget(b, i // 3, i % 3)
         lay.addLayout(grid)
 
@@ -1566,7 +1633,9 @@ class _BasculaDialog(QDialog):
 
     def _build_ui(self):
         _outer = QVBoxLayout(self)
-        _outer.setContentsMargins(0, 0, 0, 0)
+        # Margen para NO tapar el contorno neón del QDialog global (si el cuerpo
+        # llena el 100% lo cubre y solo se ve en las esquinas redondeadas).
+        _outer.setContentsMargins(12, 12, 12, 12)
         _cuerpo = QFrame()
         _cuerpo.setObjectName("cuerpo_ventana")
         _cuerpo.setStyleSheet(
@@ -2622,6 +2691,30 @@ class _ClienteDialog(QDialog):
 # BLOQUE — BÚSQUEDA / REIMPRESIÓN DE TICKETS
 # ============================================================
 
+class _ScrollCombo(QComboBox):
+    """QComboBox que limita el popup a N filas y muestra scrollbar para el resto.
+    Fijar la altura en showPopup() es determinista (no depende de que el estilo
+    respete setMaxVisibleItems)."""
+
+    def __init__(self, maxvis=5, parent=None):
+        super().__init__(parent)
+        self._maxvis = maxvis
+        self.setMaxVisibleItems(maxvis)
+
+    def showPopup(self):
+        super().showPopup()
+        view = self.view()
+        if self.count() > self._maxvis:
+            row_h = view.sizeHintForRow(0)
+            if row_h <= 0:
+                row_h = 30
+            alto = row_h * self._maxvis + 2 * view.frameWidth() + 4
+            popup = view.parentWidget() or view
+            popup.setMaximumHeight(alto)
+            popup.resize(popup.width(), alto)
+            view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+
 class _TriLineEdit(QLineEdit):
     """QLineEdit que pinta un triángulo cian en su extremo derecho (indicador de
     desplegable). Se pinta sobre el propio campo, así no queda tapado."""
@@ -2747,10 +2840,9 @@ class _BuscarTicketDialog(QDialog):
         return e
 
     def _combo(self, items, w=None, maxvis=8):
-        cb = QComboBox(); cb.setFixedHeight(34)
+        cb = _ScrollCombo(maxvis); cb.setFixedHeight(34)
         if w:
             cb.setFixedWidth(w)
-        cb.setMaxVisibleItems(maxvis)
         cb.setStyleSheet(
             # combobox-popup:0 → popup en modo lista: respeta maxVisibleItems y
             # muestra scrollbar cuando hay más opciones.
