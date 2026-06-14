@@ -20,6 +20,16 @@ SCHEMA_LOGISTICA_PATH = os.path.join(
 ESTADOS_LOGISTICOS_ABIERTOS = ("PENDIENTE", "EN TRANSITO", "PARCIAL")
 
 
+def _tenant_actual():
+    """(id_empresa, id_tienda) ACTIVOS para etiquetar documentos logísticos (3b.2)."""
+    try:
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        return empresa_actual_id(), tienda_actual_id()
+    except Exception:
+        from src.db.conexion import EMPRESA_DEFAULT_ID
+        return EMPRESA_DEFAULT_ID, None
+
+
 # ============================================================
 # BLOQUE UTILIDADES INTERNAS
 # ============================================================
@@ -168,13 +178,15 @@ def guardar_traspaso_logistico(
     with obtener_conexion() as conn:
         conn.begin()
         try:
+            _emp, _tnd = _tenant_actual()
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO documentos_logisticos (
                         id_documento, tipo_documento, origen, destino, estado,
-                        usuario_emisor, agencia, observaciones, resumen, fecha_envio
-                    ) VALUES (%s, 'TRASPASO', %s, %s, 'EN TRANSITO', %s, %s, %s, %s, %s)
+                        usuario_emisor, agencia, observaciones, resumen, fecha_envio,
+                        id_empresa, id_tienda
+                    ) VALUES (%s, 'TRASPASO', %s, %s, 'EN TRANSITO', %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         id_doc,
@@ -185,6 +197,7 @@ def guardar_traspaso_logistico(
                         str(observaciones or ""),
                         "",
                         fecha_envio or datetime.now(),
+                        _emp, _tnd,
                     ),
                 )
 
@@ -267,6 +280,13 @@ def obtener_historial_traspasos(estado_filtro="PENDIENTE", texto_filtro=""):
                     WHERE d.tipo_documento = 'TRASPASO'
                 """
                 params = []
+                # Aislamiento por tenant (3b.2): solo traspasos de la tienda activa.
+                _emp, _tnd = _tenant_actual()
+                query += " AND d.id_empresa = %s"
+                params.append(_emp)
+                if _tnd is not None:
+                    query += " AND d.id_tienda = %s"
+                    params.append(_tnd)
 
                 if estado_filtro and estado_filtro != "TODOS":
                     query += " AND d.estado = %s"
@@ -321,6 +341,13 @@ def obtener_trazabilidad_logistica(
                     WHERE d.tipo_documento = 'TRASPASO'
                 """
                 params = []
+                # Aislamiento por tenant (3b.2).
+                _emp, _tnd = _tenant_actual()
+                query += " AND d.id_empresa = %s"
+                params.append(_emp)
+                if _tnd is not None:
+                    query += " AND d.id_tienda = %s"
+                    params.append(_tnd)
 
                 if origen:
                     query += " AND (d.origen = %s OR d.origen LIKE %s)"
@@ -636,16 +663,18 @@ def procesar_recepcion_logistica(
                     if articulos_no_encontrados else None
                 )
 
+                _emp_r, _tnd_r = _tenant_actual()
                 cur.execute(
                     """
                     INSERT INTO recepciones_logisticas (
                         id_documento, id_pale, centro_receptor, usuario_receptor,
-                        total_lineas, total_unidades, incidencias
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        total_lineas, total_unidades, incidencias, id_empresa, id_tienda
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         doc["id_documento"], id_pale_escaneado, centro_receptor,
                         usuario_receptor, total_lineas, total_unidades, incidencias,
+                        _emp_r, _tnd_r,
                     ),
                 )
 
