@@ -130,7 +130,9 @@
     "no_encontrado": "El fichero ya no existe en disco.",
     "ok_t": "Hecho",
     "descargado": "Documento guardado.",
-    "compartido": "Ruta copiada y carpeta abierta."
+    "compartido": "Ruta copiada y carpeta abierta.",
+    "fecha_inicio": "Fecha inicio",
+    "fecha_fin": "Fecha fin"
   },
   "ticket": {
     "title": "SMART MANAGER",

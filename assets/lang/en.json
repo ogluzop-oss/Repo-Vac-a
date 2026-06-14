@@ -130,7 +130,9 @@
     "no_encontrado": "The file no longer exists on disk.",
     "ok_t": "Done",
     "descargado": "Document saved.",
-    "compartido": "Path copied and folder opened."
+    "compartido": "Path copied and folder opened.",
+    "fecha_inicio": "Start date",
+    "fecha_fin": "End date"
   },
   "ticket": {
     "title": "SMART MANAGER",

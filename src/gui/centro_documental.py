@@ -122,6 +122,7 @@ class _AccionesDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self._on = on_action
         self._del = puede_eliminar
+        self._hover = None  # (fila, índice de icono) bajo el ratón
 
     def _items(self):
         return self._ACC if self._del else self._ACC[:-1]
@@ -131,17 +132,27 @@ class _AccionesDelegate(QStyledItemDelegate):
         y = cell.y() + (cell.height() - 30) / 2
         return QRectF(x, y, self._BW, 30)
 
+    def icono_en(self, posf, cell_rect):
+        """Índice del icono bajo `posf` (QPointF) dentro de la celda, o None."""
+        for i in range(len(self._items())):
+            if self._rect_chip(cell_rect, i).contains(posf):
+                return i
+        return None
+
     def paint(self, p, option, index):
         p.save()
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         for i, acc in enumerate(self._items()):
             r = self._rect_chip(option.rect, i)
-            danger = (acc == "eliminar")
-            col = QColor(_ROJO if danger else _CIAN)
-            # chip
-            p.setPen(QPen(QColor(_BORDE), 1)); p.setBrush(QColor(_BG2))
-            p.drawRoundedRect(r, 7, 7)
-            self._draw_icon(p, acc, r, col)
+            col = QColor(_ROJO if acc == "eliminar" else _CIAN)
+            if self._hover == (index.row(), i):   # hover swap: chip relleno + icono oscuro
+                p.setPen(QPen(col, 1)); p.setBrush(col)
+                p.drawRoundedRect(r, 7, 7)
+                self._draw_icon(p, acc, r, QColor(_BG))
+            else:
+                p.setPen(QPen(QColor(_BORDE), 1)); p.setBrush(QColor(_BG2))
+                p.drawRoundedRect(r, 7, 7)
+                self._draw_icon(p, acc, r, col)
         p.restore()
 
     def _draw_icon(self, p, name, r, color):
@@ -303,12 +314,23 @@ class CentroDocumentalWindow(QWidget):
         col.addLayout(f1)
 
         f2 = QHBoxLayout(); f2.setSpacing(8)
-        self.inp_desde = self._inp(tr("doc.fecha_desde", default="Fecha desde (dd/mm/aaaa)"), 170)
-        self.inp_hasta = self._inp(tr("doc.fecha_hasta", default="Fecha hasta (dd/mm/aaaa)"), 170)
+        # Fechas como desplegables de calendario (mismo widget que el buscador de
+        # tickets). Rango amplio por defecto → muestra todos los documentos.
+        from PyQt6.QtCore import QDate
+        from src.gui.tpv import _FechaFilter
+        hoy = QDate.currentDate()
+        self.f_desde = _FechaFilter(hoy.addYears(-3))
+        self.f_hasta = _FechaFilter(hoy)
+        f2.addWidget(self._lbl_filtro(tr("doc.fecha_inicio", default="Fecha inicio")))
+        f2.addWidget(self.f_desde)
+        f2.addSpacing(8)
+        f2.addWidget(self._lbl_filtro(tr("doc.fecha_fin", default="Fecha fin")))
+        f2.addWidget(self.f_hasta)
+        f2.addSpacing(12)
         self.inp_cliente = self._inp(tr("doc.cliente", default="Cliente"), 160)
         self.inp_trab = self._inp(tr("doc.trabajador", default="Trabajador"), 160)
         self.inp_ref = self._inp(tr("doc.referencia", default="Referencia"), 150)
-        for w in (self.inp_desde, self.inp_hasta, self.inp_cliente, self.inp_trab, self.inp_ref):
+        for w in (self.inp_cliente, self.inp_trab, self.inp_ref):
             w.returnPressed.connect(self._refrescar)
             f2.addWidget(w)
         f2.addStretch()
@@ -345,8 +367,13 @@ class CentroDocumentalWindow(QWidget):
             hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Fixed)
             self.tabla.setColumnWidth(c, w)
         # Iconos de acción pintados por delegate (sin widgets por fila → rápido).
-        self.tabla.setItemDelegateForColumn(
-            8, _AccionesDelegate(self.tabla, self._accion_dispatch, sesion_global.es_admin()))
+        self._acc_delegate = _AccionesDelegate(
+            self.tabla, self._accion_dispatch, sesion_global.es_admin())
+        self.tabla.setItemDelegateForColumn(8, self._acc_delegate)
+        # Seguimiento del ratón para el hover swap de los iconos de acción.
+        self.tabla.setMouseTracking(True)
+        self.tabla.viewport().setMouseTracking(True)
+        self.tabla.viewport().installEventFilter(self)
         self.tabla.setStyleSheet(f"""
             QTableWidget{{background:transparent;color:{_TEXT};border:none;
                           gridline-color:{_BORDE};font-family:'Segoe UI';font-size:13px;outline:none;}}
@@ -380,6 +407,12 @@ class CentroDocumentalWindow(QWidget):
             f"border-radius:9px;padding:0 12px;font-size:12px;font-family:'Segoe UI';}}"
             f"QLineEdit:focus{{border-color:{_CIAN};}}")
         return e
+
+    def _lbl_filtro(self, txt) -> QLabel:
+        l = QLabel(txt)
+        l.setStyleSheet(f"color:{_DIM};font-family:'Segoe UI';font-weight:900;"
+                        f"font-size:12px;background:transparent;")
+        return l
 
     def _btn(self, txt, slot, primary=False, danger=False, peq=False) -> QPushButton:
         b = QPushButton(txt); b.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -423,17 +456,9 @@ class CentroDocumentalWindow(QWidget):
             emp = self._emp_map.get(eid, "")
             ambito = (tr("doc.ambito_todas", default="todas las empresas")
                       if sesion_global.es_superadmin() else emp)
-            # Tienda activa; si no hay una fijada pero la empresa tiene una sola
-            # tienda, mostrar su nombre (hasta que F1 traiga el selector de tienda).
-            tid = tienda_actual_id()
-            tnd = "—"
-            if tid is not None and tid in self._tienda_map:
-                tnd = self._tienda_map[tid]["nombre"]
-            else:
-                propias = [v["nombre"] for v in self._tienda_map.values()
-                           if v.get("id_empresa") == eid]
-                if len(propias) == 1:
-                    tnd = propias[0]
+            # Tienda activa (TenantContext) o referencia configurada.
+            from src.db import tiendas as _t
+            tnd = _t.etiqueta_tienda_actual() or "—"
             self.lbl_ctx.setText(tr("doc.contexto", default="Empresa: {emp}   ·   Tienda: {tnd}",
                                     emp=ambito or "—", tnd=tnd))
         except Exception:
@@ -451,9 +476,12 @@ class CentroDocumentalWindow(QWidget):
         self._refrescar()
 
     def _limpiar(self):
-        for w in (self.inp_buscar, self.inp_desde, self.inp_hasta,
-                  self.inp_cliente, self.inp_trab, self.inp_ref):
+        for w in (self.inp_buscar, self.inp_cliente, self.inp_trab, self.inp_ref):
             w.clear()
+        from PyQt6.QtCore import QDate
+        hoy = QDate.currentDate()
+        self.f_desde.setDate(hoy.addYears(-3))
+        self.f_hasta.setDate(hoy)
         self._tipo_sel = ""
         self._estilar_categorias()
         self._refrescar()
@@ -474,27 +502,14 @@ class CentroDocumentalWindow(QWidget):
                 continue
         return s[:16]
 
-    @staticmethod
-    def _fecha_sql(txt):
-        txt = (txt or "").strip()
-        if not txt:
-            return None
-        import datetime as _dt
-        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
-            try:
-                return _dt.datetime.strptime(txt, fmt).strftime("%Y-%m-%d")
-            except ValueError:
-                continue
-        return None
-
     def _refrescar(self):
         self._conteo = doc_db.contar_por_tipo(self._empresa_filtro())
         self._estilar_categorias()
         self._docs = doc_db.listar_documentos(
             tipo=self._tipo_sel or None,
             id_empresa=self._empresa_filtro(),
-            fecha_desde=self._fecha_sql(self.inp_desde.text()),
-            fecha_hasta=self._fecha_sql(self.inp_hasta.text()),
+            fecha_desde=self.f_desde.date().toString("yyyy-MM-dd"),
+            fecha_hasta=self.f_hasta.date().toString("yyyy-MM-dd"),
             cliente=self.inp_cliente.text().strip() or None,
             trabajador=self.inp_trab.text().strip() or None,
             referencia=self.inp_ref.text().strip() or None,
@@ -525,6 +540,30 @@ class CentroDocumentalWindow(QWidget):
             self.tabla.setItem(r, 8, QTableWidgetItem(""))  # celda pintada por el delegate
         n = len(self._docs)
         self.lbl_estado.setText(tr("doc.n_resultados", default="{n} documento(s)", n=n))
+
+    def eventFilter(self, obj, ev):
+        # Hover swap de los iconos de acción: detecta el icono bajo el ratón.
+        try:
+            if getattr(self, "tabla", None) is not None and obj is self.tabla.viewport():
+                t = ev.type()
+                if t == QEvent.Type.MouseMove:
+                    posf = ev.position()
+                    idx = self.tabla.indexAt(posf.toPoint())
+                    nuevo = None
+                    if idx.isValid() and idx.column() == 8:
+                        i = self._acc_delegate.icono_en(posf, self.tabla.visualRect(idx))
+                        if i is not None:
+                            nuevo = (idx.row(), i)
+                    if nuevo != self._acc_delegate._hover:
+                        self._acc_delegate._hover = nuevo
+                        self.tabla.viewport().update()
+                elif t == QEvent.Type.Leave:
+                    if self._acc_delegate._hover is not None:
+                        self._acc_delegate._hover = None
+                        self.tabla.viewport().update()
+        except Exception:
+            pass
+        return super().eventFilter(obj, ev)
 
     def _accion_dispatch(self, row, acc):
         """Despacha el clic en un icono de acción (lo dibuja _AccionesDelegate)."""

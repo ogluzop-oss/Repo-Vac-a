@@ -80,6 +80,26 @@ def puede_acceder(id_tienda) -> bool:
         return False
 
 
+def etiqueta_tienda_actual() -> str:
+    """Texto de la tienda activa para la UI (chip del menú, contexto de Documentos):
+    1) la tienda del TenantContext si está fijada (selector F1), 2) si no, la
+    referencia configurada en ASIGNAR REFERENCIA. Cadena vacía si no hay ninguna."""
+    from src.db import empresa as emp_db
+    tid = emp_db.tienda_actual_id()
+    if tid is not None:
+        t = obtener_tienda(tid)
+        if t:
+            return f"{t.get('codigo_tienda', '')} · {t.get('nombre', '')}".strip(" ·")
+    try:
+        from src.db.conexion import obtener_referencias
+        refs = obtener_referencias() or {}
+        if refs.get("ref_tienda"):
+            return f"T-{refs['ref_tienda']}"
+    except Exception:
+        pass
+    return ""
+
+
 def cambiar_contexto_tienda(id_tienda) -> dict | None:
     """Cambia la tienda (y empresa) ACTIVAS del proceso sin cerrar sesión, con
     control de acceso y traza de auditoría. Devuelve la tienda destino o None."""

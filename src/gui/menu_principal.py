@@ -289,7 +289,6 @@ class MenuPrincipal(QWidget):
         if self.perfil in ("SUPERADMIN", "ADMINISTRADOR"):
             self.btn_tienda = QPushButton("")
             self.btn_tienda.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_tienda.setToolTip(tr("menu.cambiar_tienda", default="Cambiar de tienda"))
             self.btn_tienda.setStyleSheet(
                 "QPushButton{background:#0E1117;color:#E6EDF3;border:2px solid #00FFC6;"
                 "border-radius:10px;text-align:left;padding:5px 14px;font-family:'Segoe UI';"
@@ -730,6 +729,11 @@ class MenuPrincipal(QWidget):
         self.logo_label.hide()
 
     def _actualizar_ref_label(self):
+        # En ADMINISTRADOR/SUPERADMIN la referencia se muestra en el chip de tienda;
+        # el piloto verde queda solo para GERENTE/OPERARIO.
+        if self.perfil in ("SUPERADMIN", "ADMINISTRADOR"):
+            self.ref_label.hide()
+            return
         try:
             refs = obtener_referencias()
             partes = []
@@ -947,12 +951,7 @@ class MenuPrincipal(QWidget):
             e = _emp.obtener_empresa(_emp.empresa_actual_id()) or {}
             nombre_emp = (e.get("nombre_comercial") or e.get("razon_social")
                           or e.get("nombre_empresa") or e.get("codigo_empresa") or "—")
-            tid = _emp.tienda_actual_id()
-            if tid is not None:
-                td = _t.obtener_tienda(tid) or {}
-                linea2 = f"{td.get('codigo_tienda', '')} · {td.get('nombre', '')}".strip(" ·")
-            else:
-                linea2 = tr("menu.sin_tienda", default="Sin tienda activa")
+            linea2 = _t.etiqueta_tienda_actual() or tr("menu.sin_tienda", default="Sin tienda activa")
             self.btn_tienda.setText(f"🏪  {nombre_emp}\n{linea2}")
         except Exception:
             pass

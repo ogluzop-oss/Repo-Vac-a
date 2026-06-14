@@ -1686,7 +1686,9 @@
     "no_encontrado": "El fitxer ja no existeix al disc.",
     "ok_t": "Fet",
     "descargado": "Document desat.",
-    "compartido": "Ruta copiada i carpeta oberta."
+    "compartido": "Ruta copiada i carpeta oberta.",
+    "fecha_inicio": "Data inici",
+    "fecha_fin": "Data fi"
   },
   "tienda": {
     "titulo": "CANVIAR DE BOTIGA",

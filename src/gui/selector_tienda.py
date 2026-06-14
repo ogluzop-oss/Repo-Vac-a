@@ -68,7 +68,7 @@ class SelectorTiendaDialog(QDialog):
 
         sub = QLabel(tr("tienda.sub", default="Selecciona la tienda que quieres gestionar."))
         sub.setStyleSheet(f"color:{_DIM};font-family:'Segoe UI';font-weight:700;"
-                          f"font-size:12px;background:transparent;")
+                          f"font-size:15px;background:transparent;")
         lay.addWidget(sub)
 
         # SUPERADMIN: selector de empresa (el resto solo ve su empresa).
