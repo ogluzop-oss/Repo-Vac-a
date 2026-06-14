@@ -3068,7 +3068,7 @@ class VentasAnaliticaWindow(QWidget):
                 cur.execute(
                     "SELECT DAY(entrada), COALESCE(SUM(TIMESTAMPDIFF(MINUTE, entrada, salida)),0) "
                     "FROM fichajes WHERE salida IS NOT NULL AND YEAR(entrada)=%s AND MONTH(entrada)=%s "
-                    "GROUP BY DAY(entrada)", (anio, mes))
+                    + tf + " GROUP BY DAY(entrada)", (anio, mes, *tp))
                 for d, mins in cur.fetchall():
                     if d in data:
                         data[d]["horas"] = round(float(mins or 0) / 60.0, 2)

@@ -1,7 +1,17 @@
 import logging
 from datetime import datetime
 
-from src.db.conexion import obtener_conexion
+from src.db.conexion import EMPRESA_DEFAULT_ID, obtener_conexion
+
+
+def _tenant_actual():
+    """(id_empresa, id_tienda) ACTIVOS para aislar mermas por tienda (3b.3)."""
+    try:
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        return empresa_actual_id(), tienda_actual_id()
+    except Exception:
+        return EMPRESA_DEFAULT_ID, None
+
 
 # ============================================================
 # BLOQUE CONSULTA DE MERMAS
@@ -9,15 +19,20 @@ from src.db.conexion import obtener_conexion
 
 
 def obtener_mermas(mes=None):
-    """Recupera mermas, opcionalmente filtradas por mes (YYYY-MM)."""
+    """Recupera mermas de la tienda activa, opcionalmente filtradas por mes (YYYY-MM)."""
     try:
+        emp, tnd = _tenant_actual()
+        filtros, params = ["id_empresa=%s"], [emp]
+        if tnd is not None:
+            filtros.append("id_tienda=%s"); params.append(tnd)
+        if mes:
+            filtros.append("fecha LIKE %s"); params.append(f"{mes}%")
         with obtener_conexion() as conn:
             cursor = conn.cursor()
-            query = "SELECT id, codigo, cantidad, motivo, fecha FROM mermas"
-            if mes:
-                query += f" WHERE fecha LIKE '{mes}%'"
-            query += " ORDER BY fecha DESC"
-            cursor.execute(query)
+            cursor.execute(
+                "SELECT id, codigo, cantidad, motivo, fecha FROM mermas WHERE "
+                + " AND ".join(filtros) + " ORDER BY fecha DESC",
+                tuple(params))
             return cursor.fetchall()
     except Exception as e:
         logging.error(f"Error al obtener mermas: {e}")
@@ -35,9 +50,11 @@ def registrar_merma(codigo, cantidad, motivo):
         with obtener_conexion() as conn:
             cursor = conn.cursor()
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            emp, tnd = _tenant_actual()
             cursor.execute(
-                "INSERT INTO mermas (codigo, cantidad, motivo, fecha) VALUES (%s,%s,%s,%s)",
-                (codigo, cantidad, motivo, fecha),
+                "INSERT INTO mermas (codigo, cantidad, motivo, fecha, id_empresa, id_tienda) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                (codigo, cantidad, motivo, fecha, emp, tnd),
             )
             conn.commit()
             return True

@@ -339,11 +339,14 @@ def obtener_fichaje_abierto(usuario_id: int) -> dict | None:
 def registrar_entrada(usuario_id: int, nombre: str) -> int | None:
     """Crea un registro de fichaje y devuelve su ID."""
     try:
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        _emp, _tnd = empresa_actual_id(), tienda_actual_id()
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO fichajes (usuario_id, nombre_empleado, entrada) VALUES (%s, %s, NOW())",
-                    (usuario_id, nombre)
+                    "INSERT INTO fichajes (usuario_id, nombre_empleado, entrada, id_empresa, id_tienda) "
+                    "VALUES (%s, %s, NOW(), %s, %s)",
+                    (usuario_id, nombre, _emp, _tnd)
                 )
                 fichaje_id = cur.lastrowid
             conn.commit()
@@ -378,11 +381,17 @@ def registrar_salida(fichaje_id: int) -> int | None:
 def listar_fichajes() -> list:
     """Devuelve todos los fichajes ordenados por entrada descendente."""
     try:
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        _emp, _tnd = empresa_actual_id(), tienda_actual_id()
+        _filtros, _params = ["id_empresa=%s"], [_emp]
+        if _tnd is not None:
+            _filtros.append("id_tienda=%s"); _params.append(_tnd)
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT id, usuario_id, nombre_empleado, entrada, salida, duracion_segundos "
-                    "FROM fichajes ORDER BY entrada DESC"
+                    "FROM fichajes WHERE " + " AND ".join(_filtros) + " ORDER BY entrada DESC",
+                    tuple(_params)
                 )
                 filas = cur.fetchall()
                 return [
