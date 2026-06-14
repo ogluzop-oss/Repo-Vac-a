@@ -464,6 +464,19 @@ def ensure_schema(force: bool = False):
                         INDEX idx_poi_pedido (id_pedido)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                # Configuración de e-commerce por empresa (plataforma + URL + creds)
+                # para el adaptador multiplataforma (Shopify/Woo/Presta/web propia).
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS ecommerce_config (
+                        id_empresa  CHAR(36)     NOT NULL PRIMARY KEY,
+                        plataforma  VARCHAR(30)  NOT NULL DEFAULT 'web',
+                        base_url    VARCHAR(500)          DEFAULT NULL,
+                        api_key     VARCHAR(255)          DEFAULT NULL,
+                        api_secret  VARCHAR(255)          DEFAULT NULL,
+                        estado      VARCHAR(20)  NOT NULL DEFAULT 'activo',
+                        fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
 
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
                 # Identidad: empresa → tienda → correo. El correo es un SERVICIO

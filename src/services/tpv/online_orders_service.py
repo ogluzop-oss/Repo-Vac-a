@@ -144,14 +144,18 @@ def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str 
         logger.error("crear_pedido_online: %s", e)
         return None
 
-    # Hook de plataforma (futuras integraciones). No bloquea la creación local.
-    if _proveedor is not None:
-        try:
-            ref = _proveedor(obtener_pedido(id_pedido))
-            if ref:
-                cambiar_referencia_externa(id_pedido, ref)
-        except Exception as e:
-            logger.warning("Adaptador de plataforma falló (pedido %s): %s", id_pedido, e)
+    # Sincronización con la plataforma de e-commerce. No bloquea la creación local.
+    try:
+        ped = obtener_pedido(id_pedido)
+        if _proveedor is not None:          # override manual (set_proveedor)
+            ref = _proveedor(ped)
+        else:                                # adaptador multiplataforma configurado
+            from src.services.tpv.ecommerce import adaptador_actual
+            ref = adaptador_actual().crear_pedido(ped)
+        if ref:
+            cambiar_referencia_externa(id_pedido, ref)
+    except Exception as e:
+        logger.warning("Sincronización e-commerce falló (pedido %s): %s", id_pedido, e)
     return id_pedido
 
 
