@@ -2319,11 +2319,25 @@ class VentasAnaliticaWindow(QWidget):
 
         return page
 
+    def _tenant_filtro(self, alias=None):
+        """Fragmento WHERE + params para aislar las analíticas por empresa/tienda
+        ACTIVAS (Fase 3b.1). `alias` = prefijo de tabla (p. ej. 'v')."""
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        p = f"{alias}." if alias else ""
+        frag = f" AND {p}id_empresa=%s"
+        params = [empresa_actual_id()]
+        tid = tienda_actual_id()
+        if tid is not None:
+            frag += f" AND {p}id_tienda=%s"
+            params.append(tid)
+        return frag, params
+
     def _generar_resumen(self):
         desde  = self.res_fecha_desde.date().toString("yyyy-MM-dd")
         hasta  = self.res_fecha_hasta.date().toString("yyyy-MM-dd")
         art    = self.res_articulo.text().strip() or None
         secc   = self.res_seccion.text().strip() or None
+        tf, tp = self._tenant_filtro("v")
 
         try:
             with obtener_conexion() as conn:
@@ -2334,23 +2348,23 @@ class VentasAnaliticaWindow(QWidget):
                         "FROM ventas v JOIN venta_items vi ON vi.venta_id = v.id "
                         "WHERE DATE(v.fecha) BETWEEN %s AND %s "
                         "AND (vi.codigo_articulo = %s OR vi.nombre LIKE %s) "
-                        "GROUP BY dia ORDER BY dia",
-                        (desde, hasta, art, f"%{art}%"),
+                        + tf + " GROUP BY dia ORDER BY dia",
+                        (desde, hasta, art, f"%{art}%", *tp),
                     )
                 elif secc:
                     cur.execute(
                         "SELECT DATE(v.fecha) AS dia, SUM(vi.subtotal) AS total "
                         "FROM ventas v JOIN venta_items vi ON vi.venta_id = v.id "
                         "WHERE DATE(v.fecha) BETWEEN %s AND %s AND vi.seccion = %s "
-                        "GROUP BY dia ORDER BY dia",
-                        (desde, hasta, secc),
+                        + tf + " GROUP BY dia ORDER BY dia",
+                        (desde, hasta, secc, *tp),
                     )
                 else:
                     cur.execute(
                         "SELECT DATE(v.fecha) AS dia, SUM(v.total) AS total "
                         "FROM ventas v WHERE DATE(v.fecha) BETWEEN %s AND %s "
-                        "GROUP BY dia ORDER BY dia",
-                        (desde, hasta),
+                        + tf + " GROUP BY dia ORDER BY dia",
+                        (desde, hasta, *tp),
                     )
                 datos = cur.fetchall()
 
@@ -2360,8 +2374,9 @@ class VentasAnaliticaWindow(QWidget):
                     "FROM ventas v JOIN venta_items vi ON vi.venta_id = v.id "
                     "WHERE DATE(v.fecha) BETWEEN %s AND %s "
                     + ("AND vi.seccion = %s " if secc else "")
-                    + "GROUP BY vi.codigo_articulo, vi.nombre ORDER BY uds DESC LIMIT 10",
-                    (desde, hasta, secc) if secc else (desde, hasta),
+                    + tf
+                    + " GROUP BY vi.codigo_articulo, vi.nombre ORDER BY uds DESC LIMIT 10",
+                    ((desde, hasta, secc, *tp) if secc else (desde, hasta, *tp)),
                 )
                 top10 = cur.fetchall()
 
@@ -2807,9 +2822,10 @@ class VentasAnaliticaWindow(QWidget):
         try:
             with obtener_conexion() as conn:
                 cur = conn.cursor()
+                tf, tp = self._tenant_filtro()
                 cur.execute(
-                    "SELECT DATE(fecha), COALESCE(SUM(total),0) FROM ventas "
-                    "GROUP BY DATE(fecha) ORDER BY DATE(fecha)")
+                    "SELECT DATE(fecha), COALESCE(SUM(total),0) FROM ventas WHERE 1=1"
+                    + tf + " GROUP BY DATE(fecha) ORDER BY DATE(fecha)", tp)
                 filas = cur.fetchall()
         except Exception:
             filas = []
@@ -3041,9 +3057,11 @@ class VentasAnaliticaWindow(QWidget):
         try:
             with obtener_conexion() as conn:
                 cur = conn.cursor()
+                tf, tp = self._tenant_filtro()
                 cur.execute(
                     "SELECT DAY(fecha), COALESCE(SUM(total),0), COUNT(*) FROM ventas "
-                    "WHERE YEAR(fecha)=%s AND MONTH(fecha)=%s GROUP BY DAY(fecha)", (anio, mes))
+                    "WHERE YEAR(fecha)=%s AND MONTH(fecha)=%s" + tf + " GROUP BY DAY(fecha)",
+                    (anio, mes, *tp))
                 for d, tot, cnt in cur.fetchall():
                     if d in data:
                         data[d]["fact"] = float(tot or 0); data[d]["clientes"] = int(cnt or 0)
