@@ -391,6 +391,36 @@ def ensure_schema(force: bool = False):
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
 
+                # ── CENTRO DOCUMENTAL UNIFICADO (registro, no almacén) ──
+                # Índice único de TODOS los documentos generados por el sistema
+                # (tickets, facturas, albaranes, contratos, informes, Excel...).
+                # No guarda el binario: referencia la ruta del PDF/fichero ya
+                # generado en documentos/. Multi-tenant (id_empresa/id_tienda) y
+                # con metadatos para búsqueda (cliente, trabajador, importe, hash).
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS documentos_registro (
+                        id_documento     CHAR(36)     NOT NULL PRIMARY KEY,
+                        id_empresa       CHAR(36)     NOT NULL,
+                        id_tienda        INT                   DEFAULT NULL,
+                        id_usuario       INT                   DEFAULT NULL,
+                        tipo_documento   VARCHAR(40)  NOT NULL DEFAULT 'otros',
+                        nombre           VARCHAR(255) NOT NULL DEFAULT '',
+                        referencia       VARCHAR(120)          DEFAULT NULL,
+                        ruta             VARCHAR(500) NOT NULL DEFAULT '',
+                        hash_documental  VARCHAR(64)           DEFAULT NULL,
+                        cliente          VARCHAR(255)          DEFAULT NULL,
+                        trabajador       VARCHAR(255)          DEFAULT NULL,
+                        importe          DECIMAL(12,2)         DEFAULT NULL,
+                        estado           VARCHAR(30)  NOT NULL DEFAULT 'generado',
+                        fecha_generacion DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_doc_empresa (id_empresa),
+                        INDEX idx_doc_tipo (tipo_documento),
+                        INDEX idx_doc_ref (referencia),
+                        INDEX idx_doc_hash (hash_documental),
+                        UNIQUE KEY uq_doc_ruta (ruta)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
                 # Identidad: empresa → tienda → correo. El correo es un SERVICIO
                 # asociado, nunca la clave principal. Preparado para licenciamiento

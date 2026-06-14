@@ -141,4 +141,14 @@ def reimprimir_ticket(venta_id, regalo: bool = False) -> str | None:
     pref = "REGALO" if regalo else "COPIA"
     ruta = os.path.join(carpeta, f"ticket_{pref}_{fecha.strftime('%Y%m%d_%H%M%S')}_{v.get('id')}.pdf")
     generar_ticket_pdf(datos, ruta)
+    # Centro documental: registrar la copia/regalo del ticket.
+    try:
+        from src.db import documentos as _docreg
+        _docreg.registrar_documento(
+            ruta, tipo="ticket",
+            referencia=(datos.get("operacion") or {}).get("ticket_num"),
+            cliente=(cliente or {}).get("nombre"),
+            importe=pago.get("total"), estado=pref.lower())
+    except Exception:
+        pass
     return ruta

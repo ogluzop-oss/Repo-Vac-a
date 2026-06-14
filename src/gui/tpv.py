@@ -4170,5 +4170,16 @@ class TPVWindow(QWidget):
                 empleado=empleado, lineas=lineas, pago=pago, copia=False,
                 cliente=getattr(self, "_cliente", None))
             generar_ticket_pdf(datos, archivo)
+            # Centro documental: registrar el ticket con metadatos completos.
+            try:
+                from src.db import documentos as _docreg
+                cli = getattr(self, "_cliente", None) or {}
+                _docreg.registrar_documento(
+                    archivo, tipo="ticket",
+                    referencia=(datos.get("operacion") or {}).get("ticket_num"),
+                    cliente=cli.get("nombre") if isinstance(cli, dict) else None,
+                    trabajador=empleado, importe=pago.get("total"))
+            except Exception as _e:
+                logger.debug("No se pudo registrar el ticket en el centro documental: %s", _e)
         except Exception as e:
             logger.warning(f"No se pudo generar el ticket PDF: {e}")

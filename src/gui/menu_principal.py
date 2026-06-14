@@ -411,6 +411,11 @@ class MenuPrincipal(QWidget):
             btn_correo = self.crear_tarjeta_menu("Correo", "correo", "#22F4E6", "mail")
             footer_actions.addWidget(btn_correo, alignment=Qt.AlignmentFlag.AlignLeft)
 
+        # Centro documental unificado — ADMINISTRADOR / GERENTE (incluye SUPERADMIN).
+        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+            btn_docs = self.crear_tarjeta_menu("Documentos", "documentos", "#22F4E6", "document")
+            footer_actions.addWidget(btn_docs, alignment=Qt.AlignmentFlag.AlignLeft)
+
         footer_actions.addStretch()
 
         btn_tpv = self.crear_tarjeta_menu("TPV", "tpv", "#22F4E6", "shopping_bag")
@@ -488,6 +493,7 @@ class MenuPrincipal(QWidget):
         "ventas": "menu.card_ventas",
         "configuracion": "menu.card_config",
         "correo": "menu.card_correo",
+        "documentos": "menu.card_documentos",
         "tpv": "menu.card_tpv",
         "logout": "menu.card_salir",
     }
@@ -778,6 +784,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.correo_corporativo import CorreoCorporativoWindow
 
                 self.manejar_apertura(v_id, CorreoCorporativoWindow, **kwargs)
+            elif v_id == "documentos":
+                from src.gui.centro_documental import CentroDocumentalWindow
+
+                self.manejar_apertura(v_id, CentroDocumentalWindow, **kwargs)
             elif v_id == "tpv":
                 from src.gui.tpv import TPVWindow
 
