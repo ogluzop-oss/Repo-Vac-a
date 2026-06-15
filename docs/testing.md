@@ -60,6 +60,17 @@ Qt** (`src/gui/*`), `__init__`, `main.py` y `tests/`. De momento solo informa; e
 umbral (`--cov-fail-under`) se subirá progresivamente conforme crezca la cobertura
 de `src/db` y `src/services`.
 
+## Integración continua (CI)
+
+`.github/workflows/tests.yml` ejecuta la suite en cada push/PR a main/master:
+- Levanta un servicio **MariaDB 11** y define `TEST_DB_NAME=smart_manager_test`.
+- Instala dependencias de sistema (Qt headless, zbar, unixODBC) + `requirements-dev.txt`.
+- Ejecuta `pytest` con cobertura y un umbral mínimo (`--cov-fail-under=20`, se subirá
+  conforme crezca la cobertura) y publica `coverage.xml` como artefacto.
+
+El umbral solo se aplica en CI (no en `addopts`), para que `pytest -m "not db"` en
+local no falle por cobertura parcial.
+
 ## Nota de compatibilidad (cambio de testabilidad)
 
 El bootstrap (`src/database/bootstrap_mariadb.sql`) fijaba el nombre de la base
