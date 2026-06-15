@@ -209,8 +209,11 @@ def _enviar_simulado(c: dict, destinatario, asunto, cuerpo, adjuntos) -> tuple[b
                                empresa_actual_id())
         os.makedirs(carpeta, exist_ok=True)
         mime = _construir_mime(c["direccion"], destinatario, asunto, cuerpo, adjuntos)
-        nombre = datetime.now().strftime("%Y%m%d_%H%M%S_") + \
-            "".join(ch for ch in destinatario if ch.isalnum())[:20] + ".eml"
+        # Marca de tiempo con microsegundos + sufijo aleatorio para que dos correos
+        # al mismo destinatario en el mismo segundo no compartan nombre (ni se pisen).
+        nombre = datetime.now().strftime("%Y%m%d_%H%M%S_%f_") + \
+            "".join(ch for ch in destinatario if ch.isalnum())[:20] + \
+            "_" + os.urandom(3).hex() + ".eml"
         ruta = os.path.join(carpeta, nombre)
         with open(ruta, "wb") as f:
             f.write(mime.as_bytes())
