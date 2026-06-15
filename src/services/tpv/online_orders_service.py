@@ -94,6 +94,65 @@ def consultar_disponibilidad(codigo: str) -> dict:
     return out
 
 
+def localizar_articulo(codigo: str) -> dict:
+    """Localiza un artículo no disponible en la tienda activa: indica si hay stock
+    en otras tiendas, en el almacén central o si se puede pedir online. Usado por el
+    TPV para resolver una venta sin afectar al flujo normal."""
+    disp = consultar_disponibilidad(codigo)
+    disp["disponible_tienda"] = disp.get("tienda", 0) > 0
+    disp["disponible_central"] = disp.get("central", 0) > 0
+    disp["disponible_otras"] = bool(disp.get("otras_tiendas"))
+    disp["sugerencia"] = ("tienda" if disp["disponible_tienda"]
+                          else "central" if disp["disponible_central"]
+                          else "otra_tienda" if disp["disponible_otras"]
+                          else "online")
+    return disp
+
+
+# ── Reservas y solicitudes a otra tienda (TPV online) ────────────────────────
+def reservar_articulo(codigo: str, cantidad: int = 1, cliente: str = None,
+                      caduca_horas: int = 48, observaciones: str = None) -> int | None:
+    """Aparta un artículo para un cliente en la tienda activa (no descuenta stock;
+    es un apartado lógico con estado y trazabilidad). Devuelve el id de reserva."""
+    import datetime as _dt
+    from src.db import catalogo as _cat
+    _emp, _tnd, _u, trabajador = _ctx()
+    caduca = (_dt.datetime.now() + _dt.timedelta(hours=int(caduca_horas))) if caduca_horas else None
+    rid = _cat.crear_reserva(codigo, cantidad=cantidad, cliente=cliente, trabajador=trabajador,
+                             tipo="reserva", observaciones=observaciones, caduca=caduca)
+    if rid:
+        _auditar_stock("-", "RESERVA_ONLINE", [f"{codigo}x{cantidad}->{cliente or '-'}"])
+    return rid
+
+
+def solicitar_a_otra_tienda(codigo: str, cantidad: int = 1, id_tienda_origen=None,
+                            cliente: str = None, observaciones: str = None) -> int | None:
+    """Solicita un artículo a otra tienda (apartado tipo 'solicitud_traspaso').
+    La tienda de destino es la activa; ``id_tienda_origen`` es la que lo envía."""
+    from src.db import catalogo as _cat
+    _emp, _tnd, _u, trabajador = _ctx()
+    rid = _cat.crear_reserva(codigo, cantidad=cantidad, cliente=cliente, trabajador=trabajador,
+                             tipo="solicitud_traspaso", id_tienda_origen=id_tienda_origen,
+                             observaciones=observaciones)
+    if rid:
+        _auditar_stock("-", "SOLICITUD_TRASPASO_ONLINE",
+                       [f"{codigo}x{cantidad} de tienda {id_tienda_origen}"])
+    return rid
+
+
+def listar_reservas(estado=None, tipo=None):
+    from src.db import catalogo as _cat
+    return _cat.listar_reservas(estado=estado, tipo=tipo)
+
+
+def cambiar_estado_reserva(id_reserva, estado) -> bool:
+    from src.db import catalogo as _cat
+    ok = _cat.cambiar_estado_reserva(id_reserva, estado)
+    if ok:
+        _auditar_stock("-", "RESERVA_ONLINE_ESTADO", [f"#{id_reserva}->{estado}"])
+    return ok
+
+
 # ── Crear / listar / actualizar pedidos online ───────────────────────────────
 def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str = "",
                         observaciones: str = "", plataforma: str = "interno",

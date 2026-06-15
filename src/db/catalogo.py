@@ -389,3 +389,62 @@ def relacionados_de(id_producto, tipo="relacionado", id_empresa=None) -> list:
         if p:
             filas.append(p)
     return filas
+
+
+# ── Reservas / solicitudes a otra tienda (TPV online) ────────────────────────
+def crear_reserva(codigo_articulo, cantidad=1, cliente=None, trabajador=None,
+                  tipo="reserva", id_tienda="auto", id_tienda_origen=None,
+                  observaciones=None, caduca=None, id_empresa=None) -> int | None:
+    """Registra una reserva ('reserva') o una solicitud a otra tienda
+    ('solicitud_traspaso', con id_tienda_origen). No descuenta stock: es un
+    apartado lógico con su propio estado y trazabilidad."""
+    id_empresa = _empresa(id_empresa)
+    id_tienda = _tienda(id_tienda)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO catalogo_reservas "
+                "(id_empresa, id_tienda, id_tienda_origen, codigo_articulo, cantidad, "
+                " cliente, trabajador, tipo, observaciones, caduca) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (id_empresa, id_tienda, id_tienda_origen, codigo_articulo, int(cantidad),
+                 cliente, trabajador, tipo, observaciones, caduca))
+            conn.commit()
+            return cur.lastrowid
+    except Exception as e:
+        logger.error("crear_reserva(%s): %s", codigo_articulo, e)
+        return None
+
+
+def listar_reservas(estado=None, tipo=None, id_tienda="auto", id_empresa=None, limite=500) -> list:
+    id_empresa = _empresa(id_empresa)
+    id_tienda = _tienda(id_tienda)
+    filtros, params = ["id_empresa=%s"], [id_empresa]
+    if id_tienda is not None:
+        filtros.append("id_tienda=%s"); params.append(id_tienda)
+    if estado:
+        filtros.append("estado=%s"); params.append(estado)
+    if tipo:
+        filtros.append("tipo=%s"); params.append(tipo)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM catalogo_reservas WHERE " + " AND ".join(filtros)
+                        + " ORDER BY fecha DESC LIMIT %s", (*params, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_reservas: %s", e)
+        return []
+
+
+def cambiar_estado_reserva(id_reserva, estado, id_empresa=None) -> bool:
+    """estado: activa | consumida | cancelada | caducada."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE catalogo_reservas SET estado=%s WHERE id=%s AND id_empresa=%s",
+                        (estado, id_reserva, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("cambiar_estado_reserva(%s): %s", id_reserva, e)
+        return False
