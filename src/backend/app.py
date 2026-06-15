@@ -50,6 +50,13 @@ def crear_app():
         http = int(res.pop("http", 200))
         return jsonify(res), http
 
+    # Tienda online propia (Escenario B): storefront dinámico por empresa.
+    try:
+        from src.backend.storefront import crear_blueprint
+        app.register_blueprint(crear_blueprint())
+    except Exception as e:
+        logger.warning("Storefront no disponible: %s", e)
+
     return app
 
 

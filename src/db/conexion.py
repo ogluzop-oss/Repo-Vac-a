@@ -528,6 +528,22 @@ def ensure_schema(force: bool = False):
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
 
+                # Config de la WEB PROPIA (Escenario B): tienda online generada a
+                # partir del catálogo. Una fila por empresa (marca/tema/dominio).
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS web_config (
+                        id_empresa  CHAR(36)     NOT NULL PRIMARY KEY,
+                        activa      TINYINT(1)   NOT NULL DEFAULT 0,
+                        nombre      VARCHAR(150)          DEFAULT NULL,
+                        descripcion TEXT                  DEFAULT NULL,
+                        color       VARCHAR(10)  NOT NULL DEFAULT '#00FFC6',
+                        logo_url    VARCHAR(500)          DEFAULT NULL,
+                        moneda      VARCHAR(3)   NOT NULL DEFAULT 'EUR',
+                        dominio     VARCHAR(255)          DEFAULT NULL,
+                        fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+
                 # ══ CATÁLOGO ONLINE (Fase 2 — omnicanal) ═══════════════════════
                 # Capa de presentación/web SOBRE `articulos` (no duplica el maestro):
                 # cada producto de catálogo referencia articulos.codigo (única fuente

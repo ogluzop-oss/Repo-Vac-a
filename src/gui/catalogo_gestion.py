@@ -367,7 +367,8 @@ class CatalogoWindow(QWidget):
     """Gestión del catálogo online de la empresa activa (panel operativo interno)."""
 
     _SECCIONES = [("productos", "📦", "Productos"), ("categorias", "🗂", "Categorías"),
-                  ("marcas", "🏷", "Marcas"), ("etiquetas", "🔖", "Etiquetas")]
+                  ("marcas", "🏷", "Marcas"), ("etiquetas", "🔖", "Etiquetas"),
+                  ("web", "🌐", "Web propia")]
 
     def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None, **_kw):
         super().__init__(parent)
@@ -390,6 +391,7 @@ class CatalogoWindow(QWidget):
         self.stack.addWidget(self._panel_categorias())
         self.stack.addWidget(self._panel_marcas())
         self.stack.addWidget(self._panel_etiquetas())
+        self.stack.addWidget(self._panel_web())
         rcol.addWidget(self.stack, 1)
         root.addWidget(right, 1)
         self._seleccionar(0)
@@ -619,6 +621,64 @@ class CatalogoWindow(QWidget):
                           tr("cat.conf_del_etq", default="¿Eliminar la etiqueta?")):
                 cat.eliminar_etiqueta(self._etqs[r]["id"]); self._recargar_etiquetas()
 
+    # ── Panel Web propia (Escenario B) ───────────────────────────────────────
+    def _panel_web(self):
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(8); ly.setContentsMargins(0, 0, 0, 0)
+        ly.addWidget(_lbl(tr("cat.web_intro",
+                             default="Genera la tienda online propia a partir de este catálogo "
+                                     "(se mantiene sincronizada en vivo)."), dim=False, size=13))
+        self.ck_web = _chk(tr("cat.web_activa", default="Tienda online activa"))
+        ly.addWidget(self.ck_web)
+        ly.addWidget(_lbl(tr("cat.web_nombre", default="Nombre de la tienda")))
+        self.inp_web_nombre = _inp(); ly.addWidget(self.inp_web_nombre)
+        ly.addWidget(_lbl(tr("cat.web_desc", default="Descripción / eslogan")))
+        self.inp_web_desc = _inp(); ly.addWidget(self.inp_web_desc)
+        fila = QHBoxLayout()
+        colc = QVBoxLayout(); colc.addWidget(_lbl(tr("cat.web_color", default="Color de marca (#hex)")))
+        self.inp_web_color = _inp("#00FFC6", 140); colc.addWidget(self.inp_web_color); fila.addLayout(colc)
+        colm = QVBoxLayout(); colm.addWidget(_lbl(tr("cat.web_moneda", default="Moneda")))
+        self.inp_web_moneda = _inp("EUR", 100); colm.addWidget(self.inp_web_moneda); fila.addLayout(colm)
+        fila.addStretch(); ly.addLayout(fila)
+        ly.addWidget(_lbl(tr("cat.web_logo", default="URL del logo (opcional)")))
+        self.inp_web_logo = _inp(); ly.addWidget(self.inp_web_logo)
+        ly.addWidget(_lbl(tr("cat.web_dominio", default="Dominio propio (opcional)")))
+        self.inp_web_dominio = _inp(); ly.addWidget(self.inp_web_dominio)
+        ly.addSpacing(6)
+        self.lbl_web_url = _lbl("", size=12); self.lbl_web_url.setWordWrap(True)
+        self.lbl_web_url.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        ly.addWidget(self.lbl_web_url)
+        fb = QHBoxLayout(); fb.addStretch()
+        fb.addWidget(_btn(tr("cat.guardar", default="GUARDAR"), self._guardar_web, primary=True))
+        ly.addLayout(fb); ly.addStretch()
+        return w
+
+    def _recargar_web(self):
+        from src.db import web_tienda
+        from src.db.empresa import empresa_actual_id
+        cfg = web_tienda.obtener_config()
+        self.ck_web.setChecked(bool(cfg.get("activa")))
+        self.inp_web_nombre.setText(cfg.get("nombre") or "")
+        self.inp_web_desc.setText(cfg.get("descripcion") or "")
+        self.inp_web_color.setText(cfg.get("color") or "#00FFC6")
+        self.inp_web_moneda.setText(cfg.get("moneda") or "EUR")
+        self.inp_web_logo.setText(cfg.get("logo_url") or "")
+        self.inp_web_dominio.setText(cfg.get("dominio") or "")
+        eid = empresa_actual_id()
+        self.lbl_web_url.setText(tr("cat.web_url",
+                                    default="URL pública de la tienda:  /tienda/{eid}  "
+                                            "(servida por el backend de Smart Manager AI)", eid=eid))
+
+    def _guardar_web(self):
+        from src.db import web_tienda
+        web_tienda.guardar_config(
+            activa=1 if self.ck_web.isChecked() else 0,
+            nombre=self.inp_web_nombre.text().strip(), descripcion=self.inp_web_desc.text().strip(),
+            color=self.inp_web_color.text().strip() or "#00FFC6",
+            moneda=(self.inp_web_moneda.text().strip() or "EUR").upper(),
+            logo_url=self.inp_web_logo.text().strip(), dominio=self.inp_web_dominio.text().strip())
+        _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
+               tr("cat.web_guardada", default="Configuración de la web guardada."), "info")
+
     # ── Carga / navegación ───────────────────────────────────────────────────
     def _recargar_todo(self):
         try:
@@ -628,7 +688,7 @@ class CatalogoWindow(QWidget):
         except Exception:
             pass
         self._recargar_productos(); self._recargar_categorias()
-        self._recargar_marcas(); self._recargar_etiquetas()
+        self._recargar_marcas(); self._recargar_etiquetas(); self._recargar_web()
 
     def _volver_menu(self):
         if callable(self._volver):
