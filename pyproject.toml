@@ -39,4 +39,27 @@ ignore = [
 # La suite de humo no requiere pytest, pero si se usa, esto la descubre.
 python_files = ["smoke_test.py", "test_*.py"]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers --cov=src --cov-report=term-missing:skip-covered --cov-config=pyproject.toml"
+markers = [
+    "db: requiere una base de datos MariaDB de pruebas (se omite si no está disponible)",
+    "unit: prueba unitaria de lógica pura, sin BD ni hardware",
+    "integration: prueba de integración (BD/servicios)",
+    "slow: prueba lenta (se puede excluir con -m 'not slow')",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "src/gui/*",            # UI Qt (no se cubre con tests unitarios)
+    "src/**/__init__.py",
+    "src/main.py",
+    "tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# Arrancamos solo con informe; el umbral (--cov-fail-under) se sube de forma
+# progresiva conforme crece la cobertura de servicios/BD.
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:", "raise NotImplementedError"]

@@ -69,13 +69,21 @@ BOOTSTRAP_SQL_PATH = os.path.join(
 # ============================================================
 
 
-def _ejecutar_script_sql(cursor, ruta_script: str):
-    """Ejecuta un script SQL simple separado por ';'."""
+def _ejecutar_script_sql(cursor, ruta_script: str, nombre_db: str | None = None):
+    """Ejecuta un script SQL simple separado por ';'.
+
+    Si `nombre_db` difiere del nombre por defecto del bootstrap, sustituye el
+    nombre de la base en `CREATE DATABASE`/`USE` para respetar `DB_NAME` (en
+    producción coincide con 'smart_manager_db' → sin cambios; habilita BD de
+    pruebas aisladas)."""
     if not os.path.exists(ruta_script):
         raise FileNotFoundError(f"No existe el script SQL: {ruta_script}")
 
     with open(ruta_script, encoding="utf-8") as f:
         contenido = f.read()
+
+    if nombre_db and nombre_db != "smart_manager_db":
+        contenido = contenido.replace("smart_manager_db", nombre_db)
 
     for sentencia in contenido.split(";"):
         sql = sentencia.strip()
@@ -91,7 +99,7 @@ def asegurar_base_de_datos():
         config_base.pop("database", None)
         conn = pymysql.connect(**config_base)
         with conn.cursor() as cur:
-            _ejecutar_script_sql(cur, BOOTSTRAP_SQL_PATH)
+            _ejecutar_script_sql(cur, BOOTSTRAP_SQL_PATH, DB_CONFIG.get("database"))
         conn.commit()
         logger.info("Base de datos inicializada automáticamente desde bootstrap.")
     finally:
