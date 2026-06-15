@@ -63,6 +63,105 @@ class AdaptadorShopify(AdaptadorEcommerce):
             return "PAGADO"
         return "PENDIENTE"
 
+    def _headers(self):
+        return {"X-Shopify-Access-Token": self.config["api_key"],
+                "Content-Type": "application/json"}
+
+    def _location_id(self, base):
+        import requests
+        try:
+            r = requests.get(f"{base}/admin/api/2024-01/locations.json",
+                             headers=self._headers(), timeout=20)
+            locs = r.json().get("locations") or []
+            return locs[0].get("id") if locs else None
+        except Exception as e:
+            logger.warning("Shopify location: %s", e)
+            return None
+
+    def _mapa_variantes(self, base):
+        """SKU → {variant_id, inventory_item_id} recorriendo el catálogo (paginado)."""
+        import requests
+        out, url = {}, f"{base}/admin/api/2024-01/products.json?limit=250"
+        try:
+            while url:
+                r = requests.get(url, headers=self._headers(), timeout=25)
+                if r.status_code != 200:
+                    break
+                for p in r.json().get("products") or []:
+                    for v in p.get("variants") or []:
+                        if v.get("sku"):
+                            out[str(v["sku"])] = {"variant_id": v.get("id"),
+                                                  "inventory_item_id": v.get("inventory_item_id")}
+                # Paginación por cabecera Link (rel="next").
+                link = r.headers.get("Link", "")
+                url = ""
+                if 'rel="next"' in link:
+                    for part in link.split(","):
+                        if 'rel="next"' in part:
+                            url = part[part.find("<") + 1:part.find(">")]
+        except Exception as e:
+            logger.warning("Shopify mapa variantes: %s", e)
+        return out
+
+    def _push_variante(self, base, info, precio, stock, location_id):
+        import requests
+        ok = False
+        if precio is not None and info.get("variant_id"):
+            try:
+                r = requests.put(
+                    f"{base}/admin/api/2024-01/variants/{info['variant_id']}.json",
+                    json={"variant": {"id": info["variant_id"], "price": f"{float(precio):.2f}"}},
+                    headers=self._headers(), timeout=20)
+                ok = r.status_code in (200, 201)
+            except Exception as e:
+                logger.warning("Shopify precio: %s", e)
+        if stock is not None and info.get("inventory_item_id") and location_id:
+            try:
+                r = requests.post(
+                    f"{base}/admin/api/2024-01/inventory_levels/set.json",
+                    json={"location_id": location_id,
+                          "inventory_item_id": info["inventory_item_id"],
+                          "available": int(stock)},
+                    headers=self._headers(), timeout=20)
+                ok = ok or r.status_code in (200, 201)
+            except Exception as e:
+                logger.warning("Shopify stock: %s", e)
+        return ok
+
+    def actualizar_articulo(self, codigo: str, precio, stock, nombre: str = None) -> bool:
+        if not self.configurado() or not codigo:
+            return False
+        try:
+            import requests  # noqa: F401
+        except Exception:
+            return False
+        base = self.url_web().rstrip("/")
+        info = self._mapa_variantes(base).get(str(codigo))
+        if not info:
+            return False
+        return self._push_variante(base, info, precio, stock, self._location_id(base))
+
+    def sincronizar_catalogo(self, articulos: list) -> dict:
+        """Push: mapea SKU→variante una sola vez y actualiza precio+stock."""
+        if not self.configurado():
+            return {"ok": False, "total": len(articulos), "actualizados": 0,
+                    "fallidos": len(articulos)}
+        try:
+            import requests  # noqa: F401
+        except Exception:
+            return {"ok": False, "total": len(articulos), "actualizados": 0,
+                    "fallidos": len(articulos)}
+        base = self.url_web().rstrip("/")
+        mapa = self._mapa_variantes(base)
+        location_id = self._location_id(base)
+        actualizados = 0
+        for a in articulos:
+            info = mapa.get(str(a.get("codigo")))
+            if info and self._push_variante(base, info, a.get("precio"), a.get("stock"), location_id):
+                actualizados += 1
+        return {"ok": True, "total": len(articulos), "actualizados": actualizados,
+                "fallidos": len(articulos) - actualizados}
+
     def listar_pedidos_remotos(self) -> list:
         if not self.configurado():
             return []

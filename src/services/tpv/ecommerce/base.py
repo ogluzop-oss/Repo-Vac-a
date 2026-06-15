@@ -29,3 +29,29 @@ class AdaptadorEcommerce:
     # Trae pedidos remotos (para sincronizar). Por defecto, ninguno.
     def listar_pedidos_remotos(self) -> list:
         return []
+
+    # ── Push de catálogo/stock hacia la plataforma ───────────────────────────
+    # Actualiza precio y existencias de UN artículo (match por SKU = código).
+    # Devuelve True si se sincronizó. Por defecto no hace nada (web propia).
+    def actualizar_articulo(self, codigo: str, precio, stock, nombre: str = None) -> bool:
+        return False
+
+    def sincronizar_catalogo(self, articulos: list) -> dict:
+        """Empuja precio+stock de una lista de artículos a la plataforma.
+
+        ``articulos`` = [{codigo, nombre, precio, stock}]. Devuelve
+        {ok, total, actualizados, fallidos}. Implementación por defecto: itera
+        ``actualizar_articulo`` (los adaptadores pueden sobrescribir con batch)."""
+        if not self.configurado():
+            return {"ok": False, "total": len(articulos), "actualizados": 0,
+                    "fallidos": len(articulos)}
+        actualizados = 0
+        for a in articulos:
+            try:
+                if self.actualizar_articulo(a.get("codigo"), a.get("precio"),
+                                            a.get("stock"), a.get("nombre")):
+                    actualizados += 1
+            except Exception:
+                pass
+        return {"ok": True, "total": len(articulos), "actualizados": actualizados,
+                "fallidos": len(articulos) - actualizados}

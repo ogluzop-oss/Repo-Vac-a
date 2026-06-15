@@ -2358,6 +2358,9 @@ class _GestionPedidosOnlineDialog(QDialog):
         b_import = _btn("⭳  " + tr("online.ges_importar", default="Importar de la web"),
                        color_fg=_CIAN, color_border=_CIAN, hover_bg=_CIAN, h=38)
         b_import.clicked.connect(self._importar)
+        b_sync = _btn("⭱  " + tr("online.ges_sync", default="Sincronizar catálogo"),
+                      color_fg=_CIAN, color_border=_CIAN, hover_bg=_CIAN, h=38)
+        b_sync.clicked.connect(self._sincronizar_catalogo)
         b_cfg = _btn("⚙", color_fg=_TEXT2, color_border=_BORDE, hover_bg=_CIAN, h=38)
         b_cfg.setFixedWidth(46); b_cfg.clicked.connect(self._configurar)
         b_web = _btn("🌐  " + tr("online.ir_web", default="Ir a la Web"), color_bg=_CIAN, color_fg="#0D1117",
@@ -2367,7 +2370,7 @@ class _GestionPedidosOnlineDialog(QDialog):
         bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
                          f"border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
         bx.clicked.connect(self.reject)
-        for b in (b_nuevo, b_import, b_cfg, b_web, bx):
+        for b in (b_nuevo, b_import, b_sync, b_cfg, b_web, bx):
             hdr.addWidget(b)
         ly.addLayout(hdr); ly.addWidget(_sep())
 
@@ -2476,6 +2479,40 @@ class _GestionPedidosOnlineDialog(QDialog):
             tr("online.imp_ok", default="Importados {n} pedido(s) nuevos de {p} ({m} en la web).",
                n=res.get("importados", 0), p=res.get("plataforma", "web"),
                m=res.get("total_remotos", 0)), "info")
+
+    def _sincronizar_catalogo(self):
+        from src.services.tpv import catalog_sync_service as CS
+        from assets.estilo_global import mostrar_mensaje as _mm, mostrar_confirmacion as _mc
+        try:
+            from src.services.tpv.ecommerce import adaptador_actual
+            if not adaptador_actual().configurado():
+                dlg = _TiendaOnlineConfigDialog(parent=self)
+                if dlg.exec() != QDialog.DialogCode.Accepted:
+                    return
+        except Exception:
+            pass
+        n = len(CS.articulos_para_sync())
+        if not _mc(self, tr("online.ges_sync", default="Sincronizar catálogo"),
+                   tr("online.sync_confirm",
+                      default="Se enviarán precio y existencias de {n} artículo(s) a la tienda online. ¿Continuar?",
+                      n=n)):
+            return
+        try:
+            res = CS.sincronizar_catalogo()
+        except Exception as e:
+            _mm(self, tr("online.ges_sync", default="Sincronizar catálogo"),
+                tr("online.sync_err", default="No se pudo sincronizar: {e}", e=e), "error")
+            return
+        if not res.get("ok"):
+            _mm(self, tr("online.ges_sync", default="Sincronizar catálogo"),
+                tr("online.sync_sin_cfg", default="Configura la tienda online antes de sincronizar."),
+                "warning")
+            return
+        _mm(self, tr("online.ges_sync", default="Sincronizar catálogo"),
+            tr("online.sync_ok",
+               default="Sincronizados {a} de {t} artículo(s) con {p}.",
+               a=res.get("actualizados", 0), t=res.get("total", 0), p=res.get("plataforma", "web")),
+            "info")
 
     def _ir_web(self):
         from src.services.tpv.ecommerce import adaptador_actual

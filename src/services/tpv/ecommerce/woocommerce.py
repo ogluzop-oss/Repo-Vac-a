@@ -61,6 +61,97 @@ class AdaptadorWooCommerce(AdaptadorEcommerce):
                 "completed": "ENTREGADO", "cancelled": "CANCELADO",
                 "refunded": "CANCELADO", "failed": "CANCELADO"}
 
+    def _auth(self):
+        return (self.config["api_key"], self.config["api_secret"])
+
+    def _producto_id_por_sku(self, base, sku):
+        """ID de producto de WooCommerce a partir del SKU (= código). None si no existe."""
+        import requests
+        try:
+            r = requests.get(f"{base}/wp-json/wc/v3/products", params={"sku": sku},
+                             auth=self._auth(), timeout=20)
+            if r.status_code == 200 and r.json():
+                return r.json()[0].get("id")
+        except Exception as e:
+            logger.warning("Woo buscar SKU %s: %s", sku, e)
+        return None
+
+    def actualizar_articulo(self, codigo: str, precio, stock, nombre: str = None) -> bool:
+        if not self.configurado() or not codigo:
+            return False
+        try:
+            import requests
+        except Exception:
+            return False
+        base = self.url_web().rstrip("/")
+        pid = self._producto_id_por_sku(base, codigo)
+        if not pid:
+            return False
+        payload = {"manage_stock": True}
+        if precio is not None:
+            payload["regular_price"] = f"{float(precio):.2f}"
+        if stock is not None:
+            payload["stock_quantity"] = int(stock)
+        try:
+            r = requests.put(f"{base}/wp-json/wc/v3/products/{pid}", json=payload,
+                             auth=self._auth(), timeout=20)
+            return r.status_code in (200, 201)
+        except Exception as e:
+            logger.warning("Woo actualizar_articulo %s: %s", codigo, e)
+            return False
+
+    def sincronizar_catalogo(self, articulos: list) -> dict:
+        """Push en lote: mapea SKU→id y usa el endpoint batch de WooCommerce."""
+        if not self.configurado():
+            return {"ok": False, "total": len(articulos), "actualizados": 0,
+                    "fallidos": len(articulos)}
+        try:
+            import requests
+        except Exception:
+            return {"ok": False, "total": len(articulos), "actualizados": 0,
+                    "fallidos": len(articulos)}
+        base = self.url_web().rstrip("/")
+        # Mapa SKU→id recorriendo el catálogo remoto (paginado).
+        sku2id, page = {}, 1
+        try:
+            while True:
+                r = requests.get(f"{base}/wp-json/wc/v3/products",
+                                 params={"per_page": 100, "page": page},
+                                 auth=self._auth(), timeout=25)
+                if r.status_code != 200 or not r.json():
+                    break
+                for p in r.json():
+                    if p.get("sku"):
+                        sku2id[str(p["sku"])] = p.get("id")
+                if len(r.json()) < 100:
+                    break
+                page += 1
+        except Exception as e:
+            logger.warning("Woo sincronizar_catalogo (mapa): %s", e)
+        updates = []
+        for a in articulos:
+            pid = sku2id.get(str(a.get("codigo")))
+            if not pid:
+                continue
+            u = {"id": pid, "manage_stock": True}
+            if a.get("precio") is not None:
+                u["regular_price"] = f"{float(a['precio']):.2f}"
+            if a.get("stock") is not None:
+                u["stock_quantity"] = int(a["stock"])
+            updates.append(u)
+        actualizados = 0
+        for i in range(0, len(updates), 100):       # batch de 100 en 100
+            lote = updates[i:i + 100]
+            try:
+                r = requests.post(f"{base}/wp-json/wc/v3/products/batch",
+                                  json={"update": lote}, auth=self._auth(), timeout=40)
+                if r.status_code in (200, 201):
+                    actualizados += len(r.json().get("update", lote))
+            except Exception as e:
+                logger.warning("Woo batch: %s", e)
+        return {"ok": True, "total": len(articulos), "actualizados": actualizados,
+                "fallidos": len(articulos) - actualizados}
+
     def listar_pedidos_remotos(self) -> list:
         if not self.configurado():
             return []
@@ -72,7 +163,7 @@ class AdaptadorWooCommerce(AdaptadorEcommerce):
         try:
             resp = requests.get(
                 f"{base}/wp-json/wc/v3/orders", params={"per_page": 50, "orderby": "date"},
-                auth=(self.config["api_key"], self.config["api_secret"]), timeout=20)
+                auth=self._auth(), timeout=20)
             if resp.status_code != 200:
                 logger.warning("WooCommerce listar respondió %s", resp.status_code)
                 return []
