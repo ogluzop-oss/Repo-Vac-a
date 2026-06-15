@@ -458,7 +458,10 @@ def ensure_schema(force: bool = False):
                     "ADD COLUMN IF NOT EXISTS stock_descontado TINYINT(1) NOT NULL DEFAULT 0, "
                     "ADD COLUMN IF NOT EXISTS transportista VARCHAR(120) DEFAULT NULL, "
                     "ADD COLUMN IF NOT EXISTS seguimiento   VARCHAR(120) DEFAULT NULL, "
-                    "ADD COLUMN IF NOT EXISTS fecha_envio   DATETIME     DEFAULT NULL")
+                    "ADD COLUMN IF NOT EXISTS fecha_envio   DATETIME     DEFAULT NULL, "
+                    "ADD COLUMN IF NOT EXISTS referencia_pago VARCHAR(160) DEFAULT NULL, "
+                    "ADD COLUMN IF NOT EXISTS enlace_pago     VARCHAR(600) DEFAULT NULL, "
+                    "ADD COLUMN IF NOT EXISTS estado_pago     VARCHAR(20)  DEFAULT NULL")
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS pedidos_online_items (
                         id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -481,6 +484,21 @@ def ensure_schema(force: bool = False):
                         base_url    VARCHAR(500)          DEFAULT NULL,
                         api_key     VARCHAR(255)          DEFAULT NULL,
                         api_secret  VARCHAR(255)          DEFAULT NULL,
+                        estado      VARCHAR(20)  NOT NULL DEFAULT 'activo',
+                        fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                # Configuración de la PASARELA DE PAGO por empresa (Stripe/PayPal/
+                # Redsys/simulado). Credenciales por proveedor + modo test/live.
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS pasarela_config (
+                        id_empresa  CHAR(36)     NOT NULL PRIMARY KEY,
+                        proveedor   VARCHAR(30)  NOT NULL DEFAULT 'simulado',
+                        api_key     VARCHAR(255)          DEFAULT NULL,
+                        api_secret  VARCHAR(255)          DEFAULT NULL,
+                        comercio    VARCHAR(120)          DEFAULT NULL,
+                        modo        VARCHAR(10)  NOT NULL DEFAULT 'test',
+                        moneda      VARCHAR(3)   NOT NULL DEFAULT 'EUR',
                         estado      VARCHAR(20)  NOT NULL DEFAULT 'activo',
                         fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4

@@ -701,3 +701,60 @@ def cambiar_referencia_externa(id_pedido: str, referencia: str) -> bool:
     except Exception as e:
         logger.error("cambiar_referencia_externa(%s): %s", id_pedido, e)
         return False
+
+
+# ── Cobro online (pasarela de pago) ──────────────────────────────────────────
+def crear_cobro(id_pedido: str) -> dict:
+    """Inicia un cobro real del pedido con la pasarela configurada y guarda el
+    enlace/referencia de pago. Devuelve {ok, url, referencia, estado, mensaje}."""
+    pedido = obtener_pedido(id_pedido)
+    if not pedido:
+        return {"ok": False, "url": "", "referencia": "", "estado": "pendiente",
+                "mensaje": "Pedido no encontrado."}
+    try:
+        from src.services.tpv.pagos import pasarela_actual
+        res = pasarela_actual().crear_cobro(pedido)
+    except Exception as e:
+        logger.error("crear_cobro(%s): %s", id_pedido, e)
+        return {"ok": False, "url": "", "referencia": "", "estado": "pendiente",
+                "mensaje": f"Error: {e}"}
+    if res.get("ok"):
+        try:
+            with obtener_conexion() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pedidos_online SET referencia_pago=%s, enlace_pago=%s, "
+                    "estado_pago=%s WHERE id_pedido=%s",
+                    (res.get("referencia"), res.get("url"), "pendiente", id_pedido))
+                conn.commit()
+        except Exception as e:
+            logger.error("crear_cobro guardar(%s): %s", id_pedido, e)
+        _auditar_stock(id_pedido, "COBRO_ONLINE_INICIADO", [res.get("referencia") or "-"])
+    return res
+
+
+def verificar_pago(id_pedido: str) -> str:
+    """Consulta el estado del cobro en la pasarela. Si está 'pagado' y el pedido
+    aún no estaba PAGADO, lo marca (lo que dispara justificante, stock y aviso).
+    Devuelve 'pendiente' | 'pagado' | 'fallido'."""
+    pedido = obtener_pedido(id_pedido)
+    if not pedido:
+        return "pendiente"
+    ref = pedido.get("referencia_pago")
+    if not ref:
+        return "pendiente"
+    try:
+        from src.services.tpv.pagos import pasarela_actual
+        estado = pasarela_actual().verificar_pago(ref)
+    except Exception as e:
+        logger.warning("verificar_pago(%s): %s", id_pedido, e)
+        return "pendiente"
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE pedidos_online SET estado_pago=%s WHERE id_pedido=%s",
+                        (estado, id_pedido))
+            conn.commit()
+    except Exception as e:
+        logger.debug("verificar_pago estado(%s): %s", id_pedido, e)
+    if estado == "pagado" and pedido.get("estado") != "PAGADO":
+        cambiar_estado(id_pedido, "PAGADO")
+    return estado

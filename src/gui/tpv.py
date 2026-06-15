@@ -2315,6 +2315,182 @@ class _EnvioDialog(QDialog):
         return self.inp_seg.text().strip()
 
 
+class _PasarelaConfigDialog(QDialog):
+    """Configuración de la pasarela de pago (proveedor + credenciales + modo)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(480)
+        from src.db import pagos as _pg
+        self._cfg = _pg.obtener_config()
+        self._build()
+
+    def _inp(self, val=""):
+        e = QLineEdit(val or ""); e.setFixedHeight(36)
+        e.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+                        f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+                        f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        return e
+
+    def _combo(self, opciones, actual):
+        cb = QComboBox(); cb.setFixedHeight(36)
+        cb.setStyleSheet(
+            f"QComboBox{{combobox-popup:0;background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
+            f"QComboBox::drop-down{{border:none;width:22px;}}"
+            f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
+            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+        for etq, val in opciones:
+            cb.addItem(etq, val)
+        i = cb.findData(actual)
+        if i >= 0:
+            cb.setCurrentIndex(i)
+        return cb
+
+    def _build(self):
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame(); cuerpo.setObjectName("pasto")
+        cuerpo.setStyleSheet(f"QFrame#pasto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        outer.addWidget(cuerpo)
+        v = QVBoxLayout(cuerpo); v.setContentsMargins(24, 22, 24, 22); v.setSpacing(10)
+        v.addWidget(_lbl("💳  " + tr("online.pas_title", default="PASARELA DE PAGO"), bold=True, size=16, color=_CIAN))
+        v.addWidget(_lbl(tr("online.pas_prov", default="Proveedor"), bold=True, size=12, color=_TEXT2))
+        self.cmb = self._combo([("Simulado (pruebas)", "simulado"), ("Stripe", "stripe"),
+                                ("PayPal", "paypal"), ("Redsys", "redsys")],
+                               self._cfg.get("proveedor", "simulado"))
+        v.addWidget(self.cmb)
+        v.addWidget(_lbl(tr("online.pas_key", default="API key / Client ID / Nº terminal"), bold=True, size=12, color=_TEXT2))
+        self.inp_key = self._inp(self._cfg.get("api_key")); v.addWidget(self.inp_key)
+        v.addWidget(_lbl(tr("online.pas_secret", default="API secret / Client secret / Clave Redsys"), bold=True, size=12, color=_TEXT2))
+        self.inp_secret = self._inp(self._cfg.get("api_secret")); v.addWidget(self.inp_secret)
+        v.addWidget(_lbl(tr("online.pas_com", default="Comercio / FUC (Redsys)"), bold=True, size=12, color=_TEXT2))
+        self.inp_com = self._inp(self._cfg.get("comercio")); v.addWidget(self.inp_com)
+        fila_m = QHBoxLayout(); fila_m.setSpacing(10)
+        colm = QVBoxLayout(); colm.addWidget(_lbl(tr("online.pas_modo", default="Modo"), bold=True, size=12, color=_TEXT2))
+        self.cmb_modo = self._combo([("Test", "test"), ("Live", "live")], self._cfg.get("modo", "test"))
+        colm.addWidget(self.cmb_modo); fila_m.addLayout(colm)
+        colc = QVBoxLayout(); colc.addWidget(_lbl(tr("online.pas_moneda", default="Moneda"), bold=True, size=12, color=_TEXT2))
+        self.inp_moneda = self._inp(self._cfg.get("moneda") or "EUR"); colc.addWidget(self.inp_moneda)
+        fila_m.addLayout(colc); v.addLayout(fila_m)
+        v.addSpacing(4)
+        fila = QHBoxLayout(); fila.setSpacing(10)
+        b_cancel = _btn(tr("online.cfg_cancel", default="CANCELAR"), h=44); b_cancel.clicked.connect(self.reject)
+        b_ok = _btn(tr("online.cfg_save", default="GUARDAR"), color_bg=_VERDE, color_fg="#0D1117",
+                    color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=44)
+        b_ok.clicked.connect(self._guardar)
+        fila.addWidget(b_cancel); fila.addWidget(b_ok); v.addLayout(fila)
+
+    def _guardar(self):
+        from src.db import pagos as _pg
+        _pg.guardar_config(
+            proveedor=self.cmb.currentData(), api_key=self.inp_key.text().strip(),
+            api_secret=self.inp_secret.text().strip(), comercio=self.inp_com.text().strip(),
+            modo=self.cmb_modo.currentData(), moneda=(self.inp_moneda.text().strip() or "EUR").upper())
+        self.accept()
+
+
+class _CobroDialog(QDialog):
+    """Cobro online de un pedido: genera enlace de pago y verifica el cobro."""
+
+    def __init__(self, pedido: dict, parent=None):
+        super().__init__(parent)
+        self._pid = pedido.get("id_pedido")
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(540)
+        self._build()
+        self._refrescar()
+
+    def _build(self):
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame(); cuerpo.setObjectName("cobto")
+        cuerpo.setStyleSheet(f"QFrame#cobto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        outer.addWidget(cuerpo)
+        v = QVBoxLayout(cuerpo); v.setContentsMargins(24, 22, 24, 22); v.setSpacing(10)
+        v.addWidget(_lbl("💳  " + tr("online.cobro_title", default="COBRO ONLINE"), bold=True, size=16, color=_CIAN))
+        self.lbl_info = _lbl("", size=12, color=_TEXT); v.addWidget(self.lbl_info)
+        self.lbl_estado = _lbl("", bold=True, size=12, color=_CIAN); v.addWidget(self.lbl_estado)
+        self.inp_enlace = QLineEdit(); self.inp_enlace.setReadOnly(True); self.inp_enlace.setFixedHeight(34)
+        self.inp_enlace.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
+                                      f"border-radius:8px;padding:0 10px;font-size:11px;font-family:'{_FONT}';}}")
+        v.addWidget(self.inp_enlace)
+        fila_e = QHBoxLayout(); fila_e.setSpacing(10)
+        self.b_gen = _btn(tr("online.cobro_gen", default="Generar enlace de pago"), color_fg=_CIAN,
+                          color_border=_CIAN, hover_bg=_CIAN, h=40); self.b_gen.clicked.connect(self._generar)
+        self.b_open = _btn(tr("online.cobro_open", default="Abrir"), h=40); self.b_open.clicked.connect(self._abrir)
+        self.b_copy = _btn(tr("online.cobro_copy", default="Copiar"), h=40); self.b_copy.clicked.connect(self._copiar)
+        for b in (self.b_gen, self.b_open, self.b_copy):
+            fila_e.addWidget(b)
+        v.addLayout(fila_e)
+        v.addSpacing(2)
+        fila = QHBoxLayout(); fila.setSpacing(10)
+        b_cfg = _btn(tr("online.cobro_cfg", default="Configurar pasarela"), h=44); b_cfg.clicked.connect(self._configurar)
+        b_ver = _btn(tr("online.cobro_verificar", default="VERIFICAR PAGO"), color_bg=_VERDE, color_fg="#0D1117",
+                     color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=44); b_ver.clicked.connect(self._verificar)
+        b_close = _btn(tr("online.cfg_cancel", default="CERRAR"), h=44); b_close.clicked.connect(self.reject)
+        fila.addWidget(b_cfg); fila.addWidget(b_close); fila.addWidget(b_ver); v.addLayout(fila)
+
+    def _ped(self):
+        from src.services.tpv import online_orders_service as OS
+        return OS.obtener_pedido(self._pid) or {}
+
+    def _refrescar(self):
+        from src.services.tpv.pagos import pasarela_actual
+        p = self._ped()
+        total = divisas.formatear(float(p.get("total") or 0))
+        self.lbl_info.setText(tr("online.cobro_info", default="Pedido {pid} · Total {total} · Pasarela: {prov}",
+                                 pid=str(self._pid)[:8], total=total,
+                                 prov=getattr(pasarela_actual(), "nombre", "—")))
+        ep = p.get("estado_pago") or tr("online.cobro_sin", default="sin iniciar")
+        self.lbl_estado.setText(tr("online.cobro_estado", default="Estado del pago: {e}", e=ep))
+        enlace = p.get("enlace_pago") or ""
+        self.inp_enlace.setText(enlace)
+        self.b_open.setEnabled(bool(enlace)); self.b_copy.setEnabled(bool(enlace))
+
+    def _generar(self):
+        from src.services.tpv import online_orders_service as OS
+        from assets.estilo_global import mostrar_mensaje as _mm
+        res = OS.crear_cobro(self._pid)
+        if not res.get("ok"):
+            _mm(self, tr("online.cobro_title", default="COBRO ONLINE"),
+                res.get("mensaje") or tr("online.cobro_err", default="No se pudo iniciar el cobro."), "warning")
+        self._refrescar()
+
+    def _abrir(self):
+        enlace = self.inp_enlace.text().strip()
+        if enlace:
+            try:
+                import webbrowser
+                webbrowser.open(enlace)
+            except Exception:
+                pass
+
+    def _copiar(self):
+        QApplication.clipboard().setText(self.inp_enlace.text().strip())
+
+    def _configurar(self):
+        _PasarelaConfigDialog(parent=self).exec()
+        self._refrescar()
+
+    def _verificar(self):
+        from src.services.tpv import online_orders_service as OS
+        from assets.estilo_global import mostrar_mensaje as _mm
+        estado = OS.verificar_pago(self._pid)
+        if estado == "pagado":
+            _mm(self, tr("online.cobro_title", default="COBRO ONLINE"),
+                tr("online.cobro_pagado", default="Pago confirmado. El pedido se ha marcado como PAGADO."), "info")
+            self.accept()
+        else:
+            _mm(self, tr("online.cobro_title", default="COBRO ONLINE"),
+                tr("online.cobro_pend", default="El pago aún no consta como completado (estado: {e}).", e=estado), "warning")
+            self._refrescar()
+
+
 class _GestionPedidosOnlineDialog(QDialog):
     """Gestión de pedidos online (F2): listado con estados + Ir a la Web + cerrar."""
 
@@ -2361,6 +2537,9 @@ class _GestionPedidosOnlineDialog(QDialog):
         b_sync = _btn("⭱  " + tr("online.ges_sync", default="Sincronizar catálogo"),
                       color_fg=_CIAN, color_border=_CIAN, hover_bg=_CIAN, h=38)
         b_sync.clicked.connect(self._sincronizar_catalogo)
+        b_cobro = _btn("💳  " + tr("online.ges_cobrar", default="Cobrar"),
+                       color_fg=_CIAN, color_border=_CIAN, hover_bg=_CIAN, h=38)
+        b_cobro.clicked.connect(self._cobrar)
         b_cfg = _btn("⚙", color_fg=_TEXT2, color_border=_BORDE, hover_bg=_CIAN, h=38)
         b_cfg.setFixedWidth(46); b_cfg.clicked.connect(self._configurar)
         b_web = _btn("🌐  " + tr("online.ir_web", default="Ir a la Web"), color_bg=_CIAN, color_fg="#0D1117",
@@ -2370,7 +2549,7 @@ class _GestionPedidosOnlineDialog(QDialog):
         bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
                          f"border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
         bx.clicked.connect(self.reject)
-        for b in (b_nuevo, b_import, b_sync, b_cfg, b_web, bx):
+        for b in (b_nuevo, b_import, b_sync, b_cobro, b_cfg, b_web, bx):
             hdr.addWidget(b)
         ly.addLayout(hdr); ly.addWidget(_sep())
 
@@ -2513,6 +2692,18 @@ class _GestionPedidosOnlineDialog(QDialog):
                default="Sincronizados {a} de {t} artículo(s) con {p}.",
                a=res.get("actualizados", 0), t=res.get("total", 0), p=res.get("plataforma", "web")),
             "info")
+
+    def _cobrar(self):
+        from assets.estilo_global import mostrar_mensaje as _mm
+        row = self.tabla.currentRow()
+        if row < 0 or row >= len(self._pedidos):
+            _mm(self, tr("online.ges_cobrar", default="Cobrar"),
+                tr("online.cobro_sel", default="Selecciona un pedido de la tabla para cobrarlo."),
+                "warning")
+            return
+        pedido = self._pedidos[row]
+        _CobroDialog(pedido, parent=self).exec()
+        self._refrescar()
 
     def _ir_web(self):
         from src.services.tpv.ecommerce import adaptador_actual
