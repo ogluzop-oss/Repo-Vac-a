@@ -18,6 +18,9 @@ python-barcode==0.16.1       # códigos de barras
 qrcode==8.2                  # códigos QR (ubicaciones)
 requests==2.33.1             # cliente HTTP (API / gateway RFID)
 
+# ── Backend / webhooks de pago (server-side; opcional en escritorio) ──
+Flask==3.1.3                  # receptor de webhooks (src/backend/app.py)
+
 # ── Correo corporativo (multi-tenant / OAuth 2.0) ───────────
 cryptography==46.0.7            # cifrado OAuth en reposo + firma 3DES de Redsys (pasarela de pago)
 google-auth-oauthlib==1.2.2    # OAuth 2.0 Google (Gmail)

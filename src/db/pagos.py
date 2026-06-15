@@ -35,7 +35,7 @@ def obtener_config(id_empresa=None) -> dict:
     id_empresa = _empresa(id_empresa)
     base = {"id_empresa": id_empresa, "proveedor": PROVEEDOR_DEFECTO, "api_key": "",
             "api_secret": "", "comercio": "", "modo": "test", "moneda": "EUR",
-            "estado": "activo"}
+            "webhook_secret": "", "estado": "activo"}
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -51,7 +51,8 @@ def obtener_config(id_empresa=None) -> dict:
 
 
 def guardar_config(proveedor=None, api_key=None, api_secret=None, comercio=None,
-                   modo=None, moneda=None, estado=None, id_empresa=None) -> bool:
+                   modo=None, moneda=None, estado=None, webhook_secret=None,
+                   id_empresa=None) -> bool:
     """Crea/actualiza (upsert) la config de pasarela. Solo cambia lo indicado."""
     id_empresa = _empresa(id_empresa)
     actual = obtener_config(id_empresa)
@@ -62,6 +63,7 @@ def guardar_config(proveedor=None, api_key=None, api_secret=None, comercio=None,
         "comercio": (comercio if comercio is not None else actual["comercio"]),
         "modo": (modo or actual["modo"]),
         "moneda": (moneda or actual["moneda"]),
+        "webhook_secret": (webhook_secret if webhook_secret is not None else actual["webhook_secret"]),
         "estado": (estado or actual["estado"]),
     }
     # Se acepta cualquier proveedor registrado (no se filtra contra una lista fija,
@@ -73,14 +75,16 @@ def guardar_config(proveedor=None, api_key=None, api_secret=None, comercio=None,
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO pasarela_config "
-                "(id_empresa, proveedor, api_key, api_secret, comercio, modo, moneda, estado) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
+                "(id_empresa, proveedor, api_key, api_secret, comercio, modo, moneda, "
+                " webhook_secret, estado) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
                 "ON DUPLICATE KEY UPDATE proveedor=VALUES(proveedor), "
                 "api_key=VALUES(api_key), api_secret=VALUES(api_secret), "
                 "comercio=VALUES(comercio), modo=VALUES(modo), moneda=VALUES(moneda), "
-                "estado=VALUES(estado)",
+                "webhook_secret=VALUES(webhook_secret), estado=VALUES(estado)",
                 (id_empresa, nueva["proveedor"], nueva["api_key"], nueva["api_secret"],
-                 nueva["comercio"], nueva["modo"], nueva["moneda"], nueva["estado"]))
+                 nueva["comercio"], nueva["modo"], nueva["moneda"],
+                 nueva["webhook_secret"], nueva["estado"]))
             conn.commit()
         return True
     except Exception as e:

@@ -503,6 +503,30 @@ def ensure_schema(force: bool = False):
                         fecha_actualizacion DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                # Secreto de firma de WEBHOOKS (distinto de la API key; p. ej. el
+                # 'whsec_…' de Stripe). Confirmación automática del pago (Fase 3).
+                cur.execute(
+                    "ALTER TABLE pasarela_config "
+                    "ADD COLUMN IF NOT EXISTS webhook_secret VARCHAR(255) DEFAULT NULL")
+                # Registro de WEBHOOKS de pago: idempotencia/anti-duplicado y
+                # trazabilidad. UNIQUE(empresa,proveedor,evento) evita reprocesar.
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS pagos_webhooks_log (
+                        id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        proveedor   VARCHAR(30)  NOT NULL,
+                        evento_id   VARCHAR(180) NOT NULL,
+                        evento_tipo VARCHAR(80)           DEFAULT NULL,
+                        referencia  VARCHAR(180)          DEFAULT NULL,
+                        id_pedido   CHAR(36)              DEFAULT NULL,
+                        estado      VARCHAR(20)           DEFAULT NULL,
+                        resultado   VARCHAR(20)  NOT NULL DEFAULT 'procesado',
+                        ip_origen   VARCHAR(60)           DEFAULT NULL,
+                        recibido    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_wh_evento (id_empresa, proveedor, evento_id),
+                        INDEX idx_wh_pedido (id_pedido), INDEX idx_wh_ref (referencia)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
 
                 # ══ CATÁLOGO ONLINE (Fase 2 — omnicanal) ═══════════════════════
                 # Capa de presentación/web SOBRE `articulos` (no duplica el maestro):

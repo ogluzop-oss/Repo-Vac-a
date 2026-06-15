@@ -2373,6 +2373,8 @@ class _PasarelaConfigDialog(QDialog):
         self.inp_secret = self._inp(self._cfg.get("api_secret")); v.addWidget(self.inp_secret)
         v.addWidget(_lbl(tr("online.pas_com", default="Comercio / FUC (Redsys)"), bold=True, size=12, color=_TEXT2))
         self.inp_com = self._inp(self._cfg.get("comercio")); v.addWidget(self.inp_com)
+        v.addWidget(_lbl(tr("online.pas_whsecret", default="Webhook secret (confirmación automática del pago)"), bold=True, size=12, color=_TEXT2))
+        self.inp_whsecret = self._inp(self._cfg.get("webhook_secret")); v.addWidget(self.inp_whsecret)
         fila_m = QHBoxLayout(); fila_m.setSpacing(10)
         colm = QVBoxLayout(); colm.addWidget(_lbl(tr("online.pas_modo", default="Modo"), bold=True, size=12, color=_TEXT2))
         self.cmb_modo = self._combo([("Test", "test"), ("Live", "live")], self._cfg.get("modo", "test"))
@@ -2393,7 +2395,8 @@ class _PasarelaConfigDialog(QDialog):
         _pg.guardar_config(
             proveedor=self.cmb.currentData(), api_key=self.inp_key.text().strip(),
             api_secret=self.inp_secret.text().strip(), comercio=self.inp_com.text().strip(),
-            modo=self.cmb_modo.currentData(), moneda=(self.inp_moneda.text().strip() or "EUR").upper())
+            modo=self.cmb_modo.currentData(), moneda=(self.inp_moneda.text().strip() or "EUR").upper(),
+            webhook_secret=self.inp_whsecret.text().strip())
         self.accept()
 
 

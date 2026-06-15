@@ -1763,6 +1763,7 @@
     "pas_com": "Merchant / FUC (Redsys)",
     "pas_modo": "Mode",
     "pas_moneda": "Currency",
+    "pas_whsecret": "Webhook secret (automatic payment confirmation)",
     "ges_n": "{n} online order(s)",
     "ir_web": "Go to website",
     "web_sin_url": "Configure the online store URL.",
