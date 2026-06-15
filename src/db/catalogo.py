@@ -101,6 +101,51 @@ def arbol_categorias(solo_visibles=False, id_empresa=None) -> list:
     return raiz
 
 
+_CAMPOS_CAT = ("nombre", "parent_id", "descripcion", "imagen", "orden", "visible")
+
+
+def actualizar_categoria(id_categoria, id_empresa=None, **campos) -> bool:
+    id_empresa = _empresa(id_empresa)
+    datos = {k: v for k, v in campos.items() if k in _CAMPOS_CAT}
+    if "nombre" in datos and "slug" not in campos:
+        datos["slug"] = _slug(datos["nombre"])
+    if not datos:
+        return True
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            sets = ", ".join(f"{k}=%s" for k in datos)
+            cur.execute(f"UPDATE catalogo_categorias SET {sets} WHERE id=%s AND id_empresa=%s",
+                        (*datos.values(), id_categoria, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("actualizar_categoria(%s): %s", id_categoria, e)
+        return False
+
+
+def eliminar_categoria(id_categoria, id_empresa=None) -> bool:
+    """Elimina una categoría: re-cuelga sus subcategorías del padre y desvincula
+    los productos que la tuvieran."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT parent_id FROM catalogo_categorias WHERE id=%s AND id_empresa=%s",
+                        (id_categoria, id_empresa))
+            r = cur.fetchone()
+            padre = (r[0] if not isinstance(r, dict) else r["parent_id"]) if r else None
+            cur.execute("UPDATE catalogo_categorias SET parent_id=%s WHERE parent_id=%s",
+                        (padre, id_categoria))
+            cur.execute("UPDATE catalogo_productos SET id_categoria=NULL WHERE id_categoria=%s",
+                        (id_categoria,))
+            cur.execute("DELETE FROM catalogo_categorias WHERE id=%s AND id_empresa=%s",
+                        (id_categoria, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("eliminar_categoria(%s): %s", id_categoria, e)
+        return False
+
+
 # ── Marcas / etiquetas ───────────────────────────────────────────────────────
 def crear_marca(nombre, logo=None, descripcion=None, id_empresa=None) -> int | None:
     id_empresa = _empresa(id_empresa)
@@ -128,6 +173,38 @@ def listar_marcas(id_empresa=None) -> list:
         return []
 
 
+def actualizar_marca(id_marca, id_empresa=None, **campos) -> bool:
+    id_empresa = _empresa(id_empresa)
+    datos = {k: v for k, v in campos.items() if k in ("nombre", "logo", "descripcion", "visible")}
+    if "nombre" in datos:
+        datos["slug"] = _slug(datos["nombre"])
+    if not datos:
+        return True
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            sets = ", ".join(f"{k}=%s" for k in datos)
+            cur.execute(f"UPDATE catalogo_marcas SET {sets} WHERE id=%s AND id_empresa=%s",
+                        (*datos.values(), id_marca, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("actualizar_marca(%s): %s", id_marca, e)
+        return False
+
+
+def eliminar_marca(id_marca, id_empresa=None) -> bool:
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE catalogo_productos SET id_marca=NULL WHERE id_marca=%s", (id_marca,))
+            cur.execute("DELETE FROM catalogo_marcas WHERE id=%s AND id_empresa=%s", (id_marca, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("eliminar_marca(%s): %s", id_marca, e)
+        return False
+
+
 def crear_etiqueta(nombre, id_empresa=None) -> int | None:
     id_empresa = _empresa(id_empresa)
     try:
@@ -151,6 +228,20 @@ def listar_etiquetas(id_empresa=None) -> list:
     except Exception as e:
         logger.error("listar_etiquetas: %s", e)
         return []
+
+
+def eliminar_etiqueta(id_etiqueta, id_empresa=None) -> bool:
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM catalogo_producto_etiquetas WHERE id_etiqueta=%s", (id_etiqueta,))
+            cur.execute("DELETE FROM catalogo_etiquetas WHERE id=%s AND id_empresa=%s",
+                        (id_etiqueta, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("eliminar_etiqueta(%s): %s", id_etiqueta, e)
+        return False
 
 
 # ── Productos (overlay sobre articulos) ──────────────────────────────────────
@@ -245,6 +336,31 @@ def obtener_producto(id_producto=None, codigo_articulo=None, slug=None, id_empre
     return filas[0] if filas else None
 
 
+def articulos_para_catalogo(texto=None, solo_sin_overlay=False, id_empresa=None, limite=1000) -> list:
+    """Artículos de la empresa con su estado en el catálogo (id_producto si ya
+    tienen overlay). Para dar de alta/gestionar productos desde la gestión."""
+    id_empresa = _empresa(id_empresa)
+    filtros, params = ["a.id_empresa=%s"], [id_empresa]
+    if texto:
+        filtros.append("(a.nombre LIKE %s OR a.codigo LIKE %s)"); params += [f"%{texto}%"] * 2
+    if solo_sin_overlay:
+        filtros.append("p.id IS NULL")
+    sql = ("SELECT a.codigo, a.nombre, COALESCE(a.precio,0) AS precio, "
+           "(COALESCE(a.Stock_total,0)+COALESCE(a.Stock_tienda,0)) AS stock, a.bloqueado, "
+           "p.id AS id_producto, p.destacado, p.recomendado, p.visible_web, "
+           "p.id_categoria, p.id_marca "
+           "FROM articulos a LEFT JOIN catalogo_productos p "
+           "ON p.codigo_articulo=a.codigo AND p.id_empresa=a.id_empresa "
+           "WHERE " + " AND ".join(filtros) + " ORDER BY a.nombre LIMIT %s")
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(sql, (*params, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("articulos_para_catalogo: %s", e)
+        return []
+
+
 def eliminar_producto(id_producto, id_empresa=None) -> bool:
     id_empresa = _empresa(id_empresa)
     try:
@@ -287,6 +403,30 @@ def listar_imagenes(id_producto) -> list:
     except Exception as e:
         logger.error("listar_imagenes: %s", e)
         return []
+
+
+def eliminar_imagen(id_imagen) -> bool:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM catalogo_imagenes WHERE id=%s", (id_imagen,))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("eliminar_imagen(%s): %s", id_imagen, e)
+        return False
+
+
+def marcar_portada(id_producto, id_imagen) -> bool:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE catalogo_imagenes SET es_portada=0 WHERE id_producto=%s", (id_producto,))
+            cur.execute("UPDATE catalogo_imagenes SET es_portada=1 WHERE id=%s AND id_producto=%s",
+                        (id_imagen, id_producto))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("marcar_portada(%s): %s", id_imagen, e)
+        return False
 
 
 # ── Atributos / variantes ────────────────────────────────────────────────────
@@ -343,6 +483,28 @@ def listar_variantes(id_producto) -> list:
         return []
 
 
+def eliminar_variante(id_variante) -> bool:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM catalogo_variantes WHERE id=%s", (id_variante,))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("eliminar_variante(%s): %s", id_variante, e)
+        return False
+
+
+def eliminar_atributo_producto(id_atributo_prod) -> bool:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM catalogo_producto_atributos WHERE id=%s", (id_atributo_prod,))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("eliminar_atributo_producto(%s): %s", id_atributo_prod, e)
+        return False
+
+
 # ── Etiquetas (M:N) y relacionados / recomendados ────────────────────────────
 def etiquetar_producto(id_producto, id_etiqueta, id_empresa=None) -> bool:
     id_empresa = _empresa(id_empresa)
@@ -355,6 +517,42 @@ def etiquetar_producto(id_producto, id_etiqueta, id_empresa=None) -> bool:
         return True
     except Exception as e:
         logger.error("etiquetar_producto: %s", e)
+        return False
+
+
+def etiquetas_de_producto(id_producto) -> list:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT e.* FROM catalogo_etiquetas e "
+                        "JOIN catalogo_producto_etiquetas pe ON pe.id_etiqueta=e.id "
+                        "WHERE pe.id_producto=%s ORDER BY e.nombre", (id_producto,))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("etiquetas_de_producto: %s", e)
+        return []
+
+
+def quitar_etiqueta_producto(id_producto, id_etiqueta) -> bool:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM catalogo_producto_etiquetas WHERE id_producto=%s AND id_etiqueta=%s",
+                        (id_producto, id_etiqueta))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("quitar_etiqueta_producto: %s", e)
+        return False
+
+
+def quitar_relacion(id_producto, id_producto_rel, tipo="relacionado") -> bool:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM catalogo_relacionados WHERE id_producto=%s AND id_producto_rel=%s AND tipo=%s",
+                        (id_producto, id_producto_rel, tipo))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("quitar_relacion: %s", e)
         return False
 
 

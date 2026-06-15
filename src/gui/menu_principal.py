@@ -430,6 +430,11 @@ class MenuPrincipal(QWidget):
             btn_docs = self.crear_tarjeta_menu("Documentos", "documentos", "#22F4E6", "document")
             footer_actions.addWidget(btn_docs, alignment=Qt.AlignmentFlag.AlignLeft)
 
+        # Gestión del catálogo online — ADMINISTRADOR / GERENTE / SUPERADMIN.
+        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+            btn_cat = self.crear_tarjeta_menu("Catálogo", "catalogo", "#22F4E6", "shopping_bag")
+            footer_actions.addWidget(btn_cat, alignment=Qt.AlignmentFlag.AlignLeft)
+
         footer_actions.addStretch()
 
         btn_tpv = self.crear_tarjeta_menu("TPV", "tpv", "#22F4E6", "shopping_bag")
@@ -508,6 +513,7 @@ class MenuPrincipal(QWidget):
         "configuracion": "menu.card_config",
         "correo": "menu.card_correo",
         "documentos": "menu.card_documentos",
+        "catalogo": "menu.card_catalogo",
         "tpv": "menu.card_tpv",
         "logout": "menu.card_salir",
     }
@@ -807,6 +813,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.centro_documental import CentroDocumentalWindow
 
                 self.manejar_apertura(v_id, CentroDocumentalWindow, **kwargs)
+            elif v_id == "catalogo":
+                from src.gui.catalogo_gestion import CatalogoWindow
+
+                self.manejar_apertura(v_id, CatalogoWindow, **kwargs)
             elif v_id == "tpv":
                 from src.gui.tpv import TPVWindow
 

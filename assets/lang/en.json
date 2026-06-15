@@ -60,6 +60,7 @@
     "card_config": "Settings",
     "card_tpv": "POS",
     "card_documentos": "Documents",
+    "card_catalogo": "Catalog",
     "card_salir": "Exit",
     "cambiar_tienda": "Switch store",
     "sin_tienda": "No active store",
