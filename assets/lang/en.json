@@ -1757,6 +1757,7 @@
     "cobro_pend": "The payment is not completed yet (status: {e}).",
     "pas_title": "PAYMENT GATEWAY",
     "pas_prov": "Provider",
+    "pas_recomendado": "recommended",
     "pas_key": "API key / Client ID / Terminal no.",
     "pas_secret": "API secret / Client secret / Redsys key",
     "pas_com": "Merchant / FUC (Redsys)",

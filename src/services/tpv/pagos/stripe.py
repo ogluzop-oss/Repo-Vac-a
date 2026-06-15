@@ -8,12 +8,14 @@ consulta el payment_status de la sesión. Degrada con elegancia.
 import logging
 
 from src.services.tpv.pagos.base import PasarelaPago
+from src.services.tpv.pagos.registry import registrar
 
 logger = logging.getLogger("pagos.stripe")
 
 _API = "https://api.stripe.com/v1"
 
 
+@registrar("stripe", "Stripe", orden=20)
 class PasarelaStripe(PasarelaPago):
     nombre = "stripe"
 

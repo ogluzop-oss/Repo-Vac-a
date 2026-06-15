@@ -16,6 +16,7 @@ import os
 import time
 
 from src.services.tpv.pagos.base import PasarelaPago
+from src.services.tpv.pagos.registry import registrar
 
 logger = logging.getLogger("pagos.redsys")
 
@@ -30,8 +31,12 @@ def _3des_cbc_encrypt(clave: bytes, mensaje: bytes):
     if len(mensaje) % 8:
         mensaje = mensaje + b"\0" * (8 - len(mensaje) % 8)
     try:
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-        cipher = Cipher(algorithms.TripleDES(clave), modes.CBC(b"\0" * 8))
+        from cryptography.hazmat.primitives.ciphers import Cipher, modes
+        try:    # cryptography >= 43: TripleDES vive en 'decrepit'
+            from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+        except Exception:   # versiones anteriores
+            from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
+        cipher = Cipher(TripleDES(clave), modes.CBC(b"\0" * 8))
         enc = cipher.encryptor()
         return enc.update(mensaje) + enc.finalize()
     except Exception:
@@ -43,6 +48,7 @@ def _3des_cbc_encrypt(clave: bytes, mensaje: bytes):
         return None
 
 
+@registrar("redsys", "Redsys", recomendada=True, orden=10)
 class PasarelaRedsys(PasarelaPago):
     nombre = "redsys"
 

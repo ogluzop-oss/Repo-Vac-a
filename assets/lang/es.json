@@ -1757,6 +1757,7 @@
     "cobro_pend": "El pago aún no consta como completado (estado: {e}).",
     "pas_title": "PASARELA DE PAGO",
     "pas_prov": "Proveedor",
+    "pas_recomendado": "recomendado",
     "pas_key": "API key / Client ID / Nº terminal",
     "pas_secret": "API secret / Client secret / Clave Redsys",
     "pas_com": "Comercio / FUC (Redsys)",

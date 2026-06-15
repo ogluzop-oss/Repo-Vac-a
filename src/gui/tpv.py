@@ -2359,9 +2359,13 @@ class _PasarelaConfigDialog(QDialog):
         v = QVBoxLayout(cuerpo); v.setContentsMargins(24, 22, 24, 22); v.setSpacing(10)
         v.addWidget(_lbl("💳  " + tr("online.pas_title", default="PASARELA DE PAGO"), bold=True, size=16, color=_CIAN))
         v.addWidget(_lbl(tr("online.pas_prov", default="Proveedor"), bold=True, size=12, color=_TEXT2))
-        self.cmb = self._combo([("Simulado (pruebas)", "simulado"), ("Stripe", "stripe"),
-                                ("PayPal", "paypal"), ("Redsys", "redsys")],
-                               self._cfg.get("proveedor", "simulado"))
+        # El combo se construye desde el registro de pasarelas (extensible): añadir
+        # una pasarela nueva la hace aparecer aquí sin tocar este diálogo.
+        from src.services.tpv.pagos.registry import pasarelas_registradas, proveedor_por_defecto
+        _rec = tr("online.pas_recomendado", default="recomendado")
+        opciones = [(meta["etiqueta"] + (f"  ({_rec})" if meta["recomendada"] else ""), nombre)
+                    for nombre, meta in pasarelas_registradas().items()]
+        self.cmb = self._combo(opciones, self._cfg.get("proveedor") or proveedor_por_defecto())
         v.addWidget(self.cmb)
         v.addWidget(_lbl(tr("online.pas_key", default="API key / Client ID / Nº terminal"), bold=True, size=12, color=_TEXT2))
         self.inp_key = self._inp(self._cfg.get("api_key")); v.addWidget(self.inp_key)

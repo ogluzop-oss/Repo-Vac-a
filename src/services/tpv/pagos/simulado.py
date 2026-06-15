@@ -6,10 +6,12 @@ import logging
 import uuid
 
 from src.services.tpv.pagos.base import PasarelaPago
+from src.services.tpv.pagos.registry import registrar
 
 logger = logging.getLogger("pagos.simulado")
 
 
+@registrar("simulado", "Simulado (pruebas)", orden=90)
 class PasarelaSimulada(PasarelaPago):
     nombre = "simulado"
 

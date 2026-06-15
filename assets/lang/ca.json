@@ -1757,6 +1757,7 @@
     "cobro_pend": "El pagament encara no consta com a completat (estat: {e}).",
     "pas_title": "PASSAREL·LA DE PAGAMENT",
     "pas_prov": "Proveïdor",
+    "pas_recomendado": "recomanat",
     "pas_key": "API key / Client ID / Núm. terminal",
     "pas_secret": "API secret / Client secret / Clau Redsys",
     "pas_com": "Comerç / FUC (Redsys)",

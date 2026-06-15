@@ -9,10 +9,12 @@ Degrada con elegancia.
 import logging
 
 from src.services.tpv.pagos.base import PasarelaPago
+from src.services.tpv.pagos.registry import registrar
 
 logger = logging.getLogger("pagos.paypal")
 
 
+@registrar("paypal", "PayPal", orden=30)
 class PasarelaPayPal(PasarelaPago):
     nombre = "paypal"
 

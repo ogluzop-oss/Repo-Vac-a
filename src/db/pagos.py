@@ -13,7 +13,11 @@ from src.db.conexion import EMPRESA_DEFAULT_ID, ensure_schema, obtener_conexion
 
 logger = logging.getLogger("pagos_db")
 
-PROVEEDORES = ("simulado", "stripe", "paypal", "redsys")
+# Proveedor recomendado por defecto para el mercado principal (España).
+PROVEEDOR_DEFECTO = "redsys"
+# Lista de referencia (la fuente real es el registro de pasarelas; aquí no se usa
+# como filtro para no impedir añadir pasarelas nuevas sin tocar el núcleo).
+PROVEEDORES = ("redsys", "stripe", "paypal", "simulado")
 
 
 def _empresa(id_empresa=None):
@@ -29,7 +33,7 @@ def _empresa(id_empresa=None):
 def obtener_config(id_empresa=None) -> dict:
     """Config de la pasarela de la empresa (dict con defaults si no existe fila)."""
     id_empresa = _empresa(id_empresa)
-    base = {"id_empresa": id_empresa, "proveedor": "simulado", "api_key": "",
+    base = {"id_empresa": id_empresa, "proveedor": PROVEEDOR_DEFECTO, "api_key": "",
             "api_secret": "", "comercio": "", "modo": "test", "moneda": "EUR",
             "estado": "activo"}
     try:
@@ -60,8 +64,10 @@ def guardar_config(proveedor=None, api_key=None, api_secret=None, comercio=None,
         "moneda": (moneda or actual["moneda"]),
         "estado": (estado or actual["estado"]),
     }
-    if nueva["proveedor"] not in PROVEEDORES:
-        nueva["proveedor"] = "simulado"
+    # Se acepta cualquier proveedor registrado (no se filtra contra una lista fija,
+    # para permitir añadir pasarelas nuevas sin tocar el núcleo). Solo se exige valor.
+    if not nueva["proveedor"]:
+        nueva["proveedor"] = PROVEEDOR_DEFECTO
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:

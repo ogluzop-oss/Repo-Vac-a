@@ -493,7 +493,7 @@ def ensure_schema(force: bool = False):
                 cur.execute(f"""
                     CREATE TABLE IF NOT EXISTS pasarela_config (
                         id_empresa  CHAR(36)     NOT NULL PRIMARY KEY,
-                        proveedor   VARCHAR(30)  NOT NULL DEFAULT 'simulado',
+                        proveedor   VARCHAR(30)  NOT NULL DEFAULT 'redsys',
                         api_key     VARCHAR(255)          DEFAULT NULL,
                         api_secret  VARCHAR(255)          DEFAULT NULL,
                         comercio    VARCHAR(120)          DEFAULT NULL,
