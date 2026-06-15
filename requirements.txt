@@ -19,7 +19,7 @@ qrcode==8.2                  # códigos QR (ubicaciones)
 requests==2.33.1             # cliente HTTP (API / gateway RFID)
 
 # ── Correo corporativo (multi-tenant / OAuth 2.0) ───────────
-cryptography==46.0.7            # cifrado de tokens OAuth en reposo (NUNCA contraseñas)
+cryptography==46.0.7            # cifrado OAuth en reposo + firma 3DES de Redsys (pasarela de pago)
 google-auth-oauthlib==1.2.2    # OAuth 2.0 Google (Gmail)
 google-api-python-client==2.185.0  # API de Gmail
 # msal                          # (opcional) OAuth Microsoft 365 — instalar si se usa Outlook
