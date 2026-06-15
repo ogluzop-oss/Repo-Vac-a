@@ -365,9 +365,10 @@ def cambiar_estado(id_pedido: str, nuevo_estado: str) -> bool:
 
 
 def _generar_pdf_pedido(id_pedido: str, titulo: str, prefijo: str,
-                        es_justificante: bool = False) -> str | None:
-    """Genera un PDF (comprobante o justificante) de un pedido online y lo
-    registra en el centro documental (tipo 'pedido'). Devuelve la ruta o None."""
+                        es_justificante: bool = False, tipo_doc: str = "pedido",
+                        extra_cabecera=None) -> str | None:
+    """Genera un PDF (comprobante / justificante / envío) de un pedido online y lo
+    registra en el centro documental. Devuelve la ruta o None."""
     import os
     pedido = obtener_pedido(id_pedido)
     if not pedido:
@@ -419,6 +420,9 @@ def _generar_pdf_pedido(id_pedido: str, titulo: str, prefijo: str,
         if es_justificante:
             ref = pedido.get("referencia_externa")
             cabecera.append("PAGO CONFIRMADO" + (f"   Ref.: {ref}" if ref else ""))
+        for ln in (extra_cabecera or []):
+            if ln:
+                cabecera.append(str(ln))
         for ln in cabecera:
             c.drawString(20 * mm, y, ln[:100]); y -= 5 * mm
         y -= 3 * mm
@@ -447,7 +451,7 @@ def _generar_pdf_pedido(id_pedido: str, titulo: str, prefijo: str,
     try:
         from src.db import documentos as _docreg
         _docreg.registrar_documento(
-            ruta, tipo="pedido", referencia=id_pedido,
+            ruta, tipo=tipo_doc, referencia=id_pedido,
             cliente=pedido.get("cliente_nombre"), trabajador=pedido.get("trabajador"),
             importe=pedido.get("total"), estado=pedido.get("estado"))
     except Exception as e:
@@ -467,6 +471,39 @@ def generar_justificante_pago(id_pedido: str) -> str | None:
     return _generar_pdf_pedido(
         id_pedido, "JUSTIFICANTE DE PAGO", "justificante_pago",
         es_justificante=True)
+
+
+def generar_documento_envio(id_pedido: str) -> str | None:
+    """Documento de envío (albarán) PDF del pedido online, con transportista y nº
+    de seguimiento (centro documental, tipo 'albaran')."""
+    ped = obtener_pedido(id_pedido) or {}
+    extra = [f"Transportista: {ped.get('transportista') or '-'}",
+             f"Nº seguimiento: {ped.get('seguimiento') or '-'}"]
+    return _generar_pdf_pedido(
+        id_pedido, "DOCUMENTO DE ENVÍO", "envio_pedido",
+        tipo_doc="albaran", extra_cabecera=extra)
+
+
+def registrar_envio(id_pedido: str, transportista: str = "", seguimiento: str = "") -> bool:
+    """Guarda los datos de envío del pedido (transportista, nº de seguimiento,
+    fecha) y genera el documento de envío. Se invoca al pasar a ENVIADO."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE pedidos_online SET transportista=%s, seguimiento=%s, "
+                "fecha_envio=NOW() WHERE id_pedido=%s",
+                (transportista or None, seguimiento or None, id_pedido))
+            conn.commit()
+    except Exception as e:
+        logger.error("registrar_envio(%s): %s", id_pedido, e)
+        return False
+    try:
+        generar_documento_envio(id_pedido)
+    except Exception as e:
+        logger.warning("No se pudo generar el documento de envío (%s): %s", id_pedido, e)
+    _auditar_stock(id_pedido, "ENVIO_PEDIDO_ONLINE",
+                   [f"{transportista or '-'}/{seguimiento or '-'}"])
+    return True
 
 
 def _marcar_stock_descontado(id_pedido: str, valor: int) -> None:

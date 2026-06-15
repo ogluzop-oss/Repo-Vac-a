@@ -2271,6 +2271,50 @@ class _TiendaOnlineConfigDialog(QDialog):
         self.accept()
 
 
+class _EnvioDialog(QDialog):
+    """Datos de envío al marcar un pedido como ENVIADO (transportista + nº seguimiento)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(440)
+        self._build()
+
+    def _inp(self, ph=""):
+        e = QLineEdit(); e.setFixedHeight(36); e.setPlaceholderText(ph)
+        e.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+                        f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+                        f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        return e
+
+    def _build(self):
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame(); cuerpo.setObjectName("envto")
+        cuerpo.setStyleSheet(f"QFrame#envto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        outer.addWidget(cuerpo)
+        v = QVBoxLayout(cuerpo); v.setContentsMargins(24, 22, 24, 22); v.setSpacing(10)
+        v.addWidget(_lbl("🚚  " + tr("online.env_title", default="DATOS DE ENVÍO"), bold=True, size=16, color=_CIAN))
+        v.addWidget(_lbl(tr("online.env_transportista", default="Transportista"), bold=True, size=12, color=_TEXT2))
+        self.inp_trans = self._inp(tr("online.env_trans_ph", default="Ej.: SEUR, Correos, MRW…")); v.addWidget(self.inp_trans)
+        v.addWidget(_lbl(tr("online.env_seguimiento", default="Nº de seguimiento"), bold=True, size=12, color=_TEXT2))
+        self.inp_seg = self._inp(tr("online.env_seg_ph", default="Nº de tracking del envío")); v.addWidget(self.inp_seg)
+        v.addSpacing(4)
+        fila = QHBoxLayout(); fila.setSpacing(10)
+        b_cancel = _btn(tr("online.cfg_cancel", default="CANCELAR"), h=44); b_cancel.clicked.connect(self.reject)
+        b_ok = _btn(tr("online.env_ok", default="MARCAR ENVIADO"), color_bg=_VERDE, color_fg="#0D1117",
+                    color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=44)
+        b_ok.clicked.connect(self.accept)
+        fila.addWidget(b_cancel); fila.addWidget(b_ok); v.addLayout(fila)
+
+    def transportista(self):
+        return self.inp_trans.text().strip()
+
+    def seguimiento(self):
+        return self.inp_seg.text().strip()
+
+
 class _GestionPedidosOnlineDialog(QDialog):
     """Gestión de pedidos online (F2): listado con estados + Ir a la Web + cerrar."""
 
@@ -2330,7 +2374,8 @@ class _GestionPedidosOnlineDialog(QDialog):
         cols = [tr("online.gc_pedido", default="Pedido"), tr("online.gc_fecha", default="Fecha"),
                 tr("online.gc_cliente", default="Cliente"), tr("online.gc_tel", default="Teléfono"),
                 tr("online.gc_total", default="Total"), tr("online.gc_estado", default="Estado"),
-                tr("online.gc_plat", default="Plataforma"), tr("online.gc_ref", default="Ref. web")]
+                tr("online.gc_plat", default="Plataforma"), tr("online.gc_ref", default="Ref. web"),
+                tr("online.gc_envio", default="Envío")]
         self.tabla = QTableWidget(0, len(cols))
         self.tabla.setHorizontalHeaderLabels(cols)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -2340,7 +2385,7 @@ class _GestionPedidosOnlineDialog(QDialog):
         self.tabla.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         hh = self.tabla.horizontalHeader()
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        for ci, w in {0: 150, 1: 140, 3: 110, 4: 100, 5: 150, 6: 120, 7: 120}.items():
+        for ci, w in {0: 150, 1: 140, 3: 110, 4: 100, 5: 150, 6: 120, 7: 120, 8: 180}.items():
             hh.setSectionResizeMode(ci, QHeaderView.ResizeMode.Fixed); self.tabla.setColumnWidth(ci, w)
         self.tabla.setStyleSheet(_ss_tabla_neon())
         _RoundTableCorners(self.tabla)
@@ -2356,15 +2401,16 @@ class _GestionPedidosOnlineDialog(QDialog):
         for p in self._pedidos:
             r = self.tabla.rowCount(); self.tabla.insertRow(r)
             fecha = str(p.get("fecha") or "")[:16]
+            envio = " · ".join(x for x in (p.get("transportista"), p.get("seguimiento")) if x) or "—"
             vals = [str(p.get("id_pedido") or "")[:8], fecha, p.get("cliente_nombre") or "—",
                     p.get("cliente_telefono") or "—", divisas.formatear(float(p.get("total") or 0)),
-                    None, p.get("plataforma") or "—", p.get("referencia_externa") or "—"]
+                    None, p.get("plataforma") or "—", p.get("referencia_externa") or "—", envio]
             for c, val in enumerate(vals):
                 if c == 5:
                     self.tabla.setCellWidget(r, 5, self._combo_estado(p))
                     continue
                 it = QTableWidgetItem(str(val))
-                if c in (1, 3, 4, 6, 7):
+                if c in (1, 3, 4, 6, 7, 8):
                     it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.tabla.setItem(r, c, it)
         self.lbl_estado.setText(tr("online.ges_n", default="{n} pedido(s) online", n=len(self._pedidos)))
@@ -2389,7 +2435,17 @@ class _GestionPedidosOnlineDialog(QDialog):
 
     def _cambiar_estado(self, pid, estado):
         from src.services.tpv import online_orders_service as OS
+        if estado == "ENVIADO":
+            dlg = _EnvioDialog(parent=self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                self._refrescar()   # revierte el combo al estado anterior
+                return
+            OS.cambiar_estado(pid, estado)
+            OS.registrar_envio(pid, dlg.transportista(), dlg.seguimiento())
+            self._refrescar()
+            return
         OS.cambiar_estado(pid, estado)
+        self._refrescar()
 
     def _nuevo(self):
         _VentaOnlineDialog(empleado=self._empleado, id_caja=self._id_caja, parent=self).exec()
