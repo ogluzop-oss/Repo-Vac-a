@@ -358,6 +358,8 @@ def cambiar_estado(id_pedido: str, nuevo_estado: str) -> bool:
             _on_pagado(id_pedido)
         elif nuevo_estado == "CANCELADO":
             _reponer_stock_pedido(id_pedido)
+        elif nuevo_estado == "ENTREGADO":
+            _notificar_cliente(id_pedido, "ENTREGADO")
         return True
     except Exception as e:
         logger.error("cambiar_estado(%s): %s", id_pedido, e)
@@ -503,6 +505,7 @@ def registrar_envio(id_pedido: str, transportista: str = "", seguimiento: str = 
         logger.warning("No se pudo generar el documento de envío (%s): %s", id_pedido, e)
     _auditar_stock(id_pedido, "ENVIO_PEDIDO_ONLINE",
                    [f"{transportista or '-'}/{seguimiento or '-'}"])
+    _notificar_cliente(id_pedido, "ENVIADO")
     return True
 
 
@@ -583,6 +586,96 @@ def _auditar_stock(id_pedido: str, accion: str, detalle: list) -> None:
         logger.debug("auditar_stock(%s): %s", id_pedido, e)
 
 
+def _buzon_activo(id_empresa=None):
+    """Buzón corporativo activo de la empresa (prefiere el de la tienda activa).
+    Devuelve el id_correo o None."""
+    try:
+        from src.db import correo as correo_db
+        emp, tienda, _u, _n = _ctx()
+        buzones = correo_db.listar_correos(id_empresa or emp)
+        activos = [b for b in buzones if b.get("estado") == "activo"]
+        if not activos:
+            return None
+        de_tienda = [b for b in activos if tienda is not None and b.get("id_tienda") == tienda]
+        return (de_tienda or activos)[0].get("id_correo")
+    except Exception as e:
+        logger.debug("_buzon_activo: %s", e)
+        return None
+
+
+def _notificar_cliente(id_pedido: str, estado: str) -> None:
+    """Envía un aviso por correo al cliente al cambiar el pedido a un estado
+    relevante (PAGADO/ENVIADO/ENTREGADO), adjuntando el documento correspondiente.
+    Degrada con elegancia: si no hay buzón, email o módulo de correo, no hace nada
+    y nunca bloquea el cambio de estado."""
+    import os
+    pedido = obtener_pedido(id_pedido)
+    if not pedido:
+        return
+    email = (pedido.get("cliente_email") or "").strip()
+    if not email:
+        return
+    id_correo = _buzon_activo(pedido.get("id_empresa"))
+    if not id_correo:
+        logger.info("Sin buzón corporativo activo; no se notifica al cliente (%s).", id_pedido)
+        return
+    try:
+        from src.utils.i18n import tr
+    except Exception:
+        def tr(_k, default="", **kw):
+            return default.format(**kw) if kw else default
+    try:
+        from src.db.empresa import info_documento
+        empresa = (info_documento() or {}).get("nombre") or "Smart Manager"
+    except Exception:
+        empresa = "Smart Manager"
+    from src.utils import divisas  # importe localizado
+    ctx = {"pedido": str(id_pedido)[:8], "cliente": pedido.get("cliente_nombre") or "",
+           "empresa": empresa, "total": divisas.formatear(float(pedido.get("total") or 0)),
+           "transportista": pedido.get("transportista") or "-",
+           "seguimiento": pedido.get("seguimiento") or "-"}
+    defaults_subj = {
+        "PAGADO": "Hemos recibido tu pago — Pedido {pedido}",
+        "ENVIADO": "Tu pedido {pedido} ha sido enviado",
+        "ENTREGADO": "Tu pedido {pedido} ha sido entregado",
+    }
+    defaults_body = {
+        "PAGADO": ("Hola {cliente}:\n\nHemos confirmado el pago de tu pedido {pedido} "
+                   "por un importe de {total}. Adjuntamos el justificante de pago.\n\n"
+                   "Gracias por tu compra.\n{empresa}"),
+        "ENVIADO": ("Hola {cliente}:\n\nTu pedido {pedido} ya está en camino.\n"
+                    "Transportista: {transportista}\nNº de seguimiento: {seguimiento}\n\n"
+                    "Gracias por tu compra.\n{empresa}"),
+        "ENTREGADO": ("Hola {cliente}:\n\nTu pedido {pedido} ha sido entregado. "
+                      "Esperamos que lo disfrutes.\n\nGracias por confiar en nosotros.\n{empresa}"),
+    }
+    if estado not in defaults_subj:
+        return
+    asunto = tr(f"online.mail_subj_{estado}", default=defaults_subj[estado], **ctx)
+    cuerpo = tr(f"online.mail_body_{estado}", default=defaults_body[estado], **ctx)
+    # Adjunto según el estado.
+    adj = []
+    carpeta = os.path.join("documentos", "pedidos")
+    try:
+        from src.utils.recursos import ruta_datos
+        carpeta = ruta_datos("pedidos")
+    except Exception:
+        pass
+    fichero = {"PAGADO": f"justificante_pago_{id_pedido}.pdf",
+               "ENVIADO": f"envio_pedido_{id_pedido}.pdf"}.get(estado)
+    if fichero:
+        ruta = os.path.join(carpeta, fichero)
+        if os.path.exists(ruta):
+            adj.append(ruta)
+    try:
+        from src.services.correo.servicio import enviar_documento
+        ok, msg = enviar_documento(id_correo, email, asunto, cuerpo, adj)
+        logger.info("Aviso cliente (%s, %s): %s", id_pedido, estado, msg)
+        _auditar_stock(id_pedido, "AVISO_CLIENTE_ONLINE", [f"{estado}->{email}:{'ok' if ok else 'ko'}"])
+    except Exception as e:
+        logger.warning("No se pudo notificar al cliente (%s): %s", id_pedido, e)
+
+
 def _on_pagado(id_pedido: str) -> None:
     """Acciones automáticas al confirmarse el pago de un pedido online."""
     try:
@@ -595,6 +688,7 @@ def _on_pagado(id_pedido: str) -> None:
     except Exception as e:
         logger.warning("No se pudo descontar el stock del pedido (%s): %s",
                        id_pedido, e)
+    _notificar_cliente(id_pedido, "PAGADO")
 
 
 def cambiar_referencia_externa(id_pedido: str, referencia: str) -> bool:
