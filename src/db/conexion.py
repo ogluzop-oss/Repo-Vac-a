@@ -504,6 +504,163 @@ def ensure_schema(force: bool = False):
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
 
+                # ══ CATÁLOGO ONLINE (Fase 2 — omnicanal) ═══════════════════════
+                # Capa de presentación/web SOBRE `articulos` (no duplica el maestro):
+                # cada producto de catálogo referencia articulos.codigo (única fuente
+                # de stock/precio) y añade datos web. Todo por id_empresa/id_tienda
+                # (id_tienda NULL = visible para toda la empresa).
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_categorias (
+                        id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_tienda   INT                   DEFAULT NULL,
+                        parent_id   BIGINT                DEFAULT NULL,
+                        nombre      VARCHAR(150) NOT NULL,
+                        slug        VARCHAR(180)          DEFAULT NULL,
+                        descripcion TEXT                  DEFAULT NULL,
+                        imagen      VARCHAR(500)          DEFAULT NULL,
+                        orden       INT          NOT NULL DEFAULT 0,
+                        visible     TINYINT(1)   NOT NULL DEFAULT 1,
+                        fecha_alta  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_cat_emp (id_empresa), INDEX idx_cat_parent (parent_id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_marcas (
+                        id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        nombre      VARCHAR(150) NOT NULL,
+                        slug        VARCHAR(180)          DEFAULT NULL,
+                        logo        VARCHAR(500)          DEFAULT NULL,
+                        descripcion TEXT                  DEFAULT NULL,
+                        visible     TINYINT(1)   NOT NULL DEFAULT 1,
+                        fecha_alta  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_marca_emp (id_empresa)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_etiquetas (
+                        id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        nombre      VARCHAR(120) NOT NULL,
+                        slug        VARCHAR(150)          DEFAULT NULL,
+                        INDEX idx_etq_emp (id_empresa)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_productos (
+                        id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa      CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_tienda       INT                   DEFAULT NULL,
+                        codigo_articulo VARCHAR(50)  NOT NULL,
+                        id_categoria    BIGINT                DEFAULT NULL,
+                        id_marca        BIGINT                DEFAULT NULL,
+                        slug            VARCHAR(220)          DEFAULT NULL,
+                        titulo_web      VARCHAR(255)          DEFAULT NULL,
+                        descripcion_web TEXT                  DEFAULT NULL,
+                        destacado       TINYINT(1)   NOT NULL DEFAULT 0,
+                        recomendado     TINYINT(1)   NOT NULL DEFAULT 0,
+                        visible_web     TINYINT(1)   NOT NULL DEFAULT 1,
+                        orden           INT          NOT NULL DEFAULT 0,
+                        seo_title       VARCHAR(255)          DEFAULT NULL,
+                        seo_descripcion VARCHAR(500)          DEFAULT NULL,
+                        fecha_alta      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        fecha_actualizacion DATETIME  DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_prod_emp_art (id_empresa, codigo_articulo),
+                        INDEX idx_prod_cat (id_categoria), INDEX idx_prod_marca (id_marca),
+                        INDEX idx_prod_emp (id_empresa)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_imagenes (
+                        id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_producto BIGINT       NOT NULL,
+                        url         VARCHAR(600) NOT NULL,
+                        alt         VARCHAR(255)          DEFAULT NULL,
+                        orden       INT          NOT NULL DEFAULT 0,
+                        es_portada  TINYINT(1)   NOT NULL DEFAULT 0,
+                        INDEX idx_img_prod (id_producto)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_atributos (
+                        id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        nombre      VARCHAR(120) NOT NULL,
+                        tipo        VARCHAR(30)  NOT NULL DEFAULT 'texto',
+                        INDEX idx_attr_emp (id_empresa)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_producto_atributos (
+                        id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_producto BIGINT       NOT NULL,
+                        id_atributo BIGINT                DEFAULT NULL,
+                        nombre      VARCHAR(120)          DEFAULT NULL,
+                        valor       VARCHAR(255)          DEFAULT NULL,
+                        INDEX idx_pattr_prod (id_producto)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_variantes (
+                        id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa      CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_producto     BIGINT       NOT NULL,
+                        codigo_articulo VARCHAR(50)           DEFAULT NULL,
+                        sku             VARCHAR(80)           DEFAULT NULL,
+                        nombre          VARCHAR(180)          DEFAULT NULL,
+                        precio_dif      DECIMAL(10,2) NOT NULL DEFAULT 0,
+                        atributos       TEXT                  DEFAULT NULL,
+                        orden           INT          NOT NULL DEFAULT 0,
+                        visible         TINYINT(1)   NOT NULL DEFAULT 1,
+                        INDEX idx_var_prod (id_producto)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_producto_etiquetas (
+                        id          BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa  CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_producto BIGINT       NOT NULL,
+                        id_etiqueta BIGINT       NOT NULL,
+                        UNIQUE KEY uq_prod_etq (id_producto, id_etiqueta),
+                        INDEX idx_petq_prod (id_producto), INDEX idx_petq_etq (id_etiqueta)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_relacionados (
+                        id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa      CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_producto     BIGINT       NOT NULL,
+                        id_producto_rel BIGINT       NOT NULL,
+                        tipo            VARCHAR(20)  NOT NULL DEFAULT 'relacionado',
+                        UNIQUE KEY uq_rel (id_producto, id_producto_rel, tipo),
+                        INDEX idx_rel_prod (id_producto)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                # Reservas de stock del canal online (TPV: reservar / solicitar a
+                # otra tienda) sin afectar al flujo normal del TPV.
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS catalogo_reservas (
+                        id              BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_empresa      CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        id_tienda       INT                   DEFAULT NULL,
+                        id_tienda_origen INT                  DEFAULT NULL,
+                        codigo_articulo VARCHAR(50)  NOT NULL,
+                        cantidad        INT          NOT NULL DEFAULT 1,
+                        cliente         VARCHAR(255)          DEFAULT NULL,
+                        trabajador      VARCHAR(255)          DEFAULT NULL,
+                        tipo            VARCHAR(20)  NOT NULL DEFAULT 'reserva',
+                        estado          VARCHAR(20)  NOT NULL DEFAULT 'activa',
+                        observaciones   VARCHAR(500)          DEFAULT NULL,
+                        caduca          DATETIME              DEFAULT NULL,
+                        fecha           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_res_emp (id_empresa), INDEX idx_res_tienda (id_tienda),
+                        INDEX idx_res_estado (estado)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+
                 # ── Módulo de CORREO CORPORATIVO (multi-tenant, multi-buzón) ──
                 # Identidad: empresa → tienda → correo. El correo es un SERVICIO
                 # asociado, nunca la clave principal. Preparado para licenciamiento
