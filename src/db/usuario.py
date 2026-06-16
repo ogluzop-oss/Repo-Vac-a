@@ -42,6 +42,68 @@ def _columnas_usuarios(cur):
     return [c["Field"] if isinstance(c, dict) else c[0] for c in cur.fetchall()]
 
 
+# Bloqueo por intentos fallidos (C1.3): tras 5 fallos, bloqueo escalado.
+_MAX_INTENTOS = 5
+
+
+def _bloqueo_minutos(intentos: int) -> int:
+    if intentos < _MAX_INTENTOS:
+        return 0
+    return {0: 1, 1: 5}.get(intentos - _MAX_INTENTOS, 15)
+
+
+def _esta_bloqueado(bloqueado_hasta) -> bool:
+    return bloqueado_hasta is not None and bloqueado_hasta > datetime.now()
+
+
+def _registrar_exito(uid):
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE usuarios SET intentos_fallidos=0, bloqueado_hasta=NULL, "
+                        "ultimo_login=NOW() WHERE id=%s", (uid,))
+            conn.commit()
+    except Exception as e:
+        logger.debug("registrar_exito(%s): %s", uid, e)
+
+
+def _registrar_fallo(uid, intentos_actuales):
+    try:
+        n = int(intentos_actuales or 0) + 1
+        mins = _bloqueo_minutos(n)
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            if mins:
+                cur.execute("UPDATE usuarios SET intentos_fallidos=%s, "
+                            "bloqueado_hasta=DATE_ADD(NOW(), INTERVAL %s MINUTE) WHERE id=%s",
+                            (n, mins, uid))
+            else:
+                cur.execute("UPDATE usuarios SET intentos_fallidos=%s WHERE id=%s", (n, uid))
+            conn.commit()
+    except Exception as e:
+        logger.debug("registrar_fallo(%s): %s", uid, e)
+
+
+def _autenticar(filas_cols, filas, password):
+    """Lógica común: verifica candidatos saltando los bloqueados, rehashea al
+    acierto, registra éxito/fallo. Devuelve (dict_usuario|None, hubo_bloqueado)."""
+    candidatos = [dict(zip(filas_cols, f)) for f in filas]
+    hubo_bloqueado = False
+    activos = []
+    for d in candidatos:
+        if _esta_bloqueado(d.get("bloqueado_hasta")):
+            hubo_bloqueado = True
+            continue
+        activos.append(d)
+    for d in activos:
+        ok, nuevo = _pw.verificar(password, d.get("password"))
+        if ok:
+            _rehash(d["id"], nuevo)
+            _registrar_exito(d["id"])
+            return d, hubo_bloqueado
+    for d in activos:                       # contraseña incorrecta: cuenta el fallo
+        _registrar_fallo(d["id"], d.get("intentos_fallidos"))
+    return None, hubo_bloqueado
+
+
 def validar_login(perfil_ui, password):
     """Valida credenciales por perfil. Verifica con soporte dual (Argon2id +
     SHA-256 legado) fila a fila y rehashea al primer acierto."""
@@ -51,20 +113,25 @@ def validar_login(perfil_ui, password):
             with conn.cursor() as cur:
                 columnas = _columnas_usuarios(cur)
                 col_usuario = "nombre" if "nombre" in columnas else "usuario"
-                col_emp = ", id_empresa" if "id_empresa" in columnas else ""
+                tiene_emp = "id_empresa" in columnas
+                cols = ["id", col_usuario, "perfil", "tienda_id", "password",
+                        "intentos_fallidos", "bloqueado_hasta"]
+                if tiene_emp:
+                    cols.append("id_empresa")
                 cur.execute(
-                    f"SELECT id, {col_usuario}, perfil, tienda_id, password{col_emp} "
-                    f"FROM usuarios WHERE UPPER(perfil) = %s", (valor_busqueda,))
+                    f"SELECT {', '.join(cols)} FROM usuarios WHERE UPPER(perfil) = %s",
+                    (valor_busqueda,))
                 filas = cur.fetchall()
-            for fila in filas:
-                ok, nuevo = _pw.verificar(password, fila[4])
-                if ok:
-                    _rehash(fila[0], nuevo)
-                    logger.info(f"Acceso concedido para perfil: {valor_busqueda}")
-                    return {"id": fila[0], "nombre": fila[1], "perfil": fila[2],
-                            "tienda_id": fila[3],
-                            "id_empresa": fila[5] if col_emp else None}
-            logger.warning(f"Intento de login fallido para: {valor_busqueda}")
+            d, bloqueado = _autenticar(cols, filas, password)
+            if d:
+                logger.info(f"Acceso concedido para perfil: {valor_busqueda}")
+                return {"id": d["id"], "nombre": d[col_usuario], "perfil": d["perfil"],
+                        "tienda_id": d["tienda_id"],
+                        "id_empresa": d.get("id_empresa") if tiene_emp else None}
+            if bloqueado:
+                logger.warning(f"Acceso bloqueado temporalmente para perfil: {valor_busqueda}")
+            else:
+                logger.warning(f"Intento de login fallido para: {valor_busqueda}")
             return None
     except Exception as e:
         logger.error(f"Error crítico en validación: {e}")
@@ -79,18 +146,20 @@ def validar_login_empleado(nombre: str, password: str) -> dict | None:
             with conn.cursor() as cur:
                 columnas = _columnas_usuarios(cur)
                 col_name = "nombre" if "nombre" in columnas else "usuario"
-                col_emp = ", id_empresa" if "id_empresa" in columnas else ""
+                tiene_emp = "id_empresa" in columnas
+                cols = ["id", col_name, "perfil", "tienda_id", "password",
+                        "intentos_fallidos", "bloqueado_hasta"]
+                if tiene_emp:
+                    cols.append("id_empresa")
                 cur.execute(
-                    f"SELECT id, {col_name}, perfil, tienda_id, password{col_emp} "
-                    f"FROM usuarios WHERE UPPER({col_name}) = UPPER(%s)", (nombre.strip(),))
+                    f"SELECT {', '.join(cols)} FROM usuarios WHERE UPPER({col_name}) = UPPER(%s)",
+                    (nombre.strip(),))
                 filas = cur.fetchall()
-            for fila in filas:
-                ok, nuevo = _pw.verificar(password, fila[4])
-                if ok:
-                    _rehash(fila[0], nuevo)
-                    return {"id": fila[0], "nombre": fila[1], "perfil": fila[2],
-                            "tienda_id": fila[3],
-                            "id_empresa": fila[5] if col_emp else None}
+            d, _bloq = _autenticar(cols, filas, password)
+            if d:
+                return {"id": d["id"], "nombre": d[col_name], "perfil": d["perfil"],
+                        "tienda_id": d["tienda_id"],
+                        "id_empresa": d.get("id_empresa") if tiene_emp else None}
     except Exception as e:
         logger.error(f"Error en validación TPV por nombre: {e}")
     return None
@@ -228,7 +297,11 @@ def crear_perfil(nombre, password, perfil_tipo="OPERARIO", tienda_id=None):
     try:
         if not sesion_global.es_admin():
             return False
-
+        from src.seguridad import politica
+        ok_pol, motivo = politica.validar(password)
+        if not ok_pol:
+            logger.warning("Contraseña rechazada por política: %s", motivo)
+            return False
         password_segura = encriptar_password(password)
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
@@ -253,6 +326,11 @@ def crear_perfil(nombre, password, perfil_tipo="OPERARIO", tienda_id=None):
 
 def cambiar_password_usuario(id_usuario: int, nueva_password: str) -> bool:
     try:
+        from src.seguridad import politica
+        ok_pol, motivo = politica.validar(nueva_password)
+        if not ok_pol:
+            logger.warning("Contraseña rechazada por política: %s", motivo)
+            return False
         password_hash = encriptar_password(nueva_password)
         with obtener_conexion() as conn:
             with conn.cursor() as cur:

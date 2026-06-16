@@ -228,6 +228,14 @@ def ensure_schema(force: bool = False):
                     ALTER TABLE usuarios
                     ADD COLUMN IF NOT EXISTS id_empresa CHAR(36) NOT NULL DEFAULT '{_emp}'
                 """)
+                # Seguridad de acceso (C1.3): bloqueo por intentos + último acceso.
+                cur.execute("""
+                    ALTER TABLE usuarios
+                    ADD COLUMN IF NOT EXISTS intentos_fallidos INT NOT NULL DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS bloqueado_hasta DATETIME DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS ultimo_login DATETIME DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS must_change_password TINYINT(1) NOT NULL DEFAULT 0
+                """)
                 cur.execute(f"""
                     ALTER TABLE configuraciones
                     ADD COLUMN IF NOT EXISTS id_empresa CHAR(36) NOT NULL DEFAULT '{_emp}'

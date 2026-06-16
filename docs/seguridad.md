@@ -45,7 +45,20 @@ para empaquetar su binario en el `.exe`.
   lectura de legado en claro, migración) sin romper los webhooks (que leen el secreto
   descifrado para validar firma).
 
-## Pendiente de C1 (siguientes sub-bloques)
-- Bloqueo por intentos fallidos + política de contraseñas.
+## Bloqueo por intentos + política de contraseñas (C1.3)
+
+- Columnas en `usuarios` (ALTER aditivo): `intentos_fallidos`, `bloqueado_hasta`,
+  `ultimo_login`, `must_change_password`.
+- **Bloqueo escalado:** a los 5 fallos se bloquea 1 min; siguientes, 5 y 15 min.
+  El acierto resetea el contador y registra `ultimo_login`. Lógica común en
+  `_autenticar()` (salta candidatos bloqueados, rehashea, cuenta fallos).
+- **Política** `src/seguridad/politica.py` (estilo NIST): mínimo 12 caracteres, sin
+  contraseñas comunes, variedad mínima de 2 tipos, sin espacios en extremos. Aplicada
+  en `crear_perfil` y `cambiar_password_usuario`.
+- Cubierto por `tests/unit/test_politica.py` y `tests/integration/test_seguridad_acceso.py`.
+- Nota: en login por perfil, el bloqueo cuenta por usuario(s) de ese perfil; con el
+  modelo por-usuario (C1.4) será preciso por identidad.
+
+## Pendiente de C1 (siguiente sub-bloque)
 - Identidad por usuario único por empresa (login individual) + diseño JWT/refresh
   y rotación de clave maestra (MultiFernet) para la futura API/SaaS.
