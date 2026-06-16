@@ -45,9 +45,12 @@ def registrar_venta(codigo: str, cantidad_vendida: int) -> bool:
 
             fecha_venta = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+            # A4.1: etiquetar la venta con el tenant activo (no depender del default).
+            from src.db.empresa import empresa_actual_id, tienda_actual_id
             cur.execute(
-                "INSERT INTO ventas (codigo, cantidad, fecha) VALUES (%s, %s, %s)",
-                (codigo, cantidad_vendida, fecha_venta),
+                "INSERT INTO ventas (codigo, cantidad, fecha, id_empresa, id_tienda) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (codigo, cantidad_vendida, fecha_venta, empresa_actual_id(), tienda_actual_id()),
             )
             cur.execute(
                 "UPDATE articulos SET Stock_tienda = Stock_tienda - %s WHERE codigo = %s",

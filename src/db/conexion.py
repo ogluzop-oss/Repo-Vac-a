@@ -1547,14 +1547,16 @@ def registrar_venta_con_items(
         if fecha is None:
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        _eid, _tid = empresa_actual_id(), tienda_actual_id()   # A4.1: tenant activo
         with transaccion() as conn:        # A2.2: venta + ítems + stock atómicos
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO ventas (fecha, total, forma_pago, empleado)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO ventas (fecha, total, forma_pago, empleado, id_empresa, id_tienda)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     """,
-                    (fecha, 0.0, forma_pago, str(empleado_id) if empleado_id else None),
+                    (fecha, 0.0, forma_pago, str(empleado_id) if empleado_id else None, _eid, _tid),
                 )
                 venta_id = cur.lastrowid
                 total_acumulado = 0.0
@@ -1568,10 +1570,10 @@ def registrar_venta_con_items(
 
                     cur.execute(
                         """
-                        INSERT INTO venta_items (venta_id, codigo_articulo, cantidad, precio_unitario, subtotal)
-                        VALUES (%s, %s, %s, %s, %s)
+                        INSERT INTO venta_items (venta_id, codigo_articulo, cantidad, precio_unitario, subtotal, id_empresa)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         """,
-                        (venta_id, str(codigo), cantidad, precio, subtotal),
+                        (venta_id, str(codigo), cantidad, precio, subtotal, _eid),
                     )
                     cur.execute(
                         """
@@ -1610,11 +1612,14 @@ def registrar_factura(
         if fecha is None:
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        _eid, _tid = empresa_actual_id(), tienda_actual_id()   # A4.1: tenant activo
         with transaccion() as conn:        # A2.2: factura + ítems + stock atómicos
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO ventas (fecha, total, forma_pago, empleado) VALUES (%s, %s, %s, %s)",
-                    (fecha, 0.0, "factura", responsable),
+                    "INSERT INTO ventas (fecha, total, forma_pago, empleado, id_empresa, id_tienda) "
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
+                    (fecha, 0.0, "factura", responsable, _eid, _tid),
                 )
                 factura_id = cur.lastrowid
                 total_factura = 0.0
@@ -1629,10 +1634,10 @@ def registrar_factura(
 
                     cur.execute(
                         """
-                        INSERT INTO venta_items (venta_id, codigo_articulo, nombre, cantidad, precio_unitario, subtotal)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        INSERT INTO venta_items (venta_id, codigo_articulo, nombre, cantidad, precio_unitario, subtotal, id_empresa)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         """,
-                        (factura_id, codigo, nombre, cantidad, precio, subtotal),
+                        (factura_id, codigo, nombre, cantidad, precio, subtotal, _eid),
                     )
                     if codigo:
                         cur.execute(

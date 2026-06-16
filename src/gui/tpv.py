@@ -4896,10 +4896,10 @@ class TPVWindow(QWidget):
                     for l in lineas:
                         cur.execute(
                             "INSERT INTO venta_items "
-                            "(venta_id, codigo_articulo, nombre, seccion, cantidad, precio_unitario, subtotal) "
-                            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                            "(venta_id, codigo_articulo, nombre, seccion, cantidad, precio_unitario, subtotal, id_empresa) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                             (venta_id, l["codigo"], l["nombre"], l.get("seccion", ""),
-                             l["cantidad"], l["precio"], l["subtotal"]),
+                             l["cantidad"], l["precio"], l["subtotal"], _id_empresa),
                         )
 
                     for l in lineas:

@@ -79,6 +79,36 @@ para empaquetar su binario en el `.exe`.
   entorno/secrets manager, fuera del directorio de datos.
 - Cubierto por `tests/unit/test_tokens.py` y `tests/integration/test_identidad_sesiones.py`.
 
+## Aislamiento multi-tenant (A4.1)
+
+- **Override por petición (A1):** `empresa.contexto_tenant()` fija el tenant del HILO
+  (lo usa el middleware de la API); los servicios leen `empresa_actual_id()/
+  tienda_actual_id()`, que respetan ese override → aislamiento real bajo concurrencia.
+- **Corrección de etiquetado (A4.1):** las rutas de venta secundarias
+  (`registro_venta.registrar_venta`, `conexion.registrar_venta_con_items`,
+  `registrar_factura`) y los `venta_items` (TPV incluido) ahora etiquetan
+  explícitamente `id_empresa`/`id_tienda` con el tenant activo (ya no dependen del
+  valor por defecto).
+- **Barrida de aislamiento** (`tests/integration/test_aislamiento_modulos.py`):
+  ventas etiquetadas por tenant; `buscar_ventas`, `obtener_mermas` y
+  `listar_documentos` aíslan por empresa (datos creados como empresa B invisibles
+  desde A).
+- **Patrón “obtener por id”:** funciones como `obtener_pedido` no filtran por empresa;
+  la API lo blinda con verificación de pertenencia (→404). En A4.2 se generaliza con
+  un guard reutilizable + sanitizador de respuestas.
+- **Nota:** `listar_documentos` aísla cuando el llamador pasa `id_empresa` (el centro
+  documental lo hace; SUPERADMIN pasa None para ver todas, por diseño).
+
+### EXCEPCIÓN TEMPORAL — maestro de artículos (`articulos`)
+`articulos` tiene **PK `codigo` global** → hoy el **catálogo maestro y su stock de
+trabajo son COMPARTIDOS** entre empresas en BD compartida (el overlay
+`catalogo_productos` y `stock_tienda` sí están aislados). Aislarlo por empresa exige
+PK compuesta `(id_empresa, codigo)` + rework de la FK `reab_config` + ~128 consultas
+→ se trata como **épica dedicada posterior** (con su propia auditoría: PK/FK,
+migración de datos, compatibilidad, coste BD-compartida vs BD-por-tenant, rollback).
+Hasta entonces, `articulos` queda **explícitamente documentado como excepción** del
+modelo de aislamiento. El aislamiento real llega también vía SaaS BD-por-tenant.
+
 ## Imprescindible SaaS vs fase posterior
 - **Hecho en C1 (imprescindible):** Argon2id+rehash, cifrado de secretos en reposo,
   bloqueo+política, identidad por usuario por empresa, diseño JWT/refresh + sesiones,
