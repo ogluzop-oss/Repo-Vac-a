@@ -308,6 +308,20 @@ def actualizar_cola(id_cola, estado, error=None, proximo_intento=None) -> bool:
         return False
 
 
+def actualizar_aeat(id_registro, estado_aeat=None, csv_aeat=None) -> bool:
+    """Persiste la trazabilidad de AEAT (estado y CSV del acuse) de un registro.
+    Aditivo: columnas creadas por la migración 0004; no altera el encadenado."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE fiscal_registros SET estado_aeat=%s, csv_aeat=%s WHERE id=%s",
+                        (estado_aeat, csv_aeat, id_registro))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("actualizar_aeat(%s): %s", id_registro, e)
+        return False
+
+
 def obtener_registro(id_registro) -> dict | None:
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:

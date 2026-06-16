@@ -37,6 +37,14 @@ def firmante_para(config: dict) -> Firmante:
 
 
 def emisor_para(config: dict) -> Emisor:
-    """Emisor para una config. En C3.2 no-op (no envía); Verifactu/Facturae/FACe
-    se enchufan en C3.3/C3.4 como adaptadores."""
+    """Emisor para una config. Verifactu (C3.3) devuelve su adaptador AEAT, que
+    permanece `disponible()=False` hasta que haya transporte/certificado listo
+    (C3.5) → el worker deja el registro en espera, sin enviar nada a ciegas.
+    Otros regímenes/sin configurar: no-op."""
+    if (config or {}).get("proveedor") == "verifactu":
+        try:
+            from src.services.fiscal.emisores.verifactu_aeat import EmisorVerifactu
+            return EmisorVerifactu(config=config)
+        except Exception as e:
+            logger.error("emisor_para(verifactu): %s", e)
     return Emisor()
