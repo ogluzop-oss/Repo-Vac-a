@@ -34,6 +34,12 @@ for f in os.listdir(os.path.join(ROOT, "src", "database")):
     if f.endswith(".sql"):
         datas.append((os.path.join(ROOT, "src", "database", f), os.path.join("src", "database")))
 
+# Esquemas XSD/WSDL de Verifactu (C3.3.1.1) — generación y validación de registros.
+_esq = os.path.join(ROOT, "src", "services", "fiscal", "esquemas")
+for f in os.listdir(_esq):
+    if f.endswith((".xsd", ".wsdl")):
+        datas.append((os.path.join(_esq, f), os.path.join("src", "services", "fiscal", "esquemas")))
+
 # Datos de paquetes de terceros que los necesitan en runtime.
 for paquete in ("edge_tts",):
     try:

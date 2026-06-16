@@ -7,3 +7,4 @@ freezegun==1.5.5        # congelar el tiempo en tests (fechas/replay)
 coverage==7.14.1        # motor de cobertura
 ruff==0.8.4
 pyinstaller==6.11.1
+lxml==6.1.1             # validación XSD de conformidad Verifactu (C3.3.1.1; dev/build)
