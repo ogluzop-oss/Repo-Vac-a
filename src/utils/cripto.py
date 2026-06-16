@@ -60,20 +60,43 @@ def _cargar_o_crear_clave() -> bytes | None:
         return None
 
 
+def _claves_rotacion() -> list[bytes]:
+    """Claves para ROTACIÓN sin downtime (MultiFernet): la primera cifra; todas
+    descifran. Se toman de `SMART_MANAGER_SECRET_KEYS` (coma-separadas, la nueva
+    primero). Si no está, se usa la clave única habitual."""
+    env = os.getenv("SMART_MANAGER_SECRET_KEYS")
+    if env:
+        return [k.strip().encode() for k in env.split(",") if k.strip()]
+    clave = _cargar_o_crear_clave()
+    return [clave] if clave else []
+
+
 def _get_fernet():
     global _fernet, _intentado
     if _fernet is not None or _intentado:
         return _fernet
     _intentado = True
     try:
-        from cryptography.fernet import Fernet
-        clave = _cargar_o_crear_clave()
-        if clave:
-            _fernet = Fernet(clave)
+        from cryptography.fernet import Fernet, MultiFernet
+        claves = _claves_rotacion()
+        if not claves:
+            return None
+        fernets = [Fernet(k) for k in claves]
+        # MultiFernet permite rotar: cifra con la primera, descifra con cualquiera.
+        _fernet = MultiFernet(fernets) if len(fernets) > 1 else fernets[0]
     except Exception as e:
         logger.warning("Cifrado no disponible (cryptography): %s. Los tokens NO se cifrarán.", e)
         _fernet = None
     return _fernet
+
+
+def rotar(token: str | None) -> str | None:
+    """Re-cifra un token con la clave activa (para migrar a una clave nueva tras
+    una rotación). Si no parece cifrado o no hay backend, lo devuelve igual."""
+    if not parece_cifrado(token):
+        return token
+    plano = descifrar(token)
+    return cifrar(plano) if plano is not None else token
 
 
 def cifrar(texto: str | None) -> str | None:

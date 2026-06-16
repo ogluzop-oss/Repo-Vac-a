@@ -59,6 +59,29 @@ para empaquetar su binario en el `.exe`.
 - Nota: en login por perfil, el bloqueo cuenta por usuario(s) de ese perfil; con el
   modelo por-usuario (C1.4) será preciso por identidad.
 
-## Pendiente de C1 (siguiente sub-bloque)
-- Identidad por usuario único por empresa (login individual) + diseño JWT/refresh
-  y rotación de clave maestra (MultiFernet) para la futura API/SaaS.
+## Identidad por usuario + JWT/refresh + rotación (C1.4)
+
+- **Identidad por usuario único por empresa:** `usuarios.nombre` deja de ser único
+  global y pasa a `UNIQUE(id_empresa, nombre)` (+ columna `email`). Nuevo
+  `validar_login_usuario(identificador, password, id_empresa)` (login por nombre o
+  email dentro de una empresa) con soporte dual de hash, rehash y bloqueo. Los
+  login actuales (`validar_login` por perfil, `validar_login_empleado`) se mantienen.
+- **JWT/refresh (diseño, sin endpoints):** `src/seguridad/tokens.py` emite/verifica
+  access (15 min) y refresh (30 días) con claims multi-tenant (`sub`, `empresa`,
+  `tienda`, `rol`). Refresh persistido **hasheado** y revocable en `sesiones`
+  (`src/db/sesiones.py`). Firma HS256 con clave derivada de la maestra (o
+  `SMART_MANAGER_JWT_SECRET`); pasable a RS256 sin cambiar la interfaz.
+- **Identidades externas (OIDC):** tabla `identidades_externas` reservada para
+  vincular Google/Microsoft/Apple en fase posterior.
+- **Rotación de clave maestra:** `cripto` soporta **MultiFernet** vía
+  `SMART_MANAGER_SECRET_KEYS` (la primera cifra, todas descifran) + helper `rotar()`
+  para re-cifrar con la clave activa. Recomendado: clave maestra en variable de
+  entorno/secrets manager, fuera del directorio de datos.
+- Cubierto por `tests/unit/test_tokens.py` y `tests/integration/test_identidad_sesiones.py`.
+
+## Imprescindible SaaS vs fase posterior
+- **Hecho en C1 (imprescindible):** Argon2id+rehash, cifrado de secretos en reposo,
+  bloqueo+política, identidad por usuario por empresa, diseño JWT/refresh + sesiones,
+  rotación MultiFernet.
+- **Fase posterior:** endpoints JWT de la API (A1), OIDC (Google/MS/Apple), MFA/2FA,
+  claves por-tenant/KMS, comprobación HIBP, rotación forzada de contraseñas.

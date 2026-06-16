@@ -165,6 +165,46 @@ def validar_login_empleado(nombre: str, password: str) -> dict | None:
     return None
 
 
+def validar_login_usuario(identificador: str, password: str, id_empresa=None) -> dict | None:
+    """Login por IDENTIDAD individual (nombre o email), único por empresa (C1.4).
+
+    Modelo objetivo para API/SaaS/móvil. Mantiene soporte dual de hash, rehash y
+    bloqueo por intentos. Si `id_empresa` se indica, restringe a esa empresa."""
+    ident = (identificador or "").strip()
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                columnas = _columnas_usuarios(cur)
+                col_name = "nombre" if "nombre" in columnas else "usuario"
+                tiene_emp = "id_empresa" in columnas
+                tiene_email = "email" in columnas
+                cols = ["id", col_name, "perfil", "tienda_id", "password",
+                        "intentos_fallidos", "bloqueado_hasta"]
+                if tiene_emp:
+                    cols.append("id_empresa")
+                if tiene_email:
+                    cols.append("email")
+                cond = f"UPPER({col_name}) = UPPER(%s)"
+                params = [ident]
+                if tiene_email:
+                    cond = f"({cond} OR UPPER(email) = UPPER(%s))"
+                    params.append(ident)
+                if id_empresa and tiene_emp:
+                    cond += " AND id_empresa = %s"
+                    params.append(id_empresa)
+                cur.execute(f"SELECT {', '.join(cols)} FROM usuarios WHERE {cond}", tuple(params))
+                filas = cur.fetchall()
+            d, _bloq = _autenticar(cols, filas, password)
+            if d:
+                return {"id": d["id"], "nombre": d[col_name], "perfil": d["perfil"],
+                        "tienda_id": d["tienda_id"],
+                        "id_empresa": d.get("id_empresa") if tiene_emp else None,
+                        "email": d.get("email") if tiene_email else None}
+    except Exception as e:
+        logger.error(f"Error en validación por identidad: {e}")
+    return None
+
+
 class SesionUsuario:
     """Clase Singleton para gestionar la sesión activa del usuario."""
 

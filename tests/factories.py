@@ -109,7 +109,7 @@ class Fabrica:
         return eid
 
     def usuario(self, nombre=None, password="Contrasena_Larga_123", perfil="OPERARIO",
-                id_empresa=None, tienda_id=None, hash_legado=False):
+                id_empresa=None, tienda_id=None, hash_legado=False, email=None):
         """Crea un usuario. Si `hash_legado=True`, guarda el password con SHA-256
         antiguo (para probar la migración); si no, con Argon2id."""
         import hashlib
@@ -129,9 +129,11 @@ class Fabrica:
                 cur.execute("INSERT INTO usuarios (nombre, password, perfil, tienda_id) "
                             "VALUES (%s,%s,%s,%s)", (nombre, ph, perfil, tienda_id))
             uid = cur.lastrowid
+            if email and "email" in cols:
+                cur.execute("UPDATE usuarios SET email=%s WHERE id=%s", (email, uid))
             conn.commit()
         self._borrar("usuarios", "id", uid)
-        return {"id": uid, "nombre": nombre, "perfil": perfil, "password": password}
+        return {"id": uid, "nombre": nombre, "perfil": perfil, "password": password, "email": email}
 
     def buzon_correo(self, id_empresa=None, direccion=None):
         from src.db import correo as correo_db

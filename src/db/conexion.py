@@ -234,7 +234,48 @@ def ensure_schema(force: bool = False):
                     ADD COLUMN IF NOT EXISTS intentos_fallidos INT NOT NULL DEFAULT 0,
                     ADD COLUMN IF NOT EXISTS bloqueado_hasta DATETIME DEFAULT NULL,
                     ADD COLUMN IF NOT EXISTS ultimo_login DATETIME DEFAULT NULL,
-                    ADD COLUMN IF NOT EXISTS must_change_password TINYINT(1) NOT NULL DEFAULT 0
+                    ADD COLUMN IF NOT EXISTS must_change_password TINYINT(1) NOT NULL DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS email VARCHAR(255) DEFAULT NULL
+                """)
+                # Identidad por USUARIO ÚNICO POR EMPRESA (C1.4): el nombre deja de
+                # ser único global y pasa a serlo dentro de cada empresa (SaaS).
+                try:
+                    cur.execute("ALTER TABLE usuarios DROP INDEX IF EXISTS nombre")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("ALTER TABLE usuarios "
+                                "ADD UNIQUE KEY IF NOT EXISTS uq_usuario_empresa (id_empresa, nombre)")
+                except Exception:
+                    pass
+                # Sesiones / refresh tokens (diseño para la futura API REST).
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS sesiones (
+                        id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_usuario    INT          NOT NULL,
+                        id_empresa    CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        jti           CHAR(36)     NOT NULL,
+                        refresh_hash  VARCHAR(255)          DEFAULT NULL,
+                        emitido       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        expira        DATETIME              DEFAULT NULL,
+                        revocado      TINYINT(1)   NOT NULL DEFAULT 0,
+                        UNIQUE KEY uq_sesion_jti (jti),
+                        INDEX idx_sesion_usuario (id_usuario)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                # Identidades externas (OIDC: Google/Microsoft/Apple) — diseño.
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS identidades_externas (
+                        id            BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        id_usuario    INT          NOT NULL,
+                        id_empresa    CHAR(36)     NOT NULL DEFAULT '{_emp}',
+                        proveedor     VARCHAR(30)  NOT NULL,
+                        sub_externo   VARCHAR(255) NOT NULL,
+                        email         VARCHAR(255)          DEFAULT NULL,
+                        fecha_alta    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY uq_idext (proveedor, sub_externo),
+                        INDEX idx_idext_usuario (id_usuario)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
                 cur.execute(f"""
                     ALTER TABLE configuraciones

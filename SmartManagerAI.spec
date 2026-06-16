@@ -58,6 +58,7 @@ hiddenimports += [
     "PIL._tkinter_finder",
     "pyttsx3.drivers", "pyttsx3.drivers.sapi5",
     "openpyxl", "pandas", "numpy",
+    "jwt",  # PyJWT (tokens de la futura API; import perezoso en seguridad/tokens)
 ]
 
 # Paquetes pesados/con datos que se recogen completos si están instalados.
