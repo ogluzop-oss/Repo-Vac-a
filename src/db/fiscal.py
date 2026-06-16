@@ -333,6 +333,20 @@ def obtener_registro(id_registro) -> dict | None:
         return None
 
 
+def obtener_por_serie_numero(id_empresa, serie, numero) -> dict | None:
+    """Registro por (empresa, serie, numero). Lo usa el serializador XML para
+    reconstruir el `RegistroAnterior` del encadenamiento. Aditivo, solo lectura."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM fiscal_registros WHERE id_empresa=%s AND serie=%s "
+                        "AND numero=%s LIMIT 1", (id_empresa, serie, int(numero)))
+            r = cur.fetchone()
+            return _filas_a_dicts(cur, [r])[0] if r else None
+    except Exception as e:
+        logger.error("obtener_por_serie_numero(%s,%s): %s", serie, numero, e)
+        return None
+
+
 def obtener_por_referencia(referencia, id_empresa=None, tipo="ticket") -> dict | None:
     """Último registro fiscal de una referencia (p. ej. venta_id) de la empresa.
     Lo usa el ticket para incrustar el QR/leyenda legales. Aditivo, solo lectura."""

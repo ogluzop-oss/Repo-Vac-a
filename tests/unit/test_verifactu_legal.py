@@ -39,7 +39,7 @@ def test_num_serie_y_qr_entornos():
     qr_pre = L.contenido_qr("B1", "A/1", "16-06-2026", "12.10", entorno="preproduccion")
     qr_pro = L.contenido_qr("B1", "A/1", "16-06-2026", "12.10", entorno="produccion")
     assert qr_pre.startswith("https://prewww2.aeat.es") and "nif=B1" in qr_pre
-    assert qr_pro.startswith("https://www2.agenciatributaria.gob.es")
+    assert qr_pro.startswith("https://www2.agenciatributaria.es")   # host oficial del QR
     assert "numserie=A%2F1" in qr_pre and "importe=12.10" in qr_pre
 
 

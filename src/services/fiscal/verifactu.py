@@ -40,16 +40,32 @@ class ProveedorVerifactu(ProveedorFiscal):
         except Exception as e:
             logger.debug("desglose_iva no disponible: %s", e)
         ahora = datetime.datetime.now().astimezone().replace(microsecond=0)
+        base = f"{float(desg.get('base') or 0):.2f}"
+        cuota = f"{float(desg.get('cuota') or 0):.2f}"
+        tipo_iva = desg.get("tipo")
+        # Desglose conforme al XSD (mono-tipo a partir del IVA de la empresa;
+        # multi-tipo → extensión futura con datos de línea). CalificacionOperacion
+        # S1 = sujeta y no exenta. ⚠️[ClaveRegimen/Calificacion a confirmar fiscal]
+        desglose = [{
+            "clave_regimen": "01",            # ⚠️ régimen general; confirmar por empresa
+            "calificacion": "S1",
+            "tipo": f"{float(tipo_iva):.2f}" if tipo_iva is not None else None,
+            "base": base,
+            "cuota": cuota,
+        }]
         return {
             "regimen": "verifactu", "kind": "alta",
             "tipo_factura": "F1" if tipo == "factura" else "F2",  # ⚠️[verificar tipos]
             "nif_emisor": info.get("cif") or "",
-            "fecha_expedicion": ahora.strftime("%d-%m-%Y"),       # ⚠️[verificar formato]
-            "fecha_gen": ahora.isoformat(),                       # ISO-8601 con huso
-            "cuota_total": f"{float(desg.get('cuota') or 0):.2f}",
+            "nombre_emisor": info.get("razon_social") or info.get("nombre") or "",
+            "descripcion": "Venta",                               # ⚠️ texto por defecto
+            "fecha_expedicion": ahora.strftime("%d-%m-%Y"),       # XSD: dd-mm-yyyy
+            "fecha_gen": ahora.isoformat(),                       # XSD: dateTime con huso
+            "cuota_total": cuota,
             "importe_total": f"{round(float(total or 0), 2):.2f}",
-            "base_total": f"{float(desg.get('base') or 0):.2f}",
-            "tipo_iva": desg.get("tipo"),
+            "base_total": base,
+            "tipo_iva": tipo_iva,
+            "desglose": desglose,
         }
 
     def _guardar_qr(self, id_registro, qr):

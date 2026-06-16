@@ -26,10 +26,11 @@ ORDEN_ANULACION = ("IDEmisorFacturaAnulada", "NumSerieFacturaAnulada",
                    "FechaExpedicionFacturaAnulada", "Huella",
                    "FechaHoraHusoGenRegistro")
 
-# Servicio de cotejo del QR (preproducción vs producción). ⚠️[verificar URL/params]
+# Servicio de cotejo del QR (preproducción vs producción). Hosts según la
+# especificación oficial del QR de AEAT. ⚠️[re-sellar contra el PDF QR v0.5.0]
 _URL_QR = {
     "preproduccion": "https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR",
-    "produccion": "https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR",
+    "produccion": "https://www2.agenciatributaria.es/wlpl/TIKE-CONT/ValidarQR",
 }
 
 LEYENDA = "VERI*FACTU"
