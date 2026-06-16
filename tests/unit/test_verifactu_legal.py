@@ -33,6 +33,18 @@ def test_huella_es_concatenacion_clave_valor_ordenada():
     assert L.huella_alta(_CAMPOS, None) == esperado
 
 
+def test_huella_vector_dorado_ejemplo_oficial_aeat():
+    """Vector dorado: reproduce el hash del EJEMPLO OFICIAL documentado por AEAT.
+    Si esto falla, el formato de huella se ha desviado de la especificación."""
+    from src.services.fiscal import verifactu_legal as L
+    campos = {"IDEmisorFactura": "89890001K", "NumSerieFactura": "12345678/G33",
+              "FechaExpedicionFactura": "01-01-2024", "TipoFactura": "F1",
+              "CuotaTotal": "12.35", "ImporteTotal": "123.45",
+              "FechaHoraHusoGenRegistro": "2024-01-01T19:20:30+01:00"}
+    assert L.huella_alta(campos, None) == \
+        "3C464DAF61ACB827C65FDA19F352A4E3BDC2C640E9E9FC4CC058073F38F12F60"
+
+
 def test_num_serie_y_qr_entornos():
     from src.services.fiscal import verifactu_legal as L
     assert L.num_serie("A-T1", 7) == "A-T1/7"
