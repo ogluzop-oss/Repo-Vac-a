@@ -45,6 +45,15 @@ for paquete in ("edge_tts",):
 hiddenimports = []
 hiddenimports += collect_submodules("src")
 hiddenimports += collect_submodules("assets")
+# Migraciones (C4): sus módulos empiezan por dígito (0001_*, 0002_…) y
+# collect_submodules los omite. Se añaden por glob para garantizar su
+# empaquetado en el .exe (presente y futuras migraciones).
+import glob as _glob
+hiddenimports.append("src.database.migraciones")
+for _mig in _glob.glob(os.path.join(ROOT, "src", "database", "migraciones", "*.py")):
+    _nm = os.path.splitext(os.path.basename(_mig))[0]
+    if _nm not in ("__init__", "_init_"):
+        hiddenimports.append("src.database.migraciones." + _nm)
 # unidecode carga submódulos de datos perezosamente (unidecode.x0XX) → recogerlos.
 try:
     hiddenimports += collect_submodules("unidecode")
