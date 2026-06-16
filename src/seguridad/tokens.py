@@ -35,6 +35,13 @@ def _secreto() -> str:
             return hashlib.sha256(b"jwt:" + clave).hexdigest()
     except Exception as e:
         logger.debug("No se pudo derivar el secreto JWT de la clave maestra: %s", e)
+    # A5.1: en producción NUNCA se usa el secreto de desarrollo.
+    try:
+        from src.seguridad.entorno import es_produccion
+        if es_produccion():
+            raise RuntimeError("SMART_MANAGER_JWT_SECRET es obligatorio en producción.")
+    except ImportError:
+        pass
     logger.warning("Usando secreto JWT de desarrollo; define SMART_MANAGER_JWT_SECRET.")
     return "dev-insecure-jwt-secret-change-me"
 

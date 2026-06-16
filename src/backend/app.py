@@ -24,6 +24,15 @@ def crear_app():
     (lazy) para no exigirlo en despliegues de solo escritorio."""
     from flask import Flask, jsonify, request
 
+    # A5.1: en producción, no arrancar sin secretos críticos (JWT + clave maestra).
+    try:
+        from src.seguridad.entorno import validar_arranque_seguro
+        validar_arranque_seguro()
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logger.debug("validar_arranque_seguro: %s", e)
+
     app = Flask("smart_manager_backend")
 
     @app.get("/salud")
