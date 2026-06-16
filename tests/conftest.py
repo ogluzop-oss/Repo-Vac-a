@@ -53,6 +53,12 @@ def esquema_test():
         return None
     if not conexion.ensure_schema(force=True):
         pytest.skip("No se pudo construir el esquema de pruebas.")
+    # Aplica las migraciones versionadas (C4) en la BD de pruebas (sin backup).
+    try:
+        from src.db import migrador
+        migrador.aplicar_pendientes(backup=False)
+    except Exception:
+        pass
     return dbname
 
 
