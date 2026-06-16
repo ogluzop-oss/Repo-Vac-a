@@ -56,9 +56,20 @@ global (sin cambios).
 python -m src.backend.app      # BACKEND_HOST / BACKEND_PORT (o PORT) por entorno
 ```
 
+## Seguridad operativa (A5)
+
+- **Secretos por entorno con fail-fast (A5.1):** con `SMART_MANAGER_ENV=prod`, el
+  backend **no arranca** sin `SMART_MANAGER_JWT_SECRET` ni clave maestra por entorno
+  (`validar_arranque_seguro`); en desarrollo solo avisa. `tokens` nunca usa el secreto
+  de desarrollo en producción.
+- **Rate limiting (A5.2):** por IP+endpoint, backend **enchufable** (`rate_limit.py`,
+  en memoria por defecto; `set_backend()` para Redis en SaaS multi-instancia). Aplicado
+  a `auth/login` (10/min), `auth/refresh` y `auth/logout` (30/min) → `429` al exceder.
+- **No-exposición (A4.2/A5.3):** lista blanca por recurso + red `_sin_secretos`; tests
+  que verifican que la API nunca devuelve password/hash/api_key/secret/token ni
+  credenciales en `catalogo`/`pedidos`/`me` (`auth/*` sí devuelve tokens, a propósito).
+
 ## Principios
 
 - Endpoints = traducción HTTP↔servicio; toda la lógica vive en `src/services` y
   `src/db`. Secretos por el sistema de claves de C1 (la API nunca los devuelve).
-- Pendiente (A5): rate-limit de login, secreto JWT por entorno, revisión de
-  no-exposición de secretos.
