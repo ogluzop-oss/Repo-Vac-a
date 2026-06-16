@@ -2,6 +2,8 @@ import hashlib
 import logging
 from datetime import datetime
 
+from src.seguridad import passwords as _pw
+
 from .conexion import obtener_conexion
 
 logger = logging.getLogger("usuario_db")
@@ -12,76 +14,83 @@ logger = logging.getLogger("usuario_db")
 # ============================================================
 
 def encriptar_password(password: str) -> str:
-    """Convierte una contraseña en texto plano a un hash SHA-256."""
+    """Hash de una contraseña (Argon2id). Mantiene el nombre por compatibilidad;
+    los hashes antiguos SHA-256 se siguen validando y se migran en el login."""
+    return _pw.hash_password(password)
+
+
+def _hash_sha256_legado(password: str) -> str:
+    """Solo para utilidades que aún comparan por igualdad (uso interno)."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-def validar_login(perfil_ui, password):
-    """Valida las credenciales realizando un mapeo dinámico de columnas."""
-    valor_busqueda = perfil_ui.strip().upper()
-    password_hash = encriptar_password(password)
+def _rehash(id_usuario, hash_nuevo):
+    """Persiste un hash re-generado (migración transparente a Argon2id)."""
+    if not hash_nuevo:
+        return
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (hash_nuevo, id_usuario))
+            conn.commit()
+        logger.info("Contraseña migrada a Argon2id (usuario id=%s).", id_usuario)
+    except Exception as e:
+        logger.debug("No se pudo rehashear (id=%s): %s", id_usuario, e)
 
+
+def _columnas_usuarios(cur):
+    cur.execute("SHOW COLUMNS FROM usuarios")
+    return [c["Field"] if isinstance(c, dict) else c[0] for c in cur.fetchall()]
+
+
+def validar_login(perfil_ui, password):
+    """Valida credenciales por perfil. Verifica con soporte dual (Argon2id +
+    SHA-256 legado) fila a fila y rehashea al primer acierto."""
+    valor_busqueda = perfil_ui.strip().upper()
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
-                cur.execute("SHOW COLUMNS FROM usuarios")
-                columnas_info = cur.fetchall()
-                columnas = [
-                    col["Field"] if isinstance(col, dict) else col[0]
-                    for col in columnas_info
-                ]
+                columnas = _columnas_usuarios(cur)
                 col_usuario = "nombre" if "nombre" in columnas else "usuario"
-
                 col_emp = ", id_empresa" if "id_empresa" in columnas else ""
-                sql = f"""
-                    SELECT id, {col_usuario}, perfil, tienda_id{col_emp}
-                    FROM usuarios
-                    WHERE UPPER(perfil) = %s AND password = %s
-                """
-                cur.execute(sql, (valor_busqueda, password_hash))
-                fila = cur.fetchone()
-
-                if fila:
-                    usuario = {
-                        "id": fila[0],
-                        "nombre": fila[1],
-                        "perfil": fila[2],
-                        "tienda_id": fila[3],
-                        "id_empresa": fila[4] if col_emp else None,
-                    }
+                cur.execute(
+                    f"SELECT id, {col_usuario}, perfil, tienda_id, password{col_emp} "
+                    f"FROM usuarios WHERE UPPER(perfil) = %s", (valor_busqueda,))
+                filas = cur.fetchall()
+            for fila in filas:
+                ok, nuevo = _pw.verificar(password, fila[4])
+                if ok:
+                    _rehash(fila[0], nuevo)
                     logger.info(f"Acceso concedido para perfil: {valor_busqueda}")
-                    return usuario
-
-                logger.warning(f"Intento de login fallido para: {valor_busqueda}")
-                return None
+                    return {"id": fila[0], "nombre": fila[1], "perfil": fila[2],
+                            "tienda_id": fila[3],
+                            "id_empresa": fila[5] if col_emp else None}
+            logger.warning(f"Intento de login fallido para: {valor_busqueda}")
+            return None
     except Exception as e:
         logger.error(f"Error crítico en validación: {e}")
         return None
 
 
 def validar_login_empleado(nombre: str, password: str) -> dict | None:
-    """Valida credenciales buscando por nombre individual de empleado (para TPV)."""
-    password_hash = encriptar_password(password)
+    """Valida credenciales por nombre individual de empleado (para TPV). Soporte
+    dual Argon2id/SHA-256 con rehash en el primer acierto."""
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
-                cur.execute("SHOW COLUMNS FROM usuarios")
-                columnas = [
-                    col["Field"] if isinstance(col, dict) else col[0]
-                    for col in cur.fetchall()
-                ]
+                columnas = _columnas_usuarios(cur)
                 col_name = "nombre" if "nombre" in columnas else "usuario"
                 col_emp = ", id_empresa" if "id_empresa" in columnas else ""
-                sql = f"""
-                    SELECT id, {col_name}, perfil, tienda_id{col_emp}
-                    FROM usuarios
-                    WHERE UPPER({col_name}) = UPPER(%s) AND password = %s
-                """
-                cur.execute(sql, (nombre.strip(), password_hash))
-                fila = cur.fetchone()
-                if fila:
+                cur.execute(
+                    f"SELECT id, {col_name}, perfil, tienda_id, password{col_emp} "
+                    f"FROM usuarios WHERE UPPER({col_name}) = UPPER(%s)", (nombre.strip(),))
+                filas = cur.fetchall()
+            for fila in filas:
+                ok, nuevo = _pw.verificar(password, fila[4])
+                if ok:
+                    _rehash(fila[0], nuevo)
                     return {"id": fila[0], "nombre": fila[1], "perfil": fila[2],
-                            "tienda_id": fila[3], "id_empresa": fila[4] if col_emp else None}
+                            "tienda_id": fila[3],
+                            "id_empresa": fila[5] if col_emp else None}
     except Exception as e:
         logger.error(f"Error en validación TPV por nombre: {e}")
     return None
@@ -298,20 +307,21 @@ def eliminar_usuario(id_usuario):
 # ============================================================
 
 def validar_pin_fichaje(pin: str) -> dict | None:
-    """Busca el empleado cuyo password SHA-256 coincide con el PIN de 4 dígitos."""
-    pin_hash = encriptar_password(pin.strip())
+    """Busca el empleado cuyo password coincide con el PIN. Verifica fila a fila
+    (Argon2id no admite comparación por igualdad en SQL) con soporte dual y rehash."""
+    pin = pin.strip()
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
-                cur.execute("SHOW COLUMNS FROM usuarios")
-                columnas = [col["Field"] if isinstance(col, dict) else col[0] for col in cur.fetchall()]
+                columnas = _columnas_usuarios(cur)
                 col_name = "nombre" if "nombre" in columnas else "usuario"
-                cur.execute(
-                    f"SELECT id, {col_name} FROM usuarios WHERE password = %s LIMIT 1",
-                    (pin_hash,)
-                )
-                fila = cur.fetchone()
-                if fila:
+                cond_activo = " WHERE COALESCE(activo,1)=1" if "activo" in columnas else ""
+                cur.execute(f"SELECT id, {col_name}, password FROM usuarios{cond_activo}")
+                filas = cur.fetchall()
+            for fila in filas:
+                ok, nuevo = _pw.verificar(pin, fila[2])
+                if ok:
+                    _rehash(fila[0], nuevo)
                     return {"id": fila[0], "nombre": fila[1]}
     except Exception as e:
         logger.error(f"Error validando PIN fichaje: {e}")

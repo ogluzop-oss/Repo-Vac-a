@@ -64,7 +64,7 @@ hiddenimports += [
 # `cryptography` se incluye entero para garantizar el binario Rust (_rust) que usa
 # la firma 3DES de Redsys (se importa de forma perezosa y podría no detectarse).
 binaries = []
-for paquete in ("prophet", "matplotlib", "cv2", "anthropic", "edge_tts", "cryptography"):
+for paquete in ("prophet", "matplotlib", "cv2", "anthropic", "edge_tts", "cryptography", "argon2"):
     try:
         d, b, h = collect_all(paquete)
         datas += d

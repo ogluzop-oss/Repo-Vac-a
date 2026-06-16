@@ -108,6 +108,31 @@ class Fabrica:
         self._borrar("web_config", "id_empresa", eid)
         return eid
 
+    def usuario(self, nombre=None, password="Contrasena_Larga_123", perfil="OPERARIO",
+                id_empresa=None, tienda_id=None, hash_legado=False):
+        """Crea un usuario. Si `hash_legado=True`, guarda el password con SHA-256
+        antiguo (para probar la migración); si no, con Argon2id."""
+        import hashlib
+        from src.seguridad import passwords as _pw
+        nombre = nombre or ("USR_" + uuid.uuid4().hex[:8].upper())
+        eid = id_empresa or self.EMP_DEFECTO
+        ph = (hashlib.sha256(password.encode()).hexdigest() if hash_legado
+              else _pw.hash_password(password))
+        # id_empresa puede no existir como columna en instalaciones antiguas.
+        with self.cx.obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SHOW COLUMNS FROM usuarios")
+            cols = [c[0] if not isinstance(c, dict) else c["Field"] for c in cur.fetchall()]
+            if "id_empresa" in cols:
+                cur.execute("INSERT INTO usuarios (nombre, password, perfil, tienda_id, id_empresa) "
+                            "VALUES (%s,%s,%s,%s,%s)", (nombre, ph, perfil, tienda_id, eid))
+            else:
+                cur.execute("INSERT INTO usuarios (nombre, password, perfil, tienda_id) "
+                            "VALUES (%s,%s,%s,%s)", (nombre, ph, perfil, tienda_id))
+            uid = cur.lastrowid
+            conn.commit()
+        self._borrar("usuarios", "id", uid)
+        return {"id": uid, "nombre": nombre, "perfil": perfil, "password": password}
+
     def buzon_correo(self, id_empresa=None, direccion=None):
         from src.db import correo as correo_db
         eid = id_empresa or self.EMP_DEFECTO
