@@ -93,9 +93,13 @@ para empaquetar su binario en el `.exe`.
   ventas etiquetadas por tenant; `buscar_ventas`, `obtener_mermas` y
   `listar_documentos` aíslan por empresa (datos creados como empresa B invisibles
   desde A).
-- **Patrón “obtener por id”:** funciones como `obtener_pedido` no filtran por empresa;
-  la API lo blinda con verificación de pertenencia (→404). En A4.2 se generaliza con
-  un guard reutilizable + sanitizador de respuestas.
+- **Guard “obtener por id” (A4.2):** `_pertenece_tenant(obj)` en la API verifica que
+  el registro pertenece al tenant del token (SUPERADMIN exento) → acceso cruzado = 404.
+- **Sanitizador por lista blanca (A4.2):** las respuestas de recursos serializan solo
+  campos permitidos (`_CAMPOS_PEDIDO`/`_CAMPOS_ITEM`) y pasan por una red anti-secretos
+  (`_sin_secretos`) que elimina claves con subcadenas sensibles
+  (password/secret/token/api_key/hash/clave…). No se aplica a `auth/*` (que devuelve
+  tokens a propósito). Probado: `referencia_pago`/`enlace_pago` no se exponen en la API.
 - **Nota:** `listar_documentos` aísla cuando el llamador pasa `id_empresa` (el centro
   documental lo hace; SUPERADMIN pasa None para ver todas, por diseño).
 

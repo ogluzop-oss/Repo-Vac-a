@@ -26,6 +26,39 @@ logger = logging.getLogger("backend.api")
 
 API_VERSION = "v1"
 
+# Lista blanca de campos por recurso (A4.2): la API solo serializa estos campos
+# (nunca secretos ni columnas internas).
+_CAMPOS_PEDIDO = ("id_pedido", "fecha", "estado", "estado_pago", "plataforma", "total",
+                  "cliente_nombre", "cliente_telefono", "cliente_email", "direccion_envio",
+                  "transportista", "seguimiento", "referencia_externa", "items")
+_CAMPOS_ITEM = ("codigo_articulo", "nombre", "cantidad", "precio_unitario", "subtotal",
+                "origen_stock")
+# Red de seguridad: subcadenas de claves prohibidas en CUALQUIER respuesta.
+_CLAVES_SECRETAS = ("password", "passwd", "api_key", "api_secret", "webhook_secret",
+                    "refresh_hash", "access_token", "refresh_token", "secret", "token",
+                    "clave", "hash")
+
+
+def _solo(d, campos):
+    return {k: d.get(k) for k in campos if isinstance(d, dict) and k in d}
+
+
+def _sanea_pedido(p):
+    out = _solo(p, _CAMPOS_PEDIDO)
+    if isinstance(out.get("items"), list):
+        out["items"] = [_solo(it, _CAMPOS_ITEM) for it in out["items"]]
+    return out
+
+
+def _sin_secretos(obj):
+    """Elimina recursivamente claves que parezcan secretas (defensa en profundidad)."""
+    if isinstance(obj, dict):
+        return {k: _sin_secretos(v) for k, v in obj.items()
+                if not any(s in str(k).lower() for s in _CLAVES_SECRETAS)}
+    if isinstance(obj, list):
+        return [_sin_secretos(x) for x in obj]
+    return obj
+
 
 def _origenes_cors():
     return [o.strip() for o in os.getenv("API_CORS_ORIGINS", "").split(",") if o.strip()]
@@ -40,6 +73,14 @@ def crear_blueprint_api():
 
     def _err(mensaje, codigo):
         return jsonify({"error": mensaje}), codigo
+
+    def _pertenece_tenant(obj):
+        """Guard reutilizable (A4.2): True si el registro pertenece al tenant del
+        token (evita acceso cruzado por id). SUPERADMIN puede ver cualquiera."""
+        from src.db.empresa import empresa_actual_id
+        if (g.usuario or {}).get("rol", "").upper() == "SUPERADMIN":
+            return bool(obj)
+        return bool(obj) and obj.get("id_empresa") == empresa_actual_id()
 
     # ── CORS (lista blanca por entorno; nunca abierto en producción) ──────────
     @bp.before_request
@@ -157,7 +198,7 @@ def crear_blueprint_api():
         prods = C.listar_productos(interno=interno, categoria=a.get("categoria", type=int),
                                    marca=a.get("marca", type=int), texto=a.get("texto"),
                                    limite=a.get("limite", default=200, type=int))
-        return jsonify({"productos": prods, "total": len(prods)})
+        return jsonify(_sin_secretos({"productos": prods, "total": len(prods)}))
 
     @bp.get("/catalogo/productos/<int:pid>")
     @token_requerido
@@ -166,7 +207,7 @@ def crear_blueprint_api():
         p = C.producto(id_producto=pid, interno=C.es_vista_interna(g.usuario.get("rol")))
         if not p:
             return _err("producto no encontrado", 404)
-        return jsonify(p)
+        return jsonify(_sin_secretos(p))
 
     @bp.get("/catalogo/categorias")
     @token_requerido
@@ -181,17 +222,17 @@ def crear_blueprint_api():
         from src.services.tpv import online_orders_service as OS
         estado = request.args.get("estado")
         peds = OS.listar_pedidos_online(estado=estado)   # filtrado por tenant activo
-        return jsonify({"pedidos": peds, "total": len(peds)})
+        datos = [_sanea_pedido(p) for p in peds]         # lista blanca de campos
+        return jsonify(_sin_secretos({"pedidos": datos, "total": len(datos)}))
 
     @bp.get("/pedidos/<pid>")
     @token_requerido
     def api_pedido(pid):
-        from src.db.empresa import empresa_actual_id
         from src.services.tpv import online_orders_service as OS
         p = OS.obtener_pedido(pid)
-        # Aislamiento explícito: solo se devuelve si pertenece al tenant del token.
-        if not p or p.get("id_empresa") != empresa_actual_id():
+        # Guard de tenant: solo se devuelve si pertenece al tenant del token.
+        if not _pertenece_tenant(p):
             return _err("pedido no encontrado", 404)
-        return jsonify(p)
+        return jsonify(_sin_secretos(_sanea_pedido(p)))
 
     return bp

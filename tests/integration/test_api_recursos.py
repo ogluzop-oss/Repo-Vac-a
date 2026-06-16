@@ -68,6 +68,20 @@ def test_categorias_endpoint(db, fab, cliente):
     assert r.status_code == 200 and "categorias" in r.get_json()
 
 
+def test_sanitizacion_lista_blanca_pedido(db, fab, cliente):
+    # Pedido con referencia de pago (campo interno que NO debe exponerse).
+    pid = fab.pedido_online(total=12.0, referencia_pago="cs_secreto_interno")
+    tok = _token(db, fab, "API_SANEA")
+    r = cliente.get(f"/api/v1/pedidos/{pid}", headers=_h(tok))
+    assert r.status_code == 200
+    j = r.get_json()
+    # Lista blanca: referencia_pago / enlace_pago / estado_pago-interno no se exponen.
+    assert "referencia_pago" not in j and "enlace_pago" not in j
+    # Red anti-secretos: ninguna clave con subcadena sensible.
+    prohibidas = ("secret", "token", "clave", "hash", "password", "api_key")
+    assert not any(any(s in str(k).lower() for s in prohibidas) for k in j)
+
+
 def _borra_sesiones(db, uid):
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM sesiones WHERE id_usuario=%s", (uid,))
