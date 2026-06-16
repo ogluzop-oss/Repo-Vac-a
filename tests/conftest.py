@@ -66,6 +66,18 @@ def db(esquema_test):
     return conexion
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limit():
+    """Limpia el contador de rate limiting entre tests (mismo IP/endpoint en el
+    mismo proceso) para evitar 429 espurios."""
+    try:
+        from src.seguridad import rate_limit as RL
+        RL.backend().reset()
+    except Exception:
+        pass
+    yield
+
+
 @pytest.fixture
 def fab(db):
     """Fábrica de datos de prueba con LIMPIEZA automática.

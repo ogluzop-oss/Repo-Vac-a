@@ -121,6 +121,20 @@ def crear_blueprint_api():
 
     bp.token_requerido = token_requerido      # disponible para los endpoints (A1.2)
 
+    # ── Rate limiting (A5.2) por IP+endpoint; backend enchufable (Redis-ready) ─
+    def rate_limit(limite, ventana_seg):
+        def deco(f):
+            @wraps(f)
+            def envoltorio(*args, **kwargs):
+                from src.seguridad import rate_limit as RL
+                ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "?")
+                ip = ip.split(",")[0].strip()
+                if not RL.permitido(f"{ip}:{request.endpoint}", limite, ventana_seg):
+                    return _err("demasiadas peticiones; inténtalo más tarde", 429)
+                return f(*args, **kwargs)
+            return envoltorio
+        return deco
+
     # ── Info / versión (público) ──────────────────────────────────────────────
     @bp.get("/")
     def info():
@@ -128,6 +142,7 @@ def crear_blueprint_api():
 
     # ── Autenticación ─────────────────────────────────────────────────────────
     @bp.post("/auth/login")
+    @rate_limit(10, 60)
     def login():
         from src.db import sesiones
         from src.db import usuario as U
@@ -152,6 +167,7 @@ def crear_blueprint_api():
         })
 
     @bp.post("/auth/refresh")
+    @rate_limit(30, 60)
     def refresh():
         from src.db import sesiones
         from src.db import usuario as U
@@ -170,6 +186,7 @@ def crear_blueprint_api():
         return jsonify({"access": tokens.emitir_access(u)})
 
     @bp.post("/auth/logout")
+    @rate_limit(30, 60)
     def logout():
         from src.db import sesiones
         from src.seguridad import tokens
