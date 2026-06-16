@@ -86,6 +86,22 @@ class ProveedorFiscal:
         return {"serie": serie, "numero": numero, "tipo": tipo,
                 "referencia": referencia, "total": round(float(total or 0), 2)}
 
+    def huella(self, campos: dict, hash_anterior):
+        """Serializa la HUELLA del régimen. Por defecto delega en la huella neutra
+        del núcleo; Verifactu/TicketBAI la sobreescriben con su formato legal."""
+        from src.db.fiscal import huella as _huella_nucleo
+        return _huella_nucleo(campos, hash_anterior)
+
+    def recalcular_huella(self, fila: dict, hash_anterior):
+        """RE-DERIVA la huella de un registro YA almacenado, para verificar la
+        cadena (`cadena_valida`). Por defecto usa los campos neutros; los regímenes
+        legales (Verifactu) la sobreescriben leyendo su `payload` para reconstruir
+        EXACTAMENTE los campos legales que entraron en la huella original."""
+        campos = self.campos_hash(fila.get("serie"), fila.get("numero"),
+                                  fila.get("tipo"), fila.get("referencia"),
+                                  round(float(fila.get("total") or 0), 2))
+        return self.huella(campos, hash_anterior)
+
     def registrar(self, tipo: str, referencia=None, total=0.0, payload=None,
                   id_caja=None) -> RegistroFiscal:
         raise NotImplementedError

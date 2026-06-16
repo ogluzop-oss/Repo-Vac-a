@@ -12,4 +12,5 @@ MODULOS = [
     "0001_baseline",
     "0002_fiscal",
     "0003_fiscal_serie",
+    "0004_verifactu",
 ]

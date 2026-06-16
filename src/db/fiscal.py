@@ -41,7 +41,7 @@ def obtener_config(id_empresa=None) -> dict:
     id_empresa = _empresa(id_empresa)
     base = {"id_empresa": id_empresa, "territorio": "comun", "modo": "verifactu",
             "proveedor": "simulado", "integrador": "", "serie": "A",
-            "serie_por": "tienda", "activo": 0}
+            "serie_por": "tienda", "entorno": "preproduccion", "activo": 0}
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -57,28 +57,34 @@ def obtener_config(id_empresa=None) -> dict:
 
 
 def guardar_config(territorio=None, modo=None, proveedor=None, integrador=None,
-                   serie=None, serie_por=None, activo=None, id_empresa=None) -> bool:
+                   serie=None, serie_por=None, entorno=None, activo=None,
+                   id_empresa=None) -> bool:
     id_empresa = _empresa(id_empresa)
     a = obtener_config(id_empresa)
     sp = (serie_por or a.get("serie_por") or "tienda")
     if sp not in ESTRATEGIAS_SERIE:
         sp = "tienda"
+    en = (entorno or a.get("entorno") or "preproduccion")
+    if en not in ("preproduccion", "produccion"):
+        en = "preproduccion"
     n = {"territorio": territorio or a["territorio"], "modo": modo or a["modo"],
          "proveedor": proveedor or a["proveedor"],
          "integrador": integrador if integrador is not None else a["integrador"],
-         "serie": serie or a["serie"], "serie_por": sp,
+         "serie": serie or a["serie"], "serie_por": sp, "entorno": en,
          "activo": int(activo if activo is not None else a["activo"])}
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO fiscal_config (id_empresa, territorio, modo, proveedor, "
-                "integrador, serie, serie_por, activo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
+                "integrador, serie, serie_por, entorno, activo) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
                 "ON DUPLICATE KEY UPDATE territorio=VALUES(territorio), modo=VALUES(modo), "
                 "proveedor=VALUES(proveedor), integrador=VALUES(integrador), "
-                "serie=VALUES(serie), serie_por=VALUES(serie_por), activo=VALUES(activo)",
+                "serie=VALUES(serie), serie_por=VALUES(serie_por), entorno=VALUES(entorno), "
+                "activo=VALUES(activo)",
                 (id_empresa, n["territorio"], n["modo"], n["proveedor"], n["integrador"],
-                 n["serie"], n["serie_por"], n["activo"]))
+                 n["serie"], n["serie_por"], n["entorno"], n["activo"]))
             conn.commit()
         return True
     except Exception as e:
@@ -133,13 +139,20 @@ def _ultimo(cur, id_empresa, serie):
 def insertar_registro(tipo, referencia=None, total=0.0, serie=None, payload=None,
                       qr=None, proveedor="simulado", estado="generado",
                       id_empresa=None, id_tienda="auto", id_caja=None,
-                      campos_hash=None) -> dict:
+                      campos_hash=None, huella_fn=None) -> dict:
     """Inserta un registro fiscal ENCADENADO (numeración y hash por empresa+serie).
     Atómico (transacción + bloqueo) para que la cadena sea consistente bajo
     concurrencia. Devuelve el registro creado (con numero/hash/hash_anterior).
 
     Si no se indica `serie`, se resuelve la serie efectiva según la estrategia
-    `serie_por` de la empresa (empresa/tienda/caja)."""
+    `serie_por` de la empresa (empresa/tienda/caja).
+
+    Puntos de extensión (aditivos, retrocompatibles):
+    - `campos_hash`: dict o callable(serie,numero,tipo,referencia,total)->dict con
+      los campos que entran en la huella (cada régimen fija los suyos).
+    - `huella_fn`: callable(campos, hash_anterior)->str para serializar la huella
+      con el FORMATO LEGAL del régimen (Verifactu). Si es None, se usa la huella
+      neutra del núcleo (comportamiento histórico intacto)."""
     id_empresa = _empresa(id_empresa)
     if id_tienda == "auto":
         try:
@@ -170,7 +183,8 @@ def insertar_registro(tipo, referencia=None, total=0.0, serie=None, payload=None
                 datos = campos_hash or {"serie": serie, "numero": numero, "tipo": tipo,
                                         "referencia": referencia,
                                         "total": round(float(total or 0), 2)}
-            h = huella(datos, ult_hash)
+            # `huella_fn` permite el formato legal del régimen; por defecto, núcleo.
+            h = (huella_fn or huella)(datos, ult_hash)
             cur.execute(
                 "INSERT INTO fiscal_registros (id_empresa, id_tienda, serie, numero, tipo, "
                 "referencia, total, hash, hash_anterior, qr, payload, proveedor, estado) "
@@ -213,31 +227,37 @@ def actualizar_estado(id_registro, estado) -> bool:
         return False
 
 
-def _campos_hash_de(proveedor):
-    """Devuelve el `campos_hash` del proveedor (mismo conjunto usado al registrar).
-    Cae al conjunto neutro si el proveedor no está disponible."""
+def _proveedor_inst(proveedor):
+    """Instancia del proveedor (para reutilizar su campos_hash/huella en la
+    verificación). None si no está disponible."""
     try:
         from src.services.fiscal.registry import clase_de
         clase = clase_de(proveedor)
-        if clase is not None:
-            return clase().campos_hash
+        return clase() if clase is not None else None
     except Exception:
-        pass
-    return lambda serie, numero, tipo, referencia, total: {
-        "serie": serie, "numero": numero, "tipo": tipo,
-        "referencia": referencia, "total": round(float(total or 0), 2)}
+        return None
+
+
+def _campos_neutros(serie, numero, tipo, referencia, total) -> dict:
+    return {"serie": serie, "numero": numero, "tipo": tipo,
+            "referencia": referencia, "total": round(float(total or 0), 2)}
 
 
 def cadena_valida(id_empresa=None, serie="A") -> bool:
     """Verifica la integridad del encadenado hash de una serie (re-calcula y compara).
-    Usa el conjunto de campos del PROVEEDOR de cada registro (campos_hash)."""
+    Re-deriva la huella con `recalcular_huella` del PROVEEDOR de cada registro, de
+    modo que valida igual el formato neutro (simulado) y el legal (Verifactu)."""
     id_empresa = _empresa(id_empresa)
     prev = None
     for reg in listar_registros(id_empresa, serie=serie, limite=100000):
-        fn = _campos_hash_de(reg.get("proveedor"))
-        datos = fn(reg["serie"], reg["numero"], reg["tipo"], reg["referencia"],
-                   round(float(reg["total"] or 0), 2))
-        if reg["hash_anterior"] != prev or huella(datos, prev) != reg["hash"]:
+        inst = _proveedor_inst(reg.get("proveedor"))
+        if inst is not None:
+            esperado = inst.recalcular_huella(reg, prev)
+        else:
+            esperado = huella(_campos_neutros(reg["serie"], reg["numero"], reg["tipo"],
+                                              reg["referencia"],
+                                              round(float(reg["total"] or 0), 2)), prev)
+        if reg["hash_anterior"] != prev or esperado != reg["hash"]:
             return False
         prev = reg["hash"]
     return True
