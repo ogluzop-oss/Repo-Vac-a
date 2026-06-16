@@ -128,6 +128,43 @@ el ticket se imprime exactamente igual que siempre.
 Firma XAdES (NO-VERIFACTU), gestión de certificados (local cifrado/HSM) y operativa
 de **producción** → **C3.5**. Facturae → **C3.4**. TicketBAI → posterior.
 
+## C3.3.1.1 — Conformidad legal (hecho)
+
+Fase correctiva para dejar Verifactu conforme al **XSD/WSDL oficiales** (sin tocar el
+núcleo C3.2). Recursos en `src/services/fiscal/esquemas/` (ver `PROCEDENCIA.md`).
+
+- **XML conforme** (`verifactu_xml.py`): `RegFactuSistemaFacturacion` (Cabecera +
+  RegistroFactura → RegistroAlta/Anulacion) con namespaces `sf`/`sfLR`, `IDFactura`
+  anidado, `NombreRazonEmisor`, `DescripcionOperacion`, `Desglose/DetalleDesglose`,
+  `Encadenamiento` completo (`PrimerRegistro`/`RegistroAnterior`), `SistemaInformatico`
+  completo, `TipoHuella=01`. Generado con stdlib; **validado contra el XSD** con `lxml`.
+- **Huella legal**: anclada al **ejemplo oficial de AEAT** (vector dorado en tests).
+- **QR**: host de producción oficial `agenciatributaria.es`.
+- **Emisor** (`emisores/verifactu_aeat.py`): SOAP document/literal, endpoints del WSDL,
+  parseo real de `EstadoEnvio`/`RespuestaLinea`/`CSV`/`TiempoEsperaEnvio` (+ pacing).
+- **lxml** es dependencia **solo de dev/build** (validación XSD); el runtime parsea con
+  stdlib. XSD/WSDL se empaquetan en el `.exe`.
+
+### Trazabilidad: verificado oficial vs espejo vs pendiente
+
+| Elemento | Estado | Fuente |
+|---|---|---|
+| Algoritmo y formato de huella (orden, `clave=valor&`, SHA-256) | ✅ **Oficial** | FAQ AEAT + ejemplo literal (vector dorado) |
+| Hash en hexadecimal MAYÚSCULAS | ⚠️ Pendiente PDF | práctica estándar; confirmar en *huella v0.1.2* |
+| QR: host, parámetros (`nif/numserie/fecha/importe`), fecha `dd-mm-yyyy` | ✅ **Oficial** | especificación QR AEAT |
+| QR: importe sin relleno vs 2 decimales | ⚠️ Pendiente PDF | uso `%.2f` (válido por patrón); confirmar canónico |
+| Estructura XML RegistroAlta/Anulacion, Cabecera, Desglose, SIF, namespaces | 🟡 **Espejo** (valida XSD) | XSD `hectorsipe/aeat-verifactu` (autoría AEAT) |
+| Endpoints SOAP + operación + document/literal | 🟡 **Espejo** | WSDL del espejo |
+| Respuesta: EstadoEnvio/RespuestaLinea/CSV/TiempoEsperaEnvio | 🟡 **Espejo** | `RespuestaSuministro.xsd` |
+| `TipoFactura`, `CalificacionOperacion=S1`, `ClaveRegimen=01` | ⚠️ Pendiente fiscal | valores por defecto razonables; confirmar por empresa |
+| NIF del productor del SIF y versión/instalación declaradas | ⚠️ Pendiente | placeholder en `SIF` |
+| Round-trip **live** contra preproducción | ⛔ **Pendiente C3.5** | requiere certificado de pruebas |
+
+> **🟡 Espejo** = validado contra XSD/WSDL del espejo (cabeceras con autoría AEAT) pero
+> **pendiente de re-sellado** contra el **ZIP oficial** de AEAT.
+> Honrado **exacto** de `TiempoEsperaEnvio` por entrada de cola persistente = posible
+> **hook aditivo** al worker (pendiente de decisión; hoy: pacing en memoria + backoff).
+
 ## Multiempresa / SaaS
 - Config y **cadena hash por empresa** (aislamiento verificado por tests).
 - Certificados (C3.5) se custodiarán cifrados por empresa (infra C1) con interfaz HSM.
