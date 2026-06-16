@@ -257,25 +257,43 @@ def encolar(id_registro, accion="enviar", id_empresa=None) -> int | None:
         return None
 
 
-def listar_cola(estado="pendiente", id_empresa=None, limite=200) -> list:
+def listar_cola(estado="pendiente", id_empresa=None, limite=200, listos=False) -> list:
+    """Lista entradas de la cola. Con `listos=True` excluye las que aún están en
+    espera de backoff (proximo_intento en el futuro) → lo usa el worker."""
     id_empresa = _empresa(id_empresa)
+    extra = " AND (proximo_intento IS NULL OR proximo_intento <= NOW())" if listos else ""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT * FROM fiscal_cola WHERE id_empresa=%s AND estado=%s "
-                        "ORDER BY fecha LIMIT %s", (id_empresa, estado, int(limite)))
+            cur.execute("SELECT * FROM fiscal_cola WHERE id_empresa=%s AND estado=%s"
+                        + extra + " ORDER BY fecha LIMIT %s",
+                        (id_empresa, estado, int(limite)))
             return _filas_a_dicts(cur, cur.fetchall())
     except Exception as e:
         logger.error("listar_cola: %s", e)
         return []
 
 
-def actualizar_cola(id_cola, estado, error=None) -> bool:
+def actualizar_cola(id_cola, estado, error=None, proximo_intento=None) -> bool:
+    """Actualiza una entrada de la cola. `proximo_intento` (datetime/str) programa
+    el siguiente reintento (backoff)."""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("UPDATE fiscal_cola SET estado=%s, intentos=intentos+1, "
-                        "ultimo_error=%s WHERE id=%s", (estado, (error or "")[:500], id_cola))
+                        "ultimo_error=%s, proximo_intento=%s WHERE id=%s",
+                        (estado, (error or "")[:500] or None, proximo_intento, id_cola))
             conn.commit()
         return True
     except Exception as e:
         logger.error("actualizar_cola(%s): %s", id_cola, e)
         return False
+
+
+def obtener_registro(id_registro) -> dict | None:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM fiscal_registros WHERE id=%s", (id_registro,))
+            r = cur.fetchone()
+            return _filas_a_dicts(cur, [r])[0] if r else None
+    except Exception as e:
+        logger.error("obtener_registro(%s): %s", id_registro, e)
+        return None

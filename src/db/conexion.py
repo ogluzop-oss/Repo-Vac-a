@@ -1595,6 +1595,14 @@ def registrar_venta_con_items(
                 stock_signals.stock_actualizado.emit(str(cod))
         except Exception:
             pass
+        # C3.2: gancho fiscal (no-op si fiscal_config.activo=0). Best-effort: nunca
+        # rompe la venta. Tras el commit para no extender la transacción de venta.
+        try:
+            from src.services.fiscal.hooks import gancho_venta
+            gancho_venta(venta_id, total_acumulado, tipo="ticket",
+                         id_empresa=_eid, id_tienda=_tid)
+        except Exception:
+            pass
         return venta_id
     except Exception:
         logger.exception("Error en registrar_venta_con_items")
@@ -1653,7 +1661,15 @@ def registrar_factura(
                     "UPDATE ventas SET total = %s WHERE id = %s",
                     (total_factura, factura_id),
                 )
-                return factura_id
+        # C3.2: gancho fiscal (no-op si fiscal_config.activo=0). Best-effort, tras
+        # el commit. tipo='factura' → emisión de factura (Verifactu/Facturae en fases).
+        try:
+            from src.services.fiscal.hooks import gancho_venta
+            gancho_venta(factura_id, total_factura, tipo="factura",
+                         id_empresa=_eid, id_tienda=_tid)
+        except Exception:
+            pass
+        return factura_id
     except Exception:
         logger.exception("Error registrar_factura")
         return None
