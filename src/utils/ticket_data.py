@@ -71,6 +71,20 @@ def construir_datos_ticket(venta_id, fecha, id_caja, empleado, lineas, pago,
     traza = f"{venta_id}|{fecha.isoformat()}|{pago.get('total', 0)}|{len(lineas)}"
     doc_hash = hashlib.sha256(traza.encode()).hexdigest()
 
+    # QR genérico por defecto (trazabilidad interna).
+    qr_payload = (f"SMART|{ticket_num}|{fecha.strftime('%Y-%m-%d %H:%M')}|"
+                  f"{id_empresa}|{tienda.get('codigo') or ''}|{venta_id}|{pago.get('total', 0)}")
+    # Verifactu (C3.3.4): si el módulo está activo en modo Verifactu, el ticket lleva
+    # el QR de cotejo de AEAT + leyenda legal. Si no, se imprime igual que siempre.
+    fiscal = None
+    try:
+        from src.services.fiscal.ticket import info_ticket
+        fiscal = info_ticket(venta_id, id_empresa=id_empresa or None)
+        if fiscal and fiscal.get("qr"):
+            qr_payload = fiscal["qr"]
+    except Exception:
+        fiscal = None
+
     return {
         "logo": _LOGO_CORP_PATH if os.path.exists(_LOGO_CORP_PATH) else None,
         "empresa": empresa,
@@ -92,8 +106,8 @@ def construir_datos_ticket(venta_id, fecha, id_caja, empleado, lineas, pago,
         "moneda": divisas.divisa_actual(),
         "config": cfg,
         "hash": doc_hash,
-        "qr": f"SMART|{ticket_num}|{fecha.strftime('%Y-%m-%d %H:%M')}|"
-              f"{id_empresa}|{tienda.get('codigo') or ''}|{venta_id}|{pago.get('total', 0)}",
+        "qr": qr_payload,
+        "fiscal": fiscal,
     }
 
 

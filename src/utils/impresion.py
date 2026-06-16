@@ -434,6 +434,10 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
             def _f(c, y, _ir=ir_bc, _bw=bw, _bh=bh):
                 c.drawImage(_ir, (W - _bw) / 2, y - _bh, _bw, _bh, preserveAspectRatio=True, mask="auto")
             add(bh + 4, _f)
+    # Leyenda fiscal legal (Verifactu) — solo si la venta generó registro fiscal.
+    fiscal = datos.get("fiscal") or {}
+    if fiscal.get("leyenda"):
+        texto(fiscal["leyenda"], _FB, 8, center=True, gap=1)
     qr_payload = datos.get("qr")
     if qr_payload:
         ir_qr, _ = _ticket_imagen_codigo("qr", qr_payload)
@@ -442,6 +446,8 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
             def _f(c, y, _ir=ir_qr, _qs=qs):
                 c.drawImage(_ir, (W - _qs) / 2, y - _qs, _qs, _qs, preserveAspectRatio=True, mask="auto")
             add(qs + 4, _f)
+            if fiscal.get("csv"):
+                texto(f"CSV: {fiscal['csv']}", _FN, 6, center=True, color=(0.4, 0.4, 0.4), gap=1)
 
     sep()
 

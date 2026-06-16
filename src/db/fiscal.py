@@ -331,3 +331,19 @@ def obtener_registro(id_registro) -> dict | None:
     except Exception as e:
         logger.error("obtener_registro(%s): %s", id_registro, e)
         return None
+
+
+def obtener_por_referencia(referencia, id_empresa=None, tipo="ticket") -> dict | None:
+    """Último registro fiscal de una referencia (p. ej. venta_id) de la empresa.
+    Lo usa el ticket para incrustar el QR/leyenda legales. Aditivo, solo lectura."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM fiscal_registros WHERE id_empresa=%s AND referencia=%s "
+                        "AND tipo=%s ORDER BY id DESC LIMIT 1",
+                        (id_empresa, str(referencia), tipo))
+            r = cur.fetchone()
+            return _filas_a_dicts(cur, [r])[0] if r else None
+    except Exception as e:
+        logger.error("obtener_por_referencia(%s): %s", referencia, e)
+        return None

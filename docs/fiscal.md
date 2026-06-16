@@ -83,6 +83,51 @@ Lógica legal Verifactu, XAdES real, Facturae, TicketBAI, envíos AEAT/FACe e
 integradores. La atomicidad/bloqueo legal del registro respecto a la venta se
 concreta en C3.3.
 
+## C3.3 — Verifactu real (hecho, sobre el núcleo C3.2 congelado)
+
+Régimen Verifactu como **adaptador**, sin tocar la arquitectura base. Todo el
+formato legal está aislado para poder cotejarlo con el XSD/WSDL oficial de AEAT.
+
+> ⚠️ Antes de envíos reales, **contrastar** `verifactu_legal.py` (campos/orden de la
+> huella, formato de fechas, URL del QR), `verifactu_xml.py` (elementos/namespaces)
+> y los endpoints del emisor con el **XSD/WSDL oficial** y el validador de
+> preproducción. Está todo concentrado en esos módulos para que el ajuste sea local.
+
+### Puntos de extensión añadidos al núcleo (aditivos, retrocompatibles)
+- `insertar_registro(huella_fn=…)`: serializador de huella por régimen (default = núcleo).
+- `ProveedorFiscal.recalcular_huella(fila, prev)`: verificación por proveedor;
+  `cadena_valida` la usa → valida igual el formato neutro y el legal.
+- `fiscal.actualizar_aeat()` / `obtener_por_referencia()`: trazabilidad y lectura.
+- Config `entorno` (preproduccion/produccion) y migración C4 `0004`
+  (`fiscal_config.entorno`, `fiscal_registros.estado_aeat`/`csv_aeat`).
+
+### C3.3.1 — Formato legal
+`verifactu_legal.py`: `huella_alta`/`huella_anulacion` (SHA-256 de `clave=valor&…`
+en orden legal, hex MAYÚS, encadenada), `num_serie`, `contenido_qr` (cotejo AEAT),
+leyenda. Proveedor `verifactu` (`@registrar_proveedor("verifactu", ("comun",))`):
+NIF de `empresa.info_documento`, IVA de `utils.fiscalidad`; el `payload` guarda los
+datos legales para XML/verificación; QR legal en el registro.
+
+### C3.3.2 — XML
+`verifactu_xml.py`: `RegistroAlta`/`RegistroAnulacion` + lote
+`RegFactuSistemaFacturacion`, construido **en el worker** desde el payload + huella.
+
+### C3.3.3 — Envío AEAT (sin tocar el worker)
+`emisores/verifactu_aeat.py` (`EmisorVerifactu`): encapsula sobre SOAP, POST, parseo
+de acuse y **persiste estado_aeat/csv + evidencias** (XML y acuse). **Transporte
+inyectable** (tests sin red). `disponible()=False` sin transporte/certificado →
+el worker deja el registro **en espera** (no envía a ciegas). `factory.emisor_para`
+lo devuelve cuando `proveedor='verifactu'`. Certificado real y **producción → C3.5**.
+
+### C3.3.4 — Ticket
+`services/fiscal/ticket.info_ticket()` aporta **QR de cotejo + leyenda “VERI\*FACTU”**
+(+ CSV) al ticket **solo** si el módulo está activo en modo Verifactu; en otro caso
+el ticket se imprime exactamente igual que siempre.
+
+### NO incluido en C3.3 (siguientes fases)
+Firma XAdES (NO-VERIFACTU), gestión de certificados (local cifrado/HSM) y operativa
+de **producción** → **C3.5**. Facturae → **C3.4**. TicketBAI → posterior.
+
 ## Multiempresa / SaaS
 - Config y **cadena hash por empresa** (aislamiento verificado por tests).
 - Certificados (C3.5) se custodiarán cifrados por empresa (infra C1) con interfaz HSM.
