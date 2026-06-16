@@ -1,52 +1,75 @@
 """
-Emisor Verifactu → AEAT (C3.3.3) — adaptador de ENVÍO. Encapsula TODA la
-especificidad de AEAT para no tocar el worker congelado: construye el XML, hace el
-POST al web service, parsea la respuesta y PERSISTE la trazabilidad (estado/CSV) +
-la EVIDENCIA del acuse. El worker solo orquesta (genérico, idempotente, backoff).
+Emisor Verifactu → AEAT (C3.3.1.1) — adaptador de ENVÍO conforme al WSDL oficial.
 
-Inyección de `transporte` (callable(url, cuerpo:bytes, cfg)->(status:int, texto:str))
-para poder validar el FLUJO COMPLETO en tests sin red ni certificados. En operación,
-el transporte real (TLS con certificado de representante/sello) y el paso a
-PRODUCCIÓN se consolidan en C3.5; por eso, sin transporte listo, `disponible()` es
-False y el worker deja el registro en espera (no se envía nada a ciegas).
+Encapsula toda la especificidad de AEAT (sobre SOAP document/literal, POST, parseo
+real de la respuesta) para no tocar el worker congelado: el worker solo orquesta.
+Construye el cuerpo con `verifactu_xml.lote_xml` (XML validado contra XSD), envía y
+persiste la trazabilidad (estado/CSV) + las EVIDENCIAS (XML y acuse).
 
-⚠️ endpoints, sobre SOAP y parseo de respuesta DEBEN cotejarse con el WSDL oficial
-de AEAT y el entorno de preproducción antes de habilitar envíos reales.
+Transporte INYECTABLE (`callable(url, cuerpo:bytes, cfg)->(status:int, texto:str)`)
+para validar el flujo completo en tests sin red ni certificado. En operación, el
+transporte TLS con certificado y el paso a PRODUCCIÓN se consolidan en C3.5; sin
+transporte/certificado, `disponible()=False` y el worker deja el registro en espera.
+
+TiempoEsperaEnvio (throttling de AEAT) se respeta mediante una ventana de pacing en
+memoria (a nivel de proceso) SIN tocar el worker. ⚠️ El honrado exacto por entrada
+de cola persistente requeriría un hook aditivo al worker (pendiente de decisión).
 """
 
+import datetime as _dt
 import logging
-import re
+import xml.etree.ElementTree as ET
 
 from src.services.fiscal.base import Emisor
 
 logger = logging.getLogger("fiscal.emisor.verifactu")
 
-# Endpoints del web service Verifactu. ⚠️[verificar WSDL/URLs oficiales]
+# Endpoints del web service Verifactu (operación RegFactuSistemaFacturacion,
+# document/literal, soapAction=""). Confirmados contra el WSDL oficial (espejo).
 _ENDPOINT = {
     "preproduccion": "https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP",
     "produccion": "https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP",
 }
 _SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
 
+# Ventana de pacing por empresa (proceso) para respetar TiempoEsperaEnvio.
+_proximo_envio: dict = {}
+
+
+def _local(elem) -> str:
+    t = elem.tag
+    return t.rsplit("}", 1)[-1] if "}" in t else t
+
+
+def _buscar(root, nombre):
+    for el in root.iter():
+        if _local(el) == nombre:
+            return el
+    return None
+
+
+def _buscar_todos(root, nombre):
+    return [el for el in root.iter() if _local(el) == nombre]
+
 
 class EmisorVerifactu(Emisor):
     nombre = "verifactu-aeat"
 
     def __init__(self, transporte=None, config=None):
-        self._transporte = transporte          # inyectable en tests
+        self._transporte = transporte
         self.config = config or {}
 
     def disponible(self) -> bool:
-        # Listo si hay transporte (inyectado en test) o certificado configurado (C3.5).
         return self._transporte is not None or bool(self.config.get("cert_listo"))
 
     def endpoint(self, config: dict) -> str:
         ent = (config or {}).get("entorno", "preproduccion")
         return _ENDPOINT.get(ent, _ENDPOINT["preproduccion"])
 
-    def _sobre_soap(self, cuerpo_xml: str) -> bytes:
+    def _sobre_soap(self, cuerpo_xml: bytes) -> bytes:
+        body = cuerpo_xml.decode("utf-8") if isinstance(cuerpo_xml, bytes) else cuerpo_xml
         env = (f'<soapenv:Envelope xmlns:soapenv="{_SOAP_NS}">'
-               f'<soapenv:Body>{cuerpo_xml}</soapenv:Body></soapenv:Envelope>')
+               f'<soapenv:Body>{body}</soapenv:Body></soapenv:Envelope>')
         return env.encode("utf-8")
 
     def _http(self, url: str, cuerpo: bytes, config: dict):
@@ -54,7 +77,8 @@ class EmisorVerifactu(Emisor):
         import requests
         cert = config.get("cert")           # (ruta_pem, ruta_key) — C3.5
         r = requests.post(url, data=cuerpo,
-                          headers={"Content-Type": "text/xml; charset=utf-8"},
+                          headers={"Content-Type": "text/xml; charset=utf-8",
+                                   "SOAPAction": ""},
                           cert=cert, timeout=30)
         return r.status_code, r.text
 
@@ -65,24 +89,31 @@ class EmisorVerifactu(Emisor):
             fila = fdb.obtener_registro(registro.id) if getattr(registro, "id", None) else None
             if not fila:
                 return {"ok": False, "estado": "pendiente", "mensaje": "registro no encontrado"}
+            emp = fila.get("id_empresa")
+            # Respeta el throttling de AEAT (pacing en memoria).
+            espera_hasta = _proximo_envio.get(emp)
+            if espera_hasta and _dt.datetime.now() < espera_hasta:
+                return {"ok": False, "estado": "pendiente", "mensaje": "espera AEAT (TiempoEsperaEnvio)"}
+
             cuerpo = self._sobre_soap(vx.lote_xml([fila]))
             transporte = self._transporte or self._http
             status, texto = transporte(self.endpoint(config), cuerpo, config)
             res = self._parse(status, texto)
-            # Persistencia AEAT + evidencias (responsabilidad del adaptador).
+
+            if res.get("espera"):
+                _proximo_envio[emp] = _dt.datetime.now() + _dt.timedelta(seconds=int(res["espera"]))
             fdb.actualizar_aeat(registro.id, estado_aeat=res.get("estado_aeat"),
                                 csv_aeat=res.get("csv"))
-            self._evidencias(fila, cuerpo, texto, config)
+            self._evidencias(fila, cuerpo, texto)
             return res
         except Exception as e:
             logger.warning("EmisorVerifactu.enviar(reg=%s): %s", getattr(registro, "id", "?"), e)
             return {"ok": False, "estado": "pendiente", "mensaje": str(e)}
 
-    def _evidencias(self, fila, sobre: bytes, respuesta: str, config: dict):
+    def _evidencias(self, fila, sobre: bytes, respuesta: str):
         try:
             from src.services.fiscal.evidencias import guardar_evidencia
-            guardar_evidencia(fila, "xml", sobre.decode("utf-8"),
-                              id_empresa=fila.get("id_empresa"))
+            guardar_evidencia(fila, "xml", sobre.decode("utf-8"), id_empresa=fila.get("id_empresa"))
             if respuesta:
                 guardar_evidencia(fila, "acuse", respuesta, id_empresa=fila.get("id_empresa"))
         except Exception as e:
@@ -90,15 +121,55 @@ class EmisorVerifactu(Emisor):
 
     @staticmethod
     def _parse(status: int, texto: str) -> dict:
-        """Parseo del acuse AEAT. ⚠️[ajustar a los nombres reales del WSDL]."""
-        texto = texto or ""
-        def _busca(tag):
-            m = re.search(rf"<[^>:]*:?{tag}>([^<]+)</", texto)
-            return m.group(1).strip() if m else None
-        estado = _busca("EstadoEnvio") or _busca("EstadoRegistro")
-        csv = _busca("CSV")
-        if status == 200 and (estado or "").lower() in ("correcto", "aceptadoconerrores", ""):
-            return {"ok": True, "estado": "enviado", "estado_aeat": estado or "Correcto",
-                    "csv": csv, "mensaje": _busca("DescripcionErrorRegistro")}
-        return {"ok": False, "estado": "pendiente", "estado_aeat": estado or "Incorrecto",
-                "csv": csv, "mensaje": _busca("DescripcionErrorRegistro") or f"HTTP {status}"}
+        """Parseo real del acuse AEAT (RespuestaSuministro.xsd). Busca por nombre
+        local (robusto ante prefijos/namespaces del espejo vs oficial)."""
+        out = {"ok": False, "estado": "pendiente", "estado_aeat": None, "csv": None,
+               "mensaje": None, "espera": None}
+        if not texto:
+            out["mensaje"] = f"HTTP {status} sin cuerpo"
+            return out
+        try:
+            root = ET.fromstring(texto.encode("utf-8") if isinstance(texto, str) else texto)
+        except Exception as e:
+            out["mensaje"] = f"respuesta no parseable: {e}"
+            return out
+
+        # SOAP Fault → rechazo.
+        fault = _buscar(root, "Fault")
+        if fault is not None:
+            fs = _buscar(fault, "faultstring")
+            out["mensaje"] = (fs.text if fs is not None else "SOAP Fault")
+            out["estado_aeat"] = "Incorrecto"
+            return out
+
+        estado_envio = _txt(_buscar(root, "EstadoEnvio"))
+        out["csv"] = _txt(_buscar(root, "CSV"))
+        out["espera"] = _num(_txt(_buscar(root, "TiempoEsperaEnvio")))
+        lineas = _buscar_todos(root, "RespuestaLinea")
+        estado_linea, cod_err, desc_err, duplicado = None, None, None, False
+        if lineas:
+            l0 = lineas[0]
+            estado_linea = _txt(_buscar(l0, "EstadoRegistro"))
+            cod_err = _txt(_buscar(l0, "CodigoErrorRegistro"))
+            desc_err = _txt(_buscar(l0, "DescripcionErrorRegistro"))
+            duplicado = _buscar(l0, "RegistroDuplicado") is not None
+
+        out["estado_aeat"] = estado_linea or estado_envio
+        out["mensaje"] = desc_err or (f"error {cod_err}" if cod_err else None)
+        estado_eval = (estado_linea or estado_envio or "").lower()
+        if status == 200 and (estado_eval in ("correcto", "aceptadoconerrores") or duplicado):
+            out["ok"] = True
+            out["estado"] = "enviado"
+        # ParcialmenteCorrecto/Incorrecto con esta línea rechazada → reintento (ok=False).
+        return out
+
+
+def _txt(el):
+    return el.text.strip() if (el is not None and el.text) else None
+
+
+def _num(v):
+    try:
+        return int(float(v)) if v is not None else None
+    except Exception:
+        return None
