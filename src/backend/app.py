@@ -57,6 +57,13 @@ def crear_app():
     except Exception as e:
         logger.warning("Storefront no disponible: %s", e)
 
+    # API REST versionada (/api/v1): auth JWT + recursos (A1).
+    try:
+        from src.backend.api import crear_blueprint_api
+        app.register_blueprint(crear_blueprint_api())
+    except Exception as e:
+        logger.warning("API REST no disponible: %s", e)
+
     return app
 
 

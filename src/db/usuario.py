@@ -307,6 +307,29 @@ sesion_global = SesionUsuario()
 # BLOQUE CONSULTA DE USUARIOS
 # ============================================================
 
+def obtener_usuario(id_usuario):
+    """Datos de un usuario por id (para refrescar claims del token con el estado
+    ACTUAL: rol/tienda/empresa pueden haber cambiado). None si no existe/activo."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            columnas = _columnas_usuarios(cur)
+            col_name = "nombre" if "nombre" in columnas else "usuario"
+            tiene_emp = "id_empresa" in columnas
+            cols = ["id", col_name, "perfil", "tienda_id"] + (["id_empresa"] if tiene_emp else [])
+            cond = " AND COALESCE(activo,1)=1" if "activo" in columnas else ""
+            cur.execute(f"SELECT {', '.join(cols)} FROM usuarios WHERE id=%s{cond}", (id_usuario,))
+            fila = cur.fetchone()
+            if not fila:
+                return None
+            d = dict(zip(cols, fila))
+            return {"id": d["id"], "nombre": d[col_name], "perfil": d["perfil"],
+                    "tienda_id": d["tienda_id"],
+                    "id_empresa": d.get("id_empresa") if tiene_emp else None}
+    except Exception as e:
+        logger.error("obtener_usuario(%s): %s", id_usuario, e)
+        return None
+
+
 def listar_usuarios():
     try:
         with obtener_conexion() as conn:

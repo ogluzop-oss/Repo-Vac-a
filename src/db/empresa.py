@@ -16,7 +16,9 @@ filtrarán por `empresa_actual_id()` para aislar datos entre empresas.
 """
 
 import logging
+import threading
 import uuid
+from contextlib import contextmanager
 
 from src.db.conexion import (
     EMPRESA_DEFAULT_CODIGO,
@@ -55,14 +57,40 @@ class TenantContext:
 
 _ctx = TenantContext()
 
+# Override THREAD-LOCAL por petición (A1/A4): permite que la API REST fije el
+# tenant de CADA petición de forma aislada (cada hilo el suyo) SIN afectar al
+# contexto global del escritorio. Si un hilo no activa el override (caso escritorio
+# y workers), se usa el contexto global de siempre → compatibilidad total.
+_local = threading.local()
+
+
+@contextmanager
+def contexto_tenant(id_empresa, id_tienda=None):
+    """Fija empresa/tienda SOLO para el hilo actual (p. ej. una request de la API)
+    y restaura el estado anterior al salir. Aísla tenants bajo concurrencia."""
+    prev = (getattr(_local, "activo", False), getattr(_local, "empresa_id", None),
+            getattr(_local, "tienda_id", None))
+    _local.activo = True
+    _local.empresa_id = id_empresa or EMPRESA_DEFAULT_ID
+    _local.tienda_id = id_tienda
+    try:
+        yield
+    finally:
+        _local.activo, _local.empresa_id, _local.tienda_id = prev
+
 
 def empresa_actual_id() -> str:
-    """ID (UUID) de la empresa activa. Hoy, la empresa por defecto."""
+    """ID (UUID) de la empresa activa: el override por hilo (API) tiene prioridad;
+    si no, el contexto global (escritorio)."""
+    if getattr(_local, "activo", False):
+        return _local.empresa_id or EMPRESA_DEFAULT_ID
     return _ctx.empresa_id or EMPRESA_DEFAULT_ID
 
 
 def tienda_actual_id():
-    """ID de la tienda activa (o None si no hay una fijada)."""
+    """ID de la tienda activa (override por hilo si está activo; si no, global)."""
+    if getattr(_local, "activo", False):
+        return _local.tienda_id
     return _ctx.tienda_id
 
 
