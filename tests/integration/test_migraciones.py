@@ -69,6 +69,16 @@ def test_aplicar_y_revertir_migracion(db, monkeypatch):
             conn.commit()
 
 
+def test_init_db_integra_runner(db):
+    """init_db() (arranque) garantiza esquema y registra/sella la baseline."""
+    _reset_tabla(db)
+    assert db.init_db() is True
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT resultado FROM schema_migraciones WHERE version='0001'")
+        fila = cur.fetchone()
+    assert fila is not None and fila[0] in ("stamp", "ok")
+
+
 def test_backup_genera_fichero_y_metadatos(db):
     import json
     import os

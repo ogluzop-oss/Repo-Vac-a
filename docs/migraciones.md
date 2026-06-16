@@ -58,6 +58,25 @@ En MariaDB el DDL hace COMMIT implícito: una migración a medias **no se deshac
 sola**. Por eso: migraciones atómicas, `revertir()` explícito y **backup previo**
 como red de seguridad real.
 
+## Integración en el arranque
+
+`init_db()` (llamado en `main.py` al arrancar) ahora: 1) ejecuta `ensure_schema()`
+(idempotente, como siempre); 2) llama al runner (`aplicar_pendientes`), que sella la
+baseline en instalaciones existentes y aplica las migraciones nuevas (0002+) con
+backup previo. Si el runner fallara, el esquema base ya quedó garantizado.
+
+## CLI (automatización de despliegues)
+
+```bash
+python -m src.db.migrador estado          # lista versiones y si están aplicadas
+python -m src.db.migrador aplicar         # aplica pendientes (con backup previo)
+python -m src.db.migrador aplicar --sin-backup
+python -m src.db.migrador sellar 0001     # marca como aplicadas hasta una versión
+python -m src.db.migrador revertir 0001   # downgrade hasta la versión indicada
+```
+
+(Respeta `DB_*`/`TEST_DB_NAME` del entorno → ejecutable por tenant en despliegues SaaS.)
+
 ## Estado de implementación
-- **C4.1 (hecho):** runner + registro/auditoría + baseline + sellado + backup.
-- Pendiente: integración en el arranque (C4.2), CLI (C4.4).
+- **C4 completado:** runner + auditoría + baseline + sellado + backup con retención +
+  integración en el arranque + downgrade/revertir + CLI. Documentado y con pruebas.

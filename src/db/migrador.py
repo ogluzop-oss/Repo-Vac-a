@@ -258,3 +258,39 @@ def revertir(version_objetivo, conexion_fn=None) -> dict:
             res["error"] = f"{v}: {e}"
             break
     return res
+
+
+# ── CLI (automatización desde procesos de despliegue) ────────────────────────
+def _main(argv=None):
+    """Uso: python -m src.db.migrador {estado|aplicar|sellar|revertir} [version]"""
+    import argparse
+    import logging as _log
+    _log.basicConfig(level=_log.INFO)
+    p = argparse.ArgumentParser(description="Migraciones de Smart Manager AI")
+    p.add_argument("comando", choices=["estado", "aplicar", "sellar", "revertir"])
+    p.add_argument("version", nargs="?", default=None)
+    p.add_argument("--sin-backup", action="store_true", help="no hacer backup previo")
+    a = p.parse_args(argv)
+    if a.comando == "estado":
+        for e in estado():
+            print(f"  [{'x' if e['aplicada'] else ' '}] {e['version']}  {e['descripcion']}")
+    elif a.comando == "aplicar":
+        r = aplicar_pendientes(backup=not a.sin_backup)
+        print("aplicadas:", r["aplicadas"], "| selladas:", r["selladas"],
+              "| error:", r["error"])
+        return 1 if r["error"] else 0
+    elif a.comando == "sellar":
+        print("sellado OK" if sellar(a.version or "0001") else "fallo")
+    elif a.comando == "revertir":
+        if not a.version:
+            print("Indica la versión objetivo del downgrade.")
+            return 2
+        r = revertir(a.version)
+        print("revertidas:", r["revertidas"], "| error:", r["error"])
+        return 1 if r["error"] else 0
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(_main())

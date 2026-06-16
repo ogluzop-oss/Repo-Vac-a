@@ -134,8 +134,23 @@ def obtener_conexion():
 
 
 def init_db():
-    """Inicialización centralizada al arranque."""
-    return ensure_schema()
+    """Inicialización centralizada al arranque.
+
+    1) Garantiza el esquema base con `ensure_schema()` (idempotente, como siempre).
+    2) Aplica las MIGRACIONES versionadas pendientes (C4): sella la baseline en
+       instalaciones existentes y ejecuta las nuevas (0002+) con backup previo. Si
+       el runner fallara, el esquema base ya quedó garantizado en el paso 1."""
+    ok = ensure_schema()
+    try:
+        from src.db import migrador
+        res = migrador.aplicar_pendientes()
+        if res.get("error"):
+            logger.error("Migraciones pendientes con error: %s", res["error"])
+        elif res.get("aplicadas"):
+            logger.info("Migraciones aplicadas: %s", res["aplicadas"])
+    except Exception as e:
+        logger.error("Runner de migraciones no disponible (%s); esquema base OK.", e)
+    return ok
 
 
 # ============================================================
