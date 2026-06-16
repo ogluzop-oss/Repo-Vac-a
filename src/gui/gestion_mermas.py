@@ -478,8 +478,9 @@ class _RegistrarMermaPage(QWidget):
             )
             return
 
-        if registrar_merma(codigo, cant, self.combo_motivo.currentText()):
-            _ajustar_stock_articulo_por_tipo(codigo, -cant, tipo)
+        # A2.3: registro de merma + descuento de stock ATÓMICOS (una transacción).
+        _col_merma = "Stock_tienda" if tipo == _TIPO_LINEAL else "Stock_total"
+        if registrar_merma(codigo, cant, self.combo_motivo.currentText(), columna_stock=_col_merma):
             mostrar_mensaje(
                 self,
                 tr("merma.success_title", default="Éxito"),

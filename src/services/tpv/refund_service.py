@@ -162,7 +162,8 @@ def procesar_devolucion(
         return False, "El importe de devolución no puede ser cero.", None
 
     try:
-        with _conn() as conn:
+        from src.db.conexion import transaccion
+        with transaccion() as conn:        # A2.3: devolución + ítems + stock atómicos
             with conn.cursor() as cur:
                 # Insert devolucion header
                 cur.execute("""
@@ -220,8 +221,7 @@ def procesar_devolucion(
                     f"autorizado_por={autorizado_por or 'N/A'}"
                 ))
 
-            conn.commit()
-
+            # commit gestionado por transaccion()
         logger.info(
             f"Devolución #{dev_id} procesada: {divisas.formatear(total_reembolso)} "
             f"venta={venta_id} forma={forma_reembolso}"

@@ -47,8 +47,24 @@ exactamente 5 con éxito y **nunca** stock negativo.
 Cubierto por `tests/integration/test_transacciones.py` (commit, rollback, sobreventa
 concurrente, venta atómica + FOR UPDATE, pedido online atómico).
 
-## Pendiente (A2.3 — tras tu revisión)
+## A2.3 — resto de operaciones críticas (hecho)
 
-Migrar el resto de operaciones críticas a `transaccion()`: devoluciones, mermas,
-recepciones y traspasos (estos dos últimos ya usan `begin()/rollback()` y se
-alinearán con el helper).
+Migradas a `transaccion()` (consistencia total del inventario, sin estados parciales):
+- **Devoluciones** (`refund_service.procesar_devolucion`): devolución + ítems +
+  reposición de stock atómicos. (La FK `venta_original_id→ventas` provoca rollback
+  limpio si la venta no existe — verificado.)
+- **Mermas** (`mermas.registrar_merma`): ahora acepta `columna_stock` y descuenta el
+  stock EN LA MISMA TRANSACCIÓN que registra la merma (antes el GUI lo hacía en dos
+  pasos no atómicos → corregido en `gestion_mermas`).
+- **Recepciones** (`logistica.procesar_recepcion_logistica`) y **Traspasos**
+  (`logistica.guardar_traspaso_logistico`): **unificados** — ya no usan
+  `conn.begin()/commit()/rollback()` manuales (que además no son fiables sobre el
+  wrapper del pool); usan el helper `transaccion()`.
+
+Cubierto por `tests/integration/test_inventario_atomico.py` (merma atómica, devolución
+revierte stock, traspaso atómico).
+
+## Estado A2
+- **A2.1** pool transparente · **A2.2** transacciones + locking (ventas/stock/pedidos/
+  webhooks) · **A2.3** devoluciones/mermas/recepciones/traspasos. **A2 completado.**
+- La ejecución automática de tests (incl. concurrencia) corre en CI (GitHub Actions).

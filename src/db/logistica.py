@@ -9,6 +9,7 @@ from src.db.conexion import (
     obtener_conexion,
     stock_signals,
     tabla_existe,
+    transaccion,
 )
 
 logger = logging.getLogger("logistica_db")
@@ -175,8 +176,7 @@ def guardar_traspaso_logistico(
     resumen = []
     total_lineas = 0
 
-    with obtener_conexion() as conn:
-        conn.begin()
+    with transaccion() as conn:        # A2.3: transacción unificada (commit/rollback automáticos)
         try:
             _emp, _tnd = _tenant_actual()
             with conn.cursor() as cur:
@@ -242,8 +242,7 @@ def guardar_traspaso_logistico(
                     (", ".join(resumen)[:500], id_doc),
                 )
 
-            conn.commit()
-            return {
+            return {                       # commit gestionado por transaccion()
                 "id_documento": id_doc,
                 "secuencial": secuencial,
                 "origen_codigo": origen_codigo,
@@ -251,8 +250,7 @@ def guardar_traspaso_logistico(
                 "total_lineas": total_lineas,
             }
         except Exception:
-            conn.rollback()
-            raise
+            raise          # transaccion() hace rollback automático
 
 
 # ============================================================
@@ -533,8 +531,7 @@ def procesar_recepcion_logistica(
 ):
     ensure_schema_logistica()
 
-    with obtener_conexion() as conn:
-        conn.begin()
+    with transaccion() as conn:        # A2.3: transacción unificada (commit/rollback automáticos)
         try:
             with conn.cursor() as cur:
                 cur.execute(
@@ -708,8 +705,7 @@ def procesar_recepcion_logistica(
                         (nuevo_estado, usuario_receptor, doc["id_documento"]),
                     )
 
-            conn.commit()
-
+            # commit gestionado por transaccion()
             for codigo in codigos_actualizados:
                 try:
                     stock_signals.stock_actualizado.emit(str(codigo))
@@ -724,5 +720,4 @@ def procesar_recepcion_logistica(
                 "articulos_no_encontrados": articulos_no_encontrados,
             }
         except Exception:
-            conn.rollback()
-            raise
+            raise          # transaccion() hace rollback automático

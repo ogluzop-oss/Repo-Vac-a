@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 
-from src.db.conexion import EMPRESA_DEFAULT_ID, obtener_conexion
+from src.db.conexion import EMPRESA_DEFAULT_ID, obtener_conexion, transaccion
 
 
 def _tenant_actual():
@@ -44,10 +44,13 @@ def obtener_mermas(mes=None):
 # ============================================================
 
 
-def registrar_merma(codigo, cantidad, motivo):
-    """Registra una merma en la base de datos."""
+def registrar_merma(codigo, cantidad, motivo, columna_stock=None):
+    """Registra una merma y, si se indica `columna_stock` ('Stock_tienda' o
+    'Stock_total'), descuenta el stock EN LA MISMA TRANSACCIÓN (A2.3) → evita
+    estados parciales (merma registrada sin descuento de stock, o viceversa)."""
+    col = columna_stock if columna_stock in ("Stock_tienda", "Stock_total") else None
     try:
-        with obtener_conexion() as conn:
+        with transaccion() as conn:
             cursor = conn.cursor()
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             emp, tnd = _tenant_actual()
@@ -56,7 +59,10 @@ def registrar_merma(codigo, cantidad, motivo):
                 "VALUES (%s,%s,%s,%s,%s,%s)",
                 (codigo, cantidad, motivo, fecha, emp, tnd),
             )
-            conn.commit()
+            if col:
+                cursor.execute(
+                    f"UPDATE articulos SET {col} = GREATEST(0, COALESCE({col},0) - %s) "
+                    "WHERE codigo = %s", (cantidad, codigo))
             return True
     except Exception as e:
         logging.error(f"Error al registrar merma: {e}")
