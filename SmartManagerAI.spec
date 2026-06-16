@@ -52,6 +52,7 @@ except Exception:
     pass
 hiddenimports += [
     "pymysql", "pymysql.cursors",
+    "dbutils", "dbutils.pooled_db",  # pool de conexiones (A2)
     "reportlab.graphics.barcode", "reportlab.graphics.barcode.code128",
     "reportlab.graphics.barcode.eanbc", "reportlab.graphics.barcode.qr",
     "barcode", "barcode.writer", "pyzbar", "pyzbar.pyzbar",

@@ -8,6 +8,7 @@
 # ── Núcleo (imprescindible para arrancar la app) ────────────
 PyQt6==6.9.1                 # interfaz gráfica
 PyMySQL==1.1.2               # conexión MariaDB/MySQL
+DBUtils==3.1.2               # pool de conexiones (PooledDB) sobre PyMySQL (A2)
 python-dotenv==1.2.2         # carga de configuración desde .env
 pandas==2.3.3                # datos / importación-exportación
 numpy==2.2.6

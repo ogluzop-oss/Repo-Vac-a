@@ -10,6 +10,15 @@ import pymysql
 import pymysql.cursors
 from dotenv import load_dotenv
 
+# Pool de conexiones (A2.1). Si DBUtils no estuviera disponible, se degrada a
+# conexión directa (comportamiento anterior) sin romper nada.
+try:
+    from dbutils.pooled_db import PooledDB
+    _POOL_DISPONIBLE = True
+except Exception:  # pragma: no cover
+    PooledDB = None
+    _POOL_DISPONIBLE = False
+
 # Cargar variables de entorno
 load_dotenv()
 
@@ -107,13 +116,60 @@ def asegurar_base_de_datos():
             conn.close()
 
 
+# ── Pool de conexiones (A2.1) ────────────────────────────────────────────────
+# Registro de pools POR CONFIGURACIÓN (host/puerto/BD/usuario). Hoy hay un único
+# pool (BD activa); esta estructura deja preparado el pool-por-tenant del futuro
+# SaaS (BD por tenant) sin cambiar la API pública `obtener_conexion()`.
+_POOLS = {}
+
+
+def _clave_pool(cfg) -> tuple:
+    return (cfg.get("host"), cfg.get("port"), cfg.get("database"), cfg.get("user"))
+
+
+def _crear_pool(cfg):
+    return PooledDB(
+        creator=pymysql,
+        maxconnections=int(os.getenv("DB_POOL_MAX", "20")),
+        mincached=0,                     # sin conexiones eager (BD podría no existir aún)
+        maxcached=int(os.getenv("DB_POOL_CACHE", "10")),
+        blocking=True,                   # espera si se alcanza el máximo (no peta)
+        ping=1,                          # valida la conexión al sacarla del pool
+        reset=True,                      # limpia estado al devolverla
+        **cfg,
+    )
+
+
+def _obtener_pool(cfg):
+    clave = _clave_pool(cfg)
+    pool = _POOLS.get(clave)
+    if pool is None:
+        pool = _crear_pool(cfg)
+        _POOLS[clave] = pool
+    return pool
+
+
+def _resetear_pool(cfg):
+    _POOLS.pop(_clave_pool(cfg), None)
+
+
+def _conectar(cfg):
+    """Conexión del pool (o directa si DBUtils no está disponible)."""
+    if _POOL_DISPONIBLE:
+        return _obtener_pool(cfg).connection()
+    return pymysql.connect(**cfg)
+
+
 @contextmanager
-def obtener_conexion():
-    """Proporciona una conexión limpia a MariaDB con manejo de transacciones."""
+def obtener_conexion(config=None):
+    """Conexión a MariaDB tomada de un POOL (A2.1). La API es idéntica: al salir,
+    la conexión se DEVUELVE al pool (no se cierra el socket). `config` opcional
+    permite apuntar a otra BD/tenant (futuro SaaS); por defecto usa la activa."""
+    cfg = config or DB_CONFIG
     conn = None
     try:
         try:
-            conn = pymysql.connect(**DB_CONFIG)
+            conn = _conectar(cfg)
         except pymysql.err.OperationalError as e:
             codigo_error = e.args[0] if getattr(e, "args", None) else None
             if codigo_error == 1049:
@@ -121,7 +177,8 @@ def obtener_conexion():
                     "La base de datos no existe todavía. Se intentará crear automáticamente."
                 )
                 asegurar_base_de_datos()
-                conn = pymysql.connect(**DB_CONFIG)
+                _resetear_pool(cfg)
+                conn = _conectar(cfg)
             else:
                 raise
         yield conn
