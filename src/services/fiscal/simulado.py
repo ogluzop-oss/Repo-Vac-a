@@ -24,10 +24,12 @@ class ProveedorSimulado(ProveedorFiscal):
         # Marcador (no es el QR legal de Verifactu/TBAI; eso llega en C3.3/C3.4).
         return "SIMULADO|" + "|".join(f"{k}={datos.get(k)}" for k in ("serie", "numero", "total"))
 
-    def registrar(self, tipo, referencia=None, total=0.0, payload=None) -> RegistroFiscal:
+    def registrar(self, tipo, referencia=None, total=0.0, payload=None,
+                  id_caja=None) -> RegistroFiscal:
         reg = fiscal_db.insertar_registro(
             tipo=tipo, referencia=referencia, total=total, payload=payload,
-            proveedor=self.nombre, estado="generado")
+            proveedor=self.nombre, estado="generado", id_caja=id_caja,
+            campos_hash=self.campos_hash)
         if not reg:
             return RegistroFiscal(tipo=tipo, referencia=referencia, total=total,
                                   proveedor=self.nombre, estado="error")

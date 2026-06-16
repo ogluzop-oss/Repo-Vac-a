@@ -79,7 +79,15 @@ class ProveedorFiscal:
     def __init__(self, config: dict | None = None):
         self.config = config or {}
 
-    def registrar(self, tipo: str, referencia=None, total=0.0, payload=None) -> RegistroFiscal:
+    def campos_hash(self, serie, numero, tipo, referencia, total) -> dict:
+        """Conjunto de campos que entran en la HUELLA encadenada. Cada régimen lo
+        define (Verifactu/TicketBAI fijan campos y orden legales); el conjunto
+        neutro por defecto sirve al núcleo y al `simulado`."""
+        return {"serie": serie, "numero": numero, "tipo": tipo,
+                "referencia": referencia, "total": round(float(total or 0), 2)}
+
+    def registrar(self, tipo: str, referencia=None, total=0.0, payload=None,
+                  id_caja=None) -> RegistroFiscal:
         raise NotImplementedError
 
     def anular(self, registro: RegistroFiscal) -> RegistroFiscal:

@@ -67,6 +67,51 @@ def test_cola_envio(db, fab):
     assert F.listar_cola(id_empresa=emp) == []        # ya no hay pendientes
 
 
+def test_serie_por_caja_cadenas_independientes(db, fab):
+    """Estrategia 'caja': cada caja numera y encadena por separado."""
+    from src.db import fiscal as F
+    from src.db.empresa import contexto_tenant
+    emp = fab.empresa("FISCAL CAJA")
+    fab.al_limpiar(lambda: _borra_fiscal(db, emp))
+    assert F.guardar_config(serie="A", serie_por="caja", id_empresa=emp)
+    with contexto_tenant(emp, None):
+        c1a = F.insertar_registro("ticket", referencia="C1V1", total=10, id_caja="CAJA-01")
+        c2a = F.insertar_registro("ticket", referencia="C2V1", total=20, id_caja="CAJA-02")
+        c1b = F.insertar_registro("ticket", referencia="C1V2", total=30, id_caja="CAJA-01")
+    assert c1a["serie"] == "A-CCAJA01" and c2a["serie"] == "A-CCAJA02"
+    # Numeración independiente por caja.
+    assert c1a["numero"] == 1 and c1b["numero"] == 2 and c2a["numero"] == 1
+    # Encadenado independiente por caja.
+    assert c1b["hash_anterior"] == c1a["hash"]
+    assert c2a["hash_anterior"] is None
+    assert F.cadena_valida(emp, serie="A-CCAJA01") and F.cadena_valida(emp, serie="A-CCAJA02")
+
+
+def test_serie_por_empresa_unica(db, fab):
+    """Estrategia 'empresa': una sola serie aunque cambien tienda/caja."""
+    from src.db import fiscal as F
+    from src.db.empresa import contexto_tenant
+    emp = fab.empresa("FISCAL UNICA")
+    fab.al_limpiar(lambda: _borra_fiscal(db, emp))
+    assert F.guardar_config(serie="A", serie_por="empresa", id_empresa=emp)
+    with contexto_tenant(emp, None):
+        r1 = F.insertar_registro("ticket", referencia="U1", total=1, id_caja="CAJA-01")
+        r2 = F.insertar_registro("ticket", referencia="U2", total=2, id_caja="CAJA-09")
+    assert r1["serie"] == "A" and r2["serie"] == "A"
+    assert r1["numero"] == 1 and r2["numero"] == 2 and r2["hash_anterior"] == r1["hash"]
+
+
+def test_config_serie_por_roundtrip(db, fab):
+    from src.db import fiscal as F
+    emp = fab.empresa("FISCAL SP")
+    fab.al_limpiar(lambda: _borra_fiscal(db, emp))
+    assert F.guardar_config(serie_por="caja", id_empresa=emp)
+    assert F.obtener_config(emp)["serie_por"] == "caja"
+    # Valor inválido → cae a 'tienda'.
+    assert F.guardar_config(serie_por="loquesea", id_empresa=emp)
+    assert F.obtener_config(emp)["serie_por"] == "tienda"
+
+
 def test_aislamiento_registros_por_empresa(db, fab):
     from src.db import fiscal as F
     from src.db.empresa import contexto_tenant
