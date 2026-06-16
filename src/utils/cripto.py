@@ -107,6 +107,22 @@ def descifrar(token: str | None) -> str | None:
         return None
 
 
+def parece_cifrado(token: str | None) -> bool:
+    """True si el valor parece un token producido por `cifrar` (Fernet o 'plain:')."""
+    return isinstance(token, str) and (token.startswith("gAAAA") or token.startswith(_PLANO_PREFIX))
+
+
+def descifrar_seguro(token: str | None) -> str | None:
+    """Descifra de forma retrocompatible: si el valor NO parece cifrado, se asume
+    que es un secreto legado en claro y se devuelve tal cual (permite migrar sin
+    romper lecturas)."""
+    if token is None or token == "":
+        return token
+    if not parece_cifrado(token):
+        return token            # secreto legado en claro
+    return descifrar(token)
+
+
 def cifrado_disponible() -> bool:
     """True si hay backend de cifrado real (cryptography + clave)."""
     return _get_fernet() is not None

@@ -29,8 +29,23 @@ Respeta la arquitectura multiempresa/multitienda y **no rompe usuarios existente
 `argon2-cffi` añadido a `requirements.txt` y al `collect_all` de `SmartManagerAI.spec`
 para empaquetar su binario en el `.exe`.
 
+## Cifrado de secretos en reposo (C1.2)
+
+- Reutiliza **Fernet** (`src/utils/cripto.py`). Nuevo `descifrar_seguro()` lee de
+  forma **retrocompatible**: si el valor no parece cifrado, se asume legado en claro
+  y se devuelve tal cual (permite migrar sin romper lecturas).
+- **Cifrado transparente en la capa DB** (los servicios no cambian):
+  - `pasarela_config`: `api_key`, `api_secret`, `webhook_secret`.
+  - `ecommerce_config`: `api_key`, `api_secret`.
+  - (`oauth_tokens` del correo ya estaba cifrado.)
+- **Migración idempotente** `migrar_cifrado()` en cada módulo, invocada por
+  `ensure_schema()` (best-effort): cifra los valores en claro existentes; detecta los
+  ya cifrados por su prefijo. Si no hay backend de cifrado, no hace nada.
+- Cubierto por `tests/integration/test_secretos_cifrado.py` (cifrado en reposo,
+  lectura de legado en claro, migración) sin romper los webhooks (que leen el secreto
+  descifrado para validar firma).
+
 ## Pendiente de C1 (siguientes sub-bloques)
-- Cifrado en reposo de secretos (pasarelas/ecommerce/correo/integraciones).
 - Bloqueo por intentos fallidos + política de contraseñas.
 - Identidad por usuario único por empresa (login individual) + diseño JWT/refresh
   y rotación de clave maestra (MultiFernet) para la futura API/SaaS.

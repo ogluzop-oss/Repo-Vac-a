@@ -19,6 +19,9 @@ PROVEEDOR_DEFECTO = "redsys"
 # como filtro para no impedir añadir pasarelas nuevas sin tocar el núcleo).
 PROVEEDORES = ("redsys", "stripe", "paypal", "simulado")
 
+# Campos sensibles cifrados en reposo (Fernet, ver src/utils/cripto.py).
+_SECRETOS = ("api_key", "api_secret", "webhook_secret")
+
 
 def _empresa(id_empresa=None):
     if id_empresa:
@@ -47,6 +50,10 @@ def obtener_config(id_empresa=None) -> dict:
                 base.update({k: (r.get(k) if r.get(k) is not None else base[k]) for k in base})
     except Exception as e:
         logger.error("obtener_config: %s", e)
+    # Descifra los secretos en reposo (retrocompatible con valores en claro).
+    from src.utils import cripto
+    for k in _SECRETOS:
+        base[k] = cripto.descifrar_seguro(base.get(k)) or ""
     return base
 
 
@@ -70,6 +77,9 @@ def guardar_config(proveedor=None, api_key=None, api_secret=None, comercio=None,
     # para permitir añadir pasarelas nuevas sin tocar el núcleo). Solo se exige valor.
     if not nueva["proveedor"]:
         nueva["proveedor"] = PROVEEDOR_DEFECTO
+    from src.utils import cripto
+    def _cif(v):
+        return cripto.cifrar(v) if v else v
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -82,11 +92,31 @@ def guardar_config(proveedor=None, api_key=None, api_secret=None, comercio=None,
                 "api_key=VALUES(api_key), api_secret=VALUES(api_secret), "
                 "comercio=VALUES(comercio), modo=VALUES(modo), moneda=VALUES(moneda), "
                 "webhook_secret=VALUES(webhook_secret), estado=VALUES(estado)",
-                (id_empresa, nueva["proveedor"], nueva["api_key"], nueva["api_secret"],
+                (id_empresa, nueva["proveedor"], _cif(nueva["api_key"]), _cif(nueva["api_secret"]),
                  nueva["comercio"], nueva["modo"], nueva["moneda"],
-                 nueva["webhook_secret"], nueva["estado"]))
+                 _cif(nueva["webhook_secret"]), nueva["estado"]))
             conn.commit()
         return True
     except Exception as e:
         logger.error("guardar_config: %s", e)
         return False
+
+
+def migrar_cifrado():
+    """Cifra en reposo los secretos que aún estuvieran en claro (idempotente)."""
+    from src.utils import cripto
+    if not cripto.cifrado_disponible():
+        return
+    with obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_empresa, api_key, api_secret, webhook_secret FROM pasarela_config")
+        filas = cur.fetchall()
+        for row in filas:
+            d = row if isinstance(row, dict) else dict(zip(
+                ["id_empresa", "api_key", "api_secret", "webhook_secret"], row))
+            cambios = {k: cripto.cifrar(d[k]) for k in _SECRETOS
+                       if d.get(k) and not cripto.parece_cifrado(d[k])}
+            if cambios:
+                sets = ", ".join(f"{k}=%s" for k in cambios)
+                cur.execute(f"UPDATE pasarela_config SET {sets} WHERE id_empresa=%s",
+                            (*cambios.values(), d["id_empresa"]))
+        conn.commit()

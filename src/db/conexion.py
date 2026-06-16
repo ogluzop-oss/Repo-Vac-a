@@ -908,6 +908,13 @@ def ensure_schema(force: bool = False):
 
         ensure_schema_logistica()
         logger.info("Esquema global, logístico y de stock verificado.")
+        # Cifrado en reposo: migra secretos en claro existentes (idempotente).
+        for _mod in ("pagos", "ecommerce"):
+            try:
+                import importlib
+                getattr(importlib.import_module(f"src.db.{_mod}"), "migrar_cifrado")()
+            except Exception as _e:
+                logger.debug("migrar_cifrado(%s): %s", _mod, _e)
         _schema_ready = True
         return True
     except Exception as e:

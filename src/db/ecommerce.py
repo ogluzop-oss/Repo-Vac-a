@@ -41,6 +41,10 @@ def obtener_config(id_empresa=None) -> dict:
                 base.update({k: (r.get(k) if r.get(k) is not None else base[k]) for k in base})
     except Exception as e:
         logger.error("obtener_config: %s", e)
+    # Descifra los secretos en reposo (retrocompatible con valores en claro).
+    from src.utils import cripto
+    for k in ("api_key", "api_secret"):
+        base[k] = cripto.descifrar_seguro(base.get(k)) or ""
     return base
 
 
@@ -58,6 +62,9 @@ def guardar_config(plataforma=None, base_url=None, api_key=None, api_secret=None
     }
     if nueva["plataforma"] not in PLATAFORMAS:
         nueva["plataforma"] = "web"
+    from src.utils import cripto
+    def _cif(v):
+        return cripto.cifrar(v) if v else v
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -68,10 +75,30 @@ def guardar_config(plataforma=None, base_url=None, api_key=None, api_secret=None
                 "ON DUPLICATE KEY UPDATE plataforma=VALUES(plataforma), "
                 "base_url=VALUES(base_url), api_key=VALUES(api_key), "
                 "api_secret=VALUES(api_secret), estado=VALUES(estado)",
-                (id_empresa, nueva["plataforma"], nueva["base_url"], nueva["api_key"],
-                 nueva["api_secret"], nueva["estado"]))
+                (id_empresa, nueva["plataforma"], nueva["base_url"], _cif(nueva["api_key"]),
+                 _cif(nueva["api_secret"]), nueva["estado"]))
             conn.commit()
         return True
     except Exception as e:
         logger.error("guardar_config: %s", e)
         return False
+
+
+def migrar_cifrado():
+    """Cifra en reposo los secretos (api_key/api_secret) que aún estuvieran en
+    claro (idempotente)."""
+    from src.utils import cripto
+    if not cripto.cifrado_disponible():
+        return
+    with obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id_empresa, api_key, api_secret FROM ecommerce_config")
+        filas = cur.fetchall()
+        for row in filas:
+            d = row if isinstance(row, dict) else dict(zip(["id_empresa", "api_key", "api_secret"], row))
+            cambios = {k: cripto.cifrar(d[k]) for k in ("api_key", "api_secret")
+                       if d.get(k) and not cripto.parece_cifrado(d[k])}
+            if cambios:
+                sets = ", ".join(f"{k}=%s" for k in cambios)
+                cur.execute(f"UPDATE ecommerce_config SET {sets} WHERE id_empresa=%s",
+                            (*cambios.values(), d["id_empresa"]))
+        conn.commit()
