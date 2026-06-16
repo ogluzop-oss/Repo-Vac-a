@@ -26,6 +26,15 @@ def test_huella_encadena():
     assert F.huella({"serie": "A", "numero": 2, "total": 20}, "otro") != h2
 
 
+def test_qr_png_render():
+    from src.services.fiscal.render import qr_png
+    png = qr_png("SIMULADO|serie=A|numero=1|total=10")
+    if png is None:
+        pytest.skip("librería qrcode no disponible")
+    assert isinstance(png, bytes) and png[:8] == b"\x89PNG\r\n\x1a\n"   # firma PNG
+    assert qr_png("") is None
+
+
 def test_serie_efectiva_estrategias():
     from src.db import fiscal as F
     base = {"serie": "A"}
