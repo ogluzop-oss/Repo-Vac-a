@@ -47,7 +47,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.db.conexion import obtener_articulo, obtener_conexion, stock_signals
+from src.db.conexion import (obtener_articulo, obtener_conexion, stock_signals,
+                             transaccion)
 from src.db.usuario import listar_usuarios, sesion_global, validar_login_empleado
 from src.utils import divisas, i18n
 from src.utils.customer_display_bridge import customer_display_bridge
@@ -4874,7 +4875,7 @@ class TPVWindow(QWidget):
         _id_tienda = tienda_actual_id()
         venta_id = None
         try:
-            with obtener_conexion() as conn:
+            with transaccion() as conn:        # A2.2: venta + ítems + stock atómicos
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO ventas (fecha, total, forma_pago, empleado, numero_caja, "
@@ -4908,8 +4909,7 @@ class TPVWindow(QWidget):
                             "WHERE codigo = %s",
                             (l["cantidad"], l["codigo"]),
                         )
-
-                conn.commit()
+                # commit/rollback gestionado por transaccion()
 
         except Exception as e:
             self._msg(tr("tpv.db_error_title"), tr("tpv.db_error_msg", e=e), "error")

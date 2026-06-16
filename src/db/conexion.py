@@ -190,6 +190,38 @@ def obtener_conexion(config=None):
             conn.close()
 
 
+@contextmanager
+def transaccion(config=None):
+    """Transacción REAL (A2.2): toma una conexión del pool con autocommit
+    DESACTIVADO, hace COMMIT al salir correctamente y ROLLBACK ante cualquier
+    excepción; restaura autocommit antes de devolverla al pool.
+
+    Cede la CONEXIÓN (úsala con `with transaccion() as conn: with conn.cursor()...`).
+    Pensada para operaciones multi-sentencia (ventas, stock, pedidos) y para que el
+    `SELECT … FOR UPDATE` mantenga el bloqueo durante toda la operación. No llames a
+    `conn.commit()` dentro: lo gestiona el context manager."""
+    cfg = config or DB_CONFIG
+    conn = _conectar(cfg)
+    try:
+        # `START TRANSACTION` abre una transacción explícita aunque la sesión esté
+        # en autocommit, y la mantiene (con sus bloqueos FOR UPDATE) hasta COMMIT.
+        # Es agnóstico del driver: no depende de `autocommit()` (que el wrapper del
+        # pool no expone). commit()/rollback() sí son DB-API y los proxia el pool.
+        with conn.cursor() as _c:
+            _c.execute("START TRANSACTION")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+    finally:
+        conn.close()           # devuelve al pool
+
+
 def init_db():
     """Inicialización centralizada al arranque.
 
@@ -1294,7 +1326,9 @@ def descontar_stock(codigo: str, cantidad: int) -> tuple[bool, int, int]:
     """
     for intento in range(3):  # Reintentos en caso de Deadlock
         try:
-            with obtener_conexion() as conn:
+            # A2.2: dentro de una TRANSACCIÓN real → el FOR UPDATE mantiene el
+            # bloqueo de fila hasta el commit (evita sobreventa en concurrencia).
+            with transaccion() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT Stock_total, Stock_tienda FROM articulos WHERE codigo=%s FOR UPDATE",
@@ -1320,7 +1354,7 @@ def descontar_stock(codigo: str, cantidad: int) -> tuple[bool, int, int]:
                         "UPDATE articulos SET Stock_total = Stock_total - %s, Stock_tienda = Stock_tienda - %s WHERE codigo = %s",
                         (desc_tot, desc_tie, codigo),
                     )
-                conn.commit()
+            # commit/rollback gestionado por transaccion()
 
             try:
                 stock_signals.stock_actualizado.emit(str(codigo))
@@ -1513,7 +1547,7 @@ def registrar_venta_con_items(
         if fecha is None:
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        with obtener_conexion() as conn:
+        with transaccion() as conn:        # A2.2: venta + ítems + stock atómicos
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -1576,7 +1610,7 @@ def registrar_factura(
         if fecha is None:
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        with obtener_conexion() as conn:
+        with transaccion() as conn:        # A2.2: factura + ítems + stock atómicos
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO ventas (fecha, total, forma_pago, empleado) VALUES (%s, %s, %s, %s)",

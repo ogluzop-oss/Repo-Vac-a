@@ -1,7 +1,7 @@
 # src/utils/registro_venta.py
 from datetime import datetime
 
-from src.db.conexion import obtener_conexion
+from src.db.conexion import transaccion
 from src.utils.logger import LOG_TPV
 
 # ============================================================
@@ -20,11 +20,13 @@ def registrar_venta(codigo: str, cantidad_vendida: int) -> bool:
         bool: True si la venta fue registrada correctamente.
     """
     try:
-        with obtener_conexion() as conn:
+        # A2.2: transacción real + SELECT … FOR UPDATE → atómico y sin carrera
+        # (el bloqueo de fila evita que dos ventas simultáneas sobrevendan).
+        with transaccion() as conn:
             cur = conn.cursor()
 
             cur.execute(
-                "SELECT Stock_tienda FROM articulos WHERE codigo = %s", (codigo,)
+                "SELECT Stock_tienda FROM articulos WHERE codigo = %s FOR UPDATE", (codigo,)
             )
             resultado = cur.fetchone()
 
@@ -51,7 +53,6 @@ def registrar_venta(codigo: str, cantidad_vendida: int) -> bool:
                 "UPDATE articulos SET Stock_tienda = Stock_tienda - %s WHERE codigo = %s",
                 (cantidad_vendida, codigo),
             )
-            conn.commit()
 
             print(
                 f"✅ Venta registrada: {cantidad_vendida} uds de '{codigo}'. "

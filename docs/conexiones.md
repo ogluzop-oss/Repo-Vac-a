@@ -21,16 +21,34 @@ misma API** → los 312 usos no cambian; al salir del `with`, la conexión se
 Cubierto por `tests/integration/test_pool.py` (registro, reutilización, 30 hilos
 concurrentes, autocommit intacto).
 
-## Pendiente
+## Transacciones reales (A2.2 — hecho)
 
-- **A2.2:** context manager `transaccion()` (autocommit off scoped, commit/rollback)
-  + arreglo de `descontar_stock` (FOR UPDATE efectivo dentro de transacción).
-- **A2.3:** migrar operaciones críticas (ventas, stock, pedidos online, webhooks,
-  devoluciones, mermas, recepciones, traspasos) a `transaccion()`.
+`transaccion()` (en `conexion.py`) abre una **transacción explícita** (`START
+TRANSACTION`) sobre una conexión del pool y hace **COMMIT** al salir bien o
+**ROLLBACK** ante cualquier excepción. Es **agnóstica del driver** (no usa
+`autocommit()`, que el wrapper del pool no expone; sí usa `commit()`/`rollback()`,
+que son DB‑API y el pool proxia). Uso: `with transaccion() as conn: with conn.cursor()…`
+(no llamar a `conn.commit()` dentro).
 
-## Hallazgo a corregir en A2.2 (registrado)
+**Corrección de concurrencia (sobreventa):** `descontar_stock` ejecuta ahora
+`SELECT … FOR UPDATE` + `UPDATE` **dentro de la transacción** → el bloqueo de fila
+se mantiene hasta el COMMIT. Probado: 10 hilos comprando 1 unidad de un stock de 5 →
+exactamente 5 con éxito y **nunca** stock negativo.
 
-Con `autocommit=True`, los `conn.commit()` actuales son no‑ops y el
-`SELECT … FOR UPDATE` de `descontar_stock` **no mantiene el bloqueo** (se libera al
-terminar el SELECT) → riesgo de **sobreventa** en concurrencia. Se corrige en A2.2
-ejecutando SELECT FOR UPDATE + UPDATE dentro de una misma transacción.
+**Operaciones migradas a `transaccion()` (prioridad económica):**
+- **Ventas:** `tpv._procesar_venta` (venta + ítems + stock), `registro_venta.registrar_venta`
+  (con `FOR UPDATE`), `conexion.registrar_venta_con_items` y `registrar_factura`.
+- **Stock:** `descontar_stock` (FOR UPDATE efectivo).
+- **Pedidos online:** `crear_pedido_online` (pedido + ítems atómicos).
+- **Webhooks:** la idempotencia (`reclamar_evento`, INSERT IGNORE) ya es atómica y el
+  descuento de stock que dispara el cobro usa ya `descontar_stock` transaccional;
+  la transición de estado es de una sola sentencia (atómica).
+
+Cubierto por `tests/integration/test_transacciones.py` (commit, rollback, sobreventa
+concurrente, venta atómica + FOR UPDATE, pedido online atómico).
+
+## Pendiente (A2.3 — tras tu revisión)
+
+Migrar el resto de operaciones críticas a `transaccion()`: devoluciones, mermas,
+recepciones y traspasos (estos dos últimos ya usan `begin()/rollback()` y se
+alinearán con el helper).

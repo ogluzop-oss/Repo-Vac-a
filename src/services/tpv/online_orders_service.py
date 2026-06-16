@@ -14,7 +14,7 @@ haga el almacén central). Ver [[project_centro_documental]] / [[project_multite
 import logging
 import uuid
 
-from src.db.conexion import EMPRESA_DEFAULT_ID, obtener_conexion
+from src.db.conexion import EMPRESA_DEFAULT_ID, obtener_conexion, transaccion
 
 logger = logging.getLogger("online_orders")
 
@@ -181,7 +181,7 @@ def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str 
                      l.get("origen_stock") or "central"))
     id_pedido = str(uuid.uuid4())
     try:
-        with obtener_conexion() as conn, conn.cursor() as cur:
+        with transaccion() as conn, conn.cursor() as cur:   # A2.2: pedido + ítems atómicos
             cur.execute(
                 "INSERT INTO pedidos_online "
                 "(id_pedido, id_empresa, id_tienda, id_usuario, trabajador, cliente_id, "
@@ -198,7 +198,7 @@ def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str 
                     "(id_pedido, codigo_articulo, nombre, cantidad, precio_unitario, subtotal, origen_stock) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s)",
                     (id_pedido, codigo, nombre, cant, precio, sub, origen))
-            conn.commit()
+            # commit gestionado por transaccion()
     except Exception as e:
         logger.error("crear_pedido_online: %s", e)
         return None
