@@ -18,4 +18,5 @@ MODULOS = [
     "0007_facturae",
     "0008_proveedores",
     "0009_compras_pedidos",
+    "0010_compras_recepciones",
 ]
