@@ -31,8 +31,19 @@ def proveedor_fiscal_actual():
 
 
 def firmante_para(config: dict) -> Firmante:
-    """Firmante para una config. En C3.2 no-op (no firma); el certificado local
-    cifrado/HSM llega en C3.5 como adaptadores enchufables sin tocar el núcleo."""
+    """Firmante para una config. XAdES aplica a **NO-VERIFACTU** (y a Facturae en
+    C3.4); en VERI*FACTU NO se firman los registros (solo mTLS). Devuelve
+    `FirmanteXAdES` cuando `modo=no_verifactu` y hay certificado activo; si no, no-op."""
+    cfg = config or {}
+    if cfg.get("modo") == "no_verifactu":
+        try:
+            from src.services.fiscal import certificados as C
+            from src.services.fiscal.firmantes import FirmanteXAdES
+            prov = C.proveedor_claves(cfg.get("id_empresa"))
+            if prov is not None and prov.disponible():
+                return FirmanteXAdES(prov)
+        except Exception as e:
+            logger.error("firmante_para(no_verifactu): %s", e)
     return Firmante()
 
 

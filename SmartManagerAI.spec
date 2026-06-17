@@ -77,6 +77,8 @@ hiddenimports += [
     "jwt",  # PyJWT (tokens de la futura API; import perezoso en seguridad/tokens)
     "OpenSSL", "urllib3.contrib.pyopenssl",  # mTLS en memoria AEAT (Verifactu C3.5)
 ]
+hiddenimports += collect_submodules("signxml")  # firma XAdES (C3.5/C3.4)
+hiddenimports += collect_submodules("lxml")     # validación XSD + firma XML
 
 # Paquetes pesados/con datos que se recogen completos si están instalados.
 # `cryptography` se incluye entero para garantizar el binario Rust (_rust) que usa
