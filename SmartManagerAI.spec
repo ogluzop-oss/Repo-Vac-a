@@ -75,6 +75,7 @@ hiddenimports += [
     "pyttsx3.drivers", "pyttsx3.drivers.sapi5",
     "openpyxl", "pandas", "numpy",
     "jwt",  # PyJWT (tokens de la futura API; import perezoso en seguridad/tokens)
+    "OpenSSL", "urllib3.contrib.pyopenssl",  # mTLS en memoria AEAT (Verifactu C3.5)
 ]
 
 # Paquetes pesados/con datos que se recogen completos si están instalados.

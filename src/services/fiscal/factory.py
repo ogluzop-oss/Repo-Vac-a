@@ -37,14 +37,27 @@ def firmante_para(config: dict) -> Firmante:
 
 
 def emisor_para(config: dict) -> Emisor:
-    """Emisor para una config. Verifactu (C3.3) devuelve su adaptador AEAT, que
-    permanece `disponible()=False` hasta que haya transporte/certificado listo
-    (C3.5) → el worker deja el registro en espera, sin enviar nada a ciegas.
-    Otros regímenes/sin configurar: no-op."""
+    """Emisor para una config. Verifactu devuelve su adaptador AEAT con TRANSPORTE
+    mTLS real (C3.5.2) inyectado cuando la empresa tiene un certificado ACTIVO
+    vigente (custodia C3.5.1). Sin certificado, `disponible()=False` → el worker
+    deja el registro en espera. Otros regímenes/sin configurar: no-op."""
     if (config or {}).get("proveedor") == "verifactu":
         try:
             from src.services.fiscal.emisores.verifactu_aeat import EmisorVerifactu
-            return EmisorVerifactu(config=config)
+            transporte = _transporte_mtls(config)
+            return EmisorVerifactu(transporte=transporte, config=config)
         except Exception as e:
             logger.error("emisor_para(verifactu): %s", e)
     return Emisor()
+
+
+def _transporte_mtls(config: dict):
+    """Transporte mTLS a partir del certificado activo de la empresa, o None."""
+    try:
+        from src.services.fiscal import certificados as C
+        from src.services.fiscal.emisores.tls import transporte_mtls
+        prov = C.proveedor_claves((config or {}).get("id_empresa"))
+        return transporte_mtls(prov) if prov is not None else None
+    except Exception as e:
+        logger.debug("transporte mTLS no disponible: %s", e)
+        return None
