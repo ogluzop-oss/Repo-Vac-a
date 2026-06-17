@@ -14,23 +14,25 @@ def _hash_almacenado(db, uid):
 
 
 def test_login_argon2(db, fab):
+    """Login OFICIAL nominal por usuario (E1.2)."""
     from src.db import usuario as U
-    u = fab.usuario(perfil="GERENTE", password="Gerente_Clave_123")
-    res = U.validar_login("GERENTE", "Gerente_Clave_123")
+    u = fab.usuario(nombre="GER_TEST_1", password="Gerente_Clave_123")
+    res = U.validar_login_usuario("GER_TEST_1", "Gerente_Clave_123")
     assert res and res["id"] == u["id"]
-    assert U.validar_login("GERENTE", "mala") is None
+    assert U.validar_login_usuario("GER_TEST_1", "mala") is None
 
 
 def test_login_legado_se_migra_a_argon2(db, fab):
+    """El hash SHA-256 legado se migra a Argon2id en el login nominal."""
     from src.db import usuario as U
-    u = fab.usuario(perfil="ADMINISTRADOR", password="Admin_Legado_123", hash_legado=True)
+    u = fab.usuario(nombre="ADM_TEST_1", password="Admin_Legado_123", hash_legado=True)
     # El hash inicial es SHA-256 (64 hex).
     assert len(_hash_almacenado(db, u["id"])) == 64
     # Login correcto → autentica y rehashea a Argon2id.
-    assert U.validar_login("ADMINISTRADOR", "Admin_Legado_123")
+    assert U.validar_login_usuario("ADM_TEST_1", "Admin_Legado_123")
     assert _hash_almacenado(db, u["id"]).startswith("$argon2id$")
     # Sigue funcionando tras la migración.
-    assert U.validar_login("ADMINISTRADOR", "Admin_Legado_123")
+    assert U.validar_login_usuario("ADM_TEST_1", "Admin_Legado_123")
 
 
 def test_login_empleado_por_nombre(db, fab):

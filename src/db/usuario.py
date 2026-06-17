@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import os
 from datetime import datetime
 
 from src.seguridad import passwords as _pw
@@ -44,6 +45,15 @@ def _columnas_usuarios(cur):
 
 # Bloqueo por intentos fallidos (C1.3): tras 5 fallos, bloqueo escalado.
 _MAX_INTENTOS = 5
+
+
+def legacy_profile_login_habilitado() -> bool:
+    """E1.2 — El login por PERFIL con contraseña COMPARTIDA queda como modo LEGACY,
+    DESACTIVADO por defecto. Solo se habilita explícitamente con la variable de
+    entorno SMART_MANAGER_LEGACY_PROFILE_LOGIN. El sistema oficial es el login
+    nominal por usuario (`validar_login_usuario`)."""
+    return os.getenv("SMART_MANAGER_LEGACY_PROFILE_LOGIN", "").strip().lower() in (
+        "1", "true", "yes", "si", "sí", "on")
 
 
 def _bloqueo_minutos(intentos: int) -> int:
@@ -105,8 +115,16 @@ def _autenticar(filas_cols, filas, password):
 
 
 def validar_login(perfil_ui, password):
-    """Valida credenciales por perfil. Verifica con soporte dual (Argon2id +
-    SHA-256 legado) fila a fila y rehashea al primer acierto."""
+    """[LEGACY/DEPRECADO] Login por PERFIL con contraseña COMPARTIDA por rol.
+
+    E1.2: aislado como modo legacy explícito y **DESACTIVADO por defecto**. Ninguna
+    ruta normal de autenticación lo usa (el flujo oficial es `validar_login_usuario`,
+    nominal por usuario). Solo opera si `SMART_MANAGER_LEGACY_PROFILE_LOGIN` está
+    activado; en caso contrario devuelve None sin autenticar."""
+    if not legacy_profile_login_habilitado():
+        logger.warning("Login por PERFIL (contraseña compartida) DESACTIVADO (modo legacy). "
+                       "Use login nominal por usuario (validar_login_usuario).")
+        return None
     valor_busqueda = perfil_ui.strip().upper()
     try:
         with obtener_conexion() as conn:

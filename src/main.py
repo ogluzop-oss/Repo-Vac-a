@@ -45,7 +45,7 @@ from PyQt6.QtWidgets import (
 
 # Importaciones internas
 from src.db.conexion import init_db, obtener_conexion
-from src.db.usuario import sesion_global, validar_login_empleado
+from src.db.usuario import sesion_global, validar_login_usuario
 from src.gui.login import LoginWindow
 from src.gui.menu_principal import MenuPrincipal
 from src.utils.i18n import tr
@@ -437,7 +437,10 @@ class SmartManagerApp(QStackedWidget):
         """Procesa las credenciales y gestiona el cambio de pantalla."""
         nombre = self.ventana_login.txt_nombre.text().strip()
         password = self.ventana_login.txt_password.text()
-        user_data = validar_login_empleado(nombre, password)
+        # E1.2: login OFICIAL nominal por usuario (nombre o email), con Argon2id,
+        # lockout y trazabilidad individual. (El login por perfil compartido queda
+        # como modo legacy desactivado por defecto.)
+        user_data = validar_login_usuario(nombre, password)
 
         if user_data:
             sesion_global.iniciar_sesion(user_data)
