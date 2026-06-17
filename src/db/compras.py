@@ -478,6 +478,37 @@ def historico_pedidos(id_empresa=None, id_proveedor=None, limite=500) -> list:
         return []
 
 
+def crear_pedido_desde_propuestas(propuesta_ids=None, id_proveedor=None, usuario=None,
+                                  id_empresa=None) -> int | None:
+    """E2.7 — Convierte sugerencias de reabastecimiento (estado 'pendiente') en un
+    pedido de compra BORRADOR. Reutiliza `reabastecimiento.listar_propuestas` y los
+    costes del artículo como precio estimado; marca las propuestas como 'pedido'.
+    Si `propuesta_ids` es None, toma todas las pendientes."""
+    try:
+        from src.db import reabastecimiento as R
+    except Exception as e:
+        logger.error("reabastecimiento no disponible: %s", e)
+        return None
+    pendientes = R.listar_propuestas(("pendiente",))
+    if propuesta_ids is not None:
+        ids = set(propuesta_ids)
+        pendientes = [p for p in pendientes if p["id"] in ids]
+    if not pendientes:
+        return None
+    lineas = []
+    for p in pendientes:
+        costes = obtener_costes(p["codigo"]) or {}
+        precio = costes.get("coste_actual") or costes.get("ultimo_coste") or 0
+        lineas.append({"codigo": p["codigo"], "descripcion": p.get("nombre"),
+                       "cantidad": int(p.get("cantidad") or 0), "precio_unitario": precio})
+    pid = crear_pedido(id_proveedor=id_proveedor, lineas=lineas, usuario=usuario,
+                       observaciones="Generado desde reabastecimiento", id_empresa=id_empresa)
+    if pid:
+        for p in pendientes:
+            R.cambiar_estado_propuesta(p["id"], "pedido")
+    return pid
+
+
 def proveedores_mas_utilizados(id_empresa=None, limite=20) -> list:
     """Ranking de proveedores por nº de pedidos (excluye CANCELADO)."""
     id_empresa = _empresa(id_empresa)
