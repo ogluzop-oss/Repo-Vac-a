@@ -35,6 +35,41 @@ def _empresa(id_empresa=None):
         return EMPRESA_DEFAULT_ID
 
 
+def _auditar(id_empresa, id_cert, accion, detalle=None):
+    """Registra un evento del ciclo de vida del certificado (trazabilidad SaaS)."""
+    id_usuario, usuario = None, None
+    try:
+        from src.db.usuario import sesion_global
+        u = sesion_global.usuario_actual or {}
+        id_usuario = u.get("id")
+        usuario = u.get("nombre") or u.get("usuario")
+    except Exception:
+        pass
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO fiscal_certificados_auditoria "
+                "(id_empresa, id_certificado, accion, detalle, id_usuario, usuario) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                (id_empresa, id_cert, accion, (detalle or "")[:255], id_usuario, usuario))
+            conn.commit()
+    except Exception as e:
+        logger.debug("No se pudo auditar (%s/%s): %s", accion, id_cert, e)
+
+
+def listar_auditoria(id_empresa=None, limite=200) -> list:
+    """Rastro de auditoría de certificados de la empresa (más reciente primero)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM fiscal_certificados_auditoria WHERE id_empresa=%s "
+                        "ORDER BY id DESC LIMIT %s", (id_empresa, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_auditoria: %s", e)
+        return []
+
+
 # ── Validación / extracción de metadatos del PKCS#12 ─────────────────────────
 def _nif_de_cert(cert) -> str | None:
     """Extrae el NIF del titular del certificado (serialNumber del subject, sin
@@ -109,6 +144,7 @@ def importar(p12_bytes: bytes, password: str, id_empresa=None, alias=None,
             conn.commit()
         meta.update({"id": cid, "id_empresa": id_empresa, "alias": alias, "tipo": tipo,
                      "estado": estado})
+        _auditar(id_empresa, cid, "importar", f"alias={alias} nif={meta.get('titular_nif')}")
         logger.info("Certificado importado (empresa=%s, id=%s, estado=%s)", id_empresa, cid, estado)
         return meta
     except Exception as e:
@@ -174,8 +210,9 @@ def actualizar_estado(id_cert, estado, id_empresa=None) -> bool:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("UPDATE fiscal_certificados SET estado=%s WHERE id=%s AND id_empresa=%s",
                         (estado, id_cert, id_empresa))
+            afectadas = cur.rowcount
             conn.commit()
-        return True
+        return afectadas > 0          # False si el cert no es de esta empresa (frontera tenant)
     except Exception as e:
         logger.error("actualizar_estado cert(%s): %s", id_cert, e)
         return False
@@ -197,6 +234,7 @@ def activar(id_cert, id_empresa=None) -> bool:
             cur.execute("UPDATE fiscal_certificados SET estado='activo' "
                         "WHERE id=%s AND id_empresa=%s", (id_cert, id_empresa))
             conn.commit()
+        _auditar(id_empresa, id_cert, "activar")
         return True
     except Exception as e:
         logger.error("activar cert(%s): %s", id_cert, e)
@@ -205,7 +243,11 @@ def activar(id_cert, id_empresa=None) -> bool:
 
 def revocar(id_cert, id_empresa=None) -> bool:
     """Revoca (sustitución/baja). Irreversible a 'activo' sin reimportar."""
-    return actualizar_estado(id_cert, "revocado", id_empresa)
+    id_empresa = _empresa(id_empresa)
+    ok = actualizar_estado(id_cert, "revocado", id_empresa)
+    if ok:
+        _auditar(id_empresa, id_cert, "revocar")
+    return ok
 
 
 def rotar_cifrado(id_empresa=None) -> int:
@@ -225,6 +267,8 @@ def rotar_cifrado(id_empresa=None) -> int:
                                 (nuevo, f["id"]))
                     n += 1
             conn.commit()
+        if n:
+            _auditar(id_empresa, None, "rotar", f"recifrados={n}")
     except Exception as e:
         logger.error("rotar_cifrado: %s", e)
     return n
