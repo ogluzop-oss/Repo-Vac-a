@@ -149,3 +149,11 @@ def descifrar_seguro(token: str | None) -> str | None:
 def cifrado_disponible() -> bool:
     """True si hay backend de cifrado real (cryptography + clave)."""
     return _get_fernet() is not None
+
+
+def claves_raiz() -> list[bytes]:
+    """Claves maestras raíz (rotación incluida). Punto de reutilización para
+    DERIVAR claves por tenant (HKDF) sin exponer la lógica interna. La primera es
+    la activa; el resto sirven para descifrar durante una rotación. Lista vacía si
+    no hay backend de cifrado disponible."""
+    return _claves_rotacion()
