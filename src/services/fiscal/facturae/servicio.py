@@ -121,8 +121,12 @@ def generar_facturae(venta_id, canal="face", id_empresa=None, version=VERSION_DE
 
 
 def canal_para(config: dict):
-    """Canal FACe con transporte mTLS real si hay certificado activo; si no, no-op."""
+    """Canal según `config['canal']` (face|faceb2b) con transporte mTLS real si hay
+    certificado activo; si no, el canal queda `disponible()=False`."""
     from src.services.fiscal.facturae.emisores.face import CanalFACe
+    from src.services.fiscal.facturae.emisores.faceb2b import CanalFACeB2B
+    clases = {"face": CanalFACe, "faceb2b": CanalFACeB2B}
+    clase = clases.get((config or {}).get("canal", "face"), CanalFACe)
     transporte = None
     try:
         from src.services.fiscal import certificados as C
@@ -132,7 +136,7 @@ def canal_para(config: dict):
             transporte = transporte_mtls(prov)
     except Exception as e:
         logger.debug("canal_para transporte: %s", e)
-    return CanalFACe(transporte=transporte, config=config)
+    return clase(transporte=transporte, config=config)
 
 
 def procesar_envios_facturae(id_empresa=None, canal=None, limite=50) -> dict:
@@ -141,13 +145,15 @@ def procesar_envios_facturae(id_empresa=None, canal=None, limite=50) -> dict:
     from src.db import fiscal as _f  # solo para config/entorno
     id_empresa = _empresa(id_empresa)
     res = {"enviados": 0, "en_espera": 0, "errores": 0, "vistos": 0}
-    cfg = {"id_empresa": id_empresa, "entorno": _f.obtener_config(id_empresa).get("entorno", "preproduccion")}
-    canal = canal if canal is not None else canal_para(cfg)
+    entorno = _f.obtener_config(id_empresa).get("entorno", "preproduccion")
+    cfg = {"id_empresa": id_empresa, "entorno": entorno}
     for env in envios.listar("pendiente", id_empresa=id_empresa, listos=True, limite=limite):
         res["vistos"] += 1
         eid, intentos = env["id"], int(env.get("intentos") or 0)
+        # Canal: el inyectado (tests) o el resuelto por el canal de cada envío.
+        canal_env = canal if canal is not None else canal_para({**cfg, "canal": env.get("canal", "face")})
         try:
-            if not canal.disponible():
+            if not canal_env.disponible():
                 envios.actualizar(eid, "pendiente", error="canal no disponible (sin certificado)",
                                   proximo_intento=_backoff(intentos))
                 res["en_espera"] += 1
@@ -158,7 +164,7 @@ def procesar_envios_facturae(id_empresa=None, canal=None, limite=50) -> dict:
                                   error=datos, proximo_intento=_backoff(intentos))
                 res["errores" if intentos + 1 >= _MAX_INTENTOS else "en_espera"] += 1
                 continue
-            r = canal.enviar(firmado, datos, cfg)
+            r = canal_env.enviar(firmado, datos, cfg)
             self_total = datos["totales"]["total"]
             if r.get("ok"):
                 envios.actualizar(eid, "enviado", numero_registro=r.get("numero_registro"), csv=r.get("csv"))
