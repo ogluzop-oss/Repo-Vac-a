@@ -16,4 +16,5 @@ MODULOS = [
     "0005_certificados",
     "0006_cert_auditoria",
     "0007_facturae",
+    "0008_proveedores",
 ]
