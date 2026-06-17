@@ -1,9 +1,9 @@
 name: CI
 
-# CI ligero (estructura preparada). De momento solo comprobaciones rápidas que
-# NO requieren instalar las dependencias pesadas (PyQt6, OpenCV, Prophet…).
-# Las tareas pesadas (smoke completo en Windows, build del .exe) quedan abajo
-# como plantillas comentadas para activarlas cuando el núcleo esté terminado.
+# CI del proyecto: lint + validación i18n + SUITE DE PRUEBAS REAL (pytest sobre
+# MariaDB). El job `tests` ejecuta de verdad las pruebas de BD/servicios/fiscal
+# (el conftest las OMITIRÍA si no hubiera MariaDB; por eso se levanta el servicio).
+# El build del .exe queda como plantilla comentada (fase posterior).
 
 on:
   push:
@@ -57,23 +57,63 @@ jobs:
           print("i18n OK: JSON válidos y en.json cubre es.json")
           PY
 
+  # ── Suite de pruebas real (pytest sobre MariaDB) ───────────
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: roottest
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s --health-timeout=5s --health-retries=20 --health-start-period=30s
+    env:
+      # El conftest fija DB_NAME=smart_manager_test; la BD se crea en el arranque.
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PASSWORD: roottest
+      TEST_DB_NAME: smart_manager_test
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Librerías de sistema para Qt headless (PyQt6 offscreen)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libglib2.0-0
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Esperar a MariaDB (pymysql)
+        run: |
+          python - <<'PY'
+          import time, pymysql, sys
+          for i in range(30):
+              try:
+                  pymysql.connect(host="127.0.0.1", port=3306, user="root",
+                                  password="roottest", connect_timeout=3).close()
+                  print("MariaDB lista"); sys.exit(0)
+              except Exception as e:
+                  print(f"Esperando MariaDB ({i+1}): {e}"); time.sleep(3)
+          sys.exit("MariaDB no respondió a tiempo")
+          PY
+      - name: Ejecutar la suite (pytest + cobertura)
+        run: pytest
+
   # ============================================================
-  # PLANTILLAS PARA ACTIVAR MÁS ADELANTE (no se ejecutan ahora)
+  # PLANTILLA build del .exe (fase posterior; no se ejecuta ahora)
   # ============================================================
-  #
-  # smoke:
-  #   runs-on: windows-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-python@v5
-  #       with: { python-version: "3.13" }
-  #     - run: pip install -r requirements-dev.txt
-  #     - name: Smoke test (offscreen)
-  #       env: { QT_QPA_PLATFORM: offscreen }
-  #       run: python tests/smoke_test.py
-  #
   # build-exe:
-  #   needs: smoke
+  #   needs: tests
   #   runs-on: windows-latest
   #   steps:
   #     - uses: actions/checkout@v4
