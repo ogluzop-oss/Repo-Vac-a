@@ -16,7 +16,6 @@ import logging
 logger = logging.getLogger("fiscal.cripto_tenant")
 
 _SALT = b"smart-manager/fiscal/cert/v1"      # salt de dominio (no secreto)
-_PLANO_PREFIX = "plain:"
 
 
 def _derivar(root: bytes, id_empresa: str) -> bytes:
@@ -48,12 +47,16 @@ def disponible() -> bool:
 
 
 def cifrar(datos: bytes, id_empresa: str) -> str | None:
-    """Cifra bytes para un tenant → token ascii. Sin backend: marcador 'plain:'."""
+    """Cifra bytes para un tenant → token Fernet ascii. FAIL-CLOSED (A1): si NO hay
+    backend de cifrado disponible, devuelve None y NO produce ningún sustituto en
+    claro. Nunca debe almacenarse material sensible sin cifrado efectivo."""
     if datos is None:
         return None
     f = _fernet(id_empresa)
     if f is None:
-        return _PLANO_PREFIX + base64.b64encode(datos).decode("ascii")
+        logger.error("Cifrado por tenant NO disponible: se rechaza cifrar material "
+                     "sensible (fail-fast). No se almacena nada en claro.")
+        return None
     try:
         return f.encrypt(datos).decode("ascii")
     except Exception as e:
@@ -62,11 +65,10 @@ def cifrar(datos: bytes, id_empresa: str) -> str | None:
 
 
 def descifrar(token: str, id_empresa: str) -> bytes | None:
-    """Descifra un token producido por cifrar() para ese tenant."""
+    """Descifra un token Fernet de cifrar() para ese tenant. No se admite ningún
+    formato en claro (A1): si no se puede descifrar, devuelve None."""
     if token is None or token == "":
         return None
-    if token.startswith(_PLANO_PREFIX):
-        return base64.b64decode(token[len(_PLANO_PREFIX):])
     f = _fernet(id_empresa)
     if f is None:
         return None

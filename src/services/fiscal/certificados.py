@@ -114,6 +114,12 @@ def importar(p12_bytes: bytes, password: str, id_empresa=None, alias=None,
     id_empresa = _empresa(id_empresa)
     if tipo not in TIPOS:
         tipo = "sello"
+    # A1 (fail-fast de seguridad): sin cifrado efectivo NO se importa NADA. Se rechaza
+    # antes de parsear/almacenar; jamás se guarda material PKCS#12 en claro.
+    if not cripto_tenant.disponible():
+        logger.error("Importación de certificado RECHAZADA: cifrado no disponible "
+                     "(falta backend/clave maestra). No se almacena nada (fail-fast).")
+        return None
     try:
         meta = inspeccionar_pkcs12(p12_bytes, password)
     except Exception as e:
@@ -122,8 +128,10 @@ def importar(p12_bytes: bytes, password: str, id_empresa=None, alias=None,
     material = cripto_tenant.cifrar(
         json.dumps({"p12": _b64(p12_bytes), "password": password or ""}).encode("utf-8"),
         id_empresa)
-    if material is None:
-        logger.error("No se pudo cifrar el material del certificado")
+    # Defensa en profundidad: el material DEBE ser un token Fernet cifrado real.
+    if not material or not material.startswith("gAAAA"):
+        logger.error("Material del certificado no cifrado correctamente: importación "
+                     "abortada (no se almacena nada).")
         return None
     caducado = _caducado(meta["valido_hasta"])
     estado = ("caducado" if caducado else ("activo" if activar else "inactivo"))
