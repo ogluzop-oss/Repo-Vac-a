@@ -61,6 +61,7 @@
     "card_tpv": "POS",
     "card_documentos": "Documents",
     "card_catalogo": "Catalog",
+    "card_compras": "Purchases",
     "card_salir": "Exit",
     "cambiar_tienda": "Switch store",
     "sin_tienda": "No active store",

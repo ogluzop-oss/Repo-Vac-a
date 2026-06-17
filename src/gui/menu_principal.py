@@ -435,6 +435,11 @@ class MenuPrincipal(QWidget):
             btn_cat = self.crear_tarjeta_menu("Catálogo", "catalogo", "#22F4E6", "shopping_bag")
             footer_actions.addWidget(btn_cat, alignment=Qt.AlignmentFlag.AlignLeft)
 
+        # Compras y proveedores — ADMINISTRADOR / GERENTE / SUPERADMIN (back-office).
+        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+            btn_compras = self.crear_tarjeta_menu("Compras", "compras", "#22F4E6", "truck")
+            footer_actions.addWidget(btn_compras, alignment=Qt.AlignmentFlag.AlignLeft)
+
         footer_actions.addStretch()
 
         btn_tpv = self.crear_tarjeta_menu("TPV", "tpv", "#22F4E6", "shopping_bag")
@@ -514,6 +519,7 @@ class MenuPrincipal(QWidget):
         "correo": "menu.card_correo",
         "documentos": "menu.card_documentos",
         "catalogo": "menu.card_catalogo",
+        "compras": "menu.card_compras",
         "tpv": "menu.card_tpv",
         "logout": "menu.card_salir",
     }
@@ -817,6 +823,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.catalogo_gestion import CatalogoWindow
 
                 self.manejar_apertura(v_id, CatalogoWindow, **kwargs)
+            elif v_id == "compras":
+                from src.gui.compras_gestion import ComprasWindow
+
+                self.manejar_apertura(v_id, ComprasWindow, **kwargs)
             elif v_id == "tpv":
                 from src.gui.tpv import TPVWindow
 

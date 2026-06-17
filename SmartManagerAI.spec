@@ -66,7 +66,7 @@ for _mig in _glob.glob(os.path.join(ROOT, "src", "database", "migraciones", "*.p
 # collect_submodules("src") NO los enumera y solo se empaqueta lo alcanzable desde
 # main.py. Para garantizar TODOS los módulos de datos/servicios (incl. los que aún
 # no usa la GUI, p.ej. compras/proveedores de E2), se añaden por glob.
-for _sub in ("db", os.path.join("services", "**"), "utils"):
+for _sub in ("db", os.path.join("services", "**"), "utils", "gui"):
     for _f in _glob.glob(os.path.join(ROOT, "src", _sub, "*.py"), recursive=True):
         _rel = os.path.relpath(_f, ROOT)[:-3].replace(os.sep, ".")
         _base = os.path.basename(_f)
