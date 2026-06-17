@@ -139,3 +139,86 @@ def crear_backup(version_objetivo: str = "", motivo: str = "pre_migracion") -> d
         pass
     _aplicar_retencion()
     return meta
+
+
+# ── Restauración ──────────────────────────────────────────────────────────────
+def listar_backups() -> list:
+    """Backups disponibles (más recientes primero) con sus metadatos si existen."""
+    carpeta = _dir_backups()
+    out = []
+    for f in sorted((x for x in os.listdir(carpeta) if x.endswith(".sql")), reverse=True):
+        ruta = os.path.join(carpeta, f)
+        meta = {}
+        sidecar = ruta[:-4] + ".json"
+        if os.path.exists(sidecar):
+            try:
+                meta = json.load(open(sidecar, encoding="utf-8"))
+            except Exception:
+                meta = {}
+        out.append({"ruta": ruta, "nombre": f, **meta})
+    return out
+
+
+def _mysql_cli(ruta_sql: str, db: str) -> bool:
+    """Restaura con el cliente `mysql` (robusto para dumps de mysqldump)."""
+    exe = shutil.which("mysql")
+    if not exe:
+        return False
+    cmd = [exe, "-h", str(DB_CONFIG.get("host", "127.0.0.1")),
+           "-P", str(DB_CONFIG.get("port", 3306)),
+           "-u", str(DB_CONFIG.get("user", "root")), db]
+    entorno = dict(os.environ)
+    if DB_CONFIG.get("password"):
+        entorno["MYSQL_PWD"] = str(DB_CONFIG["password"])
+    try:
+        with open(ruta_sql, "rb") as fh:
+            r = subprocess.run(cmd, stdin=fh, stderr=subprocess.PIPE, env=entorno, timeout=600)
+        if r.returncode == 0:
+            return True
+        logger.warning("restore mysql CLI falló (%s): %s", r.returncode, r.stderr[:200])
+    except Exception as e:
+        logger.warning("restore mysql CLI no utilizable: %s", e)
+    return False
+
+
+def _restaurar_pymysql(ruta_sql: str, db: str) -> bool:
+    """Restauración portable vía PyMySQL (multi-statement) para el formato lógico.
+    Asegura la BD destino y ejecuta el script completo."""
+    import pymysql
+    cfg = {k: v for k, v in DB_CONFIG.items() if k != "database"}
+    cfg["client_flag"] = pymysql.constants.CLIENT.MULTI_STATEMENTS
+    sql = open(ruta_sql, encoding="utf-8").read()
+    conn = pymysql.connect(**cfg)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"CREATE DATABASE IF NOT EXISTS `{db}` DEFAULT CHARACTER SET utf8mb4")
+        conn.commit()
+        conn.select_db(db)                        # selecciona la BD destino
+        with conn.cursor() as cur:
+            cur.execute(sql)                      # multi-statement
+            while cur.nextset():                  # agota todos los result sets
+                pass
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def restaurar_backup(ruta_sql: str, db: str | None = None) -> dict:
+    """Restaura un backup `.sql` en la base `db` (por defecto, la activa). Usa el
+    cliente `mysql` si está disponible; si no, restauración portable vía PyMySQL.
+    Devuelve {resultado, metodo, db, ruta}."""
+    db = db or DB_CONFIG.get("database", "")
+    res = {"ruta": ruta_sql, "db": db, "metodo": None, "resultado": "error"}
+    if not ruta_sql or not os.path.exists(ruta_sql):
+        res["error"] = "backup inexistente"
+        return res
+    try:
+        if _mysql_cli(ruta_sql, db):
+            res.update(metodo="mysql_cli", resultado="ok")
+        elif _restaurar_pymysql(ruta_sql, db):
+            res.update(metodo="pymysql", resultado="ok")
+    except Exception as e:
+        logger.error("restaurar_backup: %s", e)
+        res["error"] = str(e)[:200]
+    return res
