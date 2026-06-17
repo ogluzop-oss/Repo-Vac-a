@@ -22,4 +22,5 @@ MODULOS = [
     "0011_articulos_costes",
     "0012_compras_facturas",
     "0013_contabilidad_base",
+    "0014_contabilidad_asientos",
 ]
