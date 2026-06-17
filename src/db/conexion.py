@@ -1603,6 +1603,13 @@ def registrar_venta_con_items(
                          id_empresa=_eid, id_tienda=_tid)
         except Exception:
             pass
+        # E6.4: encola el evento contable (no-op si la contabilidad está apagada).
+        try:
+            from src.services.contabilidad.posting import encolar_venta
+            encolar_venta(venta_id, total_acumulado, fecha, forma_pago=forma_pago,
+                          subtipo="ticket", id_empresa=_eid)
+        except Exception:
+            pass
         return venta_id
     except Exception:
         logger.exception("Error en registrar_venta_con_items")
@@ -1667,6 +1674,13 @@ def registrar_factura(
             from src.services.fiscal.hooks import gancho_venta
             gancho_venta(factura_id, total_factura, tipo="factura",
                          id_empresa=_eid, id_tienda=_tid)
+        except Exception:
+            pass
+        # E6.4: encola el evento contable (factura de venta; no-op si está apagada).
+        try:
+            from src.services.contabilidad.posting import encolar_venta
+            encolar_venta(factura_id, total_factura, fecha, forma_pago="factura",
+                          subtipo="factura", id_empresa=_eid)
         except Exception:
             pass
         return factura_id
