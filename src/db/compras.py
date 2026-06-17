@@ -208,9 +208,17 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
                                 "cantidad_recibida+%s WHERE id=%s", (cant, id_linea))
                 # Entrada de stock (almacén central) — solo si el artículo existe.
                 if codigo:
+                    precio = round(float((lp or {}).get("precio_unitario") or 0), 2)
+                    cur.execute("SELECT COALESCE(Stock_total,0) FROM articulos WHERE codigo=%s",
+                                (codigo,))
+                    fila_prev = cur.fetchone()
+                    stock_previo = (fila_prev[0] if fila_prev and not isinstance(fila_prev, dict)
+                                    else (list(fila_prev.values())[0] if fila_prev else None))
                     cur.execute("UPDATE articulos SET Stock_total=COALESCE(Stock_total,0)+%s, "
                                 "Stock_central=COALESCE(Stock_central,0)+%s WHERE codigo=%s",
                                 (cant, cant, codigo))
+                    if fila_prev is not None and precio > 0:
+                        _actualizar_costes(cur, codigo, int(stock_previo or 0), cant, precio)
                     cur.execute(
                         "INSERT INTO movimientos_stock (codigo_articulo, tipo_movimiento, "
                         "cantidad, id_documento, origen, usuario, observaciones) "
@@ -235,6 +243,42 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
     except Exception as e:
         logger.error("recibir(%s): %s", id_pedido, e)
         return None
+
+
+def _actualizar_costes(cur, codigo, stock_previo, cantidad, precio):
+    """Actualiza costes del artículo tras una entrada (E2.4): último/actual = precio
+    de compra; medio = media ponderada por existencias. Tolerante si faltan columnas
+    (instalaciones antiguas sin migración 0011)."""
+    try:
+        cur.execute("SELECT COALESCE(coste_medio,0) FROM articulos WHERE codigo=%s", (codigo,))
+        r = cur.fetchone()
+        medio_old = float((r[0] if r and not isinstance(r, dict) else
+                           (list(r.values())[0] if r else 0)) or 0)
+        prev = max(int(stock_previo or 0), 0)
+        nuevo_total = prev + int(cantidad)
+        medio = round(((medio_old * prev) + (precio * cantidad)) / nuevo_total, 2) if nuevo_total else precio
+        cur.execute("UPDATE articulos SET ultimo_coste=%s, coste_actual=%s, coste_medio=%s "
+                    "WHERE codigo=%s", (precio, precio, medio, codigo))
+    except Exception as e:
+        logger.debug("No se pudieron actualizar costes (%s): %s", codigo, e)
+
+
+def obtener_costes(codigo) -> dict:
+    """Costes de aprovisionamiento del artículo."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT ultimo_coste, coste_actual, coste_medio FROM articulos "
+                        "WHERE codigo=%s", (codigo,))
+            r = cur.fetchone()
+            if not r:
+                return {}
+            if isinstance(r, dict):
+                return {k: float(v or 0) for k, v in r.items()}
+            return {"ultimo_coste": float(r[0] or 0), "coste_actual": float(r[1] or 0),
+                    "coste_medio": float(r[2] or 0)}
+    except Exception as e:
+        logger.error("obtener_costes(%s): %s", codigo, e)
+        return {}
 
 
 def listar_recepciones(id_pedido, id_empresa=None) -> list:
