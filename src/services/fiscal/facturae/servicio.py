@@ -61,11 +61,20 @@ def _receptor(venta, id_empresa):
     faltan = destinatarios.validar_para_b2g(dest)
     if faltan:
         return None, "Faltan datos obligatorios del receptor: " + ", ".join(faltan)
-    return {"nif": nif, "razon_social": dest.get("razon_social") or base.get("nombre"),
-            "persona": dest.get("tipo_persona") or "J", "residencia": dest.get("residencia") or "R",
-            "direccion": dest.get("direccion"), "cp": dest.get("cp"),
-            "municipio": dest.get("municipio"), "provincia": dest.get("provincia"),
-            "cod_pais": dest.get("cod_pais") or "ESP"}, None
+    rec = {"nif": nif, "razon_social": dest.get("razon_social") or base.get("nombre"),
+           "persona": dest.get("tipo_persona") or "J", "residencia": dest.get("residencia") or "R",
+           "direccion": dest.get("direccion"), "cp": dest.get("cp"),
+           "municipio": dest.get("municipio"), "provincia": dest.get("provincia"),
+           "cod_pais": dest.get("cod_pais") or "ESP"}
+    if dest.get("es_aapp"):
+        addr = {"direccion": dest.get("direccion"), "cp": dest.get("cp"),
+                "municipio": dest.get("municipio"), "provincia": dest.get("provincia")}
+        rec["centros"] = [
+            {"code": dest.get("dir3_oficina_contable"), "role": "01", "name": "Oficina contable", **addr},
+            {"code": dest.get("dir3_organo_gestor"), "role": "02", "name": "Órgano gestor", **addr},
+            {"code": dest.get("dir3_unidad_tramitadora"), "role": "03", "name": "Unidad tramitadora", **addr},
+        ]
+    return rec, None
 
 
 def construir_firmado(venta_id, id_empresa=None, version=VERSION_DEFECTO):

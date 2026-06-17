@@ -26,13 +26,33 @@ def _imp(v) -> str:
     return f"{round(float(v or 0), 2):.2f}"
 
 
+def _centros_administrativos(parent, centros: list):
+    """AdministrativeCentres (DIR3) para B2G/FACe. Roles: 01 oficina contable,
+    02 órgano gestor, 03 unidad tramitadora."""
+    ac = _e(parent, "AdministrativeCentres")
+    for c in centros:
+        ce = _e(ac, "AdministrativeCentre")
+        _e(ce, "CentreCode", c.get("code"))
+        _e(ce, "RoleTypeCode", c.get("role"))
+        _e(ce, "Name", c.get("name") or c.get("role"))
+        ad = _e(ce, "AddressInSpain")
+        _e(ad, "Address", c.get("direccion") or "-")
+        _e(ad, "PostCode", c.get("cp") or "00000")
+        _e(ad, "Town", c.get("municipio") or "-")
+        _e(ad, "Province", c.get("provincia") or "-")
+        _e(ad, "CountryCode", "ESP")
+
+
 def _parte(parent, tag, p: dict):
-    """SellerParty/BuyerParty: TaxIdentification + LegalEntity (J) o Individual (F)."""
+    """SellerParty/BuyerParty: TaxIdentification + (AdministrativeCentres DIR3) +
+    LegalEntity (J) o Individual (F)."""
     parte = _e(parent, tag)
     ti = _e(parte, "TaxIdentification")
     _e(ti, "PersonTypeCode", p.get("persona") or "J")
     _e(ti, "ResidenceTypeCode", p.get("residencia") or "R")
     _e(ti, "TaxIdentificationNumber", p.get("nif") or "")
+    if p.get("centros"):                       # DIR3 (va antes de LegalEntity en BusinessType)
+        _centros_administrativos(parte, p["centros"])
     if (p.get("persona") or "J") == "F":
         ind = _e(parte, "Individual")
         nombre = (p.get("razon_social") or "").split()

@@ -11,7 +11,7 @@ VERSION_DEFECTO = "3.2.2"
 # Namespaces oficiales por versión soportada (DF1: 3.2.2 principal, 3.2.1 compat).
 NS_FACTURAE = {
     "3.2.2": "http://www.facturae.gob.es/formato/Versiones/Facturaev3_2_2.xml",
-    "3.2.1": "http://www.facturae.gob.es/formato/Versiones/Facturaev3_2_1.xml",
+    "3.2.1": "http://www.facturae.es/Facturae/2014/v3.2.1/Facturae",
 }
 NS_DS = "http://www.w3.org/2000/09/xmldsig#"
 
