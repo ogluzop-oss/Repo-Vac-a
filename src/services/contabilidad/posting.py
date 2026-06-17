@@ -85,6 +85,12 @@ def encolar_compra(ref, total, fecha, id_empresa=None, base=None, iva=None, subt
     return encolar("compra", ref, total, fecha, subtipo=subtipo, extra=extra, id_empresa=id_empresa)
 
 
+def encolar_devolucion(ref, total, fecha, tipo="venta", forma_pago="efectivo", id_empresa=None):
+    """Devolución de venta (o de compra) → contraflujo del importe."""
+    return encolar("devolucion", ref, total, fecha, subtipo=tipo,
+                   extra={"forma_pago": forma_pago}, id_empresa=id_empresa)
+
+
 # ── Procesado de la cola → asientos ──────────────────────────────────────────
 def _pendientes(cur, id_empresa, evento):
     cur.execute("SELECT * FROM contab_cola WHERE id_empresa=%s AND evento=%s AND estado='pendiente' "
@@ -111,6 +117,7 @@ def procesar_cola(id_empresa=None) -> dict:
         with obtener_conexion() as conn, conn.cursor() as cur:
             ventas = _pendientes(cur, id_empresa, "venta")
             compras = _pendientes(cur, id_empresa, "compra")
+            devoluciones = _pendientes(cur, id_empresa, "devolucion")
     except Exception as e:
         logger.error("procesar_cola/listar: %s", e)
         return res
@@ -135,6 +142,13 @@ def procesar_cola(id_empresa=None) -> dict:
     for ev in compras:
         p = _payload(ev)
         aid = _asiento_compra(ev, p, id_empresa)
+        if aid:
+            _cerrar(id_empresa, [ev["id"]], aid); res["asientos"] += 1; res["eventos"] += 1
+
+    # ── Devoluciones ── (1 asiento por devolución) — E6.5
+    for ev in devoluciones:
+        p = _payload(ev)
+        aid = _asiento_devolucion(ev, p, id_empresa)
         if aid:
             _cerrar(id_empresa, [ev["id"]], aid); res["asientos"] += 1; res["eventos"] += 1
     return res
@@ -208,4 +222,29 @@ def _asiento_compra(ev, p, id_empresa):
                    "descripcion": "Proveedor"})
     r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=f"Factura compra {ev['ref']}",
                         origen="compra", ref_origen=f"compra:{ev['ref']}", id_empresa=id_empresa)
+    return r["id"] if r else None
+
+
+def _asiento_devolucion(ev, p, id_empresa):
+    """Devolución de venta: contraflujo (Debe 708 base + 477 cuota / Haber forma_pago).
+    Devolución de compra: (Debe 400 / Haber 608 base + 472 cuota)."""
+    total = round(float(p.get("total") or 0), 2)
+    base, cuota, tipo = _desglose(total, id_empresa)
+    if ev.get("subtipo") == "compra":
+        lineas = [{"codigo_cuenta": M.cuenta("proveedor", id_empresa=id_empresa), "debe": total},
+                  {"codigo_cuenta": M.cuenta("devolucion_compra", id_empresa=id_empresa), "haber": base}]
+        if cuota:
+            lineas.append({"codigo_cuenta": M.cuenta("iva_sop", id_empresa=id_empresa), "haber": cuota,
+                           "tipo_iva": tipo})
+        concepto = f"Devolución de compra {ev['ref']}"
+    else:
+        fp = p.get("forma_pago") or "efectivo"
+        lineas = [{"codigo_cuenta": M.cuenta("devolucion_venta", id_empresa=id_empresa), "debe": base},
+                  {"codigo_cuenta": M.cuenta_forma_pago(fp, id_empresa), "haber": total}]
+        if cuota:
+            lineas.insert(1, {"codigo_cuenta": M.cuenta("iva_rep", id_empresa=id_empresa),
+                              "debe": cuota, "tipo_iva": tipo})
+        concepto = f"Devolución de venta {ev['ref']}"
+    r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=concepto, origen="devolucion",
+                        ref_origen=f"devolucion:{ev['ref']}", id_empresa=id_empresa)
     return r["id"] if r else None

@@ -38,6 +38,11 @@ def _empresa(id_empresa=None):
         return EMPRESA_DEFAULT_ID
 
 
+def _hoy():
+    import datetime as _dt
+    return _dt.date.today().strftime("%Y-%m-%d")
+
+
 # ── Pedidos de compra (E2.2) ─────────────────────────────────────────────────
 def crear_pedido(id_proveedor=None, lineas=None, observaciones=None, usuario=None,
                  id_empresa=None) -> int | None:
@@ -324,6 +329,13 @@ def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
                     "descripcion, cantidad, precio_unitario, subtotal) VALUES (%s,%s,%s,%s,%s,%s)",
                     (fid, l.get("codigo") or l.get("codigo_articulo"), l.get("descripcion"),
                      cant, precio, round(cant * precio, 2)))
+        # E6.5: encola el asiento de compra (no-op si la contabilidad está apagada).
+        try:
+            from src.services.contabilidad.posting import encolar_compra
+            encolar_compra(fid, total_f, fecha_factura or _hoy(), id_empresa=id_empresa,
+                           base=base_f, iva=iva_f)
+        except Exception:
+            pass
         return fid
     except Exception as e:
         logger.error("registrar_factura: %s", e)

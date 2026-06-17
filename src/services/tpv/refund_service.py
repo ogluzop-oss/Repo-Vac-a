@@ -226,6 +226,14 @@ def procesar_devolucion(
             f"Devolución #{dev_id} procesada: {divisas.formatear(total_reembolso)} "
             f"venta={venta_id} forma={forma_reembolso}"
         )
+        # E6.5: encola el asiento de devolución (no-op si la contabilidad está apagada).
+        try:
+            import datetime as _dt
+            from src.services.contabilidad.posting import encolar_devolucion
+            encolar_devolucion(dev_id, total_reembolso, _dt.date.today().strftime("%Y-%m-%d"),
+                               tipo="venta", forma_pago=forma_reembolso)
+        except Exception:
+            pass
         return True, f"Devolución #{dev_id} registrada. Importe: {divisas.formatear(total_reembolso)}", dev_id
 
     except Exception as e:
