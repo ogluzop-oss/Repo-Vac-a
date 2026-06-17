@@ -291,3 +291,100 @@ def listar_recepciones(id_pedido, id_empresa=None) -> list:
     except Exception as e:
         logger.error("listar_recepciones(%s): %s", id_pedido, e)
         return []
+
+
+# ── Facturas de proveedor (E2.5) ─────────────────────────────────────────────
+def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
+                      id_pedido=None, id_recepcion=None, base=None, iva=None,
+                      fecha_factura=None, observaciones=None, id_empresa=None) -> int | None:
+    """Registra una factura recibida de proveedor (registro documental + trazabilidad).
+    Si no se pasan base/iva, base = suma de líneas e iva = 0. Total = base + iva."""
+    id_empresa = _empresa(id_empresa)
+    lineas = lineas or []
+    base_calc = round(sum(int(l.get("cantidad") or 0) * round(float(l.get("precio_unitario") or 0), 2)
+                          for l in lineas), 2)
+    base_f = round(float(base), 2) if base is not None else base_calc
+    iva_f = round(float(iva or 0), 2)
+    total_f = round(base_f + iva_f, 2)
+    try:
+        ensure_schema()
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO compras_facturas (id_empresa, id_proveedor, id_pedido, id_recepcion, "
+                "numero_factura, fecha_factura, base, iva, total, observaciones) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (id_empresa, id_proveedor, id_pedido, id_recepcion, numero_factura,
+                 fecha_factura, base_f, iva_f, total_f, observaciones))
+            fid = cur.lastrowid
+            for l in lineas:
+                cant = int(l.get("cantidad") or 0)
+                precio = round(float(l.get("precio_unitario") or 0), 2)
+                cur.execute(
+                    "INSERT INTO compras_facturas_lineas (id_factura, codigo_articulo, "
+                    "descripcion, cantidad, precio_unitario, subtotal) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (fid, l.get("codigo") or l.get("codigo_articulo"), l.get("descripcion"),
+                     cant, precio, round(cant * precio, 2)))
+        return fid
+    except Exception as e:
+        logger.error("registrar_factura: %s", e)
+        return None
+
+
+def obtener_factura(id_factura, id_empresa=None) -> dict | None:
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM compras_facturas WHERE id_factura=%s AND id_empresa=%s",
+                        (id_factura, id_empresa))
+            cab = _fila_a_dict(cur, cur.fetchone())
+            if not cab:
+                return None
+            cur.execute("SELECT * FROM compras_facturas_lineas WHERE id_factura=%s ORDER BY id",
+                        (id_factura,))
+            cab["lineas"] = _filas_a_dicts(cur, cur.fetchall())
+            return cab
+    except Exception as e:
+        logger.error("obtener_factura(%s): %s", id_factura, e)
+        return None
+
+
+def listar_facturas(id_empresa=None, id_proveedor=None, id_pedido=None, limite=500) -> list:
+    id_empresa = _empresa(id_empresa)
+    filtros, params = ["id_empresa=%s"], [id_empresa]
+    if id_proveedor:
+        filtros.append("id_proveedor=%s"); params.append(id_proveedor)
+    if id_pedido:
+        filtros.append("id_pedido=%s"); params.append(id_pedido)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM compras_facturas WHERE " + " AND ".join(filtros)
+                        + " ORDER BY id_factura DESC LIMIT %s", (*params, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_facturas: %s", e)
+        return []
+
+
+def validar_factura(id_factura, tolerancia=0.01, id_empresa=None) -> dict:
+    """Valida la factura contra el total del pedido vinculado. Marca 'validada' si
+    coincide (±tolerancia) o 'con_diferencias' si no. Devuelve el diagnóstico."""
+    id_empresa = _empresa(id_empresa)
+    fac = obtener_factura(id_factura, id_empresa)
+    if not fac:
+        return {"ok": False, "error": "factura inexistente"}
+    referencia = None
+    if fac.get("id_pedido"):
+        ped = obtener_pedido(fac["id_pedido"], id_empresa)
+        referencia = float(ped["total"]) if ped else None
+    diff = None if referencia is None else round(float(fac["total"]) - referencia, 2)
+    coincide = referencia is not None and abs(diff) <= tolerancia
+    estado = "validada" if coincide else ("con_diferencias" if referencia is not None else "registrada")
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE compras_facturas SET estado=%s WHERE id_factura=%s AND id_empresa=%s",
+                        (estado, id_factura, id_empresa))
+            conn.commit()
+    except Exception as e:
+        logger.error("validar_factura(%s): %s", id_factura, e)
+    return {"ok": coincide, "estado": estado, "total_factura": float(fac["total"]),
+            "total_pedido": referencia, "diferencia": diff}
