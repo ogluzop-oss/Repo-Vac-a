@@ -443,6 +443,12 @@ class SmartManagerApp(QStackedWidget):
         user_data = validar_login_usuario(nombre, password)
 
         if user_data:
+            try:
+                from src.utils.observabilidad import registrar_evento
+                registrar_evento("login", "acceso concedido", usuario=user_data.get("nombre"),
+                                 perfil=user_data.get("perfil"))
+            except Exception:
+                pass
             sesion_global.iniciar_sesion(user_data)
             self.abrir_menu_principal()
             self.ventana_login.txt_password.clear()
@@ -459,6 +465,11 @@ class SmartManagerApp(QStackedWidget):
             # menú durante 1-3 s. Con el retardo, la UI responde de inmediato.
             QTimer.singleShot(350, self._iniciar_soma)
         else:
+            try:
+                from src.utils.observabilidad import registrar_evento
+                registrar_evento("login", "acceso denegado", nivel="warning", usuario=nombre)
+            except Exception:
+                pass
             self.overlay.hide()
             mostrar_mensaje(
                 self,
@@ -1009,6 +1020,11 @@ if __name__ == "__main__":
 
     iniciar_backend()
     init_db()
+    try:
+        from src.utils.observabilidad import registrar_evento
+        registrar_evento("arranque", "aplicación iniciada e init_db OK")
+    except Exception:
+        pass
 
     # Traducción por IA (Nivel 2): enchufa el proveedor en i18n. Se activa solo
     # si hay backend LLM disponible (ANTHROPIC_API_KEY + paquete 'anthropic');

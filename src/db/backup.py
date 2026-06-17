@@ -138,6 +138,13 @@ def crear_backup(version_objetivo: str = "", motivo: str = "pre_migracion") -> d
     except Exception:
         pass
     _aplicar_retencion()
+    try:
+        from src.utils.observabilidad import registrar_evento
+        registrar_evento("backup", "backup creado" if meta["resultado"] == "ok" else "backup fallido",
+                         nivel=("info" if meta["resultado"] == "ok" else "error"),
+                         metodo=meta.get("metodo"), db=db)
+    except Exception:
+        pass
     return meta
 
 
@@ -221,4 +228,12 @@ def restaurar_backup(ruta_sql: str, db: str | None = None) -> dict:
     except Exception as e:
         logger.error("restaurar_backup: %s", e)
         res["error"] = str(e)[:200]
+    try:
+        from src.utils.observabilidad import registrar_evento
+        registrar_evento("restore", "restauración completada" if res["resultado"] == "ok"
+                         else "restauración fallida",
+                         nivel=("info" if res["resultado"] == "ok" else "error"),
+                         metodo=res.get("metodo"), db=db)
+    except Exception:
+        pass
     return res
