@@ -388,3 +388,109 @@ def validar_factura(id_factura, tolerancia=0.01, id_empresa=None) -> dict:
         logger.error("validar_factura(%s): %s", id_factura, e)
     return {"ok": coincide, "estado": estado, "total_factura": float(fac["total"]),
             "total_pedido": referencia, "diferencia": diff}
+
+
+# ── Informes de compras (E2.6) ───────────────────────────────────────────────
+def _rango(cur_sql, params, desde, hasta, campo):
+    if desde:
+        cur_sql.append(f"{campo}>=%s"); params.append(desde)
+    if hasta:
+        cur_sql.append(f"{campo}<=%s"); params.append(hasta)
+
+
+def compras_por_proveedor(desde=None, hasta=None, id_empresa=None) -> list:
+    """Gasto facturado por proveedor (facturas registradas). [{id_proveedor, proveedor,
+    facturas, total}]."""
+    id_empresa = _empresa(id_empresa)
+    filtros, params = ["f.id_empresa=%s"], [id_empresa]
+    _rango(filtros, params, desde, hasta, "f.fecha_factura")
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT f.id_proveedor, COALESCE(p.razon_social,'(sin proveedor)') AS proveedor, "
+                "COUNT(*) AS facturas, COALESCE(SUM(f.total),0) AS total "
+                "FROM compras_facturas f LEFT JOIN proveedores p ON p.id_proveedor=f.id_proveedor "
+                "WHERE " + " AND ".join(filtros) + " GROUP BY f.id_proveedor, proveedor "
+                "ORDER BY total DESC", tuple(params))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("compras_por_proveedor: %s", e)
+        return []
+
+
+def compras_por_periodo(desde=None, hasta=None, id_empresa=None) -> list:
+    """Gasto facturado agrupado por mes (AAAA-MM). [{periodo, facturas, total}]."""
+    id_empresa = _empresa(id_empresa)
+    filtros, params = ["id_empresa=%s", "fecha_factura IS NOT NULL"], [id_empresa]
+    _rango(filtros, params, desde, hasta, "fecha_factura")
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DATE_FORMAT(fecha_factura,'%%Y-%%m') AS periodo, COUNT(*) AS facturas, "
+                "COALESCE(SUM(total),0) AS total FROM compras_facturas WHERE "
+                + " AND ".join(filtros) + " GROUP BY periodo ORDER BY periodo", tuple(params))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("compras_por_periodo: %s", e)
+        return []
+
+
+def costes_por_articulo(id_empresa=None, limite=500) -> list:
+    """Compras por artículo (líneas de factura): unidades, gasto y precio medio.
+    [{codigo_articulo, unidades, gasto, precio_medio}]."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT l.codigo_articulo, COALESCE(SUM(l.cantidad),0) AS unidades, "
+                "COALESCE(SUM(l.subtotal),0) AS gasto FROM compras_facturas_lineas l "
+                "JOIN compras_facturas f ON f.id_factura=l.id_factura "
+                "WHERE f.id_empresa=%s AND l.codigo_articulo IS NOT NULL "
+                "GROUP BY l.codigo_articulo ORDER BY gasto DESC LIMIT %s",
+                (id_empresa, int(limite)))
+            filas = _filas_a_dicts(cur, cur.fetchall())
+        for r in filas:
+            u = float(r.get("unidades") or 0)
+            r["precio_medio"] = round(float(r.get("gasto") or 0) / u, 2) if u else 0.0
+        return filas
+    except Exception as e:
+        logger.error("costes_por_articulo: %s", e)
+        return []
+
+
+def historico_pedidos(id_empresa=None, id_proveedor=None, limite=500) -> list:
+    """Histórico de pedidos con nombre de proveedor."""
+    id_empresa = _empresa(id_empresa)
+    filtros, params = ["c.id_empresa=%s"], [id_empresa]
+    if id_proveedor:
+        filtros.append("c.id_proveedor=%s"); params.append(id_proveedor)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT c.id_pedido, c.numero, c.estado, c.total, c.fecha, "
+                "COALESCE(p.razon_social,'') AS proveedor FROM compras_pedidos c "
+                "LEFT JOIN proveedores p ON p.id_proveedor=c.id_proveedor "
+                "WHERE " + " AND ".join(filtros) + " ORDER BY c.id_pedido DESC LIMIT %s",
+                (*params, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("historico_pedidos: %s", e)
+        return []
+
+
+def proveedores_mas_utilizados(id_empresa=None, limite=20) -> list:
+    """Ranking de proveedores por nº de pedidos (excluye CANCELADO)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT c.id_proveedor, COALESCE(p.razon_social,'(sin proveedor)') AS proveedor, "
+                "COUNT(*) AS pedidos, COALESCE(SUM(c.total),0) AS total FROM compras_pedidos c "
+                "LEFT JOIN proveedores p ON p.id_proveedor=c.id_proveedor "
+                "WHERE c.id_empresa=%s AND c.estado<>'CANCELADO' "
+                "GROUP BY c.id_proveedor, proveedor ORDER BY pedidos DESC, total DESC LIMIT %s",
+                (id_empresa, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("proveedores_mas_utilizados: %s", e)
+        return []
