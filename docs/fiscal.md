@@ -165,6 +165,50 @@ núcleo C3.2). Recursos en `src/services/fiscal/esquemas/` (ver `PROCEDENCIA.md`
 > Honrado **exacto** de `TiempoEsperaEnvio` por entrada de cola persistente = posible
 > **hook aditivo** al worker (pendiente de decisión; hoy: pacing en memoria + backoff).
 
+## C3.5 — Certificados, TLS y firma (hecho)
+
+Infraestructura criptográfica y de identidad, **multiempresa/SaaS**, por adaptadores
+(núcleo C3.2 intacto). Decisiones fijadas D1–D7.
+
+- **C3.5.1 Custodia** (`certificados.py`, `cripto_tenant.py`, `claves/`, migración 0005):
+  PKCS#12 cifrado en BD con **clave derivada por tenant** (HKDF desde la maestra C1);
+  nunca en disco ni en claro. `ProveedorClaves`/`ClavesLocales` (HSM/KMS diseñados).
+  Importación/validación, historial, activación/sustitución, revocación, caducidad,
+  rotación de cifrado.
+- **C3.5.2 Transporte mTLS** (`emisores/tls.py`): `SSLContext` **en memoria** (pyOpenSSL,
+  sin PEM en disco); inyectado en `EmisorVerifactu` cuando hay certificado activo;
+  alertas de caducidad.
+- **C3.5.3 Firma** (`firmantes/xades.py`): `FirmanteXAdES` (signxml), **XAdES-EPES/BES**,
+  reutilizable NO-VERIFACTU y Facturae; en VERI\*FACTU no se firma.
+- **C3.5.4 SaaS** (migración 0006): fronteras de tenant (no se gestionan certificados
+  ajenos) + **auditoría** de ciclo de vida.
+
+> Eventos SIF (`EventosSIF`) quedan como **épica posterior** (punto de extensión
+> preparado; no bloquean Verifactu/Facturae/producción).
+
+### Checklists operativos
+
+**Certificado (alta):** PKCS#12 (sello de empresa preferente) · contraseña · NIF del
+titular = `ObligadoEmision` · vigencia válida · importar (queda cifrado) · activar.
+
+**Preproducción:** `fiscal_config.entorno=preproduccion` · certificado de **pruebas**
+activo · `proveedor=verifactu`, `activo=1` · una venta → registro generado y encolado ·
+`procesar_cola` → CSV/estado AEAT · revisar evidencias (XML+acuse).
+
+**Producción (no activar hasta cumplir TODO):** ☐ re-sellado XML/WSDL vs **ZIP oficial**
+· ☐ PDFs huella/QR confirmados · ☐ datos SIF reales (NIF productor) + **declaración
+responsable** · ☐ valores fiscales confirmados (TipoFactura/Calificacion/ClaveRegimen) ·
+☐ **certificado de producción** (sello) en custodia · ☐ round-trip **live** OK ·
+☐ `entorno=produccion` · ☐ QR/leyenda en ticket.
+
+**Recuperación:** clave maestra C1 disponible (env/fichero) · export cifrado del
+material + metadatos · reimportar en el nuevo entorno · verificar `proveedor_claves`
+descifra · activar.
+
+**Rotación:** (a) clave maestra → `certificados.rotar_cifrado(empresa)` re-cifra el
+material sin downtime (MultiFernet); (b) certificado → importar el nuevo con solape de
+vigencia, `activar`, revocar el anterior. Todo queda en la auditoría.
+
 ## Multiempresa / SaaS
 - Config y **cadena hash por empresa** (aislamiento verificado por tests).
 - Certificados (C3.5) se custodiarán cifrados por empresa (infra C1) con interfaz HSM.
