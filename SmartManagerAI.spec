@@ -62,6 +62,16 @@ for _mig in _glob.glob(os.path.join(ROOT, "src", "database", "migraciones", "*.p
     _nm = os.path.splitext(os.path.basename(_mig))[0]
     if _nm not in ("__init__", "_init_"):
         hiddenimports.append("src.database.migraciones." + _nm)
+# Los paquetes de src usan `_init_.py` (no `__init__.py`), por lo que
+# collect_submodules("src") NO los enumera y solo se empaqueta lo alcanzable desde
+# main.py. Para garantizar TODOS los módulos de datos/servicios (incl. los que aún
+# no usa la GUI, p.ej. compras/proveedores de E2), se añaden por glob.
+for _sub in ("db", os.path.join("services", "**"), "utils"):
+    for _f in _glob.glob(os.path.join(ROOT, "src", _sub, "*.py"), recursive=True):
+        _rel = os.path.relpath(_f, ROOT)[:-3].replace(os.sep, ".")
+        _base = os.path.basename(_f)
+        if _base not in ("__init__.py", "_init_.py"):
+            hiddenimports.append(_rel)
 # unidecode carga submódulos de datos perezosamente (unidecode.x0XX) → recogerlos.
 try:
     hiddenimports += collect_submodules("unidecode")
