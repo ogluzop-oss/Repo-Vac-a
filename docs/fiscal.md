@@ -209,6 +209,40 @@ descifra · activar.
 material sin downtime (MultiFernet); (b) certificado → importar el nuevo con solape de
 vigencia, `activar`, revocar el anterior. Todo queda en la auditoría.
 
+## C3.4 — Facturae (hecho)
+
+Factura electrónica estructurada y firmada (B2G/FACe; B2B preparado). **Ortogonal a
+Verifactu**; reutiliza C3.5 (certificado + `FirmanteXAdES` + mTLS) y C3.2 (evidencias +
+patrón de cola). Núcleo C3.2 **congelado**. Recursos en `esquemas/facturae/`.
+
+- **C3.4.1** `facturae/` (esquemas + `destinatarios` DIR3 + migración 0007). Validación
+  XSD **offline** (resolver de xmldsig a fichero local).
+- **C3.4.2** `facturae_xml.py`: serializador 3.2.2/3.2.1 (Parties, Desglose IVA multi-tipo,
+  Items, Totals), **valida contra XSD oficial**.
+- **C3.4.3** `firma.py`: XAdES-EPES con política Facturae, **reutiliza `FirmanteXAdES`**.
+- **C3.4.4** `servicio.py` (`generar_facturae`/`procesar_envios_facturae`) + `emisores/face.py`
+  (SOAP/mTLS, transporte inyectable) + cola `facturae_envios` (sin tocar el worker).
+- **C3.4.5** `emisores/faceb2b.py`: **preparado** (no operativo; épica B2B futura).
+- **C3.4.6** DIR3 `AdministrativeCentres` (B2G) + suite de conformidad (3.2.2 y 3.2.1).
+
+### Trazabilidad: oficial / espejo / pendiente
+
+| Elemento | Estado | Fuente |
+|---|---|---|
+| Estructura XML Facturae 3.2.2/3.2.1 | 🟡 **Espejo** (valida XSD) | XSD `gisce/facturae` |
+| Firma XAdES-EPES (mecanismo) | ✅ Implementado (signxml) | C3.5.3 |
+| Política de firma Facturae (Identifier/DigestValue) | ⚠️ Pendiente PDF oficial | constante en `firma.py` |
+| Sobre/operación/endpoints FACe | 🟡 **Espejo/placeholder** | ⚠️ cotejar WSDL FACe |
+| DIR3 (AdministrativeCentres) | 🟡 Estructura validada | XSD |
+| FACeB2B | ⛔ Preparado, no operativo | épica futura |
+| Round-trip **live** FACe | ⛔ Pendiente | requiere certificado + credenciales FACe |
+
+### Checklist FACe (B2G)
+☐ Certificado activo (C3.5) · ☐ destinatario con dirección + **DIR3** (oficina contable/
+órgano gestor/unidad tramitadora) · ☐ `generar_facturae(venta_id)` → firmado + encolado ·
+☐ `procesar_envios_facturae` → nº registro FACe · ☐ re-sellado XSD + política oficial +
+WSDL FACe + round-trip en preproducción (pendientes externos).
+
 ## Multiempresa / SaaS
 - Config y **cadena hash por empresa** (aislamiento verificado por tests).
 - Certificados (C3.5) se custodiarán cifrados por empresa (infra C1) con interfaz HSM.
