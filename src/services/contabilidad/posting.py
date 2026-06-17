@@ -213,11 +213,12 @@ def _asiento_compra(ev, p, id_empresa):
     if base is None:
         base, iva, _ = _desglose(total, id_empresa)
     base = round(float(base), 2); iva = round(float(iva or (total - base)), 2)
+    tipo_iva = round(iva / base * 100, 2) if base else 0.0
     lineas = [{"codigo_cuenta": M.cuenta("compra", id_empresa=id_empresa), "debe": base,
                "descripcion": "Compra"}]
     if iva:
         lineas.append({"codigo_cuenta": M.cuenta("iva_sop", id_empresa=id_empresa), "debe": iva,
-                       "descripcion": "IVA soportado"})
+                       "tipo_iva": tipo_iva, "descripcion": "IVA soportado"})
     lineas.append({"codigo_cuenta": M.cuenta("proveedor", id_empresa=id_empresa), "haber": round(base + iva, 2),
                    "descripcion": "Proveedor"})
     r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=f"Factura compra {ev['ref']}",
