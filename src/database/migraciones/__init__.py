@@ -24,4 +24,5 @@ MODULOS = [
     "0013_contabilidad_base",
     "0014_contabilidad_asientos",
     "0015_contabilidad_cola",
+    "0016_cierres_z",
 ]
