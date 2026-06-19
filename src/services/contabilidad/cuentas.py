@@ -141,6 +141,22 @@ def ejercicio_cerrado(anio, id_empresa=None) -> bool:
     return bool(ej and ej.get("estado") == "cerrado")
 
 
+def cerrar_ejercicio(anio, id_empresa=None) -> bool:
+    """Cierra el ejercicio (bloquea asientos). v1: marca estado=cerrado + fecha. El
+    asiento formal de regularización/cierre PGC queda para una fase posterior."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE contab_ejercicios SET estado='cerrado', fecha_cierre=NOW() "
+                        "WHERE id_empresa=%s AND anio=%s AND estado='abierto'", (id_empresa, anio))
+            ok = cur.rowcount > 0
+            conn.commit()
+        return ok
+    except Exception as e:
+        logger.error("cerrar_ejercicio(%s): %s", anio, e)
+        return False
+
+
 # ── Cuentas (CRUD) ───────────────────────────────────────────────────────────
 def crear_cuenta(codigo, nombre, tipo="otro", naturaleza="deudora", id_empresa=None) -> bool:
     id_empresa = _empresa(id_empresa)

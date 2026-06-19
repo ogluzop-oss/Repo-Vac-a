@@ -62,6 +62,7 @@
     "card_documentos": "Documents",
     "card_catalogo": "Catalog",
     "card_compras": "Purchases",
+    "card_contabilidad": "Accounting",
     "card_salir": "Exit",
     "cambiar_tienda": "Switch store",
     "sin_tienda": "No active store",
