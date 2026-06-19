@@ -251,7 +251,15 @@ class ContabilidadWindow(QWidget):
         self._load_diario()
 
     def _cerrar(self):
-        if K.cerrar_ejercicio(self.anio):
-            _aviso(self, "Contabilidad", tr("contab.cerrado", default=f"Ejercicio {self.anio} cerrado."))
+        from src.services.contabilidad import cierre as Ci
+        usuario = (self.usuario or {}).get("nombre") if isinstance(self.usuario, dict) else None
+        r = Ci.cerrar_ejercicio_formal(self.anio, usuario=usuario)
+        if r.get("ok"):
+            destino = r.get("destino")
+            extra = f" Apertura {destino} generada." if r.get("apertura") else ""
+            _aviso(self, "Contabilidad",
+                   tr("contab.cerrado", default=f"Ejercicio {self.anio} cerrado (regularización + cierre).{extra}"))
+        elif r.get("motivo") == "ya_cerrado":
+            _aviso(self, "Contabilidad", tr("contab.ya_cerrado", default="El ejercicio ya estaba cerrado."), "warning")
         else:
             _aviso(self, "Contabilidad", tr("contab.no_cerrado", default="No se pudo cerrar."), "warning")
