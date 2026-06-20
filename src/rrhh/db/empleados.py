@@ -139,7 +139,7 @@ def expediente(id_empleado, id_empresa=None) -> dict | None:
         return None
     from src.rrhh.db import (ausencias, contratos, documentos, nominas,
                              vacaciones)
-    return {
+    exp = {
         "empleado": ficha,
         "contratos": contratos.listar_contratos(id_empleado, id_empresa),
         "nominas": nominas.listar_nominas(id_empleado, id_empresa),
@@ -147,3 +147,10 @@ def expediente(id_empleado, id_empresa=None) -> dict | None:
         "ausencias": ausencias.listar_ausencias(id_empleado, id_empresa),
         "documentos": documentos.listar_documentos(id_empleado, id_empresa),
     }
+    # F4.9: sección de control horario (aditiva; no rompe consumidores existentes).
+    try:
+        from src.rrhh import control_horario
+        exp["control_horario"] = control_horario.listar_jornadas(id_empleado, id_empresa)
+    except Exception:
+        exp["control_horario"] = []
+    return exp

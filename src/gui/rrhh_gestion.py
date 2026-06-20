@@ -192,6 +192,11 @@ class ExpedienteDialog(QDialog):
                     ["Tipo", "Inicio", "Fin", "Días", "Motivo"],
                     lambda r: [r.get("tipo"), r.get("fecha_inicio"), r.get("fecha_fin"),
                                r.get("dias"), r.get("motivo")]), "Ausencias")
+        tabs.addTab(self._tabla_simple(exp.get("control_horario"),
+                    ["Fecha", "Entrada", "Salida", "Efectivo (min)", "Exceso", "Déficit"],
+                    lambda r: [r.get("fecha"), r.get("hora_entrada"), r.get("hora_salida"),
+                               r.get("tiempo_efectivo_min"), r.get("exceso_min"),
+                               r.get("deficit_min")]), "Control horario")
         tabs.addTab(self._docs(exp.get("documentos")), "Documentos")
         root.addWidget(tabs)
         cerrar = _btn("Cerrar", self.accept)
@@ -293,6 +298,7 @@ class RRHHWindow(QWidget):
         tb.addWidget(_btn("Nuevo", self._nuevo, primary=True))
         tb.addWidget(_btn("Editar", self._editar))
         tb.addWidget(_btn("Vac./Ausencias", self._gestion_laboral))
+        tb.addWidget(_btn("Control horario", self._control_horario))
         tb.addWidget(_btn("Expediente", self._expediente, primary=True))
         root.addLayout(tb)
         # Tabla
@@ -348,6 +354,12 @@ class RRHHWindow(QWidget):
         if not e:
             QMessageBox.information(self, "RRHH", "Selecciona un empleado."); return
         GestionLaboralDialog(e["id"], self._id_empresa(), parent=self).exec()
+
+    def _control_horario(self, *_):
+        e = self._sel()
+        if not e:
+            QMessageBox.information(self, "RRHH", "Selecciona un empleado."); return
+        ControlHorarioDialog(e["id"], self._id_empresa(), parent=self).exec()
 
 
 # ── Gestión operativa de vacaciones y ausencias (F4.7) ────────────────────────
@@ -479,3 +491,99 @@ class GestionLaboralDialog(QDialog):
         except GestionLaboralError as e:
             QMessageBox.warning(self, "Ausencias", str(e)); return
         self.a_ini.clear(); self.a_fin.clear(); self.a_mot.clear(); self._refrescar()
+
+
+# ── Control horario (RD 8/2019) — F4.9 ────────────────────────────────────────
+class ControlHorarioDialog(QDialog):
+    def __init__(self, id_empleado, id_empresa=None, parent=None):
+        super().__init__(parent)
+        self.id_empleado = id_empleado
+        self.id_empresa = id_empresa
+        self.setWindowTitle("Control horario")
+        self.setMinimumSize(820, 580)
+        self.setStyleSheet(f"QDialog{{background:{_BG};}} QLabel{{color:{_TEXT};}}")
+        self._build()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        self.lbl_tot = QLabel(""); self.lbl_tot.setStyleSheet(f"color:{_CIAN};font-weight:700;")
+        root.addWidget(self.lbl_tot)
+        self.tbl = _tabla(["id", "Fecha", "Entrada", "Salida", "Pausa(s)", "Efectivo(min)",
+                           "Exceso", "Déficit"])
+        root.addWidget(self.tbl)
+        # alta de jornada
+        f = QHBoxLayout()
+        self.in_fecha = _inp("Fecha AAAA-MM-DD")
+        self.in_ent = _inp("Entrada AAAA-MM-DD HH:MM")
+        self.in_sal = _inp("Salida AAAA-MM-DD HH:MM")
+        self.in_plan = _inp("Plan. min (480)")
+        for wd in (self.in_fecha, self.in_ent, self.in_sal, self.in_plan):
+            f.addWidget(wd)
+        f.addWidget(_btn("Registrar", self._registrar, primary=True))
+        root.addLayout(f)
+        b = QHBoxLayout()
+        b.addWidget(_btn("Ver incidencias", self._incidencias))
+        b.addWidget(_btn("Exportar CSV", self._export_csv))
+        b.addWidget(_btn("Importar fichajes", self._importar))
+        b.addWidget(_btn("Cerrar", self.accept))
+        root.addLayout(b)
+        self._refrescar()
+
+    def _refrescar(self):
+        from src.rrhh import control_horario as CH
+        self._filas = CH.listar_jornadas(self.id_empleado, self.id_empresa)
+        self.tbl.setRowCount(len(self._filas))
+        for i, j in enumerate(self._filas):
+            for k, val in enumerate([j.get("id"), j.get("fecha"), j.get("hora_entrada"),
+                                     j.get("hora_salida"), j.get("pausa_segundos"),
+                                     j.get("tiempo_efectivo_min"), j.get("exceso_min"),
+                                     j.get("deficit_min")]):
+                self.tbl.setItem(i, k, _it(val))
+        t = CH._totales(self._filas)
+        self.lbl_tot.setText(f"Días {t['dias']} · efectivo {t['efectivo_min']} min · "
+                             f"exceso {t['exceso_min']} · déficit {t['deficit_min']}")
+
+    def _registrar(self):
+        from src.rrhh import control_horario as CH
+        try:
+            plan = int(self.in_plan.text().strip() or CH.JORNADA_DEFECTO_MIN)
+            CH.registrar_jornada(self.id_empleado, self.in_fecha.text().strip(),
+                                 self.in_ent.text().strip(), self.in_sal.text().strip() or None,
+                                 planificada_min=plan, usuario=self._usuario(),
+                                 id_empresa=self.id_empresa)
+        except CH.ControlHorarioError as e:
+            QMessageBox.warning(self, "Control horario", str(e)); return
+        for w in (self.in_fecha, self.in_ent, self.in_sal, self.in_plan):
+            w.clear()
+        self._refrescar()
+
+    def _usuario(self):
+        u = getattr(self.parent(), "usuario", None) or {}
+        return u.get("nombre") if isinstance(u, dict) else None
+
+    def _incidencias(self):
+        from src.rrhh import control_horario as CH
+        inc = CH.alertas(self.id_empleado, self.id_empresa)
+        if not inc:
+            QMessageBox.information(self, "Control horario", "Sin incidencias."); return
+        txt = "\n".join(f"· {i['fecha']}: {i['tipo']} — {i['detalle']}" for i in inc[:40])
+        QMessageBox.information(self, "Incidencias", txt)
+
+    def _export_csv(self):
+        from src.rrhh import control_horario as CH
+        from PyQt6.QtWidgets import QFileDialog
+        ruta, _ = QFileDialog.getSaveFileName(self, "Exportar CSV", "control_horario.csv",
+                                              "CSV (*.csv)")
+        if not ruta:
+            return
+        try:
+            with open(ruta, "w", encoding="utf-8", newline="") as fh:
+                fh.write(CH.exportar_csv(self._filas))
+            QMessageBox.information(self, "Control horario", f"Exportado a {ruta}")
+        except Exception as e:
+            QMessageBox.warning(self, "Control horario", f"No se pudo exportar: {e}")
+
+    def _importar(self):
+        QMessageBox.information(self, "Control horario",
+                               "Importación desde fichajes disponible vía API "
+                               "(control_horario.importar_de_fichajes).")

@@ -42,12 +42,20 @@ def test_tablas_existen(db):
 def test_migracion_reversible(db):
     from src.db.migrador import descubrir
     m = [x for x in descubrir() if x.version == "0017"][0]
+    # FK_CHECKS=0: otras migraciones posteriores (p.ej. 0018 control horario) añaden
+    # tablas con FK a rrhh_empleados; revertir 0017 de forma aislada no debe bloquearse
+    # por esas dependencias. Se restaura el esquema al final.
     with db.obtener_conexion() as conn, conn.cursor() as cur:
-        m.revertir(cur)
-        cur.execute("SHOW TABLES LIKE 'rrhh_empleados'")
-        ausente = cur.fetchall() == ()
-        m.aplicar(cur)                      # reaplicar (deja el esquema como estaba)
-        conn.commit()
+        cur.execute("SET FOREIGN_KEY_CHECKS=0")
+        try:
+            m.revertir(cur)
+            cur.execute("SHOW TABLES LIKE 'rrhh_empleados'")
+            ausente = cur.fetchall() == ()
+            m.aplicar(cur)                  # reaplicar (deja el esquema como estaba)
+            conn.commit()
+        finally:
+            cur.execute("SET FOREIGN_KEY_CHECKS=1")
+            conn.commit()
         cur.execute("SHOW TABLES LIKE 'rrhh_documentos'")
         presente = cur.fetchall() != ()
     assert ausente and presente

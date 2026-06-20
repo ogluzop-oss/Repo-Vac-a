@@ -26,4 +26,5 @@ MODULOS = [
     "0015_contabilidad_cola",
     "0016_cierres_z",
     "0017_rrhh_expediente",
+    "0018_control_horario",
 ]
