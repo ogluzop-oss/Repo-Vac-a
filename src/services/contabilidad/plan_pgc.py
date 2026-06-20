@@ -31,6 +31,7 @@ CUENTAS_PGC = [
     ("472", "Hacienda Pública, IVA soportado", "activo", "deudora"),
     ("475", "Hacienda Pública, acreedora por conceptos fiscales", "pasivo", "acreedora"),
     ("4750", "Hacienda Pública, acreedora por IVA", "pasivo", "acreedora"),
+    ("4751", "Hacienda Pública, acreedora por retenciones practicadas (IRPF)", "pasivo", "acreedora"),
     ("476", "Organismos de la Seguridad Social, acreedores", "pasivo", "acreedora"),
     ("477", "Hacienda Pública, IVA repercutido", "pasivo", "acreedora"),
     ("4700", "Hacienda Pública, deudora por IVA", "activo", "deudora"),

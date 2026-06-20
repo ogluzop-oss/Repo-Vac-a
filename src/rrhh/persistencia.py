@@ -140,6 +140,17 @@ def _registrar_nomina(nominas, eid, id_empresa, datos, fecha, ruta, snap):
                          ss_importe=ss_total, neto=res.liquido, conceptos=conceptos,
                          ref_documento=ruta)
 
+    # F4.5: evento contable de la nómina (best-effort; nunca rompe RRHH). La cola E6
+    # solo encola si la contabilidad está activa; el asiento se genera en procesar_cola.
+    try:
+        from src.services.contabilidad import posting as _posting
+        _posting.encolar_nomina(
+            ref=f"{eid}-{anio}-{mes:02d}", fecha=fecha,
+            total_devengado=res.total_devengado, ss_empresa=res.ss_empresa.get("total", 0.0),
+            ss_trabajador=ss_total, irpf=res.irpf_importe, id_empresa=id_empresa)
+    except Exception as e:
+        logger.warning("encolar_nomina (no crítico): %s", e)
+
 
 def _mes(fecha_iso):
     try:

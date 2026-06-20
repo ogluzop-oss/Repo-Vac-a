@@ -19,6 +19,9 @@ DEFAULTS = {
     "merma": "659", "existencias": "300",
     "forma_pago:efectivo": "570", "forma_pago:tarjeta": "572",
     "forma_pago:transferencia": "572", "forma_pago:factura": "430",
+    # Nómina (F4.5)
+    "nomina_sueldos": "640", "nomina_ss_empresa": "642", "nomina_ss_acreedora": "476",
+    "nomina_irpf": "4751", "nomina_liquido": "465",
 }
 
 

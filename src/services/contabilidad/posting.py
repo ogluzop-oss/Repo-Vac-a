@@ -91,6 +91,18 @@ def encolar_devolucion(ref, total, fecha, tipo="venta", forma_pago="efectivo", i
                    extra={"forma_pago": forma_pago}, id_empresa=id_empresa)
 
 
+def encolar_nomina(ref, fecha, total_devengado, ss_empresa, ss_trabajador, irpf,
+                   id_empresa=None):
+    """Encola una nómina (F4.5). El payload lleva las magnitudes ya calculadas por el
+    motor (la contabilidad no depende de RRHH para construir el asiento). Best-effort."""
+    return encolar("nomina", ref, total_devengado, fecha, subtipo="nomina",
+                   extra={"total_devengado": round(float(total_devengado or 0), 2),
+                          "ss_empresa": round(float(ss_empresa or 0), 2),
+                          "ss_trabajador": round(float(ss_trabajador or 0), 2),
+                          "irpf": round(float(irpf or 0), 2)},
+                   id_empresa=id_empresa)
+
+
 # ── Procesado de la cola → asientos ──────────────────────────────────────────
 def _pendientes(cur, id_empresa, evento):
     cur.execute("SELECT * FROM contab_cola WHERE id_empresa=%s AND evento=%s AND estado='pendiente' "
@@ -118,6 +130,7 @@ def procesar_cola(id_empresa=None) -> dict:
             ventas = _pendientes(cur, id_empresa, "venta")
             compras = _pendientes(cur, id_empresa, "compra")
             devoluciones = _pendientes(cur, id_empresa, "devolucion")
+            nominas = _pendientes(cur, id_empresa, "nomina")
     except Exception as e:
         logger.error("procesar_cola/listar: %s", e)
         return res
@@ -149,6 +162,13 @@ def procesar_cola(id_empresa=None) -> dict:
     for ev in devoluciones:
         p = _payload(ev)
         aid = _asiento_devolucion(ev, p, id_empresa)
+        if aid:
+            _cerrar(id_empresa, [ev["id"]], aid); res["asientos"] += 1; res["eventos"] += 1
+
+    # ── Nóminas ── (1 asiento por nómina) — F4.5
+    for ev in nominas:
+        p = _payload(ev)
+        aid = _asiento_nomina(ev, p, id_empresa)
         if aid:
             _cerrar(id_empresa, [ev["id"]], aid); res["asientos"] += 1; res["eventos"] += 1
     return res
@@ -248,4 +268,45 @@ def _asiento_devolucion(ev, p, id_empresa):
         concepto = f"Devolución de venta {ev['ref']}"
     r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=concepto, origen="devolucion",
                         ref_origen=f"devolucion:{ev['ref']}", id_empresa=id_empresa)
+    return r["id"] if r else None
+
+
+def _asegurar_cuenta_4751(id_empresa):
+    """Crea la 4751 (HP acreedora por IRPF) si la empresa fue activada antes de F4.5.
+    Idempotente: solo crea si falta."""
+    try:
+        if not K.obtener_cuenta("4751", id_empresa):
+            K.crear_cuenta("4751", "Hacienda Pública, acreedora por retenciones practicadas (IRPF)",
+                           tipo="pasivo", naturaleza="acreedora", id_empresa=id_empresa)
+    except Exception as e:
+        logger.warning("_asegurar_cuenta_4751(%s): %s", id_empresa, e)
+
+
+def _asiento_nomina(ev, p, id_empresa):
+    """Asiento de nómina (F4.5). Debe 640 (devengado) + 642 (SS empresa) /
+    Haber 476 (SS empresa+trabajador) + 4751 (IRPF) + 465 (líquido). Cuadre exacto."""
+    dev = round(float(p.get("total_devengado") or p.get("total") or 0), 2)
+    if dev <= 0:
+        return None
+    ss_e = round(float(p.get("ss_empresa") or 0), 2)
+    ss_t = round(float(p.get("ss_trabajador") or 0), 2)
+    irpf = round(float(p.get("irpf") or 0), 2)
+    liquido = round(dev - ss_t - irpf, 2)
+    _asegurar_cuenta_4751(id_empresa)
+    lineas = [{"codigo_cuenta": M.cuenta("nomina_sueldos", id_empresa=id_empresa), "debe": dev,
+               "descripcion": "Sueldos y salarios"}]
+    if ss_e:
+        lineas.append({"codigo_cuenta": M.cuenta("nomina_ss_empresa", id_empresa=id_empresa),
+                       "debe": ss_e, "descripcion": "SS a cargo de la empresa"})
+    if round(ss_e + ss_t, 2):
+        lineas.append({"codigo_cuenta": M.cuenta("nomina_ss_acreedora", id_empresa=id_empresa),
+                       "haber": round(ss_e + ss_t, 2), "descripcion": "Organismos SS acreedores"})
+    if irpf:
+        lineas.append({"codigo_cuenta": M.cuenta("nomina_irpf", id_empresa=id_empresa),
+                       "haber": irpf, "descripcion": "HP acreedora por IRPF"})
+    if liquido:
+        lineas.append({"codigo_cuenta": M.cuenta("nomina_liquido", id_empresa=id_empresa),
+                       "haber": liquido, "descripcion": "Remuneraciones pendientes de pago"})
+    r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=f"Nómina {ev['ref']}",
+                        origen="nomina", ref_origen=f"nomina:{ev['ref']}", id_empresa=id_empresa)
     return r["id"] if r else None
