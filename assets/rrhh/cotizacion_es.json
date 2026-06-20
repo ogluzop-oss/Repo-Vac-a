@@ -47,6 +47,10 @@
     "irpf": {
       "modo": "tipo_fijo",
       "tipo_defecto": 15.0
+    },
+    "exenciones": {
+      "transporte_mensual": 100.00,
+      "dietas_mensual": 300.00
     }
   }
 }

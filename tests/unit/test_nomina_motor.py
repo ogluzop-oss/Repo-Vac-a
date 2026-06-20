@@ -119,7 +119,9 @@ def test_determinismo():
 
 # Resolución de la ambigüedad mensual/anual
 def test_desde_anual_no_recalcula_dos_veces():
-    mensual = NominaInput(salario_base_mensual=2000, grupo_cotizacion="1")
+    # Mismo nº de pagas en ambos → el prorrateo es idéntico y solo se valida que
+    # desde_anual divide UNA vez (28000/14 = 2000 mensual).
+    mensual = NominaInput(salario_base_mensual=2000, num_pagas=14, grupo_cotizacion="1")
     anual = NominaInput.desde_anual(28000, num_pagas=14, grupo_cotizacion="1")
-    assert anual.salario_base_mensual == 2000.0    # 28000 / 14, una sola vez
+    assert anual.salario_base_mensual == 2000.0
     assert calcular_nomina(mensual, P).liquido == calcular_nomina(anual, P).liquido
