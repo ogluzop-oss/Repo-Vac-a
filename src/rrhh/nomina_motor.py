@@ -27,7 +27,10 @@ IRPF: tipo fijo (hueco estructural `irpf_modo` para tablas en fase posterior).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+
+logger = logging.getLogger("rrhh.nomina_motor")
 
 # Clasificación de conceptos (explícita)
 DEVENGO_SALARIAL = "DEVENGO_SALARIAL"
@@ -77,7 +80,11 @@ class ParametrosAnio:
         )
 
     def limites_grupo(self, grupo) -> tuple[float, float]:
-        g = self.grupos.get(str(grupo)) or {}
+        g = self.grupos.get(str(grupo))
+        if g is None:                       # incidencia: grupo no parametrizado → topes globales
+            logger.warning("Grupo de cotización '%s' no parametrizado (%s); se usan topes globales.",
+                           grupo, self.anio)
+            g = {}
         gmin = float(g.get("min", self.tope_min_mensual) or self.tope_min_mensual)
         gmax = float(g.get("max", self.tope_max_mensual) or self.tope_max_mensual)
         low = max(gmin, self.tope_min_mensual) if self.tope_min_mensual else gmin

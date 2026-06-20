@@ -9,7 +9,7 @@ from src.rrhh.nomina_motor import (DEDUCCION, DEVENGO_NO_SALARIAL, DEVENGO_SALAR
                                    NominaInput, calcular_nomina)
 from src.rrhh.parametros_cotizacion import cargar_parametros
 
-P = cargar_parametros(2026)   # exención transporte 100€/mes, dietas 300€/mes (cotizacion_es.json)
+P = cargar_parametros(2025)   # exención transporte 100€/mes, dietas 300€/mes (cotizacion_es.json)
 
 
 def _calc(**kw):

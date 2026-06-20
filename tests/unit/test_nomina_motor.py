@@ -9,7 +9,7 @@ from src.rrhh.nomina_motor import (NominaInput, NominaResultado, ParametrosAnio,
                                    calcular_nomina)
 from src.rrhh.parametros_cotizacion import cargar_parametros
 
-P = cargar_parametros(2026)   # parámetros reales del recurso assets/rrhh/cotizacion_es.json
+P = cargar_parametros(2025)   # parámetros reales del recurso assets/rrhh/cotizacion_es.json
 
 
 def _calc(**kw):
@@ -98,7 +98,7 @@ def test_liquido_con_plus_y_horas_extra():
 # 11. Carga correcta de parámetros JSON
 def test_carga_parametros():
     assert isinstance(P, ParametrosAnio)
-    assert P.anio == 2026 and P.pais == "ES"
+    assert P.anio == 2025 and P.pais == "ES"
     assert P.ss_trabajador["comunes"] == 4.70
     assert P.tope_max_mensual == 4909.50
     assert "1" in P.grupos
