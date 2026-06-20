@@ -3985,8 +3985,7 @@ class _WizardDocumentoFiscal(QDialog):
             story = []
 
             # =================================================================
-            if self._tipo == "CONTRATO":
-            # =================================================================
+            def _pdf_contrato():
                 subtipo_label    = subtipo or "INDEFINIDO"
                 _puesto_txt      = puesto or "Según categoría profesional"
                 _grupo_txt       = grupo_prof or "Según convenio"
@@ -4352,9 +4351,7 @@ class _WizardDocumentoFiscal(QDialog):
                     for _ax_t, _ax_b in _anexos:
                         story.append(_P(f"<b>{_ax_t}.</b> {_ax_b}", st_clause))
 
-            # =================================================================
-            elif self._tipo == "NÓMINA":
-            # =================================================================
+            def _pdf_nomina():
                 try:
                     irpf_pct = float(irpf_pct_str.replace(",",".").strip()) if irpf_pct_str else 15.0
                 except ValueError:
@@ -4437,9 +4434,7 @@ class _WizardDocumentoFiscal(QDialog):
                     st_center
                 ))
 
-            # =================================================================
-            elif self._tipo == "CARTA DESPIDO":
-            # =================================================================
+            def _pdf_carta_despido():
                 subtipo_label = subtipo or "DISCIPLINARIO"
                 story.append(_sec_header("DATOS DE LA EMPRESA COMUNICANTE"))
                 story.append(_data_val_row(("EMPRESA", emp_nombre), ("CIF", emp_cif)))
@@ -4499,9 +4494,7 @@ class _WizardDocumentoFiscal(QDialog):
                 story.append(Spacer(1, 2*mm))
                 story.append(_P(f"Atentamente,<br/><b>{emp_nombre}</b>", st_body))
 
-            # =================================================================
-            elif self._tipo == "CERTIFICADO":
-            # =================================================================
+            def _pdf_certificado():
                 subtipo_label = subtipo or "EMPRESA"
                 story.append(_sec_header("CERTIFICADO LABORAL — " + subtipo_label))
                 story.append(Spacer(1, 2*mm))
@@ -4545,9 +4538,7 @@ class _WizardDocumentoFiscal(QDialog):
                     st_body
                 ))
 
-            # =================================================================
-            elif self._tipo in ("ALTA", "BAJA"):
-            # =================================================================
+            def _pdf_alta_baja():
                 accion = "ALTA" if self._tipo == "ALTA" else "BAJA"
                 story.append(_sec_header(f"COMUNICACIÓN DE {accion} LABORAL EN SEGURIDAD SOCIAL"))
                 story.append(Spacer(1, 1*mm))
@@ -4570,9 +4561,7 @@ class _WizardDocumentoFiscal(QDialog):
                     story.append(Spacer(1, 3*mm))
                     story.append(_P(f"<b>Observaciones:</b> {obs}", st_body))
 
-            # =================================================================
-            elif self._tipo == "FINIQUITO":
-            # =================================================================
+            def _pdf_finiquito():
                 story.append(_sec_header("LIQUIDACIÓN Y FINIQUITO"))
                 story.append(Spacer(1, 1*mm))
                 story.append(_sec_header("DATOS DEL EMPLEADOR"))
@@ -4632,9 +4621,7 @@ class _WizardDocumentoFiscal(QDialog):
                     st_body
                 ))
 
-            # =================================================================
-            elif self._tipo == "RESUMEN FISCAL":
-            # =================================================================
+            def _pdf_resumen_fiscal():
                 subtipo_label = subtipo or "TRIMESTRAL"
                 story.append(_sec_header("DATOS DEL OBLIGADO TRIBUTARIO"))
                 story.append(_data_val_row(("EMPRESA", emp_nombre), ("CIF", emp_cif)))
@@ -4654,12 +4641,21 @@ class _WizardDocumentoFiscal(QDialog):
                     story.append(Spacer(1, 3*mm))
                     story.append(_P(f"<b>Notas:</b> {obs}", st_body))
 
-            # =================================================================
-            else:
-            # =================================================================
+            def _pdf_generico():
                 story.append(_P(
                     obs or f"Documento generado por Smart Manager — Ref: {doc_id}", st_body))
 
+            _pdf_dispatch = {
+                "CONTRATO": _pdf_contrato,
+                "NÓMINA": _pdf_nomina,
+                "CARTA DESPIDO": _pdf_carta_despido,
+                "CERTIFICADO": _pdf_certificado,
+                "ALTA": _pdf_alta_baja,
+                "BAJA": _pdf_alta_baja,
+                "FINIQUITO": _pdf_finiquito,
+                "RESUMEN FISCAL": _pdf_resumen_fiscal,
+            }
+            _pdf_dispatch.get(self._tipo, _pdf_generico)()
             # ── Observaciones generales ───────────────────────────────────────
             if obs and self._tipo not in ("CARTA DESPIDO", "CERTIFICADO", "ALTA", "BAJA",
                                           "FINIQUITO", "RESUMEN FISCAL", "CONTRATO"):
