@@ -14,7 +14,7 @@ import pytest
 # Firma congelada (n_flowables, hash12) capturada del comportamiento PRE-descomposición.
 GOLDEN = {
     "CONTRATO":      (55, "c656267ae3bc"),
-    "NÓMINA":        (26, "9d5c61481fc2"),   # F4.3.4: render consume el motor único
+    "NÓMINA":        (41, "fb12b461013d"),   # F4.8: recibo oficial de salarios
     "ALTA":          (21, "c2319c1bf6ac"),
     "BAJA":          (21, "49a44900c37e"),
     "CERTIFICADO":   (19, "d01ec62e0fa4"),
