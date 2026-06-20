@@ -87,18 +87,24 @@ def test_contrato_alimenta_rrhh_contratos(db, fab):
 
 
 def test_nomina_alimenta_rrhh_nominas(db, fab):
+    """F4.3.4: la persistencia guarda EXACTAMENTE el resultado del motor único
+    (sin recalcular). Se compara contra el motor con los mismos datos."""
+    from src.rrhh.nomina_servicio import calcular_desde_datos
     _app(); emp, eid = _entorno(db, fab)
-    _genera("NÓMINA", _base(salario="14000", num_pagas="14", irpf_pct="15", ss_pct="6.35",
-                            plus_convenio="50"))
+    datos = _base(salario="2000", num_pagas="14", irpf_pct="15", plus_convenio="50",
+                  grupo_cotizacion="1")
+    res = calcular_desde_datos(datos)              # fuente de verdad
+    _genera("NÓMINA", datos)
     noms = N.listar_nominas(eid, emp)
     assert len(noms) == 1
     n = noms[0]
     assert n["anio"] == 2026 and n["mes"] == 6
-    assert float(n["base"]) == 1000.0                 # 14000/14
-    assert float(n["irpf_importe"]) == 150.0          # 1000*15%
-    assert float(n["ss_importe"]) == 63.5             # 1000*6.35%
-    assert float(n["bruto"]) == 1050.0                # 1000 + 50 plus
-    assert float(n["neto"]) == 836.5                  # 1050 - 150 - 63.5
+    assert float(n["base"]) == res.bccc            # BCCC del motor
+    assert float(n["bruto"]) == res.total_devengado
+    assert float(n["irpf_importe"]) == res.irpf_importe
+    assert float(n["ss_importe"]) == res.ss_trabajador["total"]
+    assert float(n["neto"]) == res.liquido
+    assert n["conceptos"] and "devengos" in n["conceptos"]   # snapshot completo
 
 
 def test_vacaciones_alimenta_rrhh_vacaciones(db, fab):

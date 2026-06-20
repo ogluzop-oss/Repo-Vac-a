@@ -121,28 +121,24 @@ def _anio(fecha_iso):
 
 
 def _registrar_nomina(nominas, eid, id_empresa, datos, fecha, ruta, snap):
-    """Mapea la nómina a rrhh_nominas con la MISMA aritmética que render_nomina
-    (se unificará con el motor de nómina en F4.3)."""
-    salario = _num(datos.get("salario"))
-    try:
-        num_pagas = int(datos.get("num_pagas") or 12)
-    except Exception:
-        num_pagas = 12
-    irpf_pct = _num(datos.get("irpf_pct")) or 15.0
-    ss_pct = _num(datos.get("ss_pct")) or 6.35
-    plus = _num(datos.get("plus_convenio"))
-    he = _num(datos.get("horas_extras"))
-    base = round(salario / num_pagas if num_pagas and salario > 0 else salario, 2)
-    irpf_imp = round(base * irpf_pct / 100, 2)
-    ss_imp = round(base * ss_pct / 100, 2)
-    bruto = round(base + plus + he, 2)
-    neto = round(bruto - irpf_imp - ss_imp, 2)
+    """Persiste la nómina en rrhh_nominas a partir del RESULTADO del motor único
+    (F4.3.4). No recalcula nada: solo mapea NominaResultado a columnas + snapshot."""
+    from src.rrhh.nomina_servicio import calcular_desde_datos
+    res = calcular_desde_datos(datos)
     anio, mes = _anio(fecha), _mes(fecha)
-    conceptos = json.dumps({"salario_base": base, "plus_convenio": plus,
-                            "horas_extras": he}, ensure_ascii=False)
-    nominas.crear_nomina(eid, id_empresa, anio=anio, mes=mes, fecha=fecha, bruto=bruto,
-                         base=base, irpf_pct=irpf_pct, irpf_importe=irpf_imp, ss_pct=ss_pct,
-                         ss_importe=ss_imp, neto=neto, conceptos=conceptos, ref_documento=ruta)
+    ss_total = res.ss_trabajador.get("total", 0.0)
+    ss_pct_efectivo = round(ss_total / res.bccc * 100, 2) if res.bccc else 0.0
+    conceptos = json.dumps({
+        "devengos": res.devengos, "deducciones": res.deducciones,
+        "bccc": res.bccc, "bccp": res.bccp, "base_at_ep": res.base_at_ep,
+        "ss_trabajador": res.ss_trabajador, "ss_empresa": res.ss_empresa,
+        "base_irpf": res.base_irpf, "meta": res.meta,
+    }, ensure_ascii=False, default=str)
+    nominas.crear_nomina(eid, id_empresa, anio=anio, mes=mes, fecha=fecha,
+                         bruto=res.total_devengado, base=res.bccc, irpf_pct=res.irpf_tipo,
+                         irpf_importe=res.irpf_importe, ss_pct=ss_pct_efectivo,
+                         ss_importe=ss_total, neto=res.liquido, conceptos=conceptos,
+                         ref_documento=ruta)
 
 
 def _mes(fecha_iso):
