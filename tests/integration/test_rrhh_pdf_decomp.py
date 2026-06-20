@@ -73,12 +73,17 @@ def test_cert_laboral_y_vacaciones_usan_generico(monkeypatch):
     assert _firma("CERT LABORAL", monkeypatch) == _firma("VACACIONES", monkeypatch)
 
 
-def test_dispatch_existe_y_cubre_tipos():
-    """El método contiene las closures y el dispatch (descomposición aplicada)."""
+def test_dispatch_delega_en_servicios_render():
+    """Tras F3.0.4b el render RRHH se delega en servicios src/rrhh/documents/render/*;
+    el wizard solo conserva ctx auto-capturado, dispatch y la rama fiscal."""
     import inspect
     import src.gui.gestion_usuarios as gu
     fuente = inspect.getsource(gu._WizardDocumentoFiscal._generar_pdf)
-    for closure in ("_pdf_contrato", "_pdf_nomina", "_pdf_alta_baja", "_pdf_certificado",
-                    "_pdf_carta_despido", "_pdf_finiquito", "_pdf_resumen_fiscal", "_pdf_generico"):
-        assert f"def {closure}(" in fuente, f"falta closure {closure}"
-    assert "_pdf_dispatch" in fuente and "_pdf_dispatch.get(self._tipo, _pdf_generico)" in fuente
+    assert "ctx = {**globals(), **locals()}" in fuente
+    assert "_pdf_dispatch.get(self._tipo, render_generico)(ctx)" in fuente
+    assert "def _pdf_resumen_fiscal(" in fuente          # fiscal permanece en el wizard
+    # Los 7 servicios RRHH existen y son importables.
+    from src.rrhh.documents import render as R
+    for fn in ("render_contrato", "render_nomina", "render_carta_despido", "render_certificado",
+               "render_alta_baja", "render_finiquito", "render_generico"):
+        assert callable(getattr(R, fn))
