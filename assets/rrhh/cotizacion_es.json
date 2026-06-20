@@ -1,0 +1,52 @@
+{
+  "_meta": {
+    "descripcion": "Parámetros de cotización a la Seguridad Social e IRPF (España) por ejercicio. Fuente única y editable; se actualiza una vez al año por normativa. Valores representativos: revisar contra el BOE del ejercicio antes de uso en producción.",
+    "pais": "ES",
+    "unidades": "porcentajes (%) sobre la base correspondiente; bases en euros/mes"
+  },
+  "2026": {
+    "ss_trabajador": {
+      "comunes": 4.70,
+      "fp": 0.10,
+      "mei": 0.13,
+      "horas_extra": 4.70
+    },
+    "ss_empresa": {
+      "comunes": 23.60,
+      "fp": 0.60,
+      "fogasa": 0.20,
+      "at_ep": 1.50,
+      "mei": 0.67,
+      "horas_extra": 23.60
+    },
+    "desempleo_trabajador": {
+      "indefinido": 1.55,
+      "temporal": 1.60
+    },
+    "desempleo_empresa": {
+      "indefinido": 5.50,
+      "temporal": 6.70
+    },
+    "bases": {
+      "tope_max_mensual": 4909.50,
+      "tope_min_mensual": 1323.00
+    },
+    "grupos": {
+      "1":  {"min": 1847.40, "max": 4909.50},
+      "2":  {"min": 1532.10, "max": 4909.50},
+      "3":  {"min": 1332.90, "max": 4909.50},
+      "4":  {"min": 1323.00, "max": 4909.50},
+      "5":  {"min": 1323.00, "max": 4909.50},
+      "6":  {"min": 1323.00, "max": 4909.50},
+      "7":  {"min": 1323.00, "max": 4909.50},
+      "8":  {"min": 1323.00, "max": 4909.50},
+      "9":  {"min": 1323.00, "max": 4909.50},
+      "10": {"min": 1323.00, "max": 4909.50},
+      "11": {"min": 1323.00, "max": 4909.50}
+    },
+    "irpf": {
+      "modo": "tipo_fijo",
+      "tipo_defecto": 15.0
+    }
+  }
+}
