@@ -3500,6 +3500,7 @@ class _WizardDocumentoFiscal(WizardFormsRRHHMixin, QDialog):
             from src.rrhh.documents.render import (  # noqa: E402
                 render_contrato, render_nomina, render_carta_despido,
                 render_certificado, render_alta_baja, render_finiquito, render_generico,
+                render_cert_laboral, render_vacaciones,
             )
             ctx = {**globals(), **locals()}   # scope auto-capturado (G+L) para el render RRHH
             _pdf_dispatch = {
@@ -3508,8 +3509,10 @@ class _WizardDocumentoFiscal(WizardFormsRRHHMixin, QDialog):
                 "ALTA": render_alta_baja,
                 "BAJA": render_alta_baja,
                 "CERTIFICADO": render_certificado,
+                "CERT LABORAL": render_cert_laboral,
                 "CARTA DESPIDO": render_carta_despido,
                 "FINIQUITO": render_finiquito,
+                "VACACIONES": render_vacaciones,
                 "RESUMEN FISCAL": lambda _ctx: _pdf_resumen_fiscal(),
             }
             _pdf_dispatch.get(self._tipo, render_generico)(ctx)

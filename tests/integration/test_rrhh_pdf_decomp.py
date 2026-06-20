@@ -18,10 +18,10 @@ GOLDEN = {
     "ALTA":          (21, "c2319c1bf6ac"),
     "BAJA":          (21, "49a44900c37e"),
     "CERTIFICADO":   (19, "d01ec62e0fa4"),
-    "CERT LABORAL":  (13, "a8aa14e60bca"),
+    "CERT LABORAL":  (21, "b8ab63bc99bc"),   # F4.2: plantilla dedicada (ya no genérica)
     "CARTA DESPIDO": (31, "5f71cc061819"),
     "FINIQUITO":     (24, "c972cd0dd66f"),
-    "VACACIONES":    (13, "a8aa14e60bca"),
+    "VACACIONES":    (22, "e8134faacd65"),   # F4.2: plantilla dedicada (ya no genérica)
 }
 
 _DATOS = dict(trabajador="JUAN PEREZ", nif="12345678Z", ss="281234567840",
@@ -67,10 +67,15 @@ def test_equivalencia_estructural(tipo, monkeypatch):
     assert (n, h) == GOLDEN[tipo], f"{tipo}: firma {(n, h)} != golden {GOLDEN[tipo]}"
 
 
-def test_cert_laboral_y_vacaciones_usan_generico(monkeypatch):
-    """Ambos tipos sin rama propia deben producir la MISMA salida (rama genérica)."""
+def test_cert_laboral_y_vacaciones_no_son_genericos(monkeypatch):
+    """F4.2: ambos tipos tienen plantilla dedicada → ya NO usan la rama genérica
+    (13 flowables / a8aa14e60bca) y producen documentos distintos entre sí."""
     _app()
-    assert _firma("CERT LABORAL", monkeypatch) == _firma("VACACIONES", monkeypatch)
+    GENERICO = (13, "a8aa14e60bca")
+    cl = _firma("CERT LABORAL", monkeypatch)
+    vac = _firma("VACACIONES", monkeypatch)
+    assert cl != GENERICO and vac != GENERICO
+    assert cl != vac
 
 
 def test_dispatch_delega_en_servicios_render():
