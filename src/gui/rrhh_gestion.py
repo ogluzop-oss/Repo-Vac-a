@@ -292,6 +292,7 @@ class RRHHWindow(QWidget):
         tb.addWidget(_btn("Buscar", self._cargar))
         tb.addWidget(_btn("Nuevo", self._nuevo, primary=True))
         tb.addWidget(_btn("Editar", self._editar))
+        tb.addWidget(_btn("Vac./Ausencias", self._gestion_laboral))
         tb.addWidget(_btn("Expediente", self._expediente, primary=True))
         root.addLayout(tb)
         # Tabla
@@ -341,3 +342,140 @@ class RRHHWindow(QWidget):
         if not e:
             QMessageBox.information(self, "RRHH", "Selecciona un empleado."); return
         ExpedienteDialog(e["id"], self._id_empresa(), parent=self).exec()
+
+    def _gestion_laboral(self, *_):
+        e = self._sel()
+        if not e:
+            QMessageBox.information(self, "RRHH", "Selecciona un empleado."); return
+        GestionLaboralDialog(e["id"], self._id_empresa(), parent=self).exec()
+
+
+# ── Gestión operativa de vacaciones y ausencias (F4.7) ────────────────────────
+class GestionLaboralDialog(QDialog):
+    def __init__(self, id_empleado, id_empresa=None, parent=None):
+        super().__init__(parent)
+        self.id_empleado = id_empleado
+        self.id_empresa = id_empresa
+        self.setWindowTitle("Vacaciones y ausencias")
+        self.setMinimumSize(760, 560)
+        self.setStyleSheet(f"QDialog{{background:{_BG};}} QLabel{{color:{_TEXT};}}")
+        self._build()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        self.lbl_saldo = QLabel(""); self.lbl_saldo.setStyleSheet(f"color:{_CIAN};font-weight:700;")
+        root.addWidget(self.lbl_saldo)
+        tabs = QTabWidget()
+        tabs.setStyleSheet(f"QTabBar::tab{{background:{_SIDEBAR};color:{_DIM};padding:8px 14px;}}"
+                           f"QTabBar::tab:selected{{color:{_CIAN};}}"
+                           f"QTabWidget::pane{{border:1px solid {_BORDE};}}")
+        tabs.addTab(self._tab_vac(), "Vacaciones")
+        tabs.addTab(self._tab_aus(), "Ausencias")
+        tabs.addTab(self._tab_cal(), "Calendario")
+        root.addWidget(tabs)
+        root.addWidget(_btn("Cerrar", self.accept), alignment=Qt.AlignmentFlag.AlignRight)
+        self._refrescar()
+
+    # Vacaciones
+    def _tab_vac(self):
+        w = QWidget(); ly = QVBoxLayout(w)
+        self.tbl_vac = _tabla(["id", "Inicio", "Fin", "Días", "Estado", "Aprob. por"])
+        ly.addWidget(self.tbl_vac)
+        f = QHBoxLayout()
+        self.v_ini = _inp("Inicio AAAA-MM-DD"); self.v_fin = _inp("Fin AAAA-MM-DD")
+        f.addWidget(self.v_ini); f.addWidget(self.v_fin)
+        f.addWidget(_btn("Solicitar", self._solicitar, primary=True))
+        ly.addLayout(f)
+        a = QHBoxLayout()
+        a.addWidget(_btn("Aprobar", lambda: self._estado_vac("aprobar")))
+        a.addWidget(_btn("Denegar", lambda: self._estado_vac("denegar")))
+        a.addWidget(_btn("Cancelar", lambda: self._estado_vac("cancelar")))
+        ly.addLayout(a)
+        return w
+
+    # Ausencias
+    def _tab_aus(self):
+        from src.rrhh import ausencias_servicio as AS
+        w = QWidget(); ly = QVBoxLayout(w)
+        self.tbl_aus = _tabla(["id", "Tipo", "Inicio", "Fin", "Días", "Motivo"])
+        ly.addWidget(self.tbl_aus)
+        f = QHBoxLayout()
+        self.a_tipo = _combo([(et, k) for k, et in AS.TIPOS.items()])
+        self.a_ini = _inp("Inicio"); self.a_fin = _inp("Fin"); self.a_mot = _inp("Motivo")
+        for wd in (self.a_tipo, self.a_ini, self.a_fin, self.a_mot):
+            f.addWidget(wd)
+        f.addWidget(_btn("Registrar", self._registrar_aus, primary=True))
+        ly.addLayout(f)
+        return w
+
+    def _tab_cal(self):
+        w = QWidget(); ly = QVBoxLayout(w)
+        self.tbl_cal = _tabla(["Tipo", "Estado", "Inicio", "Fin", "Días"])
+        ly.addWidget(self.tbl_cal)
+        return w
+
+    def _refrescar(self):
+        from src.rrhh import ausencias_servicio as AS
+        from src.rrhh import vacaciones_servicio as VS
+        s = VS.saldo(self.id_empleado, id_empresa=self.id_empresa)
+        self.lbl_saldo.setText(
+            f"Saldo {s['anio']}: asignados {s['asignados']} · disfrutados {s['disfrutados']} · "
+            f"pendientes {s['pendientes']} · disponibles {s['disponibles']}")
+        self._vac = VS.listar(self.id_empleado, self.id_empresa)
+        self.tbl_vac.setRowCount(len(self._vac))
+        for i, v in enumerate(self._vac):
+            for j, val in enumerate([v.get("id"), v.get("fecha_inicio"), v.get("fecha_fin"),
+                                     v.get("dias"), v.get("estado"), v.get("aprobado_por")]):
+                self.tbl_vac.setItem(i, j, _it(val))
+        self._aus = AS.listar(self.id_empleado, self.id_empresa)
+        self.tbl_aus.setRowCount(len(self._aus))
+        for i, a in enumerate(self._aus):
+            for j, val in enumerate([a.get("id"), a.get("tipo"), a.get("fecha_inicio"),
+                                     a.get("fecha_fin"), a.get("dias"), a.get("motivo")]):
+                self.tbl_aus.setItem(i, j, _it(val))
+        cal = AS.calendario(self.id_empleado, self.id_empresa)
+        self.tbl_cal.setRowCount(len(cal))
+        for i, ev in enumerate(cal):
+            for j, val in enumerate([ev.get("tipo"), ev.get("estado"), ev.get("fecha_inicio"),
+                                     ev.get("fecha_fin"), ev.get("dias")]):
+                self.tbl_cal.setItem(i, j, _it(val))
+
+    def _usuario(self):
+        u = getattr(self.parent(), "usuario", None) or {}
+        return u.get("nombre") if isinstance(u, dict) else None
+
+    def _solicitar(self):
+        from src.rrhh import vacaciones_servicio as VS
+        try:
+            VS.solicitar(self.id_empleado, self.v_ini.text().strip(), self.v_fin.text().strip(),
+                         id_empresa=self.id_empresa)
+        except VS.GestionLaboralError as e:
+            QMessageBox.warning(self, "Vacaciones", str(e)); return
+        self.v_ini.clear(); self.v_fin.clear(); self._refrescar()
+
+    def _vac_sel(self):
+        i = self.tbl_vac.currentRow()
+        return self._vac[i] if 0 <= i < len(self._vac) else None
+
+    def _estado_vac(self, accion):
+        from src.rrhh import vacaciones_servicio as VS
+        v = self._vac_sel()
+        if not v:
+            QMessageBox.information(self, "Vacaciones", "Selecciona una solicitud."); return
+        fn = {"aprobar": VS.aprobar, "denegar": VS.denegar, "cancelar": VS.cancelar}[accion]
+        try:
+            fn(v["id"], usuario=self._usuario(), id_empresa=self.id_empresa)
+        except VS.GestionLaboralError as e:
+            QMessageBox.warning(self, "Vacaciones", str(e)); return
+        self._refrescar()
+
+    def _registrar_aus(self):
+        from src.rrhh import ausencias_servicio as AS
+        from src.rrhh.vacaciones_servicio import GestionLaboralError
+        try:
+            AS.registrar(self.id_empleado, self.a_tipo.currentData(), self.a_ini.text().strip(),
+                         self.a_fin.text().strip(), motivo=self.a_mot.text().strip(),
+                         id_empresa=self.id_empresa)
+        except GestionLaboralError as e:
+            QMessageBox.warning(self, "Ausencias", str(e)); return
+        self.a_ini.clear(); self.a_fin.clear(); self.a_mot.clear(); self._refrescar()
