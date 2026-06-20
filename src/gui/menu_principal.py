@@ -445,6 +445,11 @@ class MenuPrincipal(QWidget):
             btn_contab = self.crear_tarjeta_menu("Contabilidad", "contabilidad", "#22F4E6", "bar_chart")
             footer_actions.addWidget(btn_contab, alignment=Qt.AlignmentFlag.AlignLeft)
 
+        # RRHH — ADMINISTRADOR / GERENTE / SUPERADMIN (expediente y empleados).
+        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+            btn_rrhh = self.crear_tarjeta_menu("RRHH", "rrhh", "#22F4E6", "people")
+            footer_actions.addWidget(btn_rrhh, alignment=Qt.AlignmentFlag.AlignLeft)
+
         footer_actions.addStretch()
 
         btn_tpv = self.crear_tarjeta_menu("TPV", "tpv", "#22F4E6", "shopping_bag")
@@ -526,6 +531,7 @@ class MenuPrincipal(QWidget):
         "catalogo": "menu.card_catalogo",
         "compras": "menu.card_compras",
         "contabilidad": "menu.card_contabilidad",
+        "rrhh": "menu.card_rrhh",
         "tpv": "menu.card_tpv",
         "logout": "menu.card_salir",
     }
@@ -569,6 +575,16 @@ class MenuPrincipal(QWidget):
                     <path d="M30 36v38l34 18 34-18V36"/>
                     <path d="M64 54v38"/>
                     <path d="M47 27l34 18"/>
+                  </g>
+                </svg>
+            """,
+            "people": f"""
+                <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+                  <g fill="none" stroke="{color}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="48" cy="44" r="16"/>
+                    <path d="M22 96c0-16 12-26 26-26s26 10 26 26"/>
+                    <circle cx="88" cy="50" r="12"/>
+                    <path d="M84 72c12 0 22 9 22 24"/>
                   </g>
                 </svg>
             """,
@@ -833,6 +849,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.compras_gestion import ComprasWindow
 
                 self.manejar_apertura(v_id, ComprasWindow, **kwargs)
+            elif v_id == "rrhh":
+                from src.gui.rrhh_gestion import RRHHWindow
+
+                self.manejar_apertura(v_id, RRHHWindow, **kwargs)
             elif v_id == "contabilidad":
                 from src.gui.contabilidad_gestion import ContabilidadWindow
 
