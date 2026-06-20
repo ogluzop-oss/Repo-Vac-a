@@ -3578,6 +3578,14 @@ class _WizardDocumentoFiscal(WizardFormsRRHHMixin, QDialog):
             doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
             self._pdf_ruta = ruta
 
+            # F4.2.1: traza en el expediente laboral (best-effort, post-PDF). Nunca
+            # afecta a la generación: si falla, el PDF queda intacto y se registra.
+            try:
+                from src.rrhh.persistencia import registrar_generacion
+                registrar_generacion(self._tipo, self._datos, ruta)
+            except Exception:
+                LOG_DOCUMENTOS.exception("Persistencia de expediente RRHH (no crítica)")
+
         except Exception:
             import traceback
             LOG_DOCUMENTOS.exception("Error generando PDF (wizard fiscal)")
