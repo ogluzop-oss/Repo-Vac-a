@@ -450,6 +450,10 @@ class MenuPrincipal(QWidget):
             btn_rrhh = self.crear_tarjeta_menu("RRHH", "rrhh", "#22F4E6", "people")
             footer_actions.addWidget(btn_rrhh, alignment=Qt.AlignmentFlag.AlignLeft)
 
+        # Portal del Empleado — disponible para cualquier perfil (autoconsulta).
+        btn_portal = self.crear_tarjeta_menu("Portal del empleado", "portal", "#22F4E6", "people")
+        footer_actions.addWidget(btn_portal, alignment=Qt.AlignmentFlag.AlignLeft)
+
         footer_actions.addStretch()
 
         btn_tpv = self.crear_tarjeta_menu("TPV", "tpv", "#22F4E6", "shopping_bag")
@@ -532,6 +536,7 @@ class MenuPrincipal(QWidget):
         "compras": "menu.card_compras",
         "contabilidad": "menu.card_contabilidad",
         "rrhh": "menu.card_rrhh",
+        "portal": "menu.card_portal",
         "tpv": "menu.card_tpv",
         "logout": "menu.card_salir",
     }
@@ -853,6 +858,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.rrhh_gestion import RRHHWindow
 
                 self.manejar_apertura(v_id, RRHHWindow, **kwargs)
+            elif v_id == "portal":
+                from src.gui.portal_empleado import PortalEmpleadoWindow
+
+                self.manejar_apertura(v_id, PortalEmpleadoWindow, **kwargs)
             elif v_id == "contabilidad":
                 from src.gui.contabilidad_gestion import ContabilidadWindow
 

@@ -74,6 +74,22 @@ def obtener_por_nif(nif, id_empresa=None) -> dict | None:
         return None
 
 
+def obtener_por_usuario(id_usuario, id_empresa=None) -> dict | None:
+    """Empleado vinculado a una cuenta de usuario (login). Base del Portal del Empleado."""
+    if not id_usuario:
+        return None
+    id_empresa = id_empresa or empresa_actual_id()
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM rrhh_empleados WHERE id_usuario=%s AND id_empresa=%s",
+                        (id_usuario, id_empresa))
+            return _fila_a_dict(cur, cur.fetchone())
+    except Exception as e:
+        logger.error("obtener_por_usuario(%s): %s", id_usuario, e)
+        return None
+
+
 def listar_empleados(id_empresa=None, estado=None, texto=None) -> list[dict]:
     id_empresa = id_empresa or empresa_actual_id()
     filtros, params = ["id_empresa=%s"], [id_empresa]
