@@ -439,6 +439,9 @@ class MenuPrincipal(QWidget):
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
             btn_compras = self.crear_tarjeta_menu("Compras", "compras", "#22F4E6", "truck")
             footer_actions.addWidget(btn_compras, alignment=Qt.AlignmentFlag.AlignLeft)
+            btn_compras_av = self.crear_tarjeta_menu("Compras avanzado", "compras_avanzado",
+                                                     "#22F4E6", "truck")
+            footer_actions.addWidget(btn_compras_av, alignment=Qt.AlignmentFlag.AlignLeft)
 
         # Contabilidad — ADMINISTRADOR / GERENTE / SUPERADMIN (control financiero).
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
@@ -548,6 +551,7 @@ class MenuPrincipal(QWidget):
         "documentos": "menu.card_documentos",
         "catalogo": "menu.card_catalogo",
         "compras": "menu.card_compras",
+        "compras_avanzado": "menu.card_compras_avanzado",
         "contabilidad": "menu.card_contabilidad",
         "rrhh": "menu.card_rrhh",
         "portal": "menu.card_portal",
@@ -873,6 +877,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.compras_gestion import ComprasWindow
 
                 self.manejar_apertura(v_id, ComprasWindow, **kwargs)
+            elif v_id == "compras_avanzado":
+                from src.gui.compras_avanzado_gui import ComprasAvanzadoWindow
+
+                self.manejar_apertura(v_id, ComprasAvanzadoWindow, **kwargs)
             elif v_id == "rrhh":
                 from src.gui.rrhh_gestion import RRHHWindow
 

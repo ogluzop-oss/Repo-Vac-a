@@ -19,7 +19,7 @@ logger = logging.getLogger("inventario.kardex")
 
 TIPOS = (
     "ENTRADA_COMPRA", "ENTRADA_PALE", "ENTRADA_TRASPASO", "TRASPASO", "MERMA",
-    "SALIDA_VENTA", "DEVOLUCION", "AJUSTE",
+    "SALIDA_VENTA", "DEVOLUCION", "AJUSTE", "DEVOLUCION_PROVEEDOR",
 )
 # Signo orientativo (+ entra, − sale) — informativo, no altera el dato almacenado.
 ENTRADAS = {"ENTRADA_COMPRA", "ENTRADA_PALE", "ENTRADA_TRASPASO", "DEVOLUCION"}

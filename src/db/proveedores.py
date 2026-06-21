@@ -52,7 +52,10 @@ def crear_proveedor(razon_social, cif_nif=None, nombre_comercial=None, email=Non
 
 def actualizar_proveedor(id_proveedor, id_empresa=None, **campos) -> bool:
     permitidos = ("razon_social", "nombre_comercial", "cif_nif", "email", "telefono",
-                  "direccion_fiscal", "estado", "observaciones")
+                  "direccion_fiscal", "estado", "observaciones",
+                  # CMP.1 — condiciones / bancarios / homologación
+                  "plazo_pago", "lead_time_dias", "descuento", "rappel", "divisa",
+                  "iban", "irpf", "homologado", "bloqueado", "categoria")
     sets = {k: campos[k] for k in permitidos if k in campos}
     if "estado" in sets and sets["estado"] not in ESTADOS:
         sets.pop("estado")
@@ -105,6 +108,35 @@ def listar_proveedores(id_empresa=None, estado=None, texto=None, limite=500) -> 
 def eliminar_proveedor(id_proveedor, id_empresa=None) -> bool:
     """Baja LÓGICA (estado=inactivo) para no romper histórico de compras."""
     return actualizar_proveedor(id_proveedor, id_empresa=id_empresa, estado="inactivo")
+
+
+# ── CMP.1 — Homologación / bloqueo ────────────────────────────────────────────
+def esta_bloqueado(id_proveedor, id_empresa=None) -> bool:
+    """Un proveedor bloqueado no puede generar pedidos (CMP.2)."""
+    p = obtener_proveedor(id_proveedor, id_empresa)
+    return bool(p and p.get("bloqueado"))
+
+
+def esta_homologado(id_proveedor, id_empresa=None) -> bool:
+    """Solo proveedores homologados son aptos para aprovisionamiento automático (CMP.7)."""
+    p = obtener_proveedor(id_proveedor, id_empresa)
+    return bool(p and p.get("homologado"))
+
+
+def bloquear(id_proveedor, bloqueado=True, id_empresa=None) -> bool:
+    return actualizar_proveedor(id_proveedor, id_empresa=id_empresa, bloqueado=1 if bloqueado else 0)
+
+
+def homologar(id_proveedor, homologado=True, id_empresa=None) -> bool:
+    return actualizar_proveedor(id_proveedor, id_empresa=id_empresa, homologado=1 if homologado else 0)
+
+
+def condiciones_comerciales(id_proveedor, id_empresa=None) -> dict:
+    """Condiciones del proveedor (descuento/rappel/plazo/lead time/divisa/irpf)."""
+    p = obtener_proveedor(id_proveedor, id_empresa) or {}
+    return {k: p.get(k) for k in ("plazo_pago", "lead_time_dias", "descuento", "rappel",
+                                  "divisa", "iban", "irpf", "categoria",
+                                  "homologado", "bloqueado")}
 
 
 # ── Contactos ────────────────────────────────────────────────────────────────

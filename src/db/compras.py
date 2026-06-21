@@ -45,22 +45,38 @@ def _hoy():
 
 # ── Pedidos de compra (E2.2) ─────────────────────────────────────────────────
 def crear_pedido(id_proveedor=None, lineas=None, observaciones=None, usuario=None,
-                 id_empresa=None) -> int | None:
+                 id_empresa=None, id_almacen=None, descuento=None) -> int | None:
     """Crea un pedido en BORRADOR con sus líneas. `lineas`: [{codigo, descripcion,
-    cantidad, precio_unitario}]. Calcula subtotales y total."""
+    cantidad, precio_unitario}]. Calcula subtotales y total. CMP.2: dirige el pedido a
+    `id_almacen` (destino) y aplica el `descuento` del proveedor (si no se indica, toma el
+    de su ficha). Un proveedor BLOQUEADO no puede generar pedidos (devuelve None)."""
     id_empresa = _empresa(id_empresa)
     lineas = lineas or []
+    # CMP.2: validar proveedor no bloqueado + condiciones comerciales.
+    if id_proveedor:
+        try:
+            from src.db import proveedores
+            if proveedores.esta_bloqueado(id_proveedor, id_empresa):
+                logger.warning("crear_pedido: proveedor %s BLOQUEADO", id_proveedor)
+                return None
+            if descuento is None:
+                cond = proveedores.condiciones_comerciales(id_proveedor, id_empresa)
+                descuento = float(cond.get("descuento") or 0)
+        except Exception:
+            pass
+    descuento = float(descuento or 0)
     try:
         ensure_schema()
         with transaccion() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO compras_pedidos (id_empresa, id_proveedor, estado, "
-                "observaciones, usuario) VALUES (%s,%s,'BORRADOR',%s,%s)",
-                (id_empresa, id_proveedor, observaciones, usuario))
+                "observaciones, usuario, id_almacen, descuento) VALUES (%s,%s,'BORRADOR',%s,%s,%s,%s)",
+                (id_empresa, id_proveedor, observaciones, usuario, id_almacen, descuento))
             pid = cur.lastrowid
             cur.execute("UPDATE compras_pedidos SET numero=%s WHERE id_pedido=%s",
                         (f"PC{pid:06d}", pid))
-            total = _insertar_lineas(cur, pid, lineas)
+            bruto = _insertar_lineas(cur, pid, lineas)
+            total = round(bruto * (1 - descuento / 100.0), 2)
             cur.execute("UPDATE compras_pedidos SET total=%s WHERE id_pedido=%s", (total, pid))
         return pid
     except Exception as e:
@@ -188,7 +204,15 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
                        id_pedido, ped.get("estado") if ped else None)
         return None
     lineas_por_id = {ln["id"]: ln for ln in ped["lineas"]}
-    _recibidos_cod = set()
+    # CMP.3: destino = almacén del pedido o, si no, el almacén central de la empresa.
+    destino = ped.get("id_almacen")
+    try:
+        from src.db import stock_almacen as SA
+        if not destino:
+            destino = SA.almacen_central(id_empresa)
+    except Exception:
+        SA = None
+    _entradas = []   # (codigo, cant, lote, caducidad, fabricacion, prov_origen)
     try:
         with transaccion() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO compras_recepciones (id_empresa, id_pedido, usuario, "
@@ -206,13 +230,18 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
                                if x["codigo_articulo"] == rec["codigo"]), None)
                 codigo = (lp or {}).get("codigo_articulo") or rec.get("codigo")
                 id_linea = (lp or {}).get("id")
+                lote = (rec.get("lote") or "").strip() or None
+                caduc = rec.get("fecha_caducidad") or rec.get("caducidad")
+                fabric = rec.get("fecha_fabricacion")
+                prov_ori = rec.get("proveedor_origen")
                 cur.execute("INSERT INTO compras_recepciones_lineas (id_recepcion, "
-                            "id_linea_pedido, codigo_articulo, cantidad) VALUES (%s,%s,%s,%s)",
-                            (rid, id_linea, codigo, cant))
+                            "id_linea_pedido, codigo_articulo, cantidad, lote, fecha_caducidad, "
+                            "fecha_fabricacion, proveedor_origen, id_almacen) "
+                            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (rid, id_linea, codigo, cant, lote, caduc, fabric, prov_ori, destino))
                 if id_linea is not None:
                     cur.execute("UPDATE compras_pedidos_lineas SET cantidad_recibida="
                                 "cantidad_recibida+%s WHERE id=%s", (cant, id_linea))
-                # Entrada de stock (almacén central) — solo si el artículo existe.
                 if codigo:
                     precio = round(float((lp or {}).get("precio_unitario") or 0), 2)
                     cur.execute("SELECT COALESCE(Stock_total,0) FROM articulos WHERE codigo=%s",
@@ -220,22 +249,18 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
                     fila_prev = cur.fetchone()
                     stock_previo = (fila_prev[0] if fila_prev and not isinstance(fila_prev, dict)
                                     else (list(fila_prev.values())[0] if fila_prev else None))
-                    cur.execute("UPDATE articulos SET Stock_total=COALESCE(Stock_total,0)+%s, "
-                                "Stock_central=COALESCE(Stock_central,0)+%s WHERE codigo=%s",
-                                (cant, cant, codigo))
                     if fila_prev is not None and precio > 0:
                         _actualizar_costes(cur, codigo, int(stock_previo or 0), cant, precio)
                     cur.execute(
                         "INSERT INTO movimientos_stock (codigo_articulo, tipo_movimiento, "
-                        "cantidad, id_documento, origen, usuario, observaciones) "
-                        "VALUES (%s,'ENTRADA_COMPRA',%s,%s,%s,%s,%s)",
+                        "cantidad, id_documento, origen, usuario, observaciones, id_almacen_destino) "
+                        "VALUES (%s,'ENTRADA_COMPRA',%s,%s,%s,%s,%s,%s)",
                         (codigo, cant, f"PC{id_pedido}-R{rid}", "compra", usuario,
-                         f"Recepción compra pedido {id_pedido}"))
-                    _recibidos_cod.add(codigo)
+                         f"Recepción compra pedido {id_pedido}", destino))
+                    _entradas.append((codigo, cant, lote, caduc, fabric, prov_ori))
                 unidades += cant
             cur.execute("UPDATE compras_recepciones SET total_unidades=%s WHERE id_recepcion=%s",
                         (unidades, rid))
-            # Recalcular estado del pedido.
             cur.execute("SELECT SUM(GREATEST(cantidad-cantidad_recibida,0)) AS pendiente, "
                         "SUM(cantidad_recibida) AS recibido FROM compras_pedidos_lineas "
                         "WHERE id_pedido=%s", (id_pedido,))
@@ -246,14 +271,21 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
             extra = ", fecha_recepcion=NOW()" if nuevo == "RECIBIDO" else ""
             cur.execute(f"UPDATE compras_pedidos SET estado=%s{extra} WHERE id_pedido=%s",
                         (nuevo, id_pedido))
-        # INV.4.6: sincroniza el ledger multialmacén (almacén central) tras la recepción.
+        # CMP.3: entrada de stock en el ALMACÉN DESTINO (stock_almacen = fuente de verdad,
+        # recalcula la caché) + lote/caducidad (INV.3) + FEFO. Best-effort, tras commit.
         try:
-            from src.db import stock_almacen as SA
-            for cod in _recibidos_cod:
-                SA.reseed_articulo(cod, id_empresa)
-        except Exception:
-            pass
-        return {"id_recepcion": rid, "estado_pedido": nuevo, "unidades": unidades}
+            from src.db import stock_almacen as SA2, lotes as L
+            for codigo, cant, lote, caduc, fabric, prov_ori in _entradas:
+                SA2.incrementar_stock(codigo, destino, cant, id_empresa=id_empresa)
+                if lote:
+                    L.registrar_entrada(codigo, lote, cant, fecha_caducidad=caduc,
+                                        id_empresa=id_empresa, id_almacen=destino,
+                                        origen="compra", id_documento=f"PC{id_pedido}-R{rid}",
+                                        usuario=usuario)
+        except Exception as e:
+            logger.warning("recibir: sync multialmacén/lotes pedido %s: %s", id_pedido, e)
+        return {"id_recepcion": rid, "estado_pedido": nuevo, "unidades": unidades,
+                "id_almacen": destino}
     except Exception as e:
         logger.error("recibir(%s): %s", id_pedido, e)
         return None
@@ -310,9 +342,12 @@ def listar_recepciones(id_pedido, id_empresa=None) -> list:
 # ── Facturas de proveedor (E2.5) ─────────────────────────────────────────────
 def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
                       id_pedido=None, id_recepcion=None, base=None, iva=None,
-                      fecha_factura=None, observaciones=None, id_empresa=None) -> int | None:
-    """Registra una factura recibida de proveedor (registro documental + trazabilidad).
-    Si no se pasan base/iva, base = suma de líneas e iva = 0. Total = base + iva."""
+                      fecha_factura=None, observaciones=None, id_empresa=None,
+                      tipo_documento="factura", id_factura_rectificada=None,
+                      id_recepciones=None) -> int | None:
+    """Registra una factura/abono/rectificativa de proveedor (CMP.5). Si no se pasan
+    base/iva, base = suma de líneas e iva = 0. Total = base + iva. `id_recepciones` permite
+    conciliación n:m. Los abonos/rectificativas se contabilizan en negativo."""
     id_empresa = _empresa(id_empresa)
     lineas = lineas or []
     base_calc = round(sum(int(l.get("cantidad") or 0) * round(float(l.get("precio_unitario") or 0), 2)
@@ -320,16 +355,23 @@ def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
     base_f = round(float(base), 2) if base is not None else base_calc
     iva_f = round(float(iva or 0), 2)
     total_f = round(base_f + iva_f, 2)
+    es_negativo = tipo_documento in ("abono", "rectificativa")
     try:
         ensure_schema()
         with transaccion() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO compras_facturas (id_empresa, id_proveedor, id_pedido, id_recepcion, "
-                "numero_factura, fecha_factura, base, iva, total, observaciones) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "numero_factura, fecha_factura, base, iva, total, observaciones, tipo_documento, "
+                "id_factura_rectificada) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (id_empresa, id_proveedor, id_pedido, id_recepcion, numero_factura,
-                 fecha_factura, base_f, iva_f, total_f, observaciones))
+                 fecha_factura, base_f, iva_f, total_f, observaciones, tipo_documento,
+                 id_factura_rectificada))
             fid = cur.lastrowid
+            for _rid in (id_recepciones or []):   # conciliación n:m
+                cur.execute("INSERT INTO compras_factura_recepciones (id_empresa, id_factura, "
+                            "id_recepcion, importe) VALUES (%s,%s,%s,%s) "
+                            "ON DUPLICATE KEY UPDATE importe=VALUES(importe)",
+                            (id_empresa, fid, _rid, 0))
             for l in lineas:
                 cant = int(l.get("cantidad") or 0)
                 precio = round(float(l.get("precio_unitario") or 0), 2)
@@ -339,10 +381,12 @@ def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
                     (fid, l.get("codigo") or l.get("codigo_articulo"), l.get("descripcion"),
                      cant, precio, round(cant * precio, 2)))
         # E6.5: encola el asiento de compra (no-op si la contabilidad está apagada).
+        # CMP.5: abonos/rectificativas se contabilizan en negativo (signo invertido).
         try:
             from src.services.contabilidad.posting import encolar_compra
-            encolar_compra(fid, total_f, fecha_factura or _hoy(), id_empresa=id_empresa,
-                           base=base_f, iva=iva_f)
+            signo = -1 if es_negativo else 1
+            encolar_compra(fid, signo * total_f, fecha_factura or _hoy(), id_empresa=id_empresa,
+                           base=signo * base_f, iva=signo * iva_f, subtipo=tipo_documento)
         except Exception:
             pass
         return fid
@@ -546,3 +590,343 @@ def proveedores_mas_utilizados(id_empresa=None, limite=20) -> list:
     except Exception as e:
         logger.error("proveedores_mas_utilizados: %s", e)
         return []
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CMP.3 — INCIDENCIAS DE RECEPCIÓN
+# ════════════════════════════════════════════════════════════════════════════
+def registrar_incidencia(tipo, cantidad=0, id_pedido=None, id_recepcion=None,
+                         id_proveedor=None, codigo=None, descripcion=None, usuario=None,
+                         id_empresa=None) -> int | None:
+    """Registra una incidencia (danado|faltante|exceso|rechazo|error_prov|otros)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        ensure_schema()
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO compras_incidencias (id_empresa, id_pedido, id_recepcion, "
+                        "id_proveedor, codigo_articulo, tipo, cantidad, descripcion, usuario) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, id_pedido, id_recepcion, id_proveedor, codigo, tipo,
+                         int(cantidad or 0), descripcion, usuario))
+            return cur.lastrowid
+    except Exception as e:
+        logger.error("registrar_incidencia: %s", e)
+        return None
+
+
+def listar_incidencias(id_empresa=None, estado=None, id_proveedor=None, id_pedido=None) -> list:
+    id_empresa = _empresa(id_empresa)
+    cond, params = ["id_empresa=%s"], [id_empresa]
+    if estado:
+        cond.append("estado=%s"); params.append(estado)
+    if id_proveedor:
+        cond.append("id_proveedor=%s"); params.append(id_proveedor)
+    if id_pedido:
+        cond.append("id_pedido=%s"); params.append(id_pedido)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT * FROM compras_incidencias WHERE {' AND '.join(cond)} "
+                        "ORDER BY fecha DESC, id DESC", params)
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_incidencias: %s", e)
+        return []
+
+
+def resolver_incidencia(id_incidencia, estado="resuelta", id_empresa=None) -> bool:
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE compras_incidencias SET estado=%s WHERE id=%s AND id_empresa=%s",
+                        (estado, id_incidencia, id_empresa))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error("resolver_incidencia: %s", e)
+        return False
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CMP.4 — DEVOLUCIONES A PROVEEDOR
+# ════════════════════════════════════════════════════════════════════════════
+def crear_devolucion(id_proveedor=None, lineas=None, motivo=None, id_almacen=None,
+                     id_pedido=None, usuario=None, id_empresa=None) -> int | None:
+    """Registra una devolución a proveedor y DESCUENTA stock del almacén (stock_almacen),
+    consumiendo lote (FEFO o lote indicado) y registrando DEVOLUCION_PROVEEDOR en el kárdex.
+    `lineas`: [{codigo, cantidad, lote?, precio_unitario?, motivo?}]. Devuelve id_devolucion."""
+    id_empresa = _empresa(id_empresa)
+    lineas = lineas or []
+    try:
+        from src.db import stock_almacen as SA
+        if not id_almacen:
+            id_almacen = SA.almacen_central(id_empresa)
+    except Exception:
+        pass
+    try:
+        ensure_schema()
+        total = 0.0
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO compras_devoluciones (id_empresa, id_proveedor, id_pedido, "
+                        "id_almacen, motivo, usuario) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, id_proveedor, id_pedido, id_almacen, motivo, usuario))
+            did = cur.lastrowid
+            for ln in lineas:
+                cod = ln.get("codigo") or ln.get("codigo_articulo")
+                cant = int(ln.get("cantidad") or 0)
+                if not cod or cant <= 0:
+                    continue
+                precio = round(float(ln.get("precio_unitario") or 0), 2)
+                subtotal = round(cant * precio, 2)
+                total += subtotal
+                cur.execute("INSERT INTO compras_devoluciones_lineas (id_devolucion, id_empresa, "
+                            "codigo_articulo, lote, cantidad, precio_unitario, subtotal, motivo) "
+                            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (did, id_empresa, cod, ln.get("lote"), cant, precio, subtotal,
+                             ln.get("motivo")))
+            cur.execute("UPDATE compras_devoluciones SET total=%s WHERE id_devolucion=%s",
+                        (round(total, 2), did))
+        try:
+            from src.db import stock_almacen as SA2, lotes as L, kardex
+            for ln in lineas:
+                cod = ln.get("codigo") or ln.get("codigo_articulo")
+                cant = int(ln.get("cantidad") or 0)
+                if not cod or cant <= 0:
+                    continue
+                SA2.decrementar_stock(cod, id_almacen, cant, id_empresa=id_empresa)
+                L.consumir_fefo(cod, cant, tipo="DEVOLUCION_PROVEEDOR", id_empresa=id_empresa,
+                                id_documento=f"DEVP{did}", usuario=usuario, id_almacen=id_almacen)
+                kardex.registrar_movimiento(cod, "DEVOLUCION_PROVEEDOR", cant, origen="ALMACEN",
+                                            destino="PROVEEDOR", id_documento=f"DEVP{did}",
+                                            usuario=usuario, id_empresa=id_empresa,
+                                            id_almacen_origen=id_almacen,
+                                            observaciones=f"Devolución a proveedor #{did}")
+        except Exception as e:
+            logger.warning("crear_devolucion: salida stock/lotes #%s: %s", did, e)
+        return did
+    except Exception as e:
+        logger.error("crear_devolucion: %s", e)
+        return None
+
+
+def obtener_devolucion(id_devolucion, id_empresa=None) -> dict | None:
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM compras_devoluciones WHERE id_devolucion=%s AND id_empresa=%s",
+                        (id_devolucion, id_empresa))
+            cab = _fila_a_dict(cur, cur.fetchone())
+            if not cab:
+                return None
+            cur.execute("SELECT * FROM compras_devoluciones_lineas WHERE id_devolucion=%s ORDER BY id",
+                        (id_devolucion,))
+            cab["lineas"] = _filas_a_dicts(cur, cur.fetchall())
+            return cab
+    except Exception as e:
+        logger.error("obtener_devolucion: %s", e)
+        return None
+
+
+def listar_devoluciones(id_empresa=None, id_proveedor=None, limite=500) -> list:
+    id_empresa = _empresa(id_empresa)
+    cond, params = ["id_empresa=%s"], [id_empresa]
+    if id_proveedor:
+        cond.append("id_proveedor=%s"); params.append(id_proveedor)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT * FROM compras_devoluciones WHERE {' AND '.join(cond)} "
+                        "ORDER BY id_devolucion DESC LIMIT %s", (*params, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_devoluciones: %s", e)
+        return []
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CMP.5 — FACTURACIÓN AVANZADA (abonos, rectificativas, conciliación n:m)
+# ════════════════════════════════════════════════════════════════════════════
+def asociar_recepcion_factura(id_factura, id_recepcion, importe=0.0, id_empresa=None) -> bool:
+    """Conciliación n:m: vincula una recepción a una factura con su importe."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO compras_factura_recepciones (id_empresa, id_factura, "
+                        "id_recepcion, importe) VALUES (%s,%s,%s,%s) "
+                        "ON DUPLICATE KEY UPDATE importe=VALUES(importe)",
+                        (id_empresa, id_factura, id_recepcion, round(float(importe or 0), 2)))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error("asociar_recepcion_factura: %s", e)
+        return False
+
+
+def recepciones_de_factura(id_factura, id_empresa=None) -> list:
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id_recepcion, importe FROM compras_factura_recepciones "
+                        "WHERE id_factura=%s AND id_empresa=%s", (id_factura, id_empresa))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("recepciones_de_factura: %s", e)
+        return []
+
+
+def registrar_abono(id_proveedor=None, numero_factura=None, lineas=None, base=None, iva=None,
+                    id_factura_rectificada=None, id_empresa=None, fecha_factura=None) -> int | None:
+    """Registra un ABONO o RECTIFICATIVA de compra (tipo_documento) y lo contabiliza."""
+    tipo = "rectificativa" if id_factura_rectificada else "abono"
+    return registrar_factura(id_proveedor=id_proveedor, numero_factura=numero_factura,
+                             lineas=lineas, base=base, iva=iva, id_empresa=id_empresa,
+                             fecha_factura=fecha_factura, tipo_documento=tipo,
+                             id_factura_rectificada=id_factura_rectificada)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CMP.6 — COSTES REALES / AMPLIADOS
+# ════════════════════════════════════════════════════════════════════════════
+def registrar_coste_extra(tipo, importe, id_recepcion=None, id_pedido=None, descripcion=None,
+                          id_empresa=None) -> int | None:
+    """Registra un coste indirecto (transporte/aduanas/importación/seguro/manipulación/otros)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        ensure_schema()
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO compras_costes_extra (id_empresa, id_recepcion, id_pedido, "
+                        "tipo, importe, descripcion) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, id_recepcion, id_pedido, tipo, round(float(importe or 0), 2),
+                         descripcion))
+            return cur.lastrowid
+    except Exception as e:
+        logger.error("registrar_coste_extra: %s", e)
+        return None
+
+
+def prorratear_costes_recepcion(id_recepcion, id_empresa=None) -> dict:
+    """Prorratea los costes extra no aplicados de una recepción sobre las unidades recibidas,
+    incrementando el coste medio/actual de cada artículo. Idempotente (marca prorrateado=1)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COALESCE(SUM(importe),0) FROM compras_costes_extra "
+                        "WHERE id_recepcion=%s AND id_empresa=%s AND prorrateado=0",
+                        (id_recepcion, id_empresa))
+            r = cur.fetchone()
+            extra = float((r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0)
+            cur.execute("SELECT codigo_articulo, cantidad FROM compras_recepciones_lineas "
+                        "WHERE id_recepcion=%s", (id_recepcion,))
+            lineas = _filas_a_dicts(cur, cur.fetchall())
+            unidades = sum(int(l["cantidad"] or 0) for l in lineas)
+            if extra <= 0 or unidades <= 0:
+                return {"prorrateado": 0.0, "unidades": unidades}
+            coste_unit_extra = extra / unidades
+            for l in lineas:
+                cod = l["codigo_articulo"]
+                if not cod:
+                    continue
+                cur.execute("UPDATE articulos SET coste_actual=COALESCE(coste_actual,0)+%s, "
+                            "coste_medio=COALESCE(coste_medio,0)+%s WHERE codigo=%s AND id_empresa=%s",
+                            (round(coste_unit_extra, 4), round(coste_unit_extra, 4), cod, id_empresa))
+            cur.execute("UPDATE compras_costes_extra SET prorrateado=1 WHERE id_recepcion=%s "
+                        "AND id_empresa=%s AND prorrateado=0", (id_recepcion, id_empresa))
+            return {"prorrateado": round(extra, 2), "unidades": unidades,
+                    "coste_unitario_extra": round(coste_unit_extra, 4)}
+    except Exception as e:
+        logger.error("prorratear_costes_recepcion: %s", e)
+        return {"prorrateado": 0.0, "unidades": 0}
+
+
+def coste_por_almacen(codigo, id_almacen, id_empresa=None) -> dict:
+    """Valoración del stock de un artículo en un almacén = existencias × coste medio."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        from src.db import stock_almacen as SA
+        cant = SA.obtener_stock_almacen(codigo, id_almacen, id_empresa)
+        c = obtener_costes(codigo)
+        medio = float(c.get("coste_medio") or 0)
+        return {"cantidad": cant, "coste_medio": medio, "valoracion": round(cant * medio, 2)}
+    except Exception as e:
+        logger.error("coste_por_almacen: %s", e)
+        return {"cantidad": 0, "coste_medio": 0, "valoracion": 0}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CMP.8 — HOMOLOGACIÓN Y EVALUACIÓN DE PROVEEDORES
+# ════════════════════════════════════════════════════════════════════════════
+def calcular_kpis_proveedor(id_proveedor, id_empresa=None) -> dict:
+    """KPIs del proveedor a partir de incidencias, devoluciones y pedidos recibidos."""
+    id_empresa = _empresa(id_empresa)
+
+    def _n(cur):
+        x = cur.fetchone()
+        return (x[0] if not isinstance(x, dict) else list(x.values())[0]) or 0
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM compras_incidencias WHERE id_proveedor=%s "
+                        "AND id_empresa=%s", (id_proveedor, id_empresa)); inc = _n(cur)
+            cur.execute("SELECT COUNT(*) FROM compras_incidencias WHERE id_proveedor=%s "
+                        "AND id_empresa=%s AND tipo='rechazo'", (id_proveedor, id_empresa)); rech = _n(cur)
+            cur.execute("SELECT COUNT(*) FROM compras_devoluciones WHERE id_proveedor=%s "
+                        "AND id_empresa=%s", (id_proveedor, id_empresa)); dev = _n(cur)
+            cur.execute("SELECT COUNT(*) FROM compras_pedidos WHERE id_proveedor=%s "
+                        "AND id_empresa=%s AND estado='RECIBIDO'", (id_proveedor, id_empresa)); ped = _n(cur)
+        base = max(1, ped)
+        valoracion = max(0.0, round(100.0 - (inc + dev + rech * 2) * 100.0 / (base + inc + dev), 2))
+        return {"incidencias": inc, "rechazos": rech, "devoluciones": dev,
+                "pedidos_recibidos": ped, "valoracion_global": valoracion}
+    except Exception as e:
+        logger.error("calcular_kpis_proveedor: %s", e)
+        return {"incidencias": 0, "rechazos": 0, "devoluciones": 0, "pedidos_recibidos": 0,
+                "valoracion_global": 0.0}
+
+
+def registrar_evaluacion(id_proveedor, periodo=None, id_empresa=None, **kpis) -> int | None:
+    """Persiste una evaluación de proveedor (usa KPIs calculados si no se pasan)."""
+    id_empresa = _empresa(id_empresa)
+    if not kpis:
+        kpis = calcular_kpis_proveedor(id_proveedor, id_empresa)
+    try:
+        ensure_schema()
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO proveedores_evaluacion (id_empresa, id_proveedor, periodo, "
+                        "cumplimiento_plazo, calidad, incidencias, rechazos, devoluciones, "
+                        "valoracion_global, observaciones) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, id_proveedor, periodo,
+                         float(kpis.get("cumplimiento_plazo") or 0), float(kpis.get("calidad") or 0),
+                         int(kpis.get("incidencias") or 0), int(kpis.get("rechazos") or 0),
+                         int(kpis.get("devoluciones") or 0),
+                         float(kpis.get("valoracion_global") or 0), kpis.get("observaciones")))
+            return cur.lastrowid
+    except Exception as e:
+        logger.error("registrar_evaluacion: %s", e)
+        return None
+
+
+def listar_evaluaciones(id_proveedor, id_empresa=None) -> list:
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM proveedores_evaluacion WHERE id_proveedor=%s AND id_empresa=%s "
+                        "ORDER BY fecha DESC", (id_proveedor, id_empresa))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_evaluaciones: %s", e)
+        return []
+
+
+def set_homologacion_estado(id_proveedor, estado, id_empresa=None) -> bool:
+    """Estados: pendiente|aprobado|suspendido|bloqueado. 'aprobado'→homologado; 'bloqueado'→bloqueado."""
+    id_empresa = _empresa(id_empresa)
+    if estado not in ("pendiente", "aprobado", "suspendido", "bloqueado"):
+        return False
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE proveedores SET homologacion_estado=%s, homologado=%s, bloqueado=%s "
+                        "WHERE id_proveedor=%s AND id_empresa=%s",
+                        (estado, 1 if estado == "aprobado" else 0,
+                         1 if estado == "bloqueado" else 0, id_proveedor, id_empresa))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error("set_homologacion_estado: %s", e)
+        return False

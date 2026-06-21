@@ -36,4 +36,11 @@ MODULOS = [
     "0025_inventario_almacen",
     "0026_reab_almacen",
     "0027_reab_avanzado",
+    "0028_proveedores_pro",
+    "0029_compras_pedido_almacen",
+    "0030_recepcion_avanzada",
+    "0031_compras_devoluciones",
+    "0032_facturas_avanzadas",
+    "0033_costes_extra",
+    "0034_proveedores_evaluacion",
 ]

@@ -18,7 +18,7 @@ from src.db.conexion import (_fila_a_dict, _filas_a_dicts, ensure_schema,
 logger = logging.getLogger("inventario.lotes")
 
 ACTIVO, AGOTADO = "activo", "agotado"
-TIPOS_SALIDA = ("SALIDA_VENTA", "MERMA", "TRASPASO", "AJUSTE")
+TIPOS_SALIDA = ("SALIDA_VENTA", "MERMA", "TRASPASO", "AJUSTE", "DEVOLUCION_PROVEEDOR")
 
 
 def _tenant(id_empresa=None, id_tienda=None):

@@ -409,6 +409,9 @@ def _prevision_demanda(codigo: str, dias: int, prevision_fn=None) -> int:
     try:
         if prevision_fn is not None:
             return max(0, int(prevision_fn(codigo, dias) or 0))
+        # CMP.7: servicio de previsión desacoplado por defecto (no depende de main.py).
+        from src.db import prevision
+        return max(0, int(prevision.prevision_demanda(codigo, dias) or 0))
     except Exception as e:
         logger.warning("prevision IA no disponible para %s: %s", codigo, e)
     return 0
@@ -426,14 +429,22 @@ def generar_propuestas_almacen(id_almacen, id_empresa=None, usar_ia=True, previs
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT rc.codigo, a.nombre, rc.umbral_min, rc.stock_objetivo, "
-                        "rc.stock_maximo, rc.punto_pedido, rc.lead_time_dias, rc.id_almacen_origen "
+                        "rc.stock_maximo, rc.punto_pedido, rc.lead_time_dias, rc.id_almacen_origen, "
+                        "rc.id_proveedor_preferente "
                         "FROM reab_config rc JOIN articulos a ON a.codigo=rc.codigo "
                         "WHERE rc.id_empresa=%s", (id_empresa,))
             filas = cur.fetchall()
         for r in filas:
-            codigo, nombre, umbral, objetivo, maximo, punto, lead, alm_orig = r
+            codigo, nombre, umbral, objetivo, maximo, punto, lead, alm_orig, id_prov = r
             punto = punto or umbral or 0
             maximo = maximo or objetivo or 0
+            # CMP.7: lead time del PROVEEDOR preferente con fallback a reab_config.
+            if (not lead) and id_prov:
+                try:
+                    from src.db import proveedores
+                    lead = (proveedores.condiciones_comerciales(id_prov, id_empresa) or {}).get("lead_time_dias") or 0
+                except Exception:
+                    pass
             stock_actual = SA.obtener_stock_almacen(codigo, id_almacen, id_empresa)
             prevision = _prevision_demanda(codigo, lead or 0, prevision_fn) if usar_ia else 0
             punto_efectivo = max(int(punto), int(prevision))
@@ -481,3 +492,27 @@ def generar_pedidos_compra(propuesta_ids=None, usuario=None, id_empresa=None) ->
         if ped:
             pedidos.append(ped)
     return pedidos
+
+
+def ejecutar_aprovisionamiento(id_empresa=None, id_almacen=None, crear_pedidos=False,
+                               usuario=None, usar_ia=True) -> dict:
+    """CMP.7 — Scheduler de aprovisionamiento: genera propuestas para todos los almacenes
+    (o uno concreto) de la empresa y, opcionalmente, crea los pedidos de compra agrupados
+    por proveedor preferente. Devuelve {propuestas, pedidos}."""
+    id_empresa = _emp(id_empresa)
+    propuestas = []
+    try:
+        from src.db import stock_almacen as SA
+        almacenes = ([{"id": id_almacen}] if id_almacen
+                     else SA.listar_almacenes(id_empresa))
+        for a in almacenes:
+            aid = a.get("id") if isinstance(a, dict) else a
+            if aid:
+                propuestas += generar_propuestas_almacen(aid, id_empresa=id_empresa, usar_ia=usar_ia)
+    except Exception as e:
+        logger.error("ejecutar_aprovisionamiento: %s", e)
+    pedidos = []
+    if crear_pedidos and propuestas:
+        pedidos = generar_pedidos_compra(propuesta_ids=propuestas, usuario=usuario,
+                                         id_empresa=id_empresa)
+    return {"propuestas": propuestas, "pedidos": pedidos}
