@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QInputDialog,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -3923,7 +3924,11 @@ class TPVWindow(QWidget):
         self._cliente: dict | None = None   # None = cliente genérico
         self._auth_cancelled: bool = False  # login cancelado → _abrir_tpv_en_stack no muestra el TPV
 
+        self._sidebar_visible = True
+        self._compact_auto_sidebar = False
+
         self.setWindowTitle(tr("tpv.title"))
+        self.setMinimumSize(360, 520)
         self.setStyleSheet(f"QWidget{{background:{_BG};}}")
 
         root = QVBoxLayout(self)
@@ -4103,9 +4108,11 @@ class TPVWindow(QWidget):
         lay.addWidget(self._build_topbar())
 
         body = QHBoxLayout()
+        self._body_layout = body
         body.setSpacing(10)
         body.addWidget(self._build_izq(), 6)
-        body.addWidget(self._build_der(), 4)
+        self._panel_der = self._build_der()
+        body.addWidget(self._panel_der, 4)
         lay.addLayout(body, 1)  # stretch=1 → ocupa todo el alto disponible
 
     def _build_topbar(self) -> QFrame:
@@ -4138,6 +4145,19 @@ class TPVWindow(QWidget):
         lay.addWidget(self.lbl_reloj)
 
         lay.addSpacing(16)
+        self._btn_sidebar_toggle = btn_side = QPushButton(tr("tpv.hide_sidebar", default="OCULTAR"))
+        btn_side.setFixedSize(112, 36)
+        btn_side.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_side.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_side.setStyleSheet(
+            f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};"
+            f"border-radius:8px;font-family:'{_FONT}';font-weight:900;font-size:11px;outline:0px;}}"
+            f"QPushButton:hover{{background:{_CIAN};color:#0D1117;}}"
+        )
+        btn_side.clicked.connect(self._toggle_sidebar)
+        lay.addWidget(btn_side)
+
+        lay.addSpacing(8)
         self._btn_salir_tpv = btn_salir = QPushButton(tr("tpv.exit"))
         btn_salir.setFixedSize(110, 36)
         btn_salir.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4151,6 +4171,48 @@ class TPVWindow(QWidget):
         btn_salir.clicked.connect(self._volver_menu)
         lay.addWidget(btn_salir)
         return bar
+
+    def _toggle_sidebar(self, visible: bool | None = None):
+        if not hasattr(self, "_panel_der"):
+            return
+        self._sidebar_visible = (not self._sidebar_visible) if visible is None else bool(visible)
+        self._panel_der.setVisible(self._sidebar_visible)
+        if hasattr(self, "_btn_sidebar_toggle"):
+            self._btn_sidebar_toggle.setText(
+                tr("tpv.hide_sidebar", default="OCULTAR") if self._sidebar_visible
+                else tr("tpv.show_sidebar", default="ACCIONES")
+            )
+
+    def _apply_responsive_layout(self):
+        ancho = max(0, self.width())
+        compacto = bool(ancho and ancho < 920)
+        if compacto and self._sidebar_visible:
+            self._compact_auto_sidebar = True
+            self._toggle_sidebar(False)
+        elif not compacto and self._compact_auto_sidebar:
+            self._compact_auto_sidebar = False
+            self._toggle_sidebar(True)
+
+        if hasattr(self, "tabla"):
+            self.tabla.setColumnHidden(4, compacto)
+            hh = self.tabla.horizontalHeader()
+            if compacto:
+                hh.resizeSection(0, 82)
+                hh.resizeSection(2, 44)
+                hh.resizeSection(3, 62)
+                hh.resizeSection(5, 74)
+                hh.resizeSection(6, 92)
+            else:
+                hh.resizeSection(0, 104)
+                hh.resizeSection(2, 54)
+                hh.resizeSection(3, 72)
+                hh.resizeSection(4, 82)
+                hh.resizeSection(5, 82)
+                hh.resizeSection(6, 120)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_responsive_layout()
 
     def _build_izq(self) -> QWidget:
         w = QWidget()
@@ -4875,47 +4937,27 @@ class TPVWindow(QWidget):
         _id_tienda = tienda_actual_id()
         venta_id = None
         try:
-            with transaccion() as conn:        # A2.2: venta + ítems + stock atómicos
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO ventas (fecha, total, forma_pago, empleado, numero_caja, "
-                        "cliente_id, cliente_nombre, cliente_nif, id_empresa, id_tienda) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                        (
-                            fecha.strftime("%Y-%m-%d %H:%M:%S"),
-                            total,
-                            forma_pago,
-                            self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else None),
-                            n_caja,
-                            cli.get("id"), cli.get("nombre"), cli.get("nif"),
-                            _id_empresa, _id_tienda,
-                        ),
-                    )
-                    venta_id = cur.lastrowid
-
-                    for l in lineas:
-                        cur.execute(
-                            "INSERT INTO venta_items "
-                            "(venta_id, codigo_articulo, nombre, seccion, cantidad, precio_unitario, subtotal, id_empresa) "
-                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                            (venta_id, l["codigo"], l["nombre"], l.get("seccion", ""),
-                             l["cantidad"], l["precio"], l["subtotal"], _id_empresa),
-                        )
-
-                    for l in lineas:
-                        cur.execute(
-                            "UPDATE articulos "
-                            "SET Stock_tienda = GREATEST(0, Stock_tienda - %s) "
-                            "WHERE codigo = %s",
-                            (l["cantidad"], l["codigo"]),
-                        )
-                # commit/rollback gestionado por transaccion()
-
+            # P0 — RUTA CANÓNICA ÚNICA: delega la persistencia (y todas las integraciones:
+            # Verifactu, contabilidad, kárdex, FEFO, stock_almacen, política M4) en
+            # registrar_venta_con_items. NO se decrementa stock aquí (lo hace la ruta canónica).
+            from src.db.conexion import registrar_venta_con_items
+            items = [{"codigo_articulo": l["codigo"], "nombre": l.get("nombre"),
+                      "seccion": l.get("seccion", ""), "cantidad": l["cantidad"],
+                      "precio_unitario": l["precio"], "subtotal": l["subtotal"],
+                      "peso_vendido": l.get("peso_vendido"), "precio_kg": l.get("precio_kg"),
+                      "modo_venta": l.get("modo_venta", "UNIDAD")} for l in lineas]
+            venta_id = registrar_venta_con_items(
+                items, fecha=fecha.strftime("%Y-%m-%d %H:%M:%S"), forma_pago=forma_pago,
+                empleado_id=self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else None),
+                cliente=cli, numero_caja=n_caja, total=total,
+                id_empresa=_id_empresa, id_tienda=_id_tienda)
+            if not venta_id:
+                raise RuntimeError("registro de venta no devolvió id")
         except Exception as e:
             self._msg(tr("tpv.db_error_title"), tr("tpv.db_error_msg", e=e), "error")
             return
 
-        # Señales de stock
+        # Señales de stock (la ruta canónica ya emite; reforzamos para refresco inmediato de UI)
         for l in lineas:
             try:
                 stock_signals.stock_actualizado.emit(str(l["codigo"]))

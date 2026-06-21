@@ -414,27 +414,22 @@ class AutocobroWindow(QWidget):
         fecha = datetime.datetime.now()
         venta_id = None
         try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO ventas (fecha, total, forma_pago, empleado, numero_caja) "
-                        "VALUES (%s, %s, %s, %s, %s)",
-                        (fecha.strftime("%Y-%m-%d %H:%M:%S"), total, forma_pago, "AUTOCOBRO", 99),
-                    )
-                    venta_id = cur.lastrowid
-                    for l in self._lineas:
-                        cur.execute(
-                            "INSERT INTO venta_items "
-                            "(venta_id, codigo_articulo, nombre, seccion, cantidad, precio_unitario, subtotal) "
-                            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                            (venta_id, l["codigo"], l["nombre"], l.get("seccion", ""),
-                             l["cantidad"], l["precio"], l["subtotal"]),
-                        )
-                        cur.execute(
-                            "UPDATE articulos SET Stock_tienda = GREATEST(0, Stock_tienda - %s) WHERE codigo = %s",
-                            (l["cantidad"], l["codigo"]),
-                        )
-                conn.commit()
+            # P0 — RUTA CANÓNICA ÚNICA (igual que el TPV). Persistencia + Verifactu +
+            # contabilidad + kárdex + FEFO + stock_almacen + M4 en una sola llamada.
+            # Fija el tenant explícitamente (corrige el riesgo de aislamiento del autocobro).
+            from src.db.conexion import registrar_venta_con_items
+            from src.db.empresa import empresa_actual_id, tienda_actual_id
+            items = [{"codigo_articulo": l["codigo"], "nombre": l.get("nombre"),
+                      "seccion": l.get("seccion", ""), "cantidad": l["cantidad"],
+                      "precio_unitario": l["precio"], "subtotal": l["subtotal"],
+                      "peso_vendido": l.get("peso_vendido"), "precio_kg": l.get("precio_kg"),
+                      "modo_venta": l.get("modo_venta", "UNIDAD")} for l in self._lineas]
+            venta_id = registrar_venta_con_items(
+                items, fecha=fecha.strftime("%Y-%m-%d %H:%M:%S"), forma_pago=forma_pago,
+                empleado_id="AUTOCOBRO", numero_caja=99, total=total,
+                id_empresa=empresa_actual_id(), id_tienda=tienda_actual_id())
+            if not venta_id:
+                raise RuntimeError("registro de venta no devolvió id")
         except Exception as e:
             self._aviso(f"Error al registrar la compra: {e}")
             return

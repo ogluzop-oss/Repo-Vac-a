@@ -1593,23 +1593,41 @@ def registrar_venta_con_items(
     empleado_id: int | None = None,
     cliente_id: int | None = None,
     factura_id: int | None = None,
+    *,
+    cliente: dict | None = None,
+    numero_caja: int | None = None,
+    total: float | None = None,
+    id_empresa: str | None = None,
+    id_tienda: int | None = None,
 ) -> int | None:
-    """Registra una venta compleja (varios ítems) en MariaDB."""
+    """Registra una venta compleja (varios ítems) en MariaDB — RUTA CANÓNICA de venta.
+
+    Ampliación aditiva (P0 convergencia TPV): parámetros nuevos OPCIONALES y compatibles
+    hacia atrás. `cliente` = {id, nombre, nif}; `numero_caja`; `total` (importe real cobrado
+    con descuentos — si no se indica, se recalcula por líneas); `id_empresa/id_tienda` para
+    override del tenant (si no, se toma del contexto activo). Cada ítem admite además
+    `nombre`, `seccion`, `subtotal` (real con descuento), `peso_vendido`, `precio_kg`,
+    `modo_venta` (granel). Dispara Verifactu, contabilidad, kárdex, FEFO, stock_almacen y M4."""
     try:
         ensure_schema()
         if fecha is None:
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         from src.db.empresa import empresa_actual_id, tienda_actual_id
-        _eid, _tid = empresa_actual_id(), tienda_actual_id()   # A4.1: tenant activo
+        _eid = id_empresa or empresa_actual_id()
+        _tid = id_tienda if id_tienda is not None else tienda_actual_id()
+        cli = cliente or {}
+        cli_id = cli.get("id") if cli.get("id") is not None else cliente_id
+        cli_nom = cli.get("nombre")
+        cli_nif = cli.get("nif")
         with transaccion() as conn:        # A2.2: venta + ítems + stock atómicos
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    INSERT INTO ventas (fecha, total, forma_pago, empleado, id_empresa, id_tienda)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (fecha, 0.0, forma_pago, str(empleado_id) if empleado_id else None, _eid, _tid),
+                    "INSERT INTO ventas (fecha, total, forma_pago, empleado, numero_caja, "
+                    "cliente_id, cliente_nombre, cliente_nif, id_empresa, id_tienda) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (fecha, 0.0, forma_pago, str(empleado_id) if empleado_id else None,
+                     numero_caja, cli_id, cli_nom, cli_nif, _eid, _tid),
                 )
                 venta_id = cur.lastrowid
                 total_acumulado = 0.0
@@ -1617,23 +1635,24 @@ def registrar_venta_con_items(
                 for it in items:
                     codigo = it.get("codigo_articulo") or it.get("codigo") or ""
                     cantidad = int(it.get("cantidad") or 0)
-                    precio = float(it.get("precio_unitario") or 0.0)
-                    subtotal = cantidad * precio
+                    precio = float(it.get("precio_unitario") or it.get("precio") or 0.0)
+                    # Subtotal REAL (con descuento) si se aporta; si no, cantidad×precio.
+                    subtotal = (round(float(it["subtotal"]), 2) if it.get("subtotal") is not None
+                                else round(cantidad * precio, 2))
                     total_acumulado += subtotal
 
                     cur.execute(
-                        """
-                        INSERT INTO venta_items (venta_id, codigo_articulo, cantidad, precio_unitario, subtotal, id_empresa)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        """,
-                        (venta_id, str(codigo), cantidad, precio, subtotal, _eid),
+                        "INSERT INTO venta_items (venta_id, codigo_articulo, nombre, seccion, "
+                        "cantidad, precio_unitario, subtotal, peso_vendido, precio_kg, modo_venta, "
+                        "id_empresa) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (venta_id, str(codigo), it.get("nombre"), it.get("seccion", ""),
+                         cantidad, precio, subtotal, it.get("peso_vendido"), it.get("precio_kg"),
+                         it.get("modo_venta", "UNIDAD"), _eid),
                     )
-                    _salida_stock_clamp(cur, codigo, cantidad, "venta")
+                    _salida_stock_clamp(cur, codigo, cantidad, "venta", id_empresa=_eid)
 
-                cur.execute(
-                    "UPDATE ventas SET total = %s WHERE id = %s",
-                    (total_acumulado, venta_id),
-                )
+                total_final = round(float(total) if total is not None else total_acumulado, 2)
+                cur.execute("UPDATE ventas SET total = %s WHERE id = %s", (total_final, venta_id))
 
         try:
             for it in items:
@@ -1692,14 +1711,14 @@ def registrar_venta_con_items(
         # rompe la venta. Tras el commit para no extender la transacción de venta.
         try:
             from src.services.fiscal.hooks import gancho_venta
-            gancho_venta(venta_id, total_acumulado, tipo="ticket",
+            gancho_venta(venta_id, total_final, tipo="ticket",
                          id_empresa=_eid, id_tienda=_tid)
         except Exception:
             pass
         # E6.4: encola el evento contable (no-op si la contabilidad está apagada).
         try:
             from src.services.contabilidad.posting import encolar_venta
-            encolar_venta(venta_id, total_acumulado, fecha, forma_pago=forma_pago,
+            encolar_venta(venta_id, total_final, fecha, forma_pago=forma_pago,
                           subtipo="ticket", id_empresa=_eid)
         except Exception:
             pass
