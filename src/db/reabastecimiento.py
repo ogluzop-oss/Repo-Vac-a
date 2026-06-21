@@ -5,9 +5,22 @@ from .conexion import obtener_conexion
 logger = logging.getLogger("reabastecimiento_db")
 
 
+def _emp(id_empresa=None):
+    """Empresa activa (INV.5.2: aislamiento multiempresa de reabastecimiento)."""
+    if id_empresa:
+        return id_empresa
+    try:
+        from src.db.empresa import empresa_actual_id
+        return empresa_actual_id()
+    except Exception:
+        from src.db.conexion import EMPRESA_DEFAULT_ID
+        return EMPRESA_DEFAULT_ID
+
+
 # ── CONFIG ──────────────────────────────────────────────────────────────────
 
-def listar_config() -> list:
+def listar_config(id_empresa=None) -> list:
+    id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
@@ -18,8 +31,9 @@ def listar_config() -> list:
                            rc.origen, rc.automatico
                     FROM reab_config rc
                     JOIN articulos a ON a.codigo = rc.codigo
+                    WHERE rc.id_empresa = %s
                     ORDER BY a.nombre ASC
-                """)
+                """, (id_empresa,))
                 rows = cur.fetchall()
                 return [
                     {
@@ -35,19 +49,22 @@ def listar_config() -> list:
 
 
 def upsert_config(codigo: str, umbral_min: int, stock_objetivo: int,
-                  origen: str = "ALMACÉN CENTRAL", automatico: bool = True) -> bool:
+                  origen: str = "ALMACÉN CENTRAL", automatico: bool = True,
+                  id_empresa=None) -> bool:
+    id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO reab_config (codigo, umbral_min, stock_objetivo, origen, automatico)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO reab_config (codigo, umbral_min, stock_objetivo, origen, automatico, id_empresa)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         umbral_min = VALUES(umbral_min),
                         stock_objetivo = VALUES(stock_objetivo),
                         origen = VALUES(origen),
-                        automatico = VALUES(automatico)
-                """, (codigo, umbral_min, stock_objetivo, origen, int(automatico)))
+                        automatico = VALUES(automatico),
+                        id_empresa = VALUES(id_empresa)
+                """, (codigo, umbral_min, stock_objetivo, origen, int(automatico), id_empresa))
             conn.commit()
             return True
     except Exception as e:
@@ -97,11 +114,13 @@ def propuestas_por_almacen(id_almacen, id_empresa=None) -> list:
         return []
 
 
-def eliminar_config(codigo: str) -> bool:
+def eliminar_config(codigo: str, id_empresa=None) -> bool:
+    id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM reab_config WHERE codigo=%s", (codigo,))
+                cur.execute("DELETE FROM reab_config WHERE codigo=%s AND id_empresa=%s",
+                            (codigo, id_empresa))
             conn.commit()
             return True
     except Exception as e:
@@ -109,14 +128,15 @@ def eliminar_config(codigo: str) -> bool:
         return False
 
 
-def obtener_config(codigo: str) -> dict | None:
+def obtener_config(codigo: str, id_empresa=None) -> dict | None:
+    id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT umbral_min, stock_objetivo, origen, automatico "
-                    "FROM reab_config WHERE codigo=%s",
-                    (codigo,)
+                    "FROM reab_config WHERE codigo=%s AND id_empresa=%s",
+                    (codigo, id_empresa)
                 )
                 r = cur.fetchone()
                 if r:
@@ -130,16 +150,21 @@ def obtener_config(codigo: str) -> dict | None:
 # ── PROPUESTAS ───────────────────────────────────────────────────────────────
 
 def crear_propuesta(codigo: str, nombre: str, cantidad: int,
-                    origen: str, stock_actual: int, stock_objetivo: int) -> int | None:
+                    origen: str, stock_actual: int, stock_objetivo: int,
+                    id_empresa=None, id_almacen=None, id_almacen_origen=None,
+                    id_almacen_destino=None, prevision_usada=None) -> int | None:
+    id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO reab_propuestas
                         (codigo, nombre_articulo, cantidad, origen, stock_actual,
-                         stock_objetivo, estado)
-                    VALUES (%s, %s, %s, %s, %s, %s, 'pendiente')
-                """, (codigo, nombre, cantidad, origen, stock_actual, stock_objetivo))
+                         stock_objetivo, estado, id_empresa, id_almacen,
+                         id_almacen_origen, id_almacen_destino, prevision_usada)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s)
+                """, (codigo, nombre, cantidad, origen, stock_actual, stock_objetivo, id_empresa,
+                      id_almacen, id_almacen_origen, id_almacen_destino, prevision_usada))
                 pid = cur.lastrowid
             conn.commit()
             return pid
@@ -148,7 +173,8 @@ def crear_propuesta(codigo: str, nombre: str, cantidad: int,
     return None
 
 
-def listar_propuestas(estados: tuple = None) -> list:
+def listar_propuestas(estados: tuple = None, id_empresa=None) -> list:
+    id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
@@ -157,15 +183,16 @@ def listar_propuestas(estados: tuple = None) -> list:
                     cur.execute(
                         f"SELECT id, codigo, nombre_articulo, cantidad, origen, "
                         f"stock_actual, stock_objetivo, estado, fecha_creacion, fecha_accion "
-                        f"FROM reab_propuestas WHERE estado IN ({placeholders}) "
+                        f"FROM reab_propuestas WHERE estado IN ({placeholders}) AND id_empresa=%s "
                         f"ORDER BY fecha_creacion DESC",
-                        estados
+                        (*estados, id_empresa)
                     )
                 else:
                     cur.execute(
                         "SELECT id, codigo, nombre_articulo, cantidad, origen, "
                         "stock_actual, stock_objetivo, estado, fecha_creacion, fecha_accion "
-                        "FROM reab_propuestas ORDER BY fecha_creacion DESC"
+                        "FROM reab_propuestas WHERE id_empresa=%s ORDER BY fecha_creacion DESC",
+                        (id_empresa,)
                     )
                 rows = cur.fetchall()
                 return [
@@ -197,19 +224,20 @@ def cambiar_estado_propuesta(propuesta_id: int, nuevo_estado: str) -> bool:
         return False
 
 
-def marcar_articulos_recibidos(codigos: list) -> int:
+def marcar_articulos_recibidos(codigos: list, id_empresa=None) -> int:
     """Cambia a 'recibido' todas las propuestas activas de los artículos indicados."""
     if not codigos:
         return 0
+    id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 placeholders = ",".join(["%s"] * len(codigos))
                 cur.execute(
                     f"UPDATE reab_propuestas SET estado='recibido', fecha_accion=NOW() "
-                    f"WHERE codigo IN ({placeholders}) "
+                    f"WHERE codigo IN ({placeholders}) AND id_empresa=%s "
                     f"AND estado IN ('pendiente','aprobado','enviado')",
-                    codigos,
+                    (*codigos, id_empresa),
                 )
                 count = cur.rowcount
             conn.commit()
@@ -219,14 +247,15 @@ def marcar_articulos_recibidos(codigos: list) -> int:
         return 0
 
 
-def propuesta_pendiente_existe(codigo: str) -> bool:
+def propuesta_pendiente_existe(codigo: str, id_empresa=None) -> bool:
+    id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT COUNT(*) FROM reab_propuestas "
-                    "WHERE codigo=%s AND estado IN ('pendiente','aprobado','enviado')",
-                    (codigo,)
+                    "WHERE codigo=%s AND id_empresa=%s AND estado IN ('pendiente','aprobado','enviado')",
+                    (codigo, id_empresa)
                 )
                 r = cur.fetchone()
                 return bool(r and r[0] > 0)
@@ -318,3 +347,137 @@ def marcar_envio_hoy() -> bool:
     except Exception as e:
         logger.error(f"Error marcando envio: {e}")
         return False
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# INV.6 — REABASTECIMIENTO AVANZADO POR ALMACÉN
+# ════════════════════════════════════════════════════════════════════════════
+
+def set_parametros_avanzados(codigo: str, stock_maximo: int = None, punto_pedido: int = None,
+                             lead_time_dias: int = None, id_proveedor_preferente=None,
+                             id_empresa=None) -> bool:
+    """INV.6.1: define stock máximo, punto de pedido, lead time y proveedor preferente
+    de un artículo (solo actualiza los campos indicados). Requiere config existente."""
+    id_empresa = _emp(id_empresa)
+    sets, params = [], []
+    for col, val in (("stock_maximo", stock_maximo), ("punto_pedido", punto_pedido),
+                     ("lead_time_dias", lead_time_dias),
+                     ("id_proveedor_preferente", id_proveedor_preferente)):
+        if val is not None:
+            sets.append(f"{col}=%s"); params.append(val)
+    if not sets:
+        return False
+    params += [codigo, id_empresa]
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(f"UPDATE reab_config SET {', '.join(sets)} WHERE codigo=%s AND id_empresa=%s",
+                        params)
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"set_parametros_avanzados({codigo}): {e}")
+        return False
+
+
+def obtener_config_avanzada(codigo: str, id_empresa=None) -> dict | None:
+    """Config completa de reabastecimiento (umbral/objetivo + max/punto/lead/proveedor)."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT umbral_min, stock_objetivo, stock_maximo, punto_pedido, "
+                        "lead_time_dias, id_proveedor_preferente, id_almacen_origen, "
+                        "id_almacen_destino, automatico FROM reab_config "
+                        "WHERE codigo=%s AND id_empresa=%s", (codigo, id_empresa))
+            r = cur.fetchone()
+            if not r:
+                return None
+            return {"umbral_min": r[0], "stock_objetivo": r[1], "stock_maximo": r[2],
+                    "punto_pedido": r[3], "lead_time_dias": r[4],
+                    "id_proveedor_preferente": r[5], "id_almacen_origen": r[6],
+                    "id_almacen_destino": r[7], "automatico": bool(r[8])}
+    except Exception as e:
+        logger.error(f"obtener_config_avanzada({codigo}): {e}")
+        return None
+
+
+def _prevision_demanda(codigo: str, dias: int, prevision_fn=None) -> int:
+    """Previsión de demanda (INV.6.3) sobre `dias`. Best-effort: usa `prevision_fn` si se
+    inyecta (p.ej. Prophet); si no hay previsión disponible, devuelve 0 (no altera el
+    comportamiento base por punto de pedido)."""
+    if not dias or dias <= 0:
+        return 0
+    try:
+        if prevision_fn is not None:
+            return max(0, int(prevision_fn(codigo, dias) or 0))
+    except Exception as e:
+        logger.warning("prevision IA no disponible para %s: %s", codigo, e)
+    return 0
+
+
+def generar_propuestas_almacen(id_almacen, id_empresa=None, usar_ia=True, prevision_fn=None) -> list:
+    """INV.6.2/6.3/6.4: genera propuestas de reposición para un almacén usando stock_almacen
+    (NO la caché). Regla: si stock_actual < punto_pedido_efectivo → proponer
+    (stock_maximo - stock_actual). punto_pedido_efectivo = max(punto_pedido, previsión IA
+    sobre lead_time). Persiste cada propuesta con almacén origen/destino y previsión.
+    Devuelve la lista de ids de propuesta creados."""
+    from src.db import stock_almacen as SA
+    id_empresa = _emp(id_empresa)
+    creados = []
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT rc.codigo, a.nombre, rc.umbral_min, rc.stock_objetivo, "
+                        "rc.stock_maximo, rc.punto_pedido, rc.lead_time_dias, rc.id_almacen_origen "
+                        "FROM reab_config rc JOIN articulos a ON a.codigo=rc.codigo "
+                        "WHERE rc.id_empresa=%s", (id_empresa,))
+            filas = cur.fetchall()
+        for r in filas:
+            codigo, nombre, umbral, objetivo, maximo, punto, lead, alm_orig = r
+            punto = punto or umbral or 0
+            maximo = maximo or objetivo or 0
+            stock_actual = SA.obtener_stock_almacen(codigo, id_almacen, id_empresa)
+            prevision = _prevision_demanda(codigo, lead or 0, prevision_fn) if usar_ia else 0
+            punto_efectivo = max(int(punto), int(prevision))
+            if stock_actual < punto_efectivo and not propuesta_pendiente_existe(codigo, id_empresa):
+                cantidad = max(0, int(maximo) - int(stock_actual))
+                if cantidad <= 0:
+                    continue
+                pid = crear_propuesta(codigo, nombre or codigo, cantidad, "ALMACÉN",
+                                      stock_actual, maximo, id_empresa=id_empresa,
+                                      id_almacen=id_almacen, id_almacen_origen=alm_orig,
+                                      id_almacen_destino=id_almacen, prevision_usada=prevision)
+                if pid:
+                    creados.append(pid)
+        return creados
+    except Exception as e:
+        logger.error(f"generar_propuestas_almacen({id_almacen}): {e}")
+        return creados
+
+
+def generar_pedidos_compra(propuesta_ids=None, usuario=None, id_empresa=None) -> list:
+    """INV.6.4: convierte propuestas en pedidos de compra (reutiliza compras.E2.7),
+    agrupando por proveedor preferente cuando existe. Devuelve ids de pedido creados."""
+    id_empresa = _emp(id_empresa)
+    try:
+        from src.db import compras
+    except Exception as e:
+        logger.error("compras no disponible: %s", e)
+        return []
+    props = listar_propuestas(("pendiente",), id_empresa=id_empresa)
+    if propuesta_ids is not None:
+        ids = set(propuesta_ids)
+        props = [p for p in props if p["id"] in ids]
+    if not props:
+        return []
+    # Agrupa por proveedor preferente del artículo (None → grupo general).
+    grupos = {}
+    for p in props:
+        cfg = obtener_config_avanzada(p["codigo"], id_empresa) or {}
+        grupos.setdefault(cfg.get("id_proveedor_preferente"), []).append(p["id"])
+    pedidos = []
+    for proveedor, pid_list in grupos.items():
+        ped = compras.crear_pedido_desde_propuestas(propuesta_ids=pid_list,
+                                                    id_proveedor=proveedor, usuario=usuario,
+                                                    id_empresa=id_empresa)
+        if ped:
+            pedidos.append(ped)
+    return pedidos

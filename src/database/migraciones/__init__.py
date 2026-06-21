@@ -35,4 +35,5 @@ MODULOS = [
     "0024_lotes_almacen",
     "0025_inventario_almacen",
     "0026_reab_almacen",
+    "0027_reab_avanzado",
 ]

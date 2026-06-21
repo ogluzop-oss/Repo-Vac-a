@@ -124,8 +124,20 @@ class InventarioFisicoWindow(QWidget):
         nombre, ok = QInputDialog.getText(self, "Nuevo inventario", "Nombre:")
         if not ok or not nombre.strip():
             return
+        # INV.7.3: selector de almacén (opcional → inventario agregado si no se elige).
+        id_almacen = None
+        try:
+            from src.db import stock_almacen as SA
+            alms = SA.listar_almacenes(self._id_empresa())
+            if alms:
+                etqs = ["(agregado / sin almacén)"] + [f"{a['nombre']} [{a['tipo_almacen']}]" for a in alms]
+                etq, ok2 = QInputDialog.getItem(self, "Nuevo inventario", "Almacén:", etqs, 0, False)
+                if ok2 and not etq.startswith("("):
+                    id_almacen = alms[etqs.index(etq) - 1]["id"]
+        except Exception:
+            pass
         iid = inv.crear_inventario(nombre.strip(), id_empresa=self._id_empresa(),
-                                   usuario=self._usuario())
+                                   usuario=self._usuario(), id_almacen=id_almacen)
         if iid:
             self._recargar()
             i = self.cmb_inv.findData(iid)

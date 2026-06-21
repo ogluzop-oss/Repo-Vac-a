@@ -89,10 +89,23 @@ class LotesWindow(QWidget):
                                        "Caducidad AAAA-MM-DD (vacío = sin caducidad):")
         if not ok:
             return
+        # INV.7.3: selector de almacén destino (opcional).
+        id_almacen = None
+        try:
+            from src.db import stock_almacen as SA
+            alms = SA.listar_almacenes(self._id_empresa())
+            if alms:
+                etqs = ["(sin almacén)"] + [f"{a['nombre']} [{a['tipo_almacen']}]" for a in alms]
+                etq, ok2 = QInputDialog.getItem(self, "Entrada de lote", "Almacén:", etqs, 0, False)
+                if ok2 and etq != "(sin almacén)":
+                    id_almacen = alms[etqs.index(etq) - 1]["id"]
+        except Exception:
+            pass
         rid = lotes.registrar_entrada(cod.strip(), lote.strip(), cant,
                                       fecha_caducidad=cad.strip() or None,
                                       id_empresa=self._id_empresa(), origen="manual",
-                                      usuario=(self.usuario or {}).get("nombre"))
+                                      usuario=(self.usuario or {}).get("nombre"),
+                                      id_almacen=id_almacen)
         if rid:
             self._buscar()
         else:

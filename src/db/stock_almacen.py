@@ -87,6 +87,42 @@ def almacen_de_tienda(id_tienda, id_empresa=None) -> int | None:
     return ensure_almacenes_empresa(id_empresa)["tiendas"].get(id_tienda)
 
 
+def crear_almacen(nombre, codigo, tipo="logistico", id_tienda=None, id_empresa=None) -> int | None:
+    """INV.7.1: alta de almacén (nombre único global). Devuelve id o None."""
+    id_empresa = _tenant(id_empresa)
+    try:
+        with transaccion() as conn, conn.cursor() as cur:
+            return _crear_almacen(cur, id_empresa, nombre, codigo, tipo, id_tienda)
+    except Exception as e:
+        logger.error("crear_almacen: %s", e); return None
+
+
+def actualizar_almacen(id_almacen, id_empresa=None, **campos) -> bool:
+    """INV.7.1: edición de almacén (nombre/codigo_almacen/tipo_almacen/id_tienda/activo/estado)."""
+    id_empresa = _tenant(id_empresa)
+    permitidos = ("nombre", "codigo_almacen", "tipo_almacen", "id_tienda", "activo", "estado")
+    sets, params = [], []
+    for k in permitidos:
+        if k in campos:
+            sets.append(f"{k}=%s"); params.append(campos[k])
+    if not sets:
+        return False
+    params += [id_almacen, id_empresa]
+    try:
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute(f"UPDATE almacen SET {', '.join(sets)} WHERE id=%s AND id_empresa=%s", params)
+            return True
+    except Exception as e:
+        logger.error("actualizar_almacen: %s", e); return False
+
+
+def activar_almacen(id_almacen, activo=True, id_empresa=None) -> bool:
+    """INV.7.1: baja lógica / activación (no elimina; conserva existencias e histórico)."""
+    return actualizar_almacen(id_almacen, id_empresa=id_empresa,
+                              activo=1 if activo else 0,
+                              estado="activo" if activo else "inactivo")
+
+
 def listar_almacenes(id_empresa=None, solo_activos=True) -> list:
     id_empresa = _tenant(id_empresa)
     try:
