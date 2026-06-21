@@ -34,12 +34,17 @@ def gancho_venta(venta_id, total, tipo="ticket", referencia=None, id_caja=None,
         cfg = F.obtener_config(id_empresa)
         if not cfg.get("activo"):
             return None                      # desactivado → no-op
+        # H4 — idempotencia: una referencia de venta = un registro fiscal. Si ya existe,
+        # se devuelve sin volver a registrar (evita doble registro en reproceso/recuperación).
+        _ref = referencia or str(venta_id)
+        ya = F.existe_registro(_ref, id_empresa)
+        if ya:
+            return ya
         from src.services.fiscal.factory import proveedor_para
         prov = proveedor_para(cfg)
         if prov is None:
             return None
-        reg = prov.registrar(tipo, referencia=referencia or str(venta_id),
-                             total=total, id_caja=id_caja)
+        reg = prov.registrar(tipo, referencia=_ref, total=total, id_caja=id_caja)
         if getattr(reg, "id", None):
             F.encolar(reg.id, id_empresa=id_empresa)   # firma/envío asíncronos
         return reg

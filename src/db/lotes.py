@@ -84,11 +84,13 @@ def registrar_entrada(codigo, lote, cantidad, fecha_caducidad=None, id_empresa=N
 
 # ── Consumo FEFO ──────────────────────────────────────────────────────────────
 def consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA", id_empresa=None, id_tienda=None,
-                  id_documento=None, usuario=None, observaciones=None, id_almacen=None) -> dict:
+                  id_documento=None, usuario=None, observaciones=None, id_almacen=None,
+                  idempotente=False) -> dict:
     """Consume `cantidad` del artículo aplicando FEFO sobre los lotes con existencias.
     No-op si el artículo no tiene lotes. Devuelve {consumido, faltante, detalle:[...]}.
     No bloquea: si los lotes no cubren la cantidad, consume lo disponible y deja `faltante`.
-    id_almacen (INV.4) acota el consumo a un almacén concreto (opcional)."""
+    id_almacen (INV.4) acota el consumo a un almacén concreto (opcional). Si `idempotente`
+    y ya existe un consumo de este tipo para (codigo, id_documento), no vuelve a consumir (H1)."""
     id_empresa, id_tienda = _tenant(id_empresa, id_tienda)
     cantidad = int(cantidad or 0)
     detalle = []
@@ -96,6 +98,16 @@ def consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA", id_empresa=None, id_tie
         return {"consumido": 0, "faltante": cantidad, "detalle": detalle}
     if tipo not in TIPOS_SALIDA:
         tipo = "SALIDA_VENTA"
+    if idempotente and id_documento is not None:
+        try:
+            with obtener_conexion() as _c, _c.cursor() as _cur:
+                _cur.execute("SELECT 1 FROM lotes_movimientos WHERE id_empresa=%s AND codigo_articulo=%s "
+                             "AND tipo=%s AND id_documento=%s LIMIT 1",
+                             (id_empresa, codigo, tipo, str(id_documento)))
+                if _cur.fetchone():
+                    return {"consumido": cantidad, "faltante": 0, "detalle": detalle, "idempotente": True}
+        except Exception:
+            pass
     try:
         with transaccion() as conn, conn.cursor() as cur:
             cond_alm = " AND id_almacen=%s" if id_almacen is not None else ""

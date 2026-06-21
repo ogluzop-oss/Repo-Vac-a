@@ -216,6 +216,22 @@ def listar_registros(id_empresa=None, serie=None, limite=500) -> list:
         return []
 
 
+def existe_registro(referencia, id_empresa=None) -> dict | None:
+    """H4 — idempotencia fiscal: devuelve el registro fiscal de una referencia si ya existe
+    (una venta = un registro fiscal). NO crea nada. Conserva numeración/hash/Verifactu."""
+    if referencia is None:
+        return None
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM fiscal_registros WHERE id_empresa=%s AND referencia=%s "
+                        "ORDER BY id LIMIT 1", (id_empresa, str(referencia)))
+            return _filas_a_dicts(cur, cur.fetchall())[0] if cur.rowcount else None
+    except Exception as e:
+        logger.error("existe_registro(%s): %s", referencia, e)
+        return None
+
+
 def actualizar_estado(id_registro, estado) -> bool:
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:

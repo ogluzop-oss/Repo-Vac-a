@@ -34,13 +34,31 @@ def _tenant():
         return EMPRESA_DEFAULT_ID, None
 
 
+def existe_movimiento(codigo, tipo, id_documento, id_empresa=None) -> bool:
+    """True si ya hay un movimiento de ese tipo para (codigo, id_documento) — idempotencia."""
+    if id_documento is None or not codigo:
+        return False
+    try:
+        if id_empresa is None:
+            id_empresa, _ = _tenant()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM movimientos_stock WHERE id_empresa=%s AND codigo_articulo=%s "
+                        "AND tipo_movimiento=%s AND id_documento=%s LIMIT 1",
+                        (id_empresa, str(codigo), tipo, str(id_documento)))
+            return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
 def registrar_movimiento(codigo, tipo, cantidad, *, id_documento=None, id_pale=None,
                          origen=None, destino=None, usuario=None, observaciones=None,
                          id_empresa=None, id_tienda=None, stock_anterior=None,
-                         stock_nuevo=None, id_almacen_origen=None, id_almacen_destino=None) -> bool:
+                         stock_nuevo=None, id_almacen_origen=None, id_almacen_destino=None,
+                         idempotente=False) -> bool:
     """Inserta un movimiento en el kárdex. Best-effort: devuelve False sin propagar
     errores. No usar dentro de la transacción de stock (invocar tras el commit).
-    id_almacen_origen/destino (INV.4) localizan el movimiento por almacén."""
+    id_almacen_origen/destino (INV.4) localizan el movimiento por almacén. Si `idempotente`
+    y ya existe un movimiento de ese tipo para (codigo, id_documento), no duplica (H1)."""
     try:
         if not codigo or tipo not in TIPOS:
             return False
@@ -48,6 +66,9 @@ def registrar_movimiento(codigo, tipo, cantidad, *, id_documento=None, id_pale=N
             _e, _t = _tenant()
             id_empresa = id_empresa or _e
             id_tienda = id_tienda if id_tienda is not None else _t
+        if idempotente and id_documento is not None and existe_movimiento(
+                codigo, tipo, id_documento, id_empresa):
+            return True
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
                 """

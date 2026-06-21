@@ -668,6 +668,22 @@ class InformeReposicionWindow(QWidget):
                         self.main_window.signals.stock_actualizado.emit(str(codigo))
                     conn.commit()
 
+                # H3: integra la reposición (movimiento almacén→lineal) en kárdex y
+                # sincroniza el ledger stock_almacen (evita divergencia caché↔ledger).
+                try:
+                    from src.db import kardex
+                    from src.db import stock_almacen as _SA
+                    for art in articulos_a_reponer:
+                        cod = art["Código"]; mov = int(art.get("Unidades a reponer") or 0)
+                        if cod and mov > 0:
+                            kardex.registrar_movimiento(cod, "TRASPASO", mov, origen="ALMACEN",
+                                                        destino="LINEAL",
+                                                        observaciones="Reposición a lineal")
+                        if cod and _SA.esta_gestionado(cod):
+                            _SA.reseed_articulo(cod)
+                except Exception:
+                    pass
+
                 # 5. Limpiar pestaña de Estado Reposición y notificar
                 if hasattr(self.main_window, "_page_estado"):
                     self.main_window._page_estado.cargar_datos()

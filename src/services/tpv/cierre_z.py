@@ -179,6 +179,13 @@ def generar_cierre_z(fecha, importe_declarado, usuario=None, id_empresa=None,
         except Exception as e:
             logger.error("generar_cierre_z PDF/indexado: %s", e)
 
+    # H6: procesa la cola contable al cerrar el día (contabilización automática; best-effort).
+    try:
+        from src.services.contabilidad.posting import procesar_cola
+        procesar_cola(id_empresa)
+    except Exception as e:
+        logger.debug("cierre_z procesar_cola: %s", e)
+
     return obtener_cierre_z(cid, id_empresa)
 
 

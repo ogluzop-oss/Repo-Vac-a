@@ -1026,6 +1026,28 @@ if __name__ == "__main__":
     except Exception:
         pass
 
+    # ── Endurecimiento de producción al arranque (best-effort, no bloquea el inicio) ──
+    # H7: backup programado (diario) si corresponde. H1: recuperación de ventas con
+    # integración incompleta (re-dispara hooks idempotentes). H6: procesa la cola contable
+    # pendiente (asientos) sin depender de abrir la pantalla de contabilidad.
+    try:
+        from src.db import backup as _bk
+        _bk.backup_si_corresponde(intervalo_horas=24, motivo="programado")
+    except Exception as _e:
+        logger.debug(f"backup arranque: {_e}")
+    try:
+        from src.db import reconciliacion as _rec
+        _r = _rec.reparar_ventas_pendientes(aplicar=True)
+        if _r.get("reintegradas"):
+            logger.warning("Recuperación arranque: %s ventas reintegradas", _r["reintegradas"])
+    except Exception as _e:
+        logger.debug(f"reconciliación arranque: {_e}")
+    try:
+        from src.services.contabilidad.posting import procesar_cola as _pc
+        _pc()
+    except Exception as _e:
+        logger.debug(f"procesar_cola arranque: {_e}")
+
     # Traducción por IA (Nivel 2): enchufa el proveedor en i18n. Se activa solo
     # si hay backend LLM disponible (ANTHROPIC_API_KEY + paquete 'anthropic');
     # en caso contrario, degrada con elegancia (contenido dinámico sin traducir).

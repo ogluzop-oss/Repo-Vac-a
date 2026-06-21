@@ -1670,7 +1670,7 @@ def registrar_venta_con_items(
                     kardex.registrar_movimiento(
                         cod, "SALIDA_VENTA", qty, id_documento=venta_id, origen="TIENDA",
                         usuario=str(empleado_id) if empleado_id else None,
-                        id_empresa=_eid, id_tienda=_tid,
+                        id_empresa=_eid, id_tienda=_tid, idempotente=True,
                         observaciones=f"Venta ticket #{venta_id}")
         except Exception:
             pass
@@ -1689,7 +1689,7 @@ def registrar_venta_con_items(
                     if not (cod and qty):
                         continue
                     r = lotes.consumir_fefo(cod, qty, tipo="SALIDA_VENTA", id_empresa=_eid,
-                                            id_tienda=_tid, id_documento=venta_id,
+                                            id_tienda=_tid, id_documento=venta_id, idempotente=True,
                                             usuario=str(empleado_id) if empleado_id else None)
                     id_lote = (r.get("detalle") or [{}])[0].get("id_lote") if r else None
                     _cur2.execute("UPDATE venta_items SET id_almacen=%s, id_lote=%s "
@@ -1876,7 +1876,15 @@ def importar_ventas_desde_csv(ruta_csv: str) -> bool:
                 try:
                     codigo = row[0].strip()
                     cantidad = int(row[1])
-                    registrar_venta(codigo, cantidad)
+                    # H5: misma ruta canónica que una venta normal (fiscal + contabilidad +
+                    # kárdex + FEFO + stock_almacen + M4), no la ruta simple.
+                    art = obtener_articulo(codigo) or {}
+                    precio = float(art.get("precio") or 0) if art else 0.0
+                    registrar_venta_con_items(
+                        [{"codigo_articulo": codigo, "nombre": art.get("nombre"),
+                          "cantidad": cantidad, "precio_unitario": precio,
+                          "subtotal": round(precio * cantidad, 2)}],
+                        forma_pago="importada")
                 except ValueError:
                     continue
 

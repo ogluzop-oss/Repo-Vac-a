@@ -112,6 +112,88 @@ def diagnostico(id_empresa=None) -> dict:
     }
 
 
+# ── H1 — Ventas con integración incompleta (recuperación automática) ──────────
+def ventas_sin_integrar(id_empresa=None, dias=3, limite=500) -> list:
+    """Ventas recientes con líneas pero SIN movimiento de kárdex (SALIDA_VENTA) → la
+    integración post-commit no llegó a completarse (caída/fallo de hook)."""
+    id_empresa = _emp(id_empresa)
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT v.id, v.total, v.forma_pago, v.id_tienda FROM ventas v "
+                "WHERE v.id_empresa=%s AND v.fecha >= (NOW() - INTERVAL %s DAY) "
+                "AND EXISTS (SELECT 1 FROM venta_items vi WHERE vi.venta_id=v.id) "
+                "AND NOT EXISTS (SELECT 1 FROM movimientos_stock m "
+                "  WHERE m.id_documento=v.id AND m.tipo_movimiento='SALIDA_VENTA') "
+                "ORDER BY v.id DESC LIMIT %s", (id_empresa, int(dias), int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("ventas_sin_integrar: %s", e); return []
+
+
+def reintegrar_venta(venta_id, id_empresa=None) -> bool:
+    """Re-dispara, de forma IDEMPOTENTE, las integraciones de una venta: kárdex
+    (SALIDA_VENTA), FEFO, stock_almacen, fiscalidad (Verifactu) y contabilidad. Seguro de
+    ejecutar varias veces (no duplica) gracias a los guards de idempotencia (H1/H4/M1)."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT total, forma_pago, id_tienda, fecha FROM ventas WHERE id=%s "
+                        "AND id_empresa=%s", (venta_id, id_empresa))
+            v = cur.fetchone()
+            if not v:
+                return False
+            v = v if isinstance(v, dict) else {"total": v[0], "forma_pago": v[1],
+                                               "id_tienda": v[2], "fecha": v[3]}
+            cur.execute("SELECT codigo_articulo, cantidad FROM venta_items WHERE venta_id=%s",
+                        (venta_id,))
+            items = _filas_a_dicts(cur, cur.fetchall())
+        from src.db import kardex, lotes, stock_almacen as SA
+        for it in items:
+            cod = it["codigo_articulo"]; qty = int(it["cantidad"] or 0)
+            if not cod or qty <= 0:
+                continue
+            kardex.registrar_movimiento(cod, "SALIDA_VENTA", qty, id_documento=venta_id,
+                                        origen="TIENDA", id_empresa=id_empresa,
+                                        id_tienda=v.get("id_tienda"), idempotente=True,
+                                        observaciones=f"Reintegración venta #{venta_id}")
+            lotes.consumir_fefo(cod, qty, tipo="SALIDA_VENTA", id_empresa=id_empresa,
+                                id_tienda=v.get("id_tienda"), id_documento=venta_id,
+                                idempotente=True)
+            if SA.esta_gestionado(cod, id_empresa):
+                SA.reseed_articulo(cod, id_empresa)
+        try:
+            from src.services.fiscal.hooks import gancho_venta
+            gancho_venta(venta_id, float(v.get("total") or 0), tipo="ticket",
+                         id_empresa=id_empresa, id_tienda=v.get("id_tienda"))
+        except Exception:
+            pass
+        try:
+            from src.services.contabilidad.posting import encolar_venta
+            encolar_venta(venta_id, float(v.get("total") or 0), v.get("fecha"),
+                          forma_pago=v.get("forma_pago") or "efectivo", subtipo="ticket",
+                          id_empresa=id_empresa)
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        logger.error("reintegrar_venta(%s): %s", venta_id, e); return False
+
+
+def reparar_ventas_pendientes(id_empresa=None, dias=3, aplicar=False) -> dict:
+    """H1 — Recuperación: detecta ventas con integración incompleta y la re-dispara
+    (idempotente). `aplicar=False` solo informa. Pensado para el arranque de la app."""
+    id_empresa = _emp(id_empresa)
+    pend = ventas_sin_integrar(id_empresa, dias=dias)
+    out = {"pendientes": len(pend), "reintegradas": 0, "aplicado": bool(aplicar)}
+    if aplicar:
+        for v in pend:
+            if reintegrar_venta(v["id"], id_empresa):
+                out["reintegradas"] += 1
+    return out
+
+
 # ── Reparación controlada ─────────────────────────────────────────────────────
 def reparar(rep: dict = None, aplicar: bool = False, id_empresa=None) -> dict:
     """Reparación SEGURA: (1) re-siembra el ledger desde la caché para los artículos con
