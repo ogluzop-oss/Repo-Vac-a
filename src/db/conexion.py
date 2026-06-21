@@ -1653,6 +1653,15 @@ def registrar_venta_con_items(
                                         usuario=str(empleado_id) if empleado_id else None)
         except Exception:
             pass
+        # INV.4: sincroniza el ledger multialmacén si el artículo está gestionado.
+        try:
+            from src.db import stock_almacen as SA
+            for it in items:
+                cod = it.get("codigo_articulo") or it.get("codigo") or ""
+                if cod and SA.esta_gestionado(cod, _eid):
+                    SA.reseed_articulo(cod, _eid)
+        except Exception:
+            pass
         # C3.2: gancho fiscal (no-op si fiscal_config.activo=0). Best-effort: nunca
         # rompe la venta. Tras el commit para no extender la transacción de venta.
         try:

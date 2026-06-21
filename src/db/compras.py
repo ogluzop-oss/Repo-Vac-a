@@ -188,6 +188,7 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
                        id_pedido, ped.get("estado") if ped else None)
         return None
     lineas_por_id = {ln["id"]: ln for ln in ped["lineas"]}
+    _recibidos_cod = set()
     try:
         with transaccion() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO compras_recepciones (id_empresa, id_pedido, usuario, "
@@ -230,6 +231,7 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
                         "VALUES (%s,'ENTRADA_COMPRA',%s,%s,%s,%s,%s)",
                         (codigo, cant, f"PC{id_pedido}-R{rid}", "compra", usuario,
                          f"Recepción compra pedido {id_pedido}"))
+                    _recibidos_cod.add(codigo)
                 unidades += cant
             cur.execute("UPDATE compras_recepciones SET total_unidades=%s WHERE id_recepcion=%s",
                         (unidades, rid))
@@ -244,6 +246,13 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
             extra = ", fecha_recepcion=NOW()" if nuevo == "RECIBIDO" else ""
             cur.execute(f"UPDATE compras_pedidos SET estado=%s{extra} WHERE id_pedido=%s",
                         (nuevo, id_pedido))
+        # INV.4.6: sincroniza el ledger multialmacén (almacén central) tras la recepción.
+        try:
+            from src.db import stock_almacen as SA
+            for cod in _recibidos_cod:
+                SA.reseed_articulo(cod, id_empresa)
+        except Exception:
+            pass
         return {"id_recepcion": rid, "estado_pedido": nuevo, "unidades": unidades}
     except Exception as e:
         logger.error("recibir(%s): %s", id_pedido, e)

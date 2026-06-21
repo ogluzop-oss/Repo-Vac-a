@@ -31,4 +31,8 @@ MODULOS = [
     "0020_kardex_movimientos",
     "0021_inventario_fisico",
     "0022_lotes_caducidades",
+    "0023_stock_almacen",
+    "0024_lotes_almacen",
+    "0025_inventario_almacen",
+    "0026_reab_almacen",
 ]

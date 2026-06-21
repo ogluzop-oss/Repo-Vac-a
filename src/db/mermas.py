@@ -80,6 +80,13 @@ def registrar_merma(codigo, cantidad, motivo, columna_stock=None):
                                     id_tienda=tnd, observaciones=motivo)
             except Exception:
                 pass
+            # INV.4: sincroniza el ledger multialmacén si el artículo está gestionado.
+            try:
+                from src.db import stock_almacen as SA
+                if SA.esta_gestionado(codigo, emp):
+                    SA.reseed_articulo(codigo, emp)
+            except Exception:
+                pass
         return True
     except Exception as e:
         logging.error(f"Error al registrar merma: {e}")

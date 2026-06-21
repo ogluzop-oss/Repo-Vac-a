@@ -37,9 +37,10 @@ def _tenant():
 def registrar_movimiento(codigo, tipo, cantidad, *, id_documento=None, id_pale=None,
                          origen=None, destino=None, usuario=None, observaciones=None,
                          id_empresa=None, id_tienda=None, stock_anterior=None,
-                         stock_nuevo=None) -> bool:
+                         stock_nuevo=None, id_almacen_origen=None, id_almacen_destino=None) -> bool:
     """Inserta un movimiento en el kárdex. Best-effort: devuelve False sin propagar
-    errores. No usar dentro de la transacción de stock (invocar tras el commit)."""
+    errores. No usar dentro de la transacción de stock (invocar tras el commit).
+    id_almacen_origen/destino (INV.4) localizan el movimiento por almacén."""
     try:
         if not codigo or tipo not in TIPOS:
             return False
@@ -53,14 +54,15 @@ def registrar_movimiento(codigo, tipo, cantidad, *, id_documento=None, id_pale=N
                 INSERT INTO movimientos_stock
                     (codigo_articulo, tipo_movimiento, cantidad, id_documento, id_pale,
                      origen, destino, usuario, observaciones, id_empresa, id_tienda,
-                     stock_anterior, stock_nuevo)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     stock_anterior, stock_nuevo, id_almacen_origen, id_almacen_destino)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (str(codigo), tipo, int(cantidad or 0),
                  str(id_documento) if id_documento is not None else None,
                  str(id_pale) if id_pale is not None else None,
                  origen, destino, str(usuario) if usuario is not None else None,
-                 observaciones, id_empresa, id_tienda, stock_anterior, stock_nuevo),
+                 observaciones, id_empresa, id_tienda, stock_anterior, stock_nuevo,
+                 id_almacen_origen, id_almacen_destino),
             )
             conn.commit()
         return True
@@ -71,7 +73,8 @@ def registrar_movimiento(codigo, tipo, cantidad, *, id_documento=None, id_pale=N
 
 # ── Consultas (visor + informes) ──────────────────────────────────────────────
 def listar_movimientos(id_empresa=None, codigo=None, tipo=None, desde=None, hasta=None,
-                       id_tienda=None, referencia=None, usuario=None, limite=1000) -> list:
+                       id_tienda=None, referencia=None, usuario=None, id_almacen=None,
+                       limite=1000) -> list:
     """Consulta filtrable del kárdex (multiempresa). Orden cronológico descendente."""
     try:
         ensure_schema()
@@ -84,6 +87,9 @@ def listar_movimientos(id_empresa=None, codigo=None, tipo=None, desde=None, hast
             cond.append("tipo_movimiento=%s"); params.append(tipo)
         if id_tienda is not None:
             cond.append("id_tienda=%s"); params.append(id_tienda)
+        if id_almacen is not None:
+            cond.append("(id_almacen_origen=%s OR id_almacen_destino=%s)")
+            params += [id_almacen, id_almacen]
         if referencia:
             cond.append("(id_documento=%s OR id_pale=%s)"); params += [str(referencia)] * 2
         if usuario:

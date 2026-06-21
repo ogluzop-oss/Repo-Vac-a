@@ -50,8 +50,10 @@ class KardexVisorWindow(QWidget):
         self.f_desde = _inp("Desde AAAA-MM-DD"); self.f_desde.setFixedWidth(130)
         self.f_hasta = _inp("Hasta AAAA-MM-DD"); self.f_hasta.setFixedWidth(130)
         self.f_tienda = _combo(self._tiendas())
+        self.f_almacen = _combo(self._almacenes())
         for w in (QLabel("Artículo:"), self.f_codigo, QLabel("Ref:"), self.f_ref,
                   QLabel("Tipo:"), self.f_tipo, QLabel("Tienda:"), self.f_tienda,
+                  QLabel("Almacén:"), self.f_almacen,
                   self.f_desde, self.f_hasta):
             if isinstance(w, QLabel):
                 w.setStyleSheet(f"color:{_DIM};")
@@ -87,6 +89,16 @@ class KardexVisorWindow(QWidget):
             logger.warning("listar tiendas: %s", e)
         return opts
 
+    def _almacenes(self):
+        opts = [("(todos)", None)]
+        try:
+            from src.db import stock_almacen as SA
+            for a in SA.listar_almacenes(self._id_empresa()):
+                opts.append((f"{a.get('nombre')} [{a.get('tipo_almacen')}]", a.get("id")))
+        except Exception as e:
+            logger.warning("listar almacenes: %s", e)
+        return opts
+
     def _buscar(self):
         movs = kardex.listar_movimientos(
             id_empresa=self._id_empresa(),
@@ -95,7 +107,8 @@ class KardexVisorWindow(QWidget):
             tipo=self.f_tipo.currentData(),
             desde=self.f_desde.text().strip() or None,
             hasta=self.f_hasta.text().strip() or None,
-            id_tienda=self.f_tienda.currentData())
+            id_tienda=self.f_tienda.currentData(),
+            id_almacen=self.f_almacen.currentData())
         self.tabla.setRowCount(len(movs))
         for i, m in enumerate(movs):
             for j, v in enumerate([

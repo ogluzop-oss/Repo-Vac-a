@@ -44,8 +44,10 @@ def _mov(cur, id_empresa, id_lote, codigo, tipo, cantidad, id_documento=None,
 
 # ── Entrada ───────────────────────────────────────────────────────────────────
 def registrar_entrada(codigo, lote, cantidad, fecha_caducidad=None, id_empresa=None,
-                      id_tienda=None, origen="manual", id_documento=None, usuario=None) -> int | None:
-    """Crea o incrementa un lote y registra el movimiento ENTRADA. Devuelve id del lote."""
+                      id_tienda=None, origen="manual", id_documento=None, usuario=None,
+                      id_almacen=None) -> int | None:
+    """Crea o incrementa un lote y registra el movimiento ENTRADA. Devuelve id del lote.
+    id_almacen (INV.4) localiza el lote por almacén (opcional, retrocompatible)."""
     id_empresa, id_tienda = _tenant(id_empresa, id_tienda)
     cantidad = int(cantidad or 0)
     if not codigo or not lote or cantidad <= 0:
@@ -60,15 +62,17 @@ def registrar_entrada(codigo, lote, cantidad, fecha_caducidad=None, id_empresa=N
             if row:
                 id_lote = row[0] if not isinstance(row, dict) else row["id"]
                 cur.execute("UPDATE lotes SET cantidad=cantidad+%s, cantidad_inicial=cantidad_inicial+%s, "
-                            "estado=%s, fecha_caducidad=COALESCE(%s, fecha_caducidad) WHERE id=%s",
-                            (cantidad, cantidad, ACTIVO, fecha_caducidad, id_lote))
+                            "estado=%s, fecha_caducidad=COALESCE(%s, fecha_caducidad), "
+                            "id_almacen=COALESCE(%s, id_almacen) WHERE id=%s",
+                            (cantidad, cantidad, ACTIVO, fecha_caducidad, id_almacen, id_lote))
             else:
                 cur.execute(
                     "INSERT INTO lotes (id_empresa, id_tienda, codigo_articulo, lote, "
-                    "fecha_caducidad, cantidad, cantidad_inicial, origen, id_documento, estado) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "fecha_caducidad, cantidad, cantidad_inicial, origen, id_documento, estado, "
+                    "id_almacen) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (id_empresa, id_tienda, codigo, lote, fecha_caducidad, cantidad, cantidad,
-                     origen, str(id_documento) if id_documento is not None else None, ACTIVO))
+                     origen, str(id_documento) if id_documento is not None else None, ACTIVO,
+                     id_almacen))
                 id_lote = cur.lastrowid
             _mov(cur, id_empresa, id_lote, codigo, "ENTRADA", cantidad,
                  id_documento=id_documento, usuario=usuario, observaciones=origen)
@@ -80,10 +84,11 @@ def registrar_entrada(codigo, lote, cantidad, fecha_caducidad=None, id_empresa=N
 
 # ── Consumo FEFO ──────────────────────────────────────────────────────────────
 def consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA", id_empresa=None, id_tienda=None,
-                  id_documento=None, usuario=None, observaciones=None) -> dict:
+                  id_documento=None, usuario=None, observaciones=None, id_almacen=None) -> dict:
     """Consume `cantidad` del artículo aplicando FEFO sobre los lotes con existencias.
     No-op si el artículo no tiene lotes. Devuelve {consumido, faltante, detalle:[...]}.
-    No bloquea: si los lotes no cubren la cantidad, consume lo disponible y deja `faltante`."""
+    No bloquea: si los lotes no cubren la cantidad, consume lo disponible y deja `faltante`.
+    id_almacen (INV.4) acota el consumo a un almacén concreto (opcional)."""
     id_empresa, id_tienda = _tenant(id_empresa, id_tienda)
     cantidad = int(cantidad or 0)
     detalle = []
@@ -93,11 +98,15 @@ def consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA", id_empresa=None, id_tie
         tipo = "SALIDA_VENTA"
     try:
         with transaccion() as conn, conn.cursor() as cur:
+            cond_alm = " AND id_almacen=%s" if id_almacen is not None else ""
+            params = [id_empresa, id_tienda, codigo, ACTIVO]
+            if id_almacen is not None:
+                params.append(id_almacen)
             cur.execute(
                 "SELECT id, lote, cantidad FROM lotes WHERE id_empresa=%s AND id_tienda=%s "
-                "AND codigo_articulo=%s AND estado=%s AND cantidad>0 "
-                "ORDER BY (fecha_caducidad IS NULL), fecha_caducidad, fecha_entrada, id FOR UPDATE",
-                (id_empresa, id_tienda, codigo, ACTIVO))
+                "AND codigo_articulo=%s AND estado=%s AND cantidad>0" + cond_alm +
+                " ORDER BY (fecha_caducidad IS NULL), fecha_caducidad, fecha_entrada, id FOR UPDATE",
+                params)
             lotes = _filas_a_dicts(cur, cur.fetchall())
             restante = cantidad
             for ln in lotes:

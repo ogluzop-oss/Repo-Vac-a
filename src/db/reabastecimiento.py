@@ -55,6 +55,48 @@ def upsert_config(codigo: str, umbral_min: int, stock_objetivo: int,
         return False
 
 
+def set_almacenes_reab(codigo: str, id_almacen_origen=None, id_almacen_destino=None) -> bool:
+    """INV.4.7: asocia almacén origen/destino reales a la config de reabastecimiento
+    (referencia a `almacen`), sustituyendo el origen de texto libre. Aditivo: no toca el
+    resto de la configuración ni la IA."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE reab_config SET id_almacen_origen=%s, id_almacen_destino=%s "
+                        "WHERE codigo=%s", (id_almacen_origen, id_almacen_destino, codigo))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"set_almacenes_reab({codigo}): {e}")
+        return False
+
+
+def propuestas_por_almacen(id_almacen, id_empresa=None) -> list:
+    """INV.4.7: artículos bajo umbral con disponibilidad real en un almacén (stock_almacen)."""
+    try:
+        from src.db.empresa import empresa_actual_id
+        id_empresa = id_empresa or empresa_actual_id()
+    except Exception:
+        id_empresa = id_empresa
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT rc.codigo, a.nombre, COALESCE(sa.cantidad,0) AS stock_almacen,
+                       rc.umbral_min, rc.stock_objetivo
+                FROM reab_config rc
+                JOIN articulos a ON a.codigo=rc.codigo
+                LEFT JOIN stock_almacen sa ON sa.codigo_articulo=rc.codigo
+                       AND sa.id_almacen=%s AND sa.id_empresa=%s
+                WHERE COALESCE(sa.cantidad,0) < rc.umbral_min
+                ORDER BY a.nombre
+            """, (id_almacen, id_empresa))
+            return [{"codigo": r[0], "nombre": r[1], "stock_almacen": r[2],
+                     "umbral_min": r[3], "stock_objetivo": r[4]}
+                    for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"propuestas_por_almacen: {e}")
+        return []
+
+
 def eliminar_config(codigo: str) -> bool:
     try:
         with obtener_conexion() as conn:

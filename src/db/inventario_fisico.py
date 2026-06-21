@@ -52,14 +52,16 @@ def _cabecera(cur, id_inv, id_empresa):
 
 
 # ── Ciclo de vida ─────────────────────────────────────────────────────────────
-def crear_inventario(nombre, id_empresa=None, id_tienda=None, usuario=None) -> int | None:
+def crear_inventario(nombre, id_empresa=None, id_tienda=None, usuario=None, id_almacen=None) -> int | None:
+    """Crea un inventario. Si `id_almacen` se indica (INV.4.8), el recuento/cierre operan
+    sobre stock_almacen de ese almacén; si es NULL, se comporta como INV.2 (agregado)."""
     id_empresa, id_tienda = _tenant(id_empresa, id_tienda)
     try:
         ensure_schema()
         with transaccion() as conn, conn.cursor() as cur:
-            cur.execute("INSERT INTO inventarios (id_empresa, id_tienda, nombre, estado, "
-                        "usuario_creacion) VALUES (%s,%s,%s,%s,%s)",
-                        (id_empresa, id_tienda, nombre or "Inventario", BORRADOR, usuario))
+            cur.execute("INSERT INTO inventarios (id_empresa, id_tienda, id_almacen, nombre, estado, "
+                        "usuario_creacion) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, id_tienda, id_almacen, nombre or "Inventario", BORRADOR, usuario))
             return cur.lastrowid
     except Exception as e:
         logger.error("crear_inventario: %s", e)
@@ -112,7 +114,14 @@ def registrar_recuento(id_inv, codigo, contado, observaciones=None, id_empresa=N
             st = _stock_actual(cur, codigo, id_empresa)
             if st is None:
                 raise InventarioError(f"Artículo '{codigo}' inexistente en la empresa.")
-            esperado = st[0]
+            if cab.get("id_almacen"):       # INV.4.8: esperado por almacén concreto
+                cur.execute("SELECT COALESCE(cantidad,0) FROM stock_almacen WHERE id_empresa=%s "
+                            "AND id_almacen=%s AND codigo_articulo=%s",
+                            (id_empresa, cab["id_almacen"], codigo))
+                rr = cur.fetchone()
+                esperado = int((rr[0] if not isinstance(rr, dict) else list(rr.values())[0]) or 0) if rr else 0
+            else:
+                esperado = st[0]
             contado = int(contado)
             diferencia = contado - esperado
             cur.execute(
@@ -158,30 +167,46 @@ def cerrar_inventario(id_inv, usuario=None, id_empresa=None) -> dict:
             raise InventarioError("Inventario no encontrado.")
         if cab["estado"] != ABIERTO:
             raise InventarioError(f"Solo se cierra un inventario ABIERTO (actual: {cab['estado']}).")
+        id_almacen = cab.get("id_almacen")
         cur.execute("SELECT * FROM inventario_lineas WHERE id_inventario=%s AND id_empresa=%s "
                     "AND stock_contado IS NOT NULL AND diferencia<>0", (id_inv, id_empresa))
         lineas = _filas_a_dicts(cur, cur.fetchall())
         for ln in lineas:
             cod = ln["codigo_articulo"]
-            st = _stock_actual(cur, cod, id_empresa)
-            if st is None:
-                continue
-            anterior, total, _tienda = st
             nuevo = int(ln["stock_contado"])
-            # Reparte el nuevo total entre Stock_total/Stock_tienda manteniendo la suma exacta
-            # y sin negativos (no toca Stock_central explícitamente más allá de total).
-            if nuevo >= total:
-                n_total, n_tienda = total, nuevo - total
+            if id_almacen:                  # INV.4.8: ajuste sobre stock_almacen del almacén
+                cur.execute("SELECT COALESCE(cantidad,0) FROM stock_almacen WHERE id_empresa=%s "
+                            "AND id_almacen=%s AND codigo_articulo=%s", (id_empresa, id_almacen, cod))
+                rr = cur.fetchone()
+                anterior = int((rr[0] if not isinstance(rr, dict) else list(rr.values())[0]) or 0) if rr else 0
             else:
-                n_total, n_tienda = nuevo, 0
-            cur.execute("UPDATE articulos SET Stock_total=%s, Stock_tienda=%s WHERE codigo=%s "
-                        "AND id_empresa=%s", (n_total, n_tienda, cod, id_empresa))
+                st = _stock_actual(cur, cod, id_empresa)
+                if st is None:
+                    continue
+                anterior, total, _tienda = st
+                # Reparte el nuevo total entre Stock_total/Stock_tienda manteniendo la suma exacta.
+                if nuevo >= total:
+                    n_total, n_tienda = total, nuevo - total
+                else:
+                    n_total, n_tienda = nuevo, 0
+                cur.execute("UPDATE articulos SET Stock_total=%s, Stock_tienda=%s WHERE codigo=%s "
+                            "AND id_empresa=%s", (n_total, n_tienda, cod, id_empresa))
             ajustes.append({"codigo": cod, "anterior": anterior, "nuevo": nuevo,
-                            "diferencia": nuevo - anterior, "id_tienda": cab.get("id_tienda")})
+                            "diferencia": nuevo - anterior, "id_tienda": cab.get("id_tienda"),
+                            "id_almacen": id_almacen})
         cur.execute("UPDATE inventarios SET estado=%s, fecha_cierre=%s, usuario_cierre=%s "
                     "WHERE id=%s AND id_empresa=%s",
                     (CERRADO, _now(), usuario, id_inv, id_empresa))
 
+    # INV.4.8: si el inventario es por almacén, aplica el ajuste sobre stock_almacen
+    # (fuente de verdad) → recalcula la caché automáticamente.
+    try:
+        if cab.get("id_almacen"):
+            from src.db import stock_almacen as SA
+            for a in ajustes:
+                SA.ajustar_stock(a["codigo"], cab["id_almacen"], a["nuevo"], id_empresa=id_empresa)
+    except Exception as e:
+        logger.warning("stock_almacen ajuste inventario %s: %s", id_inv, e)
     # Kárdex AJUSTE (best-effort, tras commit; no rompe el cierre) — INV.1.
     try:
         from src.db import kardex
@@ -190,6 +215,7 @@ def cerrar_inventario(id_inv, usuario=None, id_empresa=None) -> dict:
                 a["codigo"], "AJUSTE", a["diferencia"], id_documento=f"INV-{id_inv}",
                 origen="INVENTARIO", usuario=usuario, id_empresa=id_empresa,
                 id_tienda=a["id_tienda"], stock_anterior=a["anterior"], stock_nuevo=a["nuevo"],
+                id_almacen_destino=a.get("id_almacen"),
                 observaciones=f"Ajuste por inventario #{id_inv}")
         try:
             from src.gui.mostrar_stock import stock_signals
