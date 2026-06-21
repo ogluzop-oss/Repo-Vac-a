@@ -229,13 +229,15 @@ class ExpedienteDialog(QDialog):
     def _docs(self, docs):
         docs = docs or []
         w = QWidget(); ly = QVBoxLayout(w)
-        self.tbl_docs = _tabla(["Fecha", "Tipo", "Referencia"])
+        self.tbl_docs = _tabla(["Fecha", "Tipo", "Estado firma", "Referencia"])
         self.tbl_docs.setRowCount(len(docs))
         self._docs_data = docs
         for i, d in enumerate(docs):
+            estado = d.get("estado_firma") if d.get("requiere_firma") else "—"
             self.tbl_docs.setItem(i, 0, _it(d.get("fecha")))
             self.tbl_docs.setItem(i, 1, _it(d.get("tipo_doc")))
-            self.tbl_docs.setItem(i, 2, _it(d.get("ref_documento")))
+            self.tbl_docs.setItem(i, 2, _it(estado))
+            self.tbl_docs.setItem(i, 3, _it(d.get("ref_documento")))
         ly.addWidget(self.tbl_docs)
         bar = QHBoxLayout()
         bar.addWidget(_btn("Abrir PDF", self._abrir_pdf))

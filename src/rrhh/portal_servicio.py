@@ -47,6 +47,7 @@ def panel(id_empleado, id_empresa=None) -> dict:
         "ausencias": exp.get("ausencias", []),
         "control_horario": {"jornadas": jornadas, "totales": control_horario._totales(jornadas)},
         "documentos": exp.get("documentos", []),
+        "documentos_pendientes": documentos_pendientes(id_empleado, id_empresa),
     }
 
 
@@ -57,6 +58,26 @@ def panel_de_usuario(usuario, id_empresa=None) -> dict:
     if not emp:
         raise AccesoDenegado("La cuenta no tiene un expediente de empleado vinculado.")
     return panel(emp["id"], id_empresa)
+
+
+def documentos_pendientes(id_empleado, id_empresa=None) -> list:
+    """Documentos del trabajador pendientes de firma/aceptación (solo propios)."""
+    from src.rrhh import firma_servicio
+    return firma_servicio.listar_pendientes(id_empleado, id_empresa)
+
+
+def aceptar_documento(id_empleado, id_documento, usuario=None, ip=None, id_empresa=None) -> bool:
+    """El trabajador acepta un documento PROPIO (seguridad por id_empleado)."""
+    from src.rrhh import firma_servicio
+    return firma_servicio.aceptar(id_documento, usuario=usuario, id_empleado=id_empleado,
+                                  ip=ip, id_empresa=id_empresa)
+
+
+def rechazar_documento(id_empleado, id_documento, usuario=None, ip=None, motivo=None,
+                       id_empresa=None) -> bool:
+    from src.rrhh import firma_servicio
+    return firma_servicio.rechazar(id_documento, usuario=usuario, id_empleado=id_empleado,
+                                   ip=ip, motivo=motivo, id_empresa=id_empresa)
 
 
 def solicitar_vacaciones(id_empleado, fecha_inicio, fecha_fin, id_empresa=None) -> int:

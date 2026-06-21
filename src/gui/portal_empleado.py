@@ -58,6 +58,7 @@ class PortalEmpleadoWindow(QWidget):
         tabs.addTab(self._tab_vacaciones(), "Vacaciones")
         tabs.addTab(self._tab_ausencias(), "Ausencias")
         tabs.addTab(self._tab_horario(), "Control horario")
+        tabs.addTab(self._tab_pendientes(), "Documentos pendientes")
         tabs.addTab(self._tab_documentos(), "Documentos")
         root.addWidget(tabs)
 
@@ -151,6 +152,64 @@ class PortalEmpleadoWindow(QWidget):
                                 r.get("tiempo_efectivo_min"), r.get("exceso_min"), r.get("deficit_min")]))
         ly.addWidget(_btn("Exportar CSV", self._export_horario), alignment=Qt.AlignmentFlag.AlignLeft)
         return w
+
+    def _tab_pendientes(self):
+        w = QWidget(); ly = QVBoxLayout(w)
+        self._pend = self._panel.get("documentos_pendientes", [])
+        self.tbl_pend = self._tabla(["id", "Fecha", "Tipo", "Estado", "Expira"], self._pend,
+                                    lambda r: [r.get("id"), r.get("fecha"), r.get("tipo_doc"),
+                                               r.get("estado_firma"), r.get("expira")])
+        ly.addWidget(self.tbl_pend)
+        b = QHBoxLayout()
+        b.addWidget(_btn("Abrir", self._abrir_pend))
+        b.addWidget(_btn("Aceptar", self._aceptar, primary=True))
+        b.addWidget(_btn("Rechazar", self._rechazar))
+        ly.addLayout(b)
+        return w
+
+    def _pend_sel(self):
+        i = self.tbl_pend.currentRow()
+        return self._pend[i] if 0 <= i < len(self._pend) else None
+
+    def _abrir_pend(self):
+        d = self._pend_sel()
+        ruta = (d or {}).get("ref_documento")
+        if ruta and os.path.exists(ruta):
+            try:
+                os.startfile(ruta)  # noqa: S606
+            except Exception as e:
+                QMessageBox.warning(self, "Portal", f"No se pudo abrir: {e}")
+        else:
+            QMessageBox.information(self, "Portal", "El documento no está disponible en disco.")
+
+    def _firma(self, accion):
+        from src.rrhh import portal_servicio
+        from src.rrhh.firma_servicio import FirmaError
+        d = self._pend_sel()
+        if not d:
+            QMessageBox.information(self, "Portal", "Selecciona un documento."); return
+        usuario = (self.usuario or {}).get("nombre")
+        fn = (portal_servicio.aceptar_documento if accion == "acepta"
+              else portal_servicio.rechazar_documento)
+        try:
+            fn(self.empleado["id"], d["id"], usuario=usuario, id_empresa=self._id_empresa())
+        except FirmaError as e:
+            QMessageBox.warning(self, "Portal", str(e)); return
+        QMessageBox.information(self, "Portal", f"Documento {accion}do.")
+        self._panel = self._cargar_panel()
+        self._pend = self._panel.get("documentos_pendientes", [])
+        self.tbl_pend.setRowCount(0)
+        for i, r in enumerate(self._pend):
+            self.tbl_pend.insertRow(i)
+            for j, v in enumerate([r.get("id"), r.get("fecha"), r.get("tipo_doc"),
+                                   r.get("estado_firma"), r.get("expira")]):
+                self.tbl_pend.setItem(i, j, _it(v))
+
+    def _aceptar(self):
+        self._firma("acepta")
+
+    def _rechazar(self):
+        self._firma("rechaza")
 
     def _tab_documentos(self):
         w = QWidget(); ly = QVBoxLayout(w)

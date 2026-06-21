@@ -42,23 +42,28 @@ def test_tablas_existen(db):
 def test_migracion_reversible(db):
     from src.db.migrador import descubrir
     m = [x for x in descubrir() if x.version == "0017"][0]
-    # FK_CHECKS=0: otras migraciones posteriores (p.ej. 0018 control horario) añaden
-    # tablas con FK a rrhh_empleados; revertir 0017 de forma aislada no debe bloquearse
-    # por esas dependencias. Se restaura el esquema al final.
+    # FK_CHECKS=0: migraciones posteriores (0018 control horario, 0019 firma) añaden
+    # tablas/columnas que dependen de 0017; revertir 0017 aislado no debe bloquearse.
+    # Tras reaplicar 0017 se reaplican también las posteriores para restaurar el esquema
+    # completo (idempotentes: CREATE/ADD COLUMN IF NOT EXISTS).
+    posteriores = [x for x in descubrir() if x.version in ("0017", "0018", "0019")]
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("SET FOREIGN_KEY_CHECKS=0")
         try:
             m.revertir(cur)
             cur.execute("SHOW TABLES LIKE 'rrhh_empleados'")
             ausente = cur.fetchall() == ()
-            m.aplicar(cur)                  # reaplicar (deja el esquema como estaba)
+            for mig in posteriores:        # 0017 → 0018 → 0019 (restaura todo)
+                mig.aplicar(cur)
             conn.commit()
         finally:
             cur.execute("SET FOREIGN_KEY_CHECKS=1")
             conn.commit()
         cur.execute("SHOW TABLES LIKE 'rrhh_documentos'")
         presente = cur.fetchall() != ()
-    assert ausente and presente
+        cur.execute("SHOW COLUMNS FROM rrhh_documentos LIKE 'estado_firma'")
+        col_firma = cur.fetchall() != ()
+    assert ausente and presente and col_firma
 
 
 def test_indices_y_unicidad(db):

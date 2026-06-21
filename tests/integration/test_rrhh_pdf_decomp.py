@@ -39,6 +39,17 @@ def _app():
     return QApplication.instance() or QApplication([])
 
 
+import datetime as _dt_mod
+
+
+class _FechaFija(_dt_mod.datetime):
+    """datetime con now() fijo → los golden son estables aunque cambie el día
+    (algunos documentos embeben la fecha de hoy en su texto)."""
+    @classmethod
+    def now(cls, tz=None):
+        return _dt_mod.datetime(2026, 6, 20, 12, 0, 0)
+
+
 def _firma(tipo, monkeypatch):
     """Genera el documento capturando la secuencia de flowables (sin escribir PDF)."""
     import reportlab.platypus as P
@@ -52,6 +63,7 @@ def _firma(tipo, monkeypatch):
         return None
 
     monkeypatch.setattr(P.SimpleDocTemplate, "build", _fake_build, raising=True)
+    monkeypatch.setattr("src.gui.gestion_usuarios.datetime", _FechaFija, raising=True)
     w = gu._WizardDocumentoFiscal()
     w._tipo = tipo
     w._datos = dict(_DATOS)
