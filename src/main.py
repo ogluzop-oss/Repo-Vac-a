@@ -488,10 +488,10 @@ class SmartManagerApp(QStackedWidget):
         if not Prophet:
             return {}
         try:
-            with obtener_conexion() as conn:
-                df = pd.read_sql_query(
-                    "SELECT fecha, codigo, cantidad FROM ventas", conn
-                )
+            # B7: usa la fuente canónica (empresa activa + ventana temporal), en vez de
+            # un SELECT global de toda la tabla. Mismo esquema (fecha, codigo, cantidad).
+            from src.db.conexion import obtener_ventas_ia
+            df = obtener_ventas_ia()
 
             if df.empty or len(df) < 5:
                 return {}

@@ -1829,18 +1829,29 @@ def importar_ventas_desde_csv(ruta_csv: str) -> bool:
         return False
 
 
-def obtener_ventas_ia():
-    """Función especial para la IA Prophet."""
+def obtener_ventas_ia(id_empresa=None, dias=730):
+    """Función especial para la IA Prophet (B7).
+
+    Devuelve las ventas (fecha, codigo, cantidad) de UNA empresa, acotadas a los últimos
+    `dias` (por defecto 2 años — ventana suficiente para previsión semanal). Mantiene el
+    MISMO esquema de salida. Compatibilidad: sin argumentos usa la empresa ACTIVA y la
+    ventana por defecto (corrige el full-scan global y el cruce entre empresas)."""
+    import pandas as pd
+    cols = ["fecha", "codigo", "cantidad"]
+    try:
+        if id_empresa is None:
+            from src.db.empresa import empresa_actual_id
+            id_empresa = empresa_actual_id()
+    except Exception:
+        pass
     try:
         with obtener_conexion() as conn:
-            import pandas as pd
-
-            query = "SELECT fecha, codigo, cantidad FROM ventas"
-            df = pd.read_sql_query(query, conn)
-            return df
+            query = ("SELECT fecha, codigo, cantidad FROM ventas "
+                     "WHERE id_empresa=%s AND fecha >= (CURDATE() - INTERVAL %s DAY)")
+            return pd.read_sql_query(query, conn, params=(id_empresa, int(dias)))
     except Exception as e:
         logger.error(f"Error en obtener_ventas_ia: {e}")
-        return None
+        return pd.DataFrame(columns=cols)
 
 
 # ============================================================
