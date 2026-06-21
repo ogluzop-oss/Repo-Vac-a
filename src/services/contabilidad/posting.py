@@ -59,6 +59,13 @@ def encolar(evento, ref, total, fecha, subtipo=None, extra=None, id_empresa=None
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
+            # M1: idempotencia — una referencia = un evento. Si ya existe (cualquier
+            # estado), no se vuelve a encolar (evita doble clic / reintentos).
+            cur.execute("SELECT id FROM contab_cola WHERE id_empresa=%s AND evento=%s AND ref=%s "
+                        "LIMIT 1", (id_empresa, evento, str(ref)))
+            ya = cur.fetchone()
+            if ya:
+                return ya[0] if not isinstance(ya, dict) else list(ya.values())[0]
             cur.execute("INSERT INTO contab_cola (id_empresa, evento, subtipo, ref, fecha_evento, "
                         "payload) VALUES (%s,%s,%s,%s,%s,%s)",
                         (id_empresa, evento, subtipo, str(ref), _fecha(fecha),
@@ -223,7 +230,7 @@ def _asiento_venta_factura(ev, p, id_empresa):
         lineas.append({"codigo_cuenta": M.cuenta("iva_rep", id_empresa=id_empresa), "haber": cuota,
                        "tipo_iva": tipo})
     r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=f"Factura venta {ev['ref']}",
-                        origen="venta", ref_origen=f"factura:{ev['ref']}", id_empresa=id_empresa)
+                        origen="venta", ref_origen=f"factura:{ev['ref']}", id_empresa=id_empresa, idempotente=True)
     return r["id"] if r else None
 
 
@@ -242,7 +249,7 @@ def _asiento_compra(ev, p, id_empresa):
     lineas.append({"codigo_cuenta": M.cuenta("proveedor", id_empresa=id_empresa), "haber": round(base + iva, 2),
                    "descripcion": "Proveedor"})
     r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=f"Factura compra {ev['ref']}",
-                        origen="compra", ref_origen=f"compra:{ev['ref']}", id_empresa=id_empresa)
+                        origen="compra", ref_origen=f"compra:{ev['ref']}", id_empresa=id_empresa, idempotente=True)
     return r["id"] if r else None
 
 
@@ -267,7 +274,7 @@ def _asiento_devolucion(ev, p, id_empresa):
                               "debe": cuota, "tipo_iva": tipo})
         concepto = f"Devolución de venta {ev['ref']}"
     r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=concepto, origen="devolucion",
-                        ref_origen=f"devolucion:{ev['ref']}", id_empresa=id_empresa)
+                        ref_origen=f"devolucion:{ev['ref']}", id_empresa=id_empresa, idempotente=True)
     return r["id"] if r else None
 
 
@@ -308,5 +315,5 @@ def _asiento_nomina(ev, p, id_empresa):
         lineas.append({"codigo_cuenta": M.cuenta("nomina_liquido", id_empresa=id_empresa),
                        "haber": liquido, "descripcion": "Remuneraciones pendientes de pago"})
     r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=f"Nómina {ev['ref']}",
-                        origen="nomina", ref_origen=f"nomina:{ev['ref']}", id_empresa=id_empresa)
+                        origen="nomina", ref_origen=f"nomina:{ev['ref']}", id_empresa=id_empresa, idempotente=True)
     return r["id"] if r else None

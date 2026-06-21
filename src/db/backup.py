@@ -211,6 +211,78 @@ def _restaurar_pymysql(ruta_sql: str, db: str) -> bool:
         conn.close()
 
 
+def edad_ultimo_backup_horas() -> float | None:
+    """Horas desde el último backup creado, o None si no hay ninguno."""
+    bks = listar_backups()
+    if not bks:
+        return None
+    try:
+        ult = bks[0]
+        fecha = ult.get("fecha")
+        if fecha:
+            t = datetime.fromisoformat(fecha)
+        else:  # deriva del mtime del .sql
+            t = datetime.fromtimestamp(os.path.getmtime(ult["ruta"]))
+        return (datetime.now() - t).total_seconds() / 3600.0
+    except Exception as e:
+        logger.warning("edad_ultimo_backup_horas: %s", e)
+        return None
+
+
+def backup_si_corresponde(intervalo_horas: int = 24, motivo: str = "programado") -> dict | None:
+    """M2 — Programación: crea un backup solo si el último tiene más de `intervalo_horas`
+    (o no hay ninguno). Pensado para invocarse al arrancar/cerrar la app (sin daemon).
+    Devuelve la metadata del backup creado, o None si no tocaba."""
+    edad = edad_ultimo_backup_horas()
+    if edad is not None and edad < intervalo_horas:
+        return None
+    return crear_backup(motivo=motivo)
+
+
+def verificar_backup(ruta_sql: str | None = None) -> dict:
+    """M2 — Verificación de restaurabilidad: restaura el backup en una BD TEMPORAL
+    aislada (nunca la activa), comprueba que tiene tablas y la elimina. No altera datos
+    de producción. Devuelve {ok, tablas, db_tmp, error?}."""
+    if ruta_sql is None:
+        bks = listar_backups()
+        if not bks:
+            return {"ok": False, "error": "no hay backups"}
+        ruta_sql = bks[0]["ruta"]
+    db_tmp = f"sm_verify_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    out = {"ok": False, "db_tmp": db_tmp, "ruta": ruta_sql, "tablas": 0}
+    import pymysql
+    cfg = {k: v for k, v in DB_CONFIG.items() if k != "database"}
+    try:
+        r = restaurar_backup(ruta_sql, db=db_tmp)   # crea/restaura la BD temporal
+        if r.get("resultado") != "ok":
+            out["error"] = r.get("error", "restauración fallida")
+            return out
+        conn = pymysql.connect(**cfg)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=%s",
+                            (db_tmp,))
+                n = cur.fetchone()
+                out["tablas"] = int((n[0] if not isinstance(n, dict) else list(n.values())[0]) or 0)
+            out["ok"] = out["tablas"] > 0
+        finally:
+            conn.close()
+        return out
+    except Exception as e:
+        logger.error("verificar_backup: %s", e)
+        out["error"] = str(e)[:200]
+        return out
+    finally:
+        # Limpieza garantizada de la BD temporal.
+        try:
+            conn2 = pymysql.connect(**cfg)
+            with conn2.cursor() as cur:
+                cur.execute(f"DROP DATABASE IF EXISTS `{db_tmp}`")
+            conn2.commit(); conn2.close()
+        except Exception:
+            pass
+
+
 def restaurar_backup(ruta_sql: str, db: str | None = None) -> dict:
     """Restaura un backup `.sql` en la base `db` (por defecto, la activa). Usa el
     cliente `mysql` si está disponible; si no, restauración portable vía PyMySQL.

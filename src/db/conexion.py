@@ -1335,6 +1335,34 @@ def modificar_stock_completo(
         return False
 
 
+def _salida_stock_clamp(cur, codigo, cantidad, contexto="venta", id_empresa=None) -> int:
+    """M4 — Política ÚNICA de salida de stock de sala (TPV): descuento atómico que NUNCA
+    deja stock negativo (clamp a 0) y NUNCA es silencioso: si hay faltante, registra un
+    aviso en `ventas_errores` (misma transacción que la venta). Devuelve el faltante."""
+    cantidad = int(cantidad or 0)
+    if not codigo or cantidad <= 0:
+        return 0
+    cur.execute("SELECT COALESCE(Stock_tienda,0) FROM articulos WHERE codigo=%s", (codigo,))
+    r = cur.fetchone()
+    disp = int((r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0) if r else 0
+    faltante = max(0, cantidad - disp)
+    cur.execute("UPDATE articulos SET Stock_tienda = IF(COALESCE(Stock_tienda,0)-%s<0, 0, "
+                "COALESCE(Stock_tienda,0)-%s) WHERE codigo=%s", (cantidad, cantidad, codigo))
+    if faltante > 0:
+        try:
+            from src.db.empresa import empresa_actual_id
+            emp = id_empresa or empresa_actual_id()
+        except Exception:
+            emp = id_empresa
+        try:
+            cur.execute("INSERT INTO ventas_errores (codigo, cantidad, fecha, motivo, id_empresa) "
+                        "VALUES (%s,%s,NOW(),%s,%s)",
+                        (str(codigo), faltante, f"sobreventa:{contexto} (faltante {faltante})", emp))
+        except Exception:
+            pass
+    return faltante
+
+
 def descontar_stock(codigo: str, cantidad: int) -> tuple[bool, int, int]:
     """
     Descuenta stock con bloqueo de fila (FOR UPDATE) para evitar condiciones de carrera.
@@ -1531,14 +1559,7 @@ def registrar_venta(
                         str(empleado_id) if empleado_id else None,
                     ),
                 )
-                cur.execute(
-                    """
-                    UPDATE articulos
-                    SET Stock_tienda = IF(COALESCE(Stock_tienda, 0) - %s < 0, 0, COALESCE(Stock_tienda, 0) - %s)
-                    WHERE codigo = %s
-                    """,
-                    (cantidad, cantidad, codigo),
-                )
+                _salida_stock_clamp(cur, codigo, cantidad, "venta")
         try:
             stock_signals.stock_actualizado.emit(str(codigo))
         except Exception:
@@ -1607,14 +1628,7 @@ def registrar_venta_con_items(
                         """,
                         (venta_id, str(codigo), cantidad, precio, subtotal, _eid),
                     )
-                    cur.execute(
-                        """
-                        UPDATE articulos 
-                        SET Stock_tienda = IF(COALESCE(Stock_tienda, 0) - %s < 0, 0, COALESCE(Stock_tienda, 0) - %s) 
-                        WHERE codigo = %s
-                        """,
-                        (cantidad, cantidad, codigo),
-                    )
+                    _salida_stock_clamp(cur, codigo, cantidad, "venta")
 
                 cur.execute(
                     "UPDATE ventas SET total = %s WHERE id = %s",
@@ -1734,14 +1748,7 @@ def registrar_factura(
                         (factura_id, codigo, nombre, cantidad, precio, subtotal, _eid),
                     )
                     if codigo:
-                        cur.execute(
-                            """
-                            UPDATE articulos
-                            SET Stock_tienda = IF(COALESCE(Stock_tienda, 0) - %s < 0, 0, COALESCE(Stock_tienda, 0) - %s)
-                            WHERE codigo = %s
-                            """,
-                            (cantidad, cantidad, codigo),
-                        )
+                        _salida_stock_clamp(cur, codigo, cantidad, "venta")
 
                 cur.execute(
                     "UPDATE ventas SET total = %s WHERE id = %s",

@@ -51,13 +51,31 @@ def _hash(numero, fecha, total, prev):
 
 
 def crear_asiento(fecha, lineas, concepto=None, tipo="normal", origen="manual",
-                  ref_origen=None, contabilizar=True, usuario=None, id_empresa=None) -> dict | None:
+                  ref_origen=None, contabilizar=True, usuario=None, id_empresa=None,
+                  idempotente=False) -> dict | None:
     """Crea un asiento con sus apuntes. Valida cuadre (Σdebe=Σhaber>0). Si el ejercicio
-    está cerrado, rechaza. Devuelve {id, numero, anio, estado, total} o None."""
+    está cerrado, rechaza. Devuelve {id, numero, anio, estado, total} o None.
+    M1: si `idempotente` y existe un asiento NO anulado con el mismo `ref_origen`, lo
+    devuelve sin crear otro (evita doble contabilización por reproceso de la cola)."""
     id_empresa = _empresa(id_empresa)
     if isinstance(fecha, (_dt.date, _dt.datetime)):
         fecha = fecha.strftime("%Y-%m-%d")
     anio = int(str(fecha)[:4])
+    if idempotente and ref_origen:
+        try:
+            with obtener_conexion() as _c, _c.cursor() as _cur:
+                _cur.execute("SELECT id, numero, anio, estado, total_debe FROM contab_asientos "
+                             "WHERE id_empresa=%s AND ref_origen=%s AND estado<>'anulado' LIMIT 1",
+                             (id_empresa, ref_origen))
+                _r = _cur.fetchone()
+                if _r:
+                    _r = _r if not isinstance(_r, dict) else _r
+                    g = (lambda i, k: _r[i] if not isinstance(_r, dict) else _r[k])
+                    return {"id": g(0, "id"), "numero": g(1, "numero"), "anio": g(2, "anio"),
+                            "estado": g(3, "estado"), "total": g(4, "total_debe"),
+                            "idempotente": True}
+        except Exception as e:
+            logger.warning("crear_asiento idempotente(%s): %s", ref_origen, e)
     aps = _norm(lineas)
     if not aps:
         logger.warning("crear_asiento: sin líneas válidas"); return None
