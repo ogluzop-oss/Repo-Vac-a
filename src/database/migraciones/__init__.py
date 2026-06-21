@@ -52,4 +52,5 @@ MODULOS = [
     "0041_caja_avanzada",
     "0042_facturas_cliente",
     "0043_contab_cola_idempotente",
+    "0044_indices_ventas",
 ]
