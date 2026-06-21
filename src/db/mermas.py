@@ -63,7 +63,17 @@ def registrar_merma(codigo, cantidad, motivo, columna_stock=None):
                 cursor.execute(
                     f"UPDATE articulos SET {col} = GREATEST(0, COALESCE({col},0) - %s) "
                     "WHERE codigo = %s", (cantidad, codigo))
-            return True
+            _registrar_kardex = bool(col)
+        # INV.1: kárdex MERMA (best-effort, tras commit; solo si hubo descuento de stock).
+        if _registrar_kardex:
+            try:
+                from src.db import kardex
+                kardex.registrar_movimiento(
+                    codigo, "MERMA", cantidad, origen="MERMA", id_empresa=emp,
+                    id_tienda=tnd, observaciones=motivo)
+            except Exception:
+                pass
+        return True
     except Exception as e:
         logging.error(f"Error al registrar merma: {e}")
         return False

@@ -454,6 +454,11 @@ class MenuPrincipal(QWidget):
         btn_portal = self.crear_tarjeta_menu("Portal del empleado", "portal", "#22F4E6", "people")
         footer_actions.addWidget(btn_portal, alignment=Qt.AlignmentFlag.AlignLeft)
 
+        # Kárdex de inventario — ADMINISTRADOR / GERENTE / SUPERADMIN.
+        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+            btn_kardex = self.crear_tarjeta_menu("Kárdex", "kardex", "#22F4E6", "box")
+            footer_actions.addWidget(btn_kardex, alignment=Qt.AlignmentFlag.AlignLeft)
+
         footer_actions.addStretch()
 
         btn_tpv = self.crear_tarjeta_menu("TPV", "tpv", "#22F4E6", "shopping_bag")
@@ -537,6 +542,7 @@ class MenuPrincipal(QWidget):
         "contabilidad": "menu.card_contabilidad",
         "rrhh": "menu.card_rrhh",
         "portal": "menu.card_portal",
+        "kardex": "menu.card_kardex",
         "tpv": "menu.card_tpv",
         "logout": "menu.card_salir",
     }
@@ -862,6 +868,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.portal_empleado import PortalEmpleadoWindow
 
                 self.manejar_apertura(v_id, PortalEmpleadoWindow, **kwargs)
+            elif v_id == "kardex":
+                from src.gui.kardex_visor import KardexVisorWindow
+
+                self.manejar_apertura(v_id, KardexVisorWindow, **kwargs)
             elif v_id == "contabilidad":
                 from src.gui.contabilidad_gestion import ContabilidadWindow
 

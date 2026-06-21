@@ -1301,18 +1301,34 @@ def modificar_stock_completo(
 ) -> bool:
     """Actualiza los niveles de stock y notifica a la UI."""
     try:
+        anterior = None
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT COALESCE(Stock_total,0)+COALESCE(Stock_tienda,0) "
+                            "FROM articulos WHERE codigo=%s", (codigo,))
+                _r = cur.fetchone()
+                if _r:
+                    anterior = (_r[0] if not isinstance(_r, dict) else list(_r.values())[0])
                 cur.execute(
                     """
-                    UPDATE articulos 
-                    SET Stock_central = %s, Stock_total = %s, Stock_tienda = %s 
+                    UPDATE articulos
+                    SET Stock_central = %s, Stock_total = %s, Stock_tienda = %s
                     WHERE codigo = %s
                     """,
                     (stock_central, stock_total, stock_tienda, codigo),
                 )
             conn.commit()
         stock_signals.stock_actualizado.emit(str(codigo))
+        # INV.1: kárdex AJUSTE (best-effort) con stock anterior/nuevo/diferencia.
+        try:
+            from src.db import kardex
+            nuevo = int((stock_total or 0) + (stock_tienda or 0))
+            kardex.registrar_movimiento(
+                codigo, "AJUSTE", (nuevo - int(anterior or 0)),
+                origen="AJUSTE_MANUAL", stock_anterior=anterior, stock_nuevo=nuevo,
+                observaciones="Corrección manual de stock")
+        except Exception:
+            pass
         return True
     except Exception as e:
         logger.error(f"Error al modificar stock de {codigo}: {e}")
@@ -1527,6 +1543,14 @@ def registrar_venta(
             stock_signals.stock_actualizado.emit(str(codigo))
         except Exception:
             pass
+        # INV.1: kárdex SALIDA_VENTA (best-effort, no afecta a la venta).
+        try:
+            from src.db import kardex
+            kardex.registrar_movimiento(codigo, "SALIDA_VENTA", cantidad, origen="TIENDA",
+                                        usuario=str(empleado_id) if empleado_id else None,
+                                        observaciones="Venta simple")
+        except Exception:
+            pass
         return True
     except Exception:
         logger.exception("Error en registrar_venta")
@@ -1593,6 +1617,20 @@ def registrar_venta_con_items(
             for it in items:
                 cod = it.get("codigo_articulo") or it.get("codigo") or ""
                 stock_signals.stock_actualizado.emit(str(cod))
+        except Exception:
+            pass
+        # INV.1: kárdex SALIDA_VENTA por ítem (best-effort, tras commit; no afecta a la venta).
+        try:
+            from src.db import kardex
+            for it in items:
+                cod = it.get("codigo_articulo") or it.get("codigo") or ""
+                qty = int(it.get("cantidad") or 0)
+                if cod and qty:
+                    kardex.registrar_movimiento(
+                        cod, "SALIDA_VENTA", qty, id_documento=venta_id, origen="TIENDA",
+                        usuario=str(empleado_id) if empleado_id else None,
+                        id_empresa=_eid, id_tienda=_tid,
+                        observaciones=f"Venta ticket #{venta_id}")
         except Exception:
             pass
         # C3.2: gancho fiscal (no-op si fiscal_config.activo=0). Best-effort: nunca

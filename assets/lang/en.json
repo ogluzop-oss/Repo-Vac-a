@@ -65,6 +65,7 @@
     "card_contabilidad": "Accounting",
     "card_rrhh": "Human Resources",
     "card_portal": "Employee Portal",
+    "card_kardex": "Stock Ledger",
     "card_salir": "Exit",
     "cambiar_tienda": "Switch store",
     "sin_tienda": "No active store",

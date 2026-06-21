@@ -226,6 +226,20 @@ def procesar_devolucion(
             f"Devolución #{dev_id} procesada: {divisas.formatear(total_reembolso)} "
             f"venta={venta_id} forma={forma_reembolso}"
         )
+        # INV.1: kárdex DEVOLUCION por ítem repuesto (best-effort, tras commit).
+        try:
+            from src.db import kardex
+            for it in items_devolver:
+                cod = it.get("codigo_articulo", "")
+                if cod and cod != "GRANEL" and it.get("modo_venta", "UNIDAD") == "UNIDAD":
+                    qty = int(it.get("cantidad", 0))
+                    if qty > 0:
+                        kardex.registrar_movimiento(
+                            cod, "DEVOLUCION", qty, id_documento=dev_id, destino="TIENDA",
+                            usuario=empleado,
+                            observaciones=f"Devolución #{dev_id} de venta #{venta_id}")
+        except Exception:
+            pass
         # E6.5: encola el asiento de devolución (no-op si la contabilidad está apagada).
         try:
             import datetime as _dt
