@@ -67,6 +67,7 @@
     "card_portal": "Employee Portal",
     "card_kardex": "Stock Ledger",
     "card_inventario_fisico": "Physical Inventory",
+    "card_lotes": "Batches",
     "card_salir": "Exit",
     "cambiar_tienda": "Switch store",
     "sin_tienda": "No active store",

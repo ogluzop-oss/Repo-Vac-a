@@ -30,4 +30,5 @@ MODULOS = [
     "0019_firma_documental",
     "0020_kardex_movimientos",
     "0021_inventario_fisico",
+    "0022_lotes_caducidades",
 ]

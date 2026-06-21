@@ -712,6 +712,24 @@ def procesar_recepcion_logistica(
                 except Exception:
                     pass
 
+            # INV.3: entrada de lote (best-effort) solo si la línea aporta 'lote'.
+            try:
+                from src.db import lotes
+                _emp_l, _tnd_l = _tenant_actual()
+                for item in items_a_recibir or []:
+                    if not isinstance(item, dict):
+                        continue
+                    lote = (item.get("lote") or "").strip()
+                    cod = str(item.get("codigo") or "").strip().upper()
+                    qty = int(item.get("cantidad") or 0)
+                    if lote and cod and qty > 0:
+                        lotes.registrar_entrada(
+                            cod, lote, qty, fecha_caducidad=item.get("caducidad") or item.get("fecha_caducidad"),
+                            id_empresa=_emp_l, id_tienda=_tnd_l, origen="recepcion",
+                            id_documento=doc.get("id_documento"), usuario=usuario_receptor)
+            except Exception:
+                pass
+
             doc["estado"] = nuevo_estado
             return {
                 "ok": True,

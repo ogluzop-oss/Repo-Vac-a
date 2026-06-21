@@ -461,6 +461,8 @@ class MenuPrincipal(QWidget):
             btn_invf = self.crear_tarjeta_menu("Inventario físico", "inventario_fisico",
                                                "#22F4E6", "box")
             footer_actions.addWidget(btn_invf, alignment=Qt.AlignmentFlag.AlignLeft)
+            btn_lotes = self.crear_tarjeta_menu("Lotes", "lotes", "#22F4E6", "box")
+            footer_actions.addWidget(btn_lotes, alignment=Qt.AlignmentFlag.AlignLeft)
 
         footer_actions.addStretch()
 
@@ -547,6 +549,7 @@ class MenuPrincipal(QWidget):
         "portal": "menu.card_portal",
         "kardex": "menu.card_kardex",
         "inventario_fisico": "menu.card_inventario_fisico",
+        "lotes": "menu.card_lotes",
         "tpv": "menu.card_tpv",
         "logout": "menu.card_salir",
     }
@@ -880,6 +883,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.inventario_fisico import InventarioFisicoWindow
 
                 self.manejar_apertura(v_id, InventarioFisicoWindow, **kwargs)
+            elif v_id == "lotes":
+                from src.gui.lotes_caducidades import LotesWindow
+
+                self.manejar_apertura(v_id, LotesWindow, **kwargs)
             elif v_id == "contabilidad":
                 from src.gui.contabilidad_gestion import ContabilidadWindow
 

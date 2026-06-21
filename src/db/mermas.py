@@ -73,6 +73,13 @@ def registrar_merma(codigo, cantidad, motivo, columna_stock=None):
                     id_tienda=tnd, observaciones=motivo)
             except Exception:
                 pass
+            # INV.3: consumo FEFO de lotes por merma (best-effort, no-op si no hay lotes).
+            try:
+                from src.db import lotes
+                lotes.consumir_fefo(codigo, cantidad, tipo="MERMA", id_empresa=emp,
+                                    id_tienda=tnd, observaciones=motivo)
+            except Exception:
+                pass
         return True
     except Exception as e:
         logging.error(f"Error al registrar merma: {e}")

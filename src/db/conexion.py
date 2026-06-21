@@ -1551,6 +1551,14 @@ def registrar_venta(
                                         observaciones="Venta simple")
         except Exception:
             pass
+        # INV.3: consumo FEFO de lotes (best-effort, no-op si no hay lotes).
+        try:
+            from src.db import lotes
+            lotes.consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA",
+                                usuario=str(empleado_id) if empleado_id else None,
+                                observaciones="Venta simple")
+        except Exception:
+            pass
         return True
     except Exception:
         logger.exception("Error en registrar_venta")
@@ -1631,6 +1639,18 @@ def registrar_venta_con_items(
                         usuario=str(empleado_id) if empleado_id else None,
                         id_empresa=_eid, id_tienda=_tid,
                         observaciones=f"Venta ticket #{venta_id}")
+        except Exception:
+            pass
+        # INV.3: consumo FEFO de lotes (best-effort, no-op si el artículo no tiene lotes).
+        try:
+            from src.db import lotes
+            for it in items:
+                cod = it.get("codigo_articulo") or it.get("codigo") or ""
+                qty = int(it.get("cantidad") or 0)
+                if cod and qty:
+                    lotes.consumir_fefo(cod, qty, tipo="SALIDA_VENTA", id_empresa=_eid,
+                                        id_tienda=_tid, id_documento=venta_id,
+                                        usuario=str(empleado_id) if empleado_id else None)
         except Exception:
             pass
         # C3.2: gancho fiscal (no-op si fiscal_config.activo=0). Best-effort: nunca

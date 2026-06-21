@@ -199,6 +199,22 @@ def cerrar_inventario(id_inv, usuario=None, id_empresa=None) -> dict:
             pass
     except Exception as e:
         logger.warning("kardex ajustes inventario %s: %s", id_inv, e)
+    # INV.3: refleja el ajuste en los lotes (best-effort, solo si el artículo tiene lotes).
+    try:
+        from src.db import lotes
+        for a in ajustes:
+            tnd = a["id_tienda"]
+            if a["diferencia"] < 0:
+                lotes.consumir_fefo(a["codigo"], -a["diferencia"], tipo="AJUSTE",
+                                    id_empresa=id_empresa, id_tienda=tnd,
+                                    id_documento=f"INV-{id_inv}", usuario=usuario,
+                                    observaciones=f"Ajuste inventario #{id_inv}")
+            elif a["diferencia"] > 0 and lotes.stock_por_lote(a["codigo"], id_empresa, tnd):
+                lotes.registrar_entrada(a["codigo"], f"INV-{id_inv}", a["diferencia"],
+                                        id_empresa=id_empresa, id_tienda=tnd, origen="inventario",
+                                        id_documento=f"INV-{id_inv}", usuario=usuario)
+    except Exception as e:
+        logger.warning("lotes ajustes inventario %s: %s", id_inv, e)
     return {"inventario": id_inv, "ajustes_aplicados": len(ajustes), "detalle": ajustes}
 
 
