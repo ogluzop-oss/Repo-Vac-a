@@ -458,6 +458,9 @@ class MenuPrincipal(QWidget):
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
             btn_kardex = self.crear_tarjeta_menu("Kárdex", "kardex", "#22F4E6", "box")
             footer_actions.addWidget(btn_kardex, alignment=Qt.AlignmentFlag.AlignLeft)
+            btn_invf = self.crear_tarjeta_menu("Inventario físico", "inventario_fisico",
+                                               "#22F4E6", "box")
+            footer_actions.addWidget(btn_invf, alignment=Qt.AlignmentFlag.AlignLeft)
 
         footer_actions.addStretch()
 
@@ -543,6 +546,7 @@ class MenuPrincipal(QWidget):
         "rrhh": "menu.card_rrhh",
         "portal": "menu.card_portal",
         "kardex": "menu.card_kardex",
+        "inventario_fisico": "menu.card_inventario_fisico",
         "tpv": "menu.card_tpv",
         "logout": "menu.card_salir",
     }
@@ -872,6 +876,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.kardex_visor import KardexVisorWindow
 
                 self.manejar_apertura(v_id, KardexVisorWindow, **kwargs)
+            elif v_id == "inventario_fisico":
+                from src.gui.inventario_fisico import InventarioFisicoWindow
+
+                self.manejar_apertura(v_id, InventarioFisicoWindow, **kwargs)
             elif v_id == "contabilidad":
                 from src.gui.contabilidad_gestion import ContabilidadWindow
 

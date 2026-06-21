@@ -29,4 +29,5 @@ MODULOS = [
     "0018_control_horario",
     "0019_firma_documental",
     "0020_kardex_movimientos",
+    "0021_inventario_fisico",
 ]
