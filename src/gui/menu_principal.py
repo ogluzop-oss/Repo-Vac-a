@@ -442,6 +442,8 @@ class MenuPrincipal(QWidget):
             btn_compras_av = self.crear_tarjeta_menu("Compras avanzado", "compras_avanzado",
                                                      "#22F4E6", "truck")
             footer_actions.addWidget(btn_compras_av, alignment=Qt.AlignmentFlag.AlignLeft)
+            btn_clientes = self.crear_tarjeta_menu("Clientes", "clientes_crm", "#22F4E6", "people")
+            footer_actions.addWidget(btn_clientes, alignment=Qt.AlignmentFlag.AlignLeft)
 
         # Contabilidad — ADMINISTRADOR / GERENTE / SUPERADMIN (control financiero).
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
@@ -552,6 +554,7 @@ class MenuPrincipal(QWidget):
         "catalogo": "menu.card_catalogo",
         "compras": "menu.card_compras",
         "compras_avanzado": "menu.card_compras_avanzado",
+        "clientes_crm": "menu.card_clientes_crm",
         "contabilidad": "menu.card_contabilidad",
         "rrhh": "menu.card_rrhh",
         "portal": "menu.card_portal",
@@ -881,6 +884,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.compras_avanzado_gui import ComprasAvanzadoWindow
 
                 self.manejar_apertura(v_id, ComprasAvanzadoWindow, **kwargs)
+            elif v_id == "clientes_crm":
+                from src.gui.clientes_gui import ClientesWindow
+
+                self.manejar_apertura(v_id, ClientesWindow, **kwargs)
             elif v_id == "rrhh":
                 from src.gui.rrhh_gestion import RRHHWindow
 

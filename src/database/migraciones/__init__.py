@@ -43,4 +43,12 @@ MODULOS = [
     "0032_facturas_avanzadas",
     "0033_costes_extra",
     "0034_proveedores_evaluacion",
+    "0035_clientes_pro",
+    "0036_promociones",
+    "0037_fidelizacion",
+    "0038_ventas_cobros",
+    "0039_venta_almacen_lote",
+    "0040_ventas_comercial",
+    "0041_caja_avanzada",
+    "0042_facturas_cliente",
 ]

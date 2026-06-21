@@ -240,6 +240,34 @@ def procesar_devolucion(
                             observaciones=f"Devolución #{dev_id} de venta #{venta_id}")
         except Exception:
             pass
+        # VTA.5: restituye al ALMACÉN y LOTE originales de la venta cuando existan.
+        try:
+            from src.db.conexion import obtener_conexion
+            from src.db import stock_almacen as SA, lotes as L
+            with obtener_conexion() as _c, _c.cursor() as _cur:
+                for it in items_devolver:
+                    cod = it.get("codigo_articulo", "")
+                    qty = int(it.get("cantidad", 0))
+                    if not cod or cod == "GRANEL" or qty <= 0:
+                        continue
+                    _cur.execute("SELECT id_almacen, id_lote FROM venta_items WHERE venta_id=%s "
+                                 "AND codigo_articulo=%s LIMIT 1", (venta_id, cod))
+                    row = _cur.fetchone()
+                    if not row:
+                        continue
+                    id_alm = row[0] if not isinstance(row, dict) else row["id_almacen"]
+                    id_lote = row[1] if not isinstance(row, dict) else row["id_lote"]
+                    if id_alm:
+                        SA.incrementar_stock(cod, id_alm, qty)
+                    if id_lote:
+                        lt = L.obtener_lote(id_lote)
+                        if lt:
+                            L.registrar_entrada(cod, lt["lote"], qty,
+                                                fecha_caducidad=lt.get("fecha_caducidad"),
+                                                id_almacen=id_alm, origen="devolucion",
+                                                id_documento=f"DEV{dev_id}", usuario=empleado)
+        except Exception:
+            pass
         # E6.5: encola el asiento de devolución (no-op si la contabilidad está apagada).
         try:
             import datetime as _dt

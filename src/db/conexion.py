@@ -1641,16 +1641,28 @@ def registrar_venta_con_items(
                         observaciones=f"Venta ticket #{venta_id}")
         except Exception:
             pass
-        # INV.3: consumo FEFO de lotes (best-effort, no-op si el artículo no tiene lotes).
+        # INV.3 + VTA.5: consumo FEFO de lotes (best-effort) y registro del almacén/lote
+        # de la venta (ventas.id_almacen + venta_items.id_almacen/id_lote).
         try:
             from src.db import lotes
-            for it in items:
-                cod = it.get("codigo_articulo") or it.get("codigo") or ""
-                qty = int(it.get("cantidad") or 0)
-                if cod and qty:
-                    lotes.consumir_fefo(cod, qty, tipo="SALIDA_VENTA", id_empresa=_eid,
-                                        id_tienda=_tid, id_documento=venta_id,
-                                        usuario=str(empleado_id) if empleado_id else None)
+            from src.db import stock_almacen as _SA
+            destino = _SA.almacen_de_tienda(_tid, _eid) if _tid else _SA.almacen_central(_eid)
+            with obtener_conexion() as _c2, _c2.cursor() as _cur2:
+                if destino:
+                    _cur2.execute("UPDATE ventas SET id_almacen=%s WHERE id=%s", (destino, venta_id))
+                for it in items:
+                    cod = it.get("codigo_articulo") or it.get("codigo") or ""
+                    qty = int(it.get("cantidad") or 0)
+                    if not (cod and qty):
+                        continue
+                    r = lotes.consumir_fefo(cod, qty, tipo="SALIDA_VENTA", id_empresa=_eid,
+                                            id_tienda=_tid, id_documento=venta_id,
+                                            usuario=str(empleado_id) if empleado_id else None)
+                    id_lote = (r.get("detalle") or [{}])[0].get("id_lote") if r else None
+                    _cur2.execute("UPDATE venta_items SET id_almacen=%s, id_lote=%s "
+                                  "WHERE venta_id=%s AND codigo_articulo=%s",
+                                  (destino, id_lote, venta_id, str(cod)))
+                _c2.commit()
         except Exception:
             pass
         # INV.4: sincroniza el ledger multialmacén si el artículo está gestionado.
