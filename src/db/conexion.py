@@ -1526,66 +1526,6 @@ def set_ubicacion(codigo: str, pasillo: str, estanteria: str, balda: str):
 # ============================================================
 
 
-def registrar_venta(
-    codigo: str,
-    cantidad: int,
-    fecha: str | None = None,
-    forma_pago: str = "efectivo",
-    empleado_id: int | None = None,
-    cliente_id: int | None = None,
-    iva: float = 0.0,
-    descuentos: float = 0.0,
-    devoluciones: float = 0.0,
-) -> bool:
-    """Registra una venta simple en MariaDB y actualiza stock."""
-    try:
-        ensure_schema()
-        if fecha is None:
-            fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        with obtener_conexion() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO ventas (codigo, cantidad, fecha, total, forma_pago, empleado)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        codigo,
-                        cantidad,
-                        fecha,
-                        0.0,
-                        forma_pago,
-                        str(empleado_id) if empleado_id else None,
-                    ),
-                )
-                _salida_stock_clamp(cur, codigo, cantidad, "venta")
-        try:
-            stock_signals.stock_actualizado.emit(str(codigo))
-        except Exception:
-            pass
-        # INV.1: kárdex SALIDA_VENTA (best-effort, no afecta a la venta).
-        try:
-            from src.db import kardex
-            kardex.registrar_movimiento(codigo, "SALIDA_VENTA", cantidad, origen="TIENDA",
-                                        usuario=str(empleado_id) if empleado_id else None,
-                                        observaciones="Venta simple")
-        except Exception:
-            pass
-        # INV.3: consumo FEFO de lotes (best-effort, no-op si no hay lotes).
-        try:
-            from src.db import lotes
-            lotes.consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA",
-                                usuario=str(empleado_id) if empleado_id else None,
-                                observaciones="Venta simple")
-        except Exception:
-            pass
-        return True
-    except Exception:
-        logger.exception("Error en registrar_venta")
-        return False
-
-
 def registrar_venta_con_items(
     items: list[dict],
     fecha: str | None = None,

@@ -52,10 +52,13 @@ def test_venta_genera_salida(db, fab):
 
 
 def test_venta_simple_genera_salida(db, fab):
-    from src.db.conexion import registrar_venta
+    from src.db.conexion import registrar_venta_con_items
     cod = fab.articulo(stock_tienda=20)
     fab.al_limpiar(lambda: _limpia(db, cod))
-    assert registrar_venta(cod, 2)
+    with contexto_tenant(EMPRESA_DEFAULT_ID, None):
+        vid = registrar_venta_con_items([{"codigo_articulo": cod, "cantidad": 2,
+                                          "precio_unitario": 1, "subtotal": 2}])
+    assert vid
     assert len(_movs(db, cod, "SALIDA_VENTA")) == 1
 
 

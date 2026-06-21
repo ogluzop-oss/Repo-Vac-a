@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.db.conexion import obtener_articulo, obtener_conexion, stock_signals
+from src.db.conexion import obtener_articulo, stock_signals
 
 logger = logging.getLogger("autocobro")
 
