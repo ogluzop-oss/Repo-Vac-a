@@ -54,4 +54,5 @@ MODULOS = [
     "0043_contab_cola_idempotente",
     "0044_indices_ventas",
     "0045_tesoreria_cuentas",
+    "0046_tesoreria_movimientos",
 ]

@@ -167,10 +167,168 @@ def listar_cuentas(*, solo_activas=True, id_tienda=None, id_empresa=None) -> lis
         return []
 
 
-def _audit(usuario, accion, detalles):
+def _audit(usuario, accion, detalles, tabla="cuentas_bancarias"):
     """Traza en auditoria_logs (best-effort; nunca rompe la operación)."""
     try:
         from src.db.conexion import log_auditoria
-        log_auditoria(usuario or "sistema", accion, "cuentas_bancarias", detalles)
+        log_auditoria(usuario or "sistema", accion, tabla, detalles)
     except Exception as e:
         logger.debug("audit %s: %s", accion, e)
+
+
+# ─────────────────────────────── Movimientos de tesorería (FASE 2) ───────────────────────────────
+TIPOS_MOV = ("COBRO", "PAGO", "TRANSFERENCIA", "AJUSTE", "CONCILIACION",
+             "NOMINA", "IMPUESTO", "COMISION")
+
+
+def _hash_mov(prev, id_empresa, fecha, tipo, importe, id_documento):
+    """Hash documental encadenado (SHA-256) sobre el hash previo de la empresa."""
+    import hashlib
+    base = f"{prev or ''}|{id_empresa}|{fecha}|{tipo}|{importe}|{id_documento or ''}"
+    return hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+
+def registrar_movimiento(tipo, importe, *, id_cuenta=None, fecha=None, concepto=None,
+                         referencia=None, origen="manual", id_documento=None,
+                         usuario=None, idempotente=False, id_empresa=None) -> int | None:
+    """Registra un movimiento en el libro de tesorería.
+
+    `importe` es CON SIGNO (+ entrada / − salida). Calcula el saldo corrido de la cuenta
+    (saldo_inicial + Σ importes) y un hash documental encadenado. Si `idempotente` y hay
+    `id_documento`, no duplica un movimiento ya existente con el mismo (origen, tipo,
+    id_documento) — patrón M1 (devuelve el id existente). Devuelve el id o None."""
+    id_empresa = _emp(id_empresa)
+    tipo = (tipo or "").upper()
+    if tipo not in TIPOS_MOV:
+        logger.warning("registrar_movimiento: tipo inválido %s", tipo)
+        return None
+    try:
+        importe = round(float(importe), 2)
+    except (TypeError, ValueError):
+        return None
+    f = fecha
+    if f is None:
+        import datetime as _dt
+        f = _dt.date.today().strftime("%Y-%m-%d")
+    elif hasattr(f, "strftime"):
+        f = f.strftime("%Y-%m-%d")
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            if idempotente and id_documento is not None:
+                cur.execute("SELECT id FROM movimientos_tesoreria WHERE id_empresa=%s AND "
+                            "origen=%s AND tipo=%s AND id_documento=%s LIMIT 1",
+                            (id_empresa, origen, tipo, str(id_documento)))
+                ya = cur.fetchone()
+                if ya:
+                    return ya[0] if not isinstance(ya, dict) else list(ya.values())[0]
+            # Saldo corrido de la cuenta (último saldo o saldo_inicial de la cuenta).
+            base_saldo = 0.0
+            if id_cuenta is not None:
+                cur.execute("SELECT saldo_resultante FROM movimientos_tesoreria WHERE id_empresa=%s "
+                            "AND id_cuenta=%s ORDER BY id DESC LIMIT 1", (id_empresa, id_cuenta))
+                r = cur.fetchone()
+                if r and (r[0] if not isinstance(r, dict) else list(r.values())[0]) is not None:
+                    base_saldo = float(r[0] if not isinstance(r, dict) else list(r.values())[0])
+                else:
+                    cur.execute("SELECT saldo_inicial FROM cuentas_bancarias WHERE id=%s AND id_empresa=%s",
+                                (id_cuenta, id_empresa))
+                    rc = cur.fetchone()
+                    if rc:
+                        base_saldo = float(rc[0] if not isinstance(rc, dict) else list(rc.values())[0])
+            saldo = round(base_saldo + importe, 2)
+            # Hash encadenado por empresa.
+            cur.execute("SELECT hash FROM movimientos_tesoreria WHERE id_empresa=%s "
+                        "ORDER BY id DESC LIMIT 1", (id_empresa,))
+            rp = cur.fetchone()
+            prev = (rp[0] if rp and not isinstance(rp, dict) else rp.get("hash") if rp else None)
+            h = _hash_mov(prev, id_empresa, f, tipo, importe, id_documento)
+            cur.execute(
+                "INSERT INTO movimientos_tesoreria (id_empresa, id_cuenta, fecha, tipo, concepto, "
+                "importe, saldo_resultante, referencia, origen, id_documento, usuario, hash) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (id_empresa, id_cuenta, f, tipo, concepto, importe, saldo, referencia,
+                 origen, (str(id_documento) if id_documento is not None else None), usuario, h))
+            mid = cur.lastrowid
+            conn.commit()
+        _audit(usuario, "movimiento_tesoreria", f"id={mid} {tipo} {importe}",
+               tabla="movimientos_tesoreria")
+        return mid
+    except Exception as e:
+        # UNIQUE de idempotencia: si choca por carrera, recupera el existente.
+        if idempotente and id_documento is not None:
+            try:
+                with obtener_conexion() as conn, conn.cursor() as cur:
+                    cur.execute("SELECT id FROM movimientos_tesoreria WHERE id_empresa=%s AND "
+                                "origen=%s AND tipo=%s AND id_documento=%s LIMIT 1",
+                                (id_empresa, origen, tipo, str(id_documento)))
+                    ya = cur.fetchone()
+                    if ya:
+                        return ya[0] if not isinstance(ya, dict) else list(ya.values())[0]
+            except Exception:
+                pass
+        logger.error("registrar_movimiento: %s", e)
+        return None
+
+
+def listar_movimientos(*, id_cuenta=None, desde=None, hasta=None, tipo=None,
+                       origen=None, id_empresa=None, limite=1000) -> list:
+    """Movimientos de tesorería (más recientes primero) con filtros opcionales."""
+    id_empresa = _emp(id_empresa)
+    q = "SELECT * FROM movimientos_tesoreria WHERE id_empresa=%s"
+    p = [id_empresa]
+    if id_cuenta is not None:
+        q += " AND id_cuenta=%s"; p.append(id_cuenta)
+    if tipo:
+        q += " AND tipo=%s"; p.append(tipo.upper())
+    if origen:
+        q += " AND origen=%s"; p.append(origen)
+    if desde:
+        q += " AND fecha>=%s"; p.append(desde)
+    if hasta:
+        q += " AND fecha<=%s"; p.append(hasta)
+    q += " ORDER BY fecha DESC, id DESC LIMIT %s"; p.append(int(limite))
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(q, p)
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_movimientos: %s", e)
+        return []
+
+
+def saldo_cuenta(id_cuenta, id_empresa=None) -> float:
+    """Saldo real de una cuenta = saldo_inicial + Σ importes de sus movimientos."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COALESCE(saldo_inicial,0) FROM cuentas_bancarias "
+                        "WHERE id=%s AND id_empresa=%s", (id_cuenta, id_empresa))
+            r = cur.fetchone()
+            ini = float((r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0) if r else 0.0
+            cur.execute("SELECT COALESCE(SUM(importe),0) FROM movimientos_tesoreria "
+                        "WHERE id_empresa=%s AND id_cuenta=%s", (id_empresa, id_cuenta))
+            r2 = cur.fetchone()
+            mov = float((r2[0] if not isinstance(r2, dict) else list(r2.values())[0]) or 0)
+            return round(ini + mov, 2)
+    except Exception as e:
+        logger.error("saldo_cuenta: %s", e)
+        return 0.0
+
+
+def transferencia(id_cuenta_origen, id_cuenta_destino, importe, *, fecha=None,
+                  concepto=None, usuario=None, id_empresa=None) -> tuple:
+    """Transferencia entre dos cuentas propias: genera dos movimientos TRANSFERENCIA
+    (salida en origen, entrada en destino) enlazados por la misma referencia."""
+    id_empresa = _emp(id_empresa)
+    importe = abs(round(float(importe), 2))
+    import uuid as _u
+    ref = "TRF-" + _u.uuid4().hex[:10]
+    c = (concepto or f"Transferencia {id_cuenta_origen}→{id_cuenta_destino}")
+    m1 = registrar_movimiento("TRANSFERENCIA", -importe, id_cuenta=id_cuenta_origen, fecha=fecha,
+                              concepto=c, referencia=ref, origen="transferencia",
+                              id_documento=ref + ":out", usuario=usuario, id_empresa=id_empresa)
+    m2 = registrar_movimiento("TRANSFERENCIA", importe, id_cuenta=id_cuenta_destino, fecha=fecha,
+                              concepto=c, referencia=ref, origen="transferencia",
+                              id_documento=ref + ":in", usuario=usuario, id_empresa=id_empresa)
+    return (m1, m2, ref)
