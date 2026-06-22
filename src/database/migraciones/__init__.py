@@ -56,4 +56,5 @@ MODULOS = [
     "0045_tesoreria_cuentas",
     "0046_tesoreria_movimientos",
     "0047_tesoreria_vencimientos",
+    "0048_pagos_proveedor",
 ]
