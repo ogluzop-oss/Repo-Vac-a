@@ -40,9 +40,13 @@ def _retencion() -> int:
 
 
 def _aplicar_retencion():
-    """Conserva solo los N backups más recientes (borra .sql y su .json)."""
+    """Conserva solo los N backups más recientes (borra .sql y su .json).
+    Ordena por fecha de modificación REAL (mtime), no por nombre: el nombre empieza por el
+    `motivo` (programado_/pre_migracion_/...), por lo que un orden alfabético no refleja la
+    antigüedad y podría borrar el backup más reciente conservando otros más antiguos."""
     carpeta = _dir_backups()
-    sqls = sorted((f for f in os.listdir(carpeta) if f.endswith(".sql")), reverse=True)
+    sqls = sorted((f for f in os.listdir(carpeta) if f.endswith(".sql")),
+                  key=lambda f: os.path.getmtime(os.path.join(carpeta, f)), reverse=True)
     for viejo in sqls[_retencion():]:
         for f in (viejo, viejo[:-4] + ".json"):
             ruta = os.path.join(carpeta, f)
@@ -150,10 +154,13 @@ def crear_backup(version_objetivo: str = "", motivo: str = "pre_migracion") -> d
 
 # ── Restauración ──────────────────────────────────────────────────────────────
 def listar_backups() -> list:
-    """Backups disponibles (más recientes primero) con sus metadatos si existen."""
+    """Backups disponibles (más recientes primero) con sus metadatos si existen.
+    Ordena por mtime real (no por nombre) para que `bks[0]` sea siempre el más reciente
+    (de él dependen edad_ultimo_backup_horas / backup_si_corresponde / verificar_backup)."""
     carpeta = _dir_backups()
     out = []
-    for f in sorted((x for x in os.listdir(carpeta) if x.endswith(".sql")), reverse=True):
+    for f in sorted((x for x in os.listdir(carpeta) if x.endswith(".sql")),
+                    key=lambda x: os.path.getmtime(os.path.join(carpeta, x)), reverse=True):
         ruta = os.path.join(carpeta, f)
         meta = {}
         sidecar = ruta[:-4] + ".json"
