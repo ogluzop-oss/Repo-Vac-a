@@ -90,6 +90,13 @@ def generar_xml(id_remesa, *, id_empresa=None) -> dict:
     rem = _S.obtener_remesa(id_remesa, id_empresa)
     if not rem:
         return {"ok": False, "errores": "remesa no encontrada"}
+    # Idempotencia / anti doble-emisión: si ya tiene XML emitido, NO se regenera (evita un
+    # nuevo MsgId y una segunda remesa con el mismo contenido). Solo se (re)genera en borrador.
+    if rem.get("estado") in ("emitida", "aceptada", "ejecutada") and rem.get("fichero_xml"):
+        return {"ok": True, "xsd_ok": True, "mensaje_id": rem.get("mensaje_id"),
+                "xml": rem["fichero_xml"], "errores": "", "idempotente": True}
+    if rem.get("estado") not in ("borrador", "rechazada"):
+        return {"ok": False, "errores": f"estado no permite generar: {rem.get('estado')}"}
     lineas = _S.lineas_remesa(id_remesa, id_empresa)
     if not lineas:
         return {"ok": False, "errores": "remesa sin operaciones"}

@@ -78,6 +78,40 @@ def contabilizar_movimiento(mov: dict, id_empresa=None):
         return None
 
 
+def reparar_tesoreria_pendiente(id_empresa=None, dias=30, aplicar=True) -> dict:
+    """Recuperación (análoga a H1): re-contabiliza los movimientos COBRO/PAGO que quedaron
+    SIN asiento tras un fallo/reinicio entre el commit del movimiento y su asiento (el
+    asiento se crea best-effort después del commit). Idempotente por ref 'tes:<id>'.
+    Devuelve {pendientes, reparados}. No hace nada si la contabilidad está apagada."""
+    id_empresa = _emp(id_empresa)
+    res = {"pendientes": 0, "reparados": 0}
+    if not _activa(id_empresa):
+        return res
+    from src.db.conexion import obtener_conexion
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT m.id, m.tipo, m.importe, m.id_cuenta, m.fecha, m.concepto "
+                "FROM movimientos_tesoreria m "
+                "WHERE m.id_empresa=%s AND m.tipo IN ('COBRO','PAGO') "
+                "AND m.fecha >= (CURDATE() - INTERVAL %s DAY) "
+                "AND NOT EXISTS (SELECT 1 FROM contab_asientos a WHERE a.id_empresa=m.id_empresa "
+                "  AND a.ref_origen=CONCAT('tes:', m.id) AND a.estado<>'anulado')",
+                (id_empresa, int(dias)))
+            filas = [r if isinstance(r, dict) else dict(zip([d[0] for d in cur.description], r))
+                     for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("reparar_tesoreria_pendiente/listar: %s", e)
+        return res
+    res["pendientes"] = len(filas)
+    if not aplicar:
+        return res
+    for m in filas:
+        if contabilizar_movimiento(m, id_empresa=id_empresa):
+            res["reparados"] += 1
+    return res
+
+
 def contabilizar_transferencia(ref_trf, fecha, importe, id_empresa=None):
     """Asiento de una transferencia entre cuentas propias: Debe 572 / Haber 572 (neto 0
     a nivel de grupo, pero deja traza). Idempotente por ref 'trf:<ref>'."""

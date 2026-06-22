@@ -1047,6 +1047,14 @@ if __name__ == "__main__":
         _pc()
     except Exception as _e:
         logger.debug(f"procesar_cola arranque: {_e}")
+    try:
+        from src.services.tesoreria import contabilidad as _tc
+        _rt = _tc.reparar_tesoreria_pendiente(aplicar=True)
+        if _rt.get("reparados"):
+            logger.warning("Recuperación arranque: %s movimientos de tesorería contabilizados",
+                           _rt["reparados"])
+    except Exception as _e:
+        logger.debug(f"reparar tesorería arranque: {_e}")
 
     # Traducción por IA (Nivel 2): enchufa el proveedor en i18n. Se activa solo
     # si hay backend LLM disponible (ANTHROPIC_API_KEY + paquete 'anthropic');

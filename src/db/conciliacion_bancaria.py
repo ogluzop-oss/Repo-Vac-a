@@ -113,19 +113,37 @@ def listar_lineas(id_extracto, *, solo_no_conciliadas=False, id_empresa=None) ->
 
 def marcar_conciliada(id_linea, id_movimiento, tipo="manual", *, diferencia=0.0,
                       usuario=None, id_empresa=None) -> bool:
-    """Marca la línea como conciliada, la enlaza al movimiento y registra la conciliación."""
+    """Marca la línea como conciliada, la enlaza al movimiento y registra la conciliación.
+
+    Atómico y a prueba de DOBLE conciliación: comprueba bajo bloqueo que la línea no esté ya
+    conciliada y que el movimiento no esté ya emparejado; el INSERT en conciliaciones está
+    además respaldado por UNIQUE(empresa,línea) y UNIQUE(empresa,movimiento) (migr 0051)."""
     id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE extracto_lineas SET conciliado=1, id_movimiento=%s "
-                        "WHERE id=%s AND id_empresa=%s", (id_movimiento, id_linea, id_empresa))
+            cur.execute("SELECT conciliado FROM extracto_lineas WHERE id=%s AND id_empresa=%s FOR UPDATE",
+                        (id_linea, id_empresa))
+            r = cur.fetchone()
+            if not r:
+                return False
+            if (r[0] if not isinstance(r, dict) else list(r.values())[0]):
+                logger.info("marcar_conciliada: línea %s ya conciliada", id_linea)
+                return False
+            cur.execute("SELECT 1 FROM conciliaciones WHERE id_empresa=%s AND id_movimiento=%s LIMIT 1",
+                        (id_empresa, id_movimiento))
+            if cur.fetchone():
+                logger.info("marcar_conciliada: movimiento %s ya emparejado", id_movimiento)
+                return False
             cur.execute("INSERT INTO conciliaciones (id_empresa, id_linea, id_movimiento, tipo, "
                         "diferencia, usuario) VALUES (%s,%s,%s,%s,%s,%s)",
                         (id_empresa, id_linea, id_movimiento, tipo, round(float(diferencia or 0), 2), usuario))
+            cur.execute("UPDATE extracto_lineas SET conciliado=1, id_movimiento=%s "
+                        "WHERE id=%s AND id_empresa=%s", (id_movimiento, id_linea, id_empresa))
             conn.commit()
         return True
     except Exception as e:
-        logger.error("marcar_conciliada: %s", e)
+        # Choque con UNIQUE (carrera) → conciliación ya existente: no es un error.
+        logger.info("marcar_conciliada (posible duplicado evitado): %s", e)
         return False
 
 

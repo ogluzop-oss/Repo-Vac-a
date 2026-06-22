@@ -203,11 +203,25 @@ def guardar_xml(id_remesa, mensaje_id, xml_texto, id_empresa=None) -> bool:
         return False
 
 
+# Máquina de estados de remesa (transiciones permitidas). 'ejecutada' es terminal.
+_TRANSICIONES = {
+    "borrador": {"emitida"},
+    "emitida": {"aceptada", "rechazada"},
+    "aceptada": {"ejecutada", "rechazada"},
+    "rechazada": {"borrador", "emitida"},
+    "ejecutada": set(),
+}
+
+
 def cambiar_estado(id_remesa, estado, *, fecha_ejecucion=None, id_empresa=None) -> bool:
-    """Transición de estado de la remesa (borrador→emitida→aceptada/rechazada→ejecutada)."""
+    """Transición de estado de la remesa, validando que sea legal (borrador→emitida→
+    aceptada→ejecutada; rechazada reabre). Impide ejecución múltiple y retrocesos."""
     id_empresa = _emp(id_empresa)
     if estado not in ESTADOS_REMESA:
         raise ValueError(f"estado inválido: {estado}")
+    actual = (obtener_remesa(id_remesa, id_empresa) or {}).get("estado")
+    if actual is not None and estado not in _TRANSICIONES.get(actual, set()):
+        raise ValueError(f"transición no permitida: {actual} → {estado}")
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             if fecha_ejecucion:
