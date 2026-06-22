@@ -450,6 +450,10 @@ class MenuPrincipal(QWidget):
             btn_contab = self.crear_tarjeta_menu("Contabilidad", "contabilidad", "#22F4E6", "bar_chart")
             footer_actions.addWidget(btn_contab, alignment=Qt.AlignmentFlag.AlignLeft)
 
+            # Tesorería / Bancos / SEPA — control financiero operativo.
+            btn_tes = self.crear_tarjeta_menu("Tesorería", "tesoreria", "#22F4E6", "bar_chart")
+            footer_actions.addWidget(btn_tes, alignment=Qt.AlignmentFlag.AlignLeft)
+
         # RRHH — ADMINISTRADOR / GERENTE / SUPERADMIN (expediente y empleados).
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
             btn_rrhh = self.crear_tarjeta_menu("RRHH", "rrhh", "#22F4E6", "people")
@@ -556,6 +560,7 @@ class MenuPrincipal(QWidget):
         "compras_avanzado": "menu.card_compras_avanzado",
         "clientes_crm": "menu.card_clientes_crm",
         "contabilidad": "menu.card_contabilidad",
+        "tesoreria": "menu.card_tesoreria",
         "rrhh": "menu.card_rrhh",
         "portal": "menu.card_portal",
         "kardex": "menu.card_kardex",
@@ -900,6 +905,10 @@ class MenuPrincipal(QWidget):
                 from src.gui.kardex_visor import KardexVisorWindow
 
                 self.manejar_apertura(v_id, KardexVisorWindow, **kwargs)
+            elif v_id == "tesoreria":
+                from src.gui.tesoreria_gui import TesoreriaWindow
+
+                self.manejar_apertura(v_id, TesoreriaWindow, **kwargs)
             elif v_id == "inventario_fisico":
                 from src.gui.inventario_fisico import InventarioFisicoWindow
 
