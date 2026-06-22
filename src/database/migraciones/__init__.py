@@ -58,4 +58,5 @@ MODULOS = [
     "0047_tesoreria_vencimientos",
     "0048_pagos_proveedor",
     "0049_conciliacion_bancaria",
+    "0050_sepa",
 ]

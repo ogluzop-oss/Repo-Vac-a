@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Espejo estructural (subconjunto) de ISO 20022 pain.001.001.03 (Customer Credit Transfer
+     Initiation). Cubre los elementos emitidos por src/services/tesoreria/sepa.py. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03"
+           xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03"
+           elementFormDefault="qualified">
+  <xs:element name="Document" type="Document"/>
+  <xs:complexType name="Document">
+    <xs:sequence><xs:element name="CstmrCdtTrfInitn" type="CstmrCdtTrfInitn"/></xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="CstmrCdtTrfInitn">
+    <xs:sequence>
+      <xs:element name="GrpHdr" type="GrpHdr"/>
+      <xs:element name="PmtInf" type="PmtInf" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="GrpHdr">
+    <xs:sequence>
+      <xs:element name="MsgId" type="xs:string"/>
+      <xs:element name="CreDtTm" type="xs:string"/>
+      <xs:element name="NbOfTxs" type="xs:string"/>
+      <xs:element name="CtrlSum" type="xs:decimal"/>
+      <xs:element name="InitgPty" type="Party"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="Party">
+    <xs:sequence><xs:element name="Nm" type="xs:string"/></xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="PmtInf">
+    <xs:sequence>
+      <xs:element name="PmtInfId" type="xs:string"/>
+      <xs:element name="PmtMtd" type="xs:string"/>
+      <xs:element name="NbOfTxs" type="xs:string"/>
+      <xs:element name="CtrlSum" type="xs:decimal"/>
+      <xs:element name="ReqdExctnDt" type="xs:string"/>
+      <xs:element name="Dbtr" type="Party"/>
+      <xs:element name="DbtrAcct" type="CashAccount"/>
+      <xs:element name="DbtrAgt" type="Agent"/>
+      <xs:element name="CdtTrfTxInf" type="CdtTrfTxInf" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="CashAccount">
+    <xs:sequence><xs:element name="Id" type="AccountId"/></xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="AccountId">
+    <xs:sequence><xs:element name="IBAN" type="xs:string"/></xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="Agent">
+    <xs:sequence><xs:element name="FinInstnId" type="FinInstnId"/></xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="FinInstnId">
+    <xs:sequence><xs:element name="BIC" type="xs:string"/></xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="CdtTrfTxInf">
+    <xs:sequence>
+      <xs:element name="PmtId" type="PmtId"/>
+      <xs:element name="Amt" type="Amt"/>
+      <xs:element name="CdtrAgt" type="Agent" minOccurs="0"/>
+      <xs:element name="Cdtr" type="Party"/>
+      <xs:element name="CdtrAcct" type="CashAccount"/>
+      <xs:element name="RmtInf" type="RmtInf" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="PmtId">
+    <xs:sequence><xs:element name="EndToEndId" type="xs:string"/></xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="Amt">
+    <xs:sequence><xs:element name="InstdAmt" type="ActiveAmt"/></xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ActiveAmt">
+    <xs:simpleContent>
+      <xs:extension base="xs:decimal">
+        <xs:attribute name="Ccy" type="xs:string" use="required"/>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:complexType name="RmtInf">
+    <xs:sequence><xs:element name="Ustrd" type="xs:string"/></xs:sequence>
+  </xs:complexType>
+</xs:schema>
