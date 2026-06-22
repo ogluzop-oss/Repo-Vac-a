@@ -119,7 +119,18 @@ def conciliar(id_linea, id_movimiento, *, tipo="manual", usuario=None, id_empres
                                usuario=usuario, id_empresa=id_empresa)
     if ok:
         _audit("concilia", f"linea={id_linea} mov={id_movimiento} ({tipo}) dif={dif}")
+        # FASE 10 — asiento contable de la diferencia bancaria (idempotente, solo si dif != 0).
+        if dif:
+            try:
+                from src.services.tesoreria import contabilidad as _TC
+                _TC.contabilizar_diferencia_conciliacion(id_linea, _hoy(), dif, id_empresa=id_empresa)
+            except Exception as e:
+                logger.debug("contab diferencia: %s", e)
     return ok
+
+
+def _hoy():
+    return _dt.date.today().strftime("%Y-%m-%d")
 
 
 def conciliar_automatico(id_extracto, *, tolerancia_dias=3, id_cuenta=None,

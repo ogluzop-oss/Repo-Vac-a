@@ -253,6 +253,15 @@ def registrar_movimiento(tipo, importe, *, id_cuenta=None, fecha=None, concepto=
             conn.commit()
         _audit(usuario, "movimiento_tesoreria", f"id={mid} {tipo} {importe}",
                tabla="movimientos_tesoreria")
+        # FASE 10 — asiento contable M1 (idempotente) para cobros/pagos. Best-effort.
+        if tipo in ("COBRO", "PAGO"):
+            try:
+                from src.services.tesoreria import contabilidad as _TC
+                _TC.contabilizar_movimiento({"id": mid, "tipo": tipo, "importe": importe,
+                                             "id_cuenta": id_cuenta, "fecha": f,
+                                             "concepto": concepto}, id_empresa=id_empresa)
+            except Exception as e:
+                logger.debug("contab movimiento: %s", e)
         return mid
     except Exception as e:
         # UNIQUE de idempotencia: si choca por carrera, recupera el existente.
@@ -331,4 +340,10 @@ def transferencia(id_cuenta_origen, id_cuenta_destino, importe, *, fecha=None,
     m2 = registrar_movimiento("TRANSFERENCIA", importe, id_cuenta=id_cuenta_destino, fecha=fecha,
                               concepto=c, referencia=ref, origen="transferencia",
                               id_documento=ref + ":in", usuario=usuario, id_empresa=id_empresa)
+    # FASE 10 — un único asiento por la transferencia (idempotente).
+    try:
+        from src.services.tesoreria import contabilidad as _TC
+        _TC.contabilizar_transferencia(ref, fecha, importe, id_empresa=id_empresa)
+    except Exception as e:
+        logger.debug("contab transferencia: %s", e)
     return (m1, m2, ref)
