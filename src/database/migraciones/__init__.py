@@ -55,4 +55,5 @@ MODULOS = [
     "0044_indices_ventas",
     "0045_tesoreria_cuentas",
     "0046_tesoreria_movimientos",
+    "0047_tesoreria_vencimientos",
 ]
