@@ -1,0 +1,42 @@
+# Despliegue de PRODUCCIÓN de referencia (OBS-9). Backend con gunicorn (WSGI) + MariaDB.
+# Estructura preparada para evolucionar a Kubernetes/Helm (no se despliega aquí).
+version: "3.9"
+services:
+  db:
+    image: mariadb:11
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:?requerido}
+      MARIADB_DATABASE: ${DB_NAME:-smart_manager_db}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  backend:
+    build: .
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:?requerido}
+      DB_NAME: ${DB_NAME:-smart_manager_db}
+      DB_PORT: "3306"
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:?requerido}
+      SMART_MANAGER_JWT_SECRET: ${SMART_MANAGER_JWT_SECRET:?requerido}
+      SM_LOG_JSON: "1"
+      API_HSTS: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/live').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "8000:8000"
+volumes:
+  db_data:

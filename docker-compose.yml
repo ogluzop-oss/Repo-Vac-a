@@ -1,0 +1,34 @@
+# Despliegue SaaS de referencia (FASE SAAS-M). Backend + MariaDB gestionable.
+version: "3.9"
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:-admin123}
+      MARIADB_DATABASE: ${DB_NAME:-smart_manager_db}
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  backend:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-admin123}
+      DB_NAME: ${DB_NAME:-smart_manager_db}
+      DB_PORT: "3306"
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-}
+      SMART_MANAGER_JWT_SECRET: ${SMART_MANAGER_JWT_SECRET:-cambia-esto}
+    ports:
+      - "8000:8000"
+volumes:
+  db_data:
