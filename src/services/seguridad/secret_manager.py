@@ -47,5 +47,19 @@ def rotar(token) -> str | None:
         return token
 
 
+def obtener_secreto(clave, default=None):
+    """Recupera un secreto con NOMBRE desde el backend de secretos configurado.
+
+    backend 'vault' (futuro) → punto de extensión HashiCorp Vault / cloud KMS (no implementado).
+    Fallback universal: variable de entorno homónima. Devuelve `default` si no existe.
+    Permite a los módulos resolver credenciales sin fichero en disco."""
+    if not clave:
+        return default
+    if _backend() == "vault":
+        # Punto de extensión: aquí se consultaría Vault/KMS. Degrada a entorno.
+        logger.debug("backend vault no configurado; resuelvo '%s' por entorno", clave)
+    return os.getenv(clave, default)
+
+
 def disponible_vault() -> bool:
     return False
