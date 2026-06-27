@@ -7417,18 +7417,10 @@ class UbicacionTiendaWindow(QMainWindow):
                 return
 
         try:
-            # 3. EJECUCIÓN POR COMANDO DE SISTEMA (Inmune a bloqueos de GUI)
-            sistema = platform.system()
+            # 3. Apertura portable (Windows/macOS/Linux) sin shell — capa unificada.
+            from src.utils import plataforma
             ruta_limpia = os.path.normpath(ruta)
-
-            if sistema == "Windows":
-                # El comando 'start' es una orden directa al kernel de Windows
-                # Las comillas vacías iniciales son obligatorias para el comando start
-                os.system(f'start "" "{ruta_limpia}"')
-            elif sistema == "Darwin":  # macOS
-                os.system(f'open "{ruta_limpia}"')
-            else:  # Linux
-                os.system(f'xdg-open "{ruta_limpia}"')
+            plataforma.abrir_carpeta(ruta_limpia)
 
             # 4. Feedback visual en la StatusBar
             if self.window().statusBar():
