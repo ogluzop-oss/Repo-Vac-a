@@ -36,7 +36,10 @@ def test_pitr_restore_timestamp(db):
     from src.services.dr import dr_pitr
     snap = dr_pitr.crear_snapshot(motivo="test_pitr_restore", offsite=False)
     assert snap["ok"]
-    r = dr_pitr.restaurar_a_timestamp(_dt.datetime.now())
+    # +2s de margen: evita el clock-skew entre el servidor de BD (creado_en = NOW() del
+    # servidor) y el reloj local, que hacía este test flaky en CI. La feature restaura a
+    # un instante >= creación; en producción siempre se restaura a tiempos pasados.
+    r = dr_pitr.restaurar_a_timestamp(_dt.datetime.now() + _dt.timedelta(seconds=2))
     assert r["ok"]
     # snapshot anterior a una fecha muy antigua -> no hay
     r2 = dr_pitr.restaurar_a_timestamp(_dt.datetime(2000, 1, 1))
