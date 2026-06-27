@@ -40,7 +40,8 @@ def _dir_documentos() -> str:
 
 
 def _client_secret_path() -> str | None:
-    """Ruta del client OAuth de Google (JSON descargado de Google Cloud)."""
+    """Ruta del client OAuth de Google en disco (fallback heredado).
+    1) env GOOGLE_OAUTH_CLIENT_FILE, 2) documentos/google_oauth_client.json."""
     env = os.getenv("GOOGLE_OAUTH_CLIENT_FILE")
     if env and os.path.exists(env):
         return env
@@ -48,9 +49,41 @@ def _client_secret_path() -> str | None:
     return ruta if os.path.exists(ruta) else None
 
 
+def _resolver_client_oauth() -> dict | None:
+    """Resuelve el client OAuth de Google por PRIORIDAD (endurecimiento de seguridad):
+
+      1. Variables de entorno GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET.
+      2. Secret Manager (src.services.seguridad.secret_manager) — Vault/KMS futuro.
+      3. Fichero env GOOGLE_OAUTH_CLIENT_FILE.
+      4. Fichero documentos/google_oauth_client.json (compat. instalaciones antiguas).
+
+    Devuelve {client_id, client_secret, origen} si hay credenciales sin fichero, o
+    {ruta_fichero, origen} si solo hay JSON en disco, o None si no hay configuración.
+    NO se rompe ninguna instalación existente: el fichero sigue siendo fallback válido."""
+    # 1) Variables de entorno directas.
+    cid = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+    csec = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+    if cid and csec:
+        return {"client_id": cid, "client_secret": csec, "origen": "env"}
+    # 2) Secret Manager (abstracción Vault/KMS; degrada a entorno en su capa).
+    try:
+        from src.services.seguridad import secret_manager
+        cid = secret_manager.obtener_secreto("GOOGLE_OAUTH_CLIENT_ID")
+        csec = secret_manager.obtener_secreto("GOOGLE_OAUTH_CLIENT_SECRET")
+        if cid and csec:
+            return {"client_id": cid, "client_secret": csec, "origen": "secret_manager"}
+    except Exception as e:
+        logger.debug("secret_manager no disponible: %s", e)
+    # 3 y 4) Fichero JSON en disco (fallback heredado).
+    ruta = _client_secret_path()
+    if ruta:
+        return {"ruta_fichero": ruta, "origen": "file"}
+    return None
+
+
 def oauth_google_configurado() -> bool:
-    """True si existe el client OAuth de Google y la librería está disponible."""
-    if _client_secret_path() is None:
+    """True si hay client OAuth de Google (env/secret manager/fichero) y la librería disponible."""
+    if _resolver_client_oauth() is None:
         return False
     try:
         import google_auth_oauthlib.flow  # noqa: F401
@@ -76,13 +109,26 @@ def iniciar_oauth_google(id_correo: str) -> tuple[bool, str]:
     """Lanza el flujo OAuth 2.0 de Google para un buzón y guarda los tokens
     CIFRADOS. Requiere el client OAuth (google_oauth_client.json). Abre el
     navegador del usuario para el consentimiento (InstalledAppFlow)."""
-    ruta = _client_secret_path()
-    if not ruta:
-        return False, ("Falta el client OAuth de Google. Coloca 'google_oauth_client.json' "
-                       "en la carpeta documentos/ (descárgalo de Google Cloud Console).")
+    conf = _resolver_client_oauth()
+    if not conf:
+        return False, ("Falta el client OAuth de Google. Define GOOGLE_OAUTH_CLIENT_ID/"
+                       "GOOGLE_OAUTH_CLIENT_SECRET (recomendado), configúralo en el secret "
+                       "manager, o coloca 'google_oauth_client.json' en documentos/.")
     try:
         from google_auth_oauthlib.flow import InstalledAppFlow
-        flujo = InstalledAppFlow.from_client_secrets_file(ruta, GMAIL_SCOPES)
+        if conf.get("client_id"):
+            # Sin fichero en disco: construye la config del cliente en memoria.
+            client_config = {"installed": {
+                "client_id": conf["client_id"],
+                "client_secret": conf["client_secret"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "redirect_uris": ["http://localhost"],
+            }}
+            flujo = InstalledAppFlow.from_client_config(client_config, GMAIL_SCOPES)
+        else:
+            flujo = InstalledAppFlow.from_client_secrets_file(conf["ruta_fichero"], GMAIL_SCOPES)
         cred = flujo.run_local_server(port=0)
         expira = cred.expiry.strftime("%Y-%m-%d %H:%M:%S") if getattr(cred, "expiry", None) else None
         correo_db.guardar_tokens(
@@ -106,12 +152,13 @@ def _credenciales_google(id_correo: str):
     tok = correo_db.obtener_tokens(id_correo)
     if not tok:
         return None
-    ruta = _client_secret_path()
-    cid = csec = None
-    if ruta:
+    # Resuelve client_id/secret por prioridad (env → secret manager → fichero).
+    conf = _resolver_client_oauth() or {}
+    cid, csec = conf.get("client_id"), conf.get("client_secret")
+    if not (cid and csec) and conf.get("ruta_fichero"):
         try:
             import json
-            data = json.load(open(ruta, encoding="utf-8"))
+            data = json.load(open(conf["ruta_fichero"], encoding="utf-8"))
             blob = data.get("installed") or data.get("web") or {}
             cid, csec = blob.get("client_id"), blob.get("client_secret")
         except Exception:

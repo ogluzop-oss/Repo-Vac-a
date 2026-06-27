@@ -51,3 +51,19 @@ mono‑empresa el riesgo es nulo, por lo que **no procede** abordarlo ahora.
 ## Estado
 Decisión tomada y registrada. Cumple el criterio de cierre de E1 “decisión formal
 sobre tenancy”. **No se ha modificado código de aislamiento.**
+
+## Correo Gmail OAuth por entorno (SaaS)
+
+El envío vía **API de Gmail (OAuth)** del módulo de correo corporativo resuelve el client
+OAuth **sin fichero en disco** cuando es posible, por este orden:
+
+1. Variables de entorno `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
+2. Secret manager (`src.services.seguridad.secret_manager`, backend Vault/KMS futuro).
+3. `GOOGLE_OAUTH_CLIENT_FILE` (ruta a JSON).
+4. `documentos/google_oauth_client.json` (fallback heredado).
+
+En despliegue SaaS, inyecta `GOOGLE_OAUTH_CLIENT_ID/SECRET` como secretos del entorno
+(K8s Secret, gestor de secretos del proveedor, etc.) en lugar de versionar/copiar JSON.
+Los **tokens** OAuth por buzón se guardan **cifrados (Fernet)** en BD, aislados por empresa
+como el resto de datos. La recepción usa IMAP y el envío también admite SMTP (contraseña de
+aplicación), por lo que esta integración es **opcional y degradable**.
