@@ -450,6 +450,16 @@ class SmartManagerApp(QStackedWidget):
             except Exception:
                 pass
             sesion_global.iniciar_sesion(user_data)
+            # UX-TPV-01: cargar y aplicar el perfil táctil guardado del usuario.
+            try:
+                from PyQt6.QtWidgets import QApplication
+
+                from assets.estilo_global import aplicar_estilo_app
+                from src.utils import perfil_tactil
+                perfil_tactil.cargar_desde_preferencias(user_data.get("id"))
+                aplicar_estilo_app(QApplication.instance())
+            except Exception:
+                pass
             self.abrir_menu_principal()
             self.ventana_login.txt_password.clear()
             self.overlay.hide()

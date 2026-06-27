@@ -74,3 +74,35 @@ def altura_min_control() -> int:
 def espaciado_min() -> int:
     """Espaciado mínimo recomendado entre controles en el perfil activo (px)."""
     return _ESPACIADO_MIN.get(perfil_actual(), 6)
+
+
+# Clave de persistencia por usuario (tabla preferencias_usuario).
+CLAVE_PREF = "perfil_tactil"
+
+
+def cargar_desde_preferencias(id_usuario) -> str:
+    """Carga el perfil guardado del usuario y lo activa. Llamar tras el login.
+
+    Prioridad: si SMART_MANAGER_PERFIL_TACTIL está definida (override global), gana y no se
+    pisa. Si no, se usa la preferencia del usuario. Tolerante a fallos (degrada a 'normal')."""
+    if _normalizar(os.getenv("SMART_MANAGER_PERFIL_TACTIL")):
+        return perfil_actual()
+    try:
+        from src.db import preferencias
+        val = preferencias.obtener(id_usuario, CLAVE_PREF, None)
+        if _normalizar(val):
+            return set_perfil(val)
+    except Exception as e:
+        logger.debug("cargar_desde_preferencias: %s", e)
+    return perfil_actual()
+
+
+def guardar_en_preferencias(id_usuario, valor) -> str:
+    """Activa y persiste el perfil del usuario. Devuelve el perfil aplicado."""
+    aplicado = set_perfil(valor)
+    try:
+        from src.db import preferencias
+        preferencias.guardar(id_usuario, CLAVE_PREF, aplicado)
+    except Exception as e:
+        logger.error("guardar_en_preferencias: %s", e)
+    return aplicado

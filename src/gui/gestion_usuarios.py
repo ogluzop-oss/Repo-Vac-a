@@ -3773,13 +3773,13 @@ class ConfiguracionWindow(QWidget):
         self._tab_keys = [
             "cfg.tab_caja", "cfg.tab_plazo", "cfg.tab_perfil", "cfg.tab_horario",
             "cfg.tab_fichajes", "cfg.tab_logo", "cfg.tab_citas", "cfg.tab_fiscalidad",
-            "cfg.tab_referencia", "cfg.tab_datos_empresa",
+            "cfg.tab_referencia", "cfg.tab_datos_empresa", "cfg.tab_modo_tactil",
         ]
         _tab_def = [
             "GESTIÓN CAJA", "PLAZO DEVOLUCIÓN", "GENERAR PERFIL EMPLEADO",
             "HORARIO EMPLEADOS", "FICHAJES", "LOGO CORPORATIVO",
             "PLANIFICAR CITAS", "FISCALIDAD", "ASIGNAR REFERENCIA",
-            "DATOS DE EMPRESA",
+            "DATOS DE EMPRESA", "MODO TÁCTIL",
         ]
 
         self.btns = []
@@ -3834,6 +3834,7 @@ class ConfiguracionWindow(QWidget):
             7: self._crear_page_fiscalidad,
             8: self._crear_page_referencia,
             9: self._crear_page_datos_empresa,
+            10: self._crear_page_modo_tactil,
         }
         self._loaded_pages = set()
         for i in range(len(self._page_builders)):
@@ -6759,6 +6760,93 @@ class ConfiguracionWindow(QWidget):
             mostrar_mensaje(self, tr("cfg.saved_title", default="Guardado"), _msg, "success")
         else:
             mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.ref_save_err", default="No se pudo guardar la referencia. Revisa la conexión con la base de datos."), "error")
+
+    def _id_usuario_actual(self):
+        """ID del usuario activo (self.usuario puede ser dict u objeto)."""
+        u = self.usuario
+        return (u or {}).get("id") if isinstance(u, dict) else getattr(u, "id", None)
+
+    def _crear_page_modo_tactil(self):
+        """Selector de perfil táctil (NORMAL/TÁCTIL/TPV/PDA). Persiste por usuario y aplica en caliente."""
+        from PyQt6.QtWidgets import QButtonGroup, QRadioButton
+
+        from src.utils import perfil_tactil
+
+        page = QWidget()
+        ly = QVBoxLayout(page)
+        ly.setContentsMargins(40, 30, 40, 40)
+        ly.setSpacing(14)
+
+        titulo = QLabel(tr("cfg.tactil_title", default="MODO TÁCTIL / DISPOSITIVO"))
+        titulo.setStyleSheet("color: white; font-weight: 900; font-size: 20px; letter-spacing: 1px;")
+        ly.addWidget(titulo)
+
+        desc = QLabel(tr("cfg.tactil_desc",
+                         default="Ajusta el tamaño táctil de botones, campos, combos, tablas y pestañas "
+                                 "en toda la interfaz. Se guarda por usuario y se aplica al instante."))
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #8B949E; font-size: 13px;")
+        ly.addWidget(desc)
+        ly.addSpacing(8)
+
+        opciones = [
+            (perfil_tactil.NORMAL, tr("cfg.tactil_normal", default="NORMAL"),
+             tr("cfg.tactil_normal_sub", default="Ratón/teclado — sin ampliación")),
+            (perfil_tactil.TACTIL, tr("cfg.tactil_tactil", default="TÁCTIL"),
+             tr("cfg.tactil_tactil_sub", default="Pantalla táctil — controles ≥ 48 px")),
+            (perfil_tactil.TPV, tr("cfg.tactil_tpv", default="TPV"),
+             tr("cfg.tactil_tpv_sub", default="Terminal punto de venta — controles ≥ 56 px")),
+            (perfil_tactil.PDA, tr("cfg.tactil_pda", default="PDA / MDE"),
+             tr("cfg.tactil_pda_sub", default="Terminal de mano — controles ≥ 44 px")),
+        ]
+        actual = perfil_tactil.perfil_actual()
+        self._tactil_group = QButtonGroup(self)
+        self._tactil_radios = {}
+        for val, lbl, sub in opciones:
+            rb = QRadioButton(f"{lbl}   —   {sub}")
+            rb.setCursor(Qt.CursorShape.PointingHandCursor)
+            rb.setChecked(val == actual)
+            rb.setStyleSheet(
+                "QRadioButton { color: white; font-family: 'Segoe UI'; font-size: 15px; font-weight: bold;"
+                " padding: 10px; spacing: 12px; }"
+                "QRadioButton::indicator { width: 20px; height: 20px; }"
+                f"QRadioButton:hover {{ color: {_CIAN}; }}"
+            )
+            self._tactil_group.addButton(rb)
+            self._tactil_radios[val] = rb
+            ly.addWidget(rb)
+
+        ly.addStretch()
+        btn = QPushButton(tr("cfg.tactil_apply", default="GUARDAR Y APLICAR"))
+        btn.setFixedSize(220, 50)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet(
+            "QPushButton { background: #238636; color: #0E1117; border-radius: 12px;"
+            " font-family: 'Segoe UI'; font-weight: bold; font-size: 14px; }"
+            "QPushButton:hover { background: #FFFFFF; color: #0E1117; }"
+        )
+        btn.clicked.connect(self._aplicar_perfil_tactil)
+        h = QHBoxLayout(); h.addStretch(); h.addWidget(btn)
+        ly.addLayout(h)
+        return page
+
+    def _aplicar_perfil_tactil(self):
+        """Persiste el perfil elegido (por usuario) y lo aplica en caliente a toda la app."""
+        from src.utils import perfil_tactil
+        sel = next((v for v, rb in self._tactil_radios.items() if rb.isChecked()), perfil_tactil.NORMAL)
+        perfil_tactil.guardar_en_preferencias(self._id_usuario_actual(), sel)
+        try:
+            from PyQt6.QtWidgets import QApplication
+
+            from assets.estilo_global import aplicar_estilo_app
+            aplicar_estilo_app(QApplication.instance())  # re-aplica el QSS global sin reiniciar
+        except Exception:
+            pass
+        mostrar_mensaje(
+            self, tr("cfg.saved_title", default="Guardado"),
+            tr("cfg.tactil_saved", default="Perfil táctil aplicado: {p}", p=sel.upper()),
+            "success",
+        )
 
     def _crear_page_placeholder(self, nombre):
         page = QWidget()
