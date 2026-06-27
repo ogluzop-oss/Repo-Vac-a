@@ -945,7 +945,7 @@ class _ImportarStockPage(QWidget):
 
         self._btn = btn = QPushButton(tr("stock.import_btn", default="IMPORTAR STOCK"))
         btn.setStyleSheet(_BTN_CIAN_SS)
-        btn.setFixedSize(200, 62)
+        btn.setMinimumSize(160, 62); btn.setMaximumWidth(320)  # responsive (P2): antes fijo 200x62
         btn.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn.clicked.connect(self._importar)
@@ -1014,7 +1014,7 @@ class _ExportarStockPage(QWidget):
 
         self._btn = btn = QPushButton(tr("stock.export_btn", default="EXPORTAR STOCK"))
         btn.setStyleSheet(_BTN_CIAN_SS)
-        btn.setFixedSize(200, 62)
+        btn.setMinimumSize(160, 62); btn.setMaximumWidth(320)  # responsive (P2): antes fijo 200x62
         btn.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn.clicked.connect(self._exportar)
@@ -1137,7 +1137,7 @@ class _InventarioPage(QWidget):
 
         self._btn = btn = QPushButton(tr("stock.inventory_btn", default="ABRIR INVENTARIO"))
         btn.setStyleSheet(_BTN_CIAN_SS)
-        btn.setFixedSize(240, 62)
+        btn.setMinimumSize(180, 62); btn.setMaximumWidth(340)  # responsive (P2): antes fijo 240x62
         btn.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn.clicked.connect(self._abrir_drive)
@@ -1184,6 +1184,13 @@ class MostrarStockWindow(QWidget):
         self.setStyleSheet(f"background-color: {_FONDO}; color: white;")
         i18n.conectar_retraduccion(self, self._retraducir)
 
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario_actual, clave="stock")
+        except Exception:
+            pass
+
     def _setup_ui(self):
         self.setWindowTitle(tr("stock.smart_stock", default="Smart Stock"))
         root = QHBoxLayout(self)
@@ -1192,6 +1199,7 @@ class MostrarStockWindow(QWidget):
 
         # ---- Sidebar (uses global QSS objectNames) ----
         sidebar = QFrame()
+        self.sidebar = sidebar  # P3: referencia para el toggle colapsable
         sidebar.setObjectName("sidebar_logistica")
         sidebar.setFixedWidth(280)
 

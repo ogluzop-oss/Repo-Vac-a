@@ -64,6 +64,14 @@ class InformeReposicionWindow(QWidget):
         self.setup_ui()
         i18n.conectar_retraduccion(self, self._retraducir)
 
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            if getattr(self, "sidebar", None) is not None:
+                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario_actual, clave="reposicion")
+        except Exception:
+            pass
+
     # ============================================================
     # BLOQUE INICIALIZACIÓN DE BASE DE DATOS
     # ============================================================
@@ -252,7 +260,7 @@ class InformeReposicionWindow(QWidget):
 
             self.btn_refresh = QPushButton("🔄 " + tr("repo.refresh", default="ACTUALIZAR TABLA"))
             self.btn_refresh.setStyleSheet(InformeReposicionWindow._BTN_CIAN_SS)
-            self.btn_refresh.setFixedWidth(250)
+            self.btn_refresh.setMinimumWidth(180); self.btn_refresh.setMaximumWidth(300)  # responsive (P2)
             self.btn_refresh.clicked.connect(self._ejecutar_actualizacion)
             InformeReposicionWindow._sombra_cian(parent, self.btn_refresh)
             layout.addWidget(self.btn_refresh, alignment=Qt.AlignmentFlag.AlignRight)
@@ -416,13 +424,13 @@ class InformeReposicionWindow(QWidget):
                 tr("repo.search_ph", default="Introduce código o nombre para editar stock esperado...")
             )
             self.search_bar.setStyleSheet(InformeReposicionWindow._NEON_INPUT_SS)
-            self.search_bar.setFixedWidth(500)
+            self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
             self.search_bar.returnPressed.connect(self._buscar)
             layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
 
             self._btn_buscar = btn_buscar = QPushButton(tr("repo.search_btn", default="BUSCAR ARTÍCULO"))
             btn_buscar.setStyleSheet(InformeReposicionWindow._BTN_CIAN_SS)
-            btn_buscar.setFixedWidth(250)
+            btn_buscar.setMinimumWidth(180); btn_buscar.setMaximumWidth(300)  # responsive (P2)
             btn_buscar.clicked.connect(self._buscar)
             InformeReposicionWindow._sombra_cian(parent, btn_buscar)
             layout.addWidget(btn_buscar, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -535,7 +543,7 @@ class InformeReposicionWindow(QWidget):
 
             self._btn_export = btn_export = QPushButton(tr("repo.export_btn", default="EXPORTAR Y MARCAR COMO REPUESTO"))
             btn_export.setStyleSheet(InformeReposicionWindow._BTN_CIAN_SS)
-            btn_export.setFixedSize(380, 60)
+            btn_export.setMinimumSize(240, 60); btn_export.setMaximumWidth(420)  # responsive (P2)
             btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_export.clicked.connect(self._exportar_flujo)
             InformeReposicionWindow._sombra_cian(parent, btn_export)
@@ -715,7 +723,7 @@ class InformeReposicionWindow(QWidget):
         root.setSpacing(0)
 
         # ---- SIDEBAR ----
-        sidebar = QFrame()
+        sidebar = QFrame(); self.sidebar = sidebar  # P3
         sidebar.setFixedWidth(280)
         sidebar.setStyleSheet(
             f"background-color: {self._PANEL_BG}; border-right: 1px solid {self._BORDE};"

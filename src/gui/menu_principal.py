@@ -25,6 +25,7 @@ from src.db.usuario import sesion_global
 from src.utils import i18n
 from src.utils.i18n import tr
 
+
 def _resolver_logo():
     """Logo CORPORATIVO del cliente (subido en Configuración → Logo corporativo,
     guardado en documentos/logo_corporativo.png). Si no hay ninguno, cae al logo
@@ -35,6 +36,7 @@ def _resolver_logo():
         return corp
     try:
         from src.utils import recursos
+
         app_logo = recursos.ruta_recurso("assets", "Logo Smart Manager.png")
         if os.path.exists(app_logo):
             return app_logo
@@ -69,11 +71,11 @@ class _SomaIndicator(QWidget):
     """
 
     _COLORS = {
-        "inactivo":    ("#1e2530", "#4a5568", "SOMA"),
-        "escuchando":  ("#0d2a2a", "#00FFC6", "SOMA ●"),
-        "activado":    ("#00FFC6", "#001a15", "SOMA ◉"),
-        "procesando":  ("#2a1a00", "#ffaa00", "SOMA ···"),
-        "error":       ("#2a0000", "#ff4444", "SOMA ✕"),
+        "inactivo": ("#1e2530", "#4a5568", "SOMA"),
+        "escuchando": ("#0d2a2a", "#00FFC6", "SOMA ●"),
+        "activado": ("#00FFC6", "#001a15", "SOMA ◉"),
+        "procesando": ("#2a1a00", "#ffaa00", "SOMA ···"),
+        "error": ("#2a0000", "#ff4444", "SOMA ✕"),
     }
 
     def __init__(self, parent=None):
@@ -148,10 +150,11 @@ class MenuCardButton(QToolButton):
         self.setText(texto)
         self.setIcon(self._icono_normal)
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self.setIconSize(QSize(82, 82))
-        self.setFixedSize(210, 170)
+        self.setIconSize(QSize(46, 46))
+        self.setFixedSize(110, 96)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFont(QFont("Segoe UI", 14, QFont.Weight.Black))
+        self.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        self.setContentsMargins(0, 0, 0, 0)
         self.setStyleSheet(self._build_style(color))
         self._aplicar_glow(color)
 
@@ -161,11 +164,12 @@ class MenuCardButton(QToolButton):
                 background-color: rgba(25, 34, 44, 0.88);
                 color: #F3F6F9;
                 border: 1px solid rgba(0, 255, 198, 0.10);
-                border-radius: 28px;
-                padding: 12px 12px 12px 12px;
+                border-radius: 14px;
+                padding: 0px 4px 0px 4px;
+                margin: 0;
                 text-align: center;
                 font-family: 'Segoe UI';
-                font-size: 14px;
+                font-size: 12px;
                 font-weight: 900;
             }}
             QToolButton:hover {{
@@ -177,7 +181,7 @@ class MenuCardButton(QToolButton):
                 background-color: {color};
                 color: #0B1118;
                 border: 1px solid {color};
-                padding-top: 15px;
+                padding-top: 2px;
             }}
         """
 
@@ -215,8 +219,8 @@ class MenuPrincipal(QWidget):
         self._ventanas = {}
         self._cerrando = False
         # Registros para la re-traducción en caliente (i18n)
-        self._cards = {}          # v_id -> MenuCardButton
-        self._lock_lbls = []      # etiquetas de tarjetas bloqueadas
+        self._cards = {}  # v_id -> MenuCardButton
+        self._lock_lbls = []  # etiquetas de tarjetas bloqueadas
 
         # Mantener el comportamiento actual del ciclo de vida sin alterar diseño.
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -253,7 +257,7 @@ class MenuPrincipal(QWidget):
         self.setAutoFillBackground(True)
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(30, 4, 30, 6)
+        main_layout.setContentsMargins(30, 4, 30, 10)
         main_layout.setSpacing(4)
 
         top_bar = QHBoxLayout()
@@ -293,13 +297,14 @@ class MenuPrincipal(QWidget):
                 "QPushButton{background:#0E1117;color:#E6EDF3;border:2px solid #00FFC6;"
                 "border-radius:10px;text-align:left;padding:5px 14px;font-family:'Segoe UI';"
                 "font-weight:900;font-size:11px;letter-spacing:0.5px;}"
-                "QPushButton:hover{background:#11312B;}")
+                "QPushButton:hover{background:#11312B;}"
+            )
             self.btn_tienda.clicked.connect(self._abrir_selector_tienda)
             left_hbox.addWidget(self.btn_tienda, 0, Qt.AlignmentFlag.AlignVCenter)
             self._actualizar_chip_tienda()
         left_hbox.addStretch()
 
-        top_bar.addWidget(left_panel, 1)   # stretch=1 → mirrors right side
+        top_bar.addWidget(left_panel, 1)  # stretch=1 → mirrors right side
 
         # ── CENTER (no stretch — stays perfectly centered) ─────────────────
         center_block = QWidget()
@@ -345,8 +350,11 @@ class MenuPrincipal(QWidget):
         right_hbox.addStretch()
 
         self._user_info_lbl = user_info = QLabel(
-            tr("menu.user_info", nombre=self.nombre_usuario.upper(),
-               perfil=self._perfil_traducido())
+            tr(
+                "menu.user_info",
+                nombre=self.nombre_usuario.upper(),
+                perfil=self._perfil_traducido(),
+            )
         )
         user_info.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         user_info.setStyleSheet("""
@@ -369,34 +377,61 @@ class MenuPrincipal(QWidget):
         menu_container.setStyleSheet("background: transparent; border: none;")
         menu_layout = QVBoxLayout(menu_container)
         menu_layout.setContentsMargins(0, 2, 0, 0)
-        menu_layout.setSpacing(10)
+        menu_layout.setSpacing(0)
 
         grid_container = QFrame()
         grid_container.setStyleSheet("background: transparent; border: none;")
         grid_layout = QGridLayout(grid_container)
-        grid_layout.setHorizontalSpacing(22)
-        grid_layout.setVerticalSpacing(14)
+        grid_layout.setHorizontalSpacing(8)
+        grid_layout.setVerticalSpacing(6)
         grid_layout.setContentsMargins(0, 0, 0, 0)
 
         botones_principales = [
-            ("Recepción", "logistica", 0, 0, False, "#22F4E6", "truck"),
-            ("Stock", "stock", 0, 1, False, "#22F4E6", "box"),
-            ("Ubicación", "ubicacion", 0, 2, False, "#22F4E6", "search"),
-            ("Artículo", "info", 0, 3, False, "#22F4E6", "document"),
-            ("Mermas", "mermas", 1, 0, False, "#22F4E6", "trash"),
-            ("Etiquetas", "etiquetas", 1, 1, False, "#22F4E6", "tag"),
-            ("Reposición", "reposicion", 1, 2, False, "#22F4E6", "bar_chart"),
-            ("Ventas", "ventas", 1, 3, True, "#22F4E6", "line_chart"),
+            ("TPV", "tpv", 0, 0, False, "#22F4E6", "shopping_bag"),
+            ("Recepción", "logistica", 0, 1, False, "#22F4E6", "truck"),
+            ("Stock", "stock", 0, 2, False, "#22F4E6", "box"),
+            ("Ubicación", "ubicacion", 0, 3, False, "#22F4E6", "search"),
+            ("Artículo", "info", 0, 4, False, "#22F4E6", "document"),
+            (
+                "Documentos",
+                "documentos",
+                0,
+                5,
+                "ADMINISTRADOR|GERENTE|SUPERADMIN",
+                "#22F4E6",
+                "document",
+            ),
+            ("Correo", "correo", 1, 0, "ADMINISTRADOR|GERENTE", "#22F4E6", "mail"),
+            ("Mermas", "mermas", 1, 1, False, "#22F4E6", "trash"),
+            ("Etiquetas", "etiquetas", 1, 2, False, "#22F4E6", "tag"),
+            ("Reposición", "reposicion", 1, 3, False, "#22F4E6", "bar_chart"),
+            ("Ventas", "ventas", 1, 4, True, "#22F4E6", "line_chart"),
+            (
+                "Catálogo",
+                "catalogo",
+                1,
+                5,
+                "ADMINISTRADOR|GERENTE|SUPERADMIN",
+                "#22F4E6",
+                "shopping_bag",
+            ),
         ]
 
         for texto, v_id, fila, col, solo_admin, color, icon_key in botones_principales:
             tiene_acceso = True
-            if (
-                solo_admin
-                and v_id == "ventas"
-                and self.perfil not in ["ADMINISTRADOR", "GERENTE"]
-            ):
-                tiene_acceso = False
+            if solo_admin:
+                if isinstance(solo_admin, str):
+                    allowed = [
+                        p.strip().upper() for p in solo_admin.split("|") if p.strip()
+                    ]
+                    if self.perfil not in allowed:
+                        tiene_acceso = False
+                elif solo_admin is True:
+                    if v_id == "ventas" and self.perfil not in [
+                        "ADMINISTRADOR",
+                        "GERENTE",
+                    ]:
+                        tiene_acceso = False
 
             if tiene_acceso:
                 btn = self.crear_tarjeta_menu(texto, v_id, color, icon_key)
@@ -408,86 +443,141 @@ class MenuPrincipal(QWidget):
 
         menu_layout.addWidget(grid_container, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        footer_actions = QHBoxLayout()
-        footer_actions.setContentsMargins(0, 0, 0, 0)
-        footer_actions.setSpacing(0)
+        footer_container = QWidget()
+        footer_container.setStyleSheet("background: transparent; border: none;")
+        footer_layout = QVBoxLayout(footer_container)
+        footer_layout.setContentsMargins(0, 0, 0, 0)
+        footer_layout.setSpacing(0)
+
+        footer_grid = QGridLayout()
+        footer_grid.setHorizontalSpacing(8)
+        footer_grid.setVerticalSpacing(4)
+        footer_grid.setContentsMargins(0, 0, 0, 0)
+
+        footer_buttons = []
 
         if self.perfil == "ADMINISTRADOR":
             btn_config = self.crear_tarjeta_menu(
                 "Configuración", "configuracion", "#F1E55B", "gear"
             )
-            footer_actions.addWidget(btn_config, alignment=Qt.AlignmentFlag.AlignLeft)
-        else:
-            footer_actions.addSpacing(210)
+            footer_buttons.append(btn_config)
 
-        # Correo corporativo (multiempresa) — solo ADMINISTRADOR / GERENTE.
+        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+            # UX-TPV-01 (P4): acceso directo a la Gestión de Caja existente (alias
+            # de navegación a Configuración → pestaña GESTIÓN CAJA, sin duplicar lógica).
+            btn_caja = self.crear_tarjeta_menu(
+                "Gestión Caja", "gestion_caja", "#F1E55B", "box"
+            )
+            footer_buttons.append(btn_caja)
+
         if self.perfil in ("ADMINISTRADOR", "GERENTE"):
             btn_correo = self.crear_tarjeta_menu("Correo", "correo", "#22F4E6", "mail")
-            footer_actions.addWidget(btn_correo, alignment=Qt.AlignmentFlag.AlignLeft)
+            footer_buttons.append(btn_correo)
 
-        # Centro documental unificado — ADMINISTRADOR / GERENTE (incluye SUPERADMIN).
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
-            btn_docs = self.crear_tarjeta_menu("Documentos", "documentos", "#22F4E6", "document")
-            footer_actions.addWidget(btn_docs, alignment=Qt.AlignmentFlag.AlignLeft)
+            btn_docs = self.crear_tarjeta_menu(
+                "Documentos", "documentos", "#22F4E6", "document"
+            )
+            footer_buttons.append(btn_docs)
 
-        # Gestión del catálogo online — ADMINISTRADOR / GERENTE / SUPERADMIN.
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
-            btn_cat = self.crear_tarjeta_menu("Catálogo", "catalogo", "#22F4E6", "shopping_bag")
-            footer_actions.addWidget(btn_cat, alignment=Qt.AlignmentFlag.AlignLeft)
+            btn_cat = self.crear_tarjeta_menu(
+                "Catálogo", "catalogo", "#22F4E6", "shopping_bag"
+            )
+            footer_buttons.append(btn_cat)
 
-        # Compras y proveedores — ADMINISTRADOR / GERENTE / SUPERADMIN (back-office).
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
-            btn_compras = self.crear_tarjeta_menu("Compras", "compras", "#22F4E6", "truck")
-            footer_actions.addWidget(btn_compras, alignment=Qt.AlignmentFlag.AlignLeft)
-            btn_compras_av = self.crear_tarjeta_menu("Compras avanzado", "compras_avanzado",
-                                                     "#22F4E6", "truck")
-            footer_actions.addWidget(btn_compras_av, alignment=Qt.AlignmentFlag.AlignLeft)
-            btn_clientes = self.crear_tarjeta_menu("Clientes", "clientes_crm", "#22F4E6", "people")
-            footer_actions.addWidget(btn_clientes, alignment=Qt.AlignmentFlag.AlignLeft)
+            btn_compras = self.crear_tarjeta_menu(
+                "Compras", "compras", "#22F4E6", "truck"
+            )
+            footer_buttons.append(btn_compras)
+            btn_compras_av = self.crear_tarjeta_menu(
+                "Compras avanzado", "compras_avanzado", "#22F4E6", "truck"
+            )
+            footer_buttons.append(btn_compras_av)
+            btn_clientes = self.crear_tarjeta_menu(
+                "Clientes", "clientes_crm", "#22F4E6", "people"
+            )
+            footer_buttons.append(btn_clientes)
 
-        # Contabilidad — ADMINISTRADOR / GERENTE / SUPERADMIN (control financiero).
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
-            btn_contab = self.crear_tarjeta_menu("Contabilidad", "contabilidad", "#22F4E6", "bar_chart")
-            footer_actions.addWidget(btn_contab, alignment=Qt.AlignmentFlag.AlignLeft)
+            btn_contab = self.crear_tarjeta_menu(
+                "Contabilidad", "contabilidad", "#22F4E6", "bar_chart"
+            )
+            footer_buttons.append(btn_contab)
+            btn_tes = self.crear_tarjeta_menu(
+                "Tesorería", "tesoreria", "#22F4E6", "bar_chart"
+            )
+            footer_buttons.append(btn_tes)
+            btn_bi = self.crear_tarjeta_menu(
+                "Business Intelligence", "bi", "#22F4E6", "bar_chart"
+            )
+            footer_buttons.append(btn_bi)
+            btn_aeat = self.crear_tarjeta_menu(
+                "Modelos AEAT", "aeat", "#22F4E6", "bar_chart"
+            )
+            footer_buttons.append(btn_aeat)
 
-            # Tesorería / Bancos / SEPA — control financiero operativo.
-            btn_tes = self.crear_tarjeta_menu("Tesorería", "tesoreria", "#22F4E6", "bar_chart")
-            footer_actions.addWidget(btn_tes, alignment=Qt.AlignmentFlag.AlignLeft)
+        if self.perfil in ("SUPERADMIN", "ADMINISTRADOR"):
+            btn_seg = self.crear_tarjeta_menu(
+                "Seguridad", "seguridad", "#22F4E6", "people"
+            )
+            footer_buttons.append(btn_seg)
 
-        # RRHH — ADMINISTRADOR / GERENTE / SUPERADMIN (expediente y empleados).
+        btn_wf = self.crear_tarjeta_menu(
+            "Aprobaciones", "workflow", "#22F4E6", "bar_chart"
+        )
+        footer_buttons.append(btn_wf)
+
+        btn_notif = self.crear_tarjeta_menu(
+            "Notificaciones", "notificaciones", "#22F4E6", "people"
+        )
+        footer_buttons.append(btn_notif)
+
+        if self.perfil in ("SUPERADMIN", "ADMINISTRADOR"):
+            btn_saas = self.crear_tarjeta_menu("SaaS", "saas", "#22F4E6", "bar_chart")
+            footer_buttons.append(btn_saas)
+
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
             btn_rrhh = self.crear_tarjeta_menu("RRHH", "rrhh", "#22F4E6", "people")
-            footer_actions.addWidget(btn_rrhh, alignment=Qt.AlignmentFlag.AlignLeft)
+            footer_buttons.append(btn_rrhh)
 
-        # Portal del Empleado — disponible para cualquier perfil (autoconsulta).
-        btn_portal = self.crear_tarjeta_menu("Portal del empleado", "portal", "#22F4E6", "people")
-        footer_actions.addWidget(btn_portal, alignment=Qt.AlignmentFlag.AlignLeft)
+        btn_portal = self.crear_tarjeta_menu(
+            "Portal del empleado", "portal", "#22F4E6", "people"
+        )
+        footer_buttons.append(btn_portal)
 
-        # Kárdex de inventario — ADMINISTRADOR / GERENTE / SUPERADMIN.
         if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
             btn_kardex = self.crear_tarjeta_menu("Kárdex", "kardex", "#22F4E6", "box")
-            footer_actions.addWidget(btn_kardex, alignment=Qt.AlignmentFlag.AlignLeft)
-            btn_invf = self.crear_tarjeta_menu("Inventario físico", "inventario_fisico",
-                                               "#22F4E6", "box")
-            footer_actions.addWidget(btn_invf, alignment=Qt.AlignmentFlag.AlignLeft)
+            footer_buttons.append(btn_kardex)
+            btn_invf = self.crear_tarjeta_menu(
+                "Inventario físico", "inventario_fisico", "#22F4E6", "box"
+            )
+            footer_buttons.append(btn_invf)
             btn_lotes = self.crear_tarjeta_menu("Lotes", "lotes", "#22F4E6", "box")
-            footer_actions.addWidget(btn_lotes, alignment=Qt.AlignmentFlag.AlignLeft)
-            btn_alm = self.crear_tarjeta_menu("Stock por almacén", "stock_almacen", "#22F4E6", "box")
-            footer_actions.addWidget(btn_alm, alignment=Qt.AlignmentFlag.AlignLeft)
-            btn_gesalm = self.crear_tarjeta_menu("Almacenes", "almacenes", "#22F4E6", "box")
-            footer_actions.addWidget(btn_gesalm, alignment=Qt.AlignmentFlag.AlignLeft)
-
-        footer_actions.addStretch()
-
-        btn_tpv = self.crear_tarjeta_menu("TPV", "tpv", "#22F4E6", "shopping_bag")
-        footer_actions.addWidget(btn_tpv, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        footer_actions.addStretch()
+            footer_buttons.append(btn_lotes)
+            btn_alm = self.crear_tarjeta_menu(
+                "Stock por almacén", "stock_almacen", "#22F4E6", "box"
+            )
+            footer_buttons.append(btn_alm)
+            btn_gesalm = self.crear_tarjeta_menu(
+                "Almacenes", "almacenes", "#22F4E6", "box"
+            )
+            footer_buttons.append(btn_gesalm)
 
         btn_salir = self.crear_tarjeta_menu("Salir", "logout", "#FF5C70", "logout")
-        footer_actions.addWidget(btn_salir, alignment=Qt.AlignmentFlag.AlignRight)
+        footer_buttons.append(btn_salir)
 
-        menu_layout.addLayout(footer_actions)
+        columns = 6
+        for index, widget in enumerate(footer_buttons):
+            row = index // columns
+            col = index % columns
+            footer_grid.addWidget(
+                widget, row, col, alignment=Qt.AlignmentFlag.AlignCenter
+            )
+
+        footer_layout.addLayout(footer_grid)
+        menu_layout.addWidget(footer_container, alignment=Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(menu_container, alignment=Qt.AlignmentFlag.AlignCenter)
         main_layout.addStretch()
 
@@ -526,8 +616,11 @@ class MenuPrincipal(QWidget):
                 self._subtitle_lbl.setText(tr("menu.subtitle"))
             if hasattr(self, "_user_info_lbl"):
                 self._user_info_lbl.setText(
-                    tr("menu.user_info",
-                       nombre=self.nombre_usuario.upper(), perfil=self._perfil_traducido())
+                    tr(
+                        "menu.user_info",
+                        nombre=self.nombre_usuario.upper(),
+                        perfil=self._perfil_traducido(),
+                    )
                 )
             if hasattr(self, "_version_lbl"):
                 self._version_lbl.setText(f"v2.4.0 - {tr('menu.powered_by')}")
@@ -561,6 +654,12 @@ class MenuPrincipal(QWidget):
         "clientes_crm": "menu.card_clientes_crm",
         "contabilidad": "menu.card_contabilidad",
         "tesoreria": "menu.card_tesoreria",
+        "bi": "menu.card_bi",
+        "aeat": "menu.card_aeat",
+        "seguridad": "menu.card_seguridad",
+        "workflow": "menu.card_workflow",
+        "notificaciones": "menu.card_notificaciones",
+        "saas": "menu.card_saas",
         "rrhh": "menu.card_rrhh",
         "portal": "menu.card_portal",
         "kardex": "menu.card_kardex",
@@ -577,12 +676,18 @@ class MenuPrincipal(QWidget):
         icono_hover = self.crear_icono(icon_key, "#0B1118")
         key = self._MENU_CARD_KEYS.get(v_id)
         display = tr(key) if key else texto
-        btn = MenuCardButton(display, icono_normal, icono_hover, color=color, parent=self)
+        btn = MenuCardButton(
+            display, icono_normal, icono_hover, color=color, parent=self
+        )
 
         if v_id == "logout":
             btn.clicked.connect(self.cerrar_sesion)
         elif v_id == "configuracion":
             btn.clicked.connect(self.abrir_modulo_configuracion)
+        elif v_id == "gestion_caja":
+            # P4.1: abre la Gestión de Caja en su ventana propia (GestionCajaWindow),
+            # reutilizando la lógica/permisos existentes (ya no es pestaña de Configuración).
+            btn.clicked.connect(lambda _=False: self.abrir_gestion_caja())
         else:
             btn.clicked.connect(lambda _, id_w=v_id: self.abrir_ventana_por_id(id_w))
 
@@ -731,11 +836,11 @@ class MenuPrincipal(QWidget):
 
     def crear_bloqueo_visual(self, layout, fila, col):
         lock_container = QFrame()
-        lock_container.setFixedSize(210, 170)
+        lock_container.setFixedSize(170, 150)
         lock_container.setStyleSheet("""
             background-color: rgba(20, 28, 36, 0.90);
             border: 1px dashed #3E4C5C;
-            border-radius: 28px;
+            border-radius: 24px;
             """)
 
         glow = QGraphicsDropShadowEffect(lock_container)
@@ -791,7 +896,9 @@ class MenuPrincipal(QWidget):
         if os.path.exists(logo_path):
             pix = QPixmap(logo_path)
             if not pix.isNull():
-                scaled = pix.scaledToHeight(64, Qt.TransformationMode.SmoothTransformation)
+                scaled = pix.scaledToHeight(
+                    64, Qt.TransformationMode.SmoothTransformation
+                )
                 self.logo_label.setPixmap(scaled)
                 self.logo_label.setFixedWidth(scaled.width())
                 self.logo_label.show()
@@ -909,6 +1016,30 @@ class MenuPrincipal(QWidget):
                 from src.gui.tesoreria_gui import TesoreriaWindow
 
                 self.manejar_apertura(v_id, TesoreriaWindow, **kwargs)
+            elif v_id == "bi":
+                from src.gui.bi_dashboard import BIDashboardWindow
+
+                self.manejar_apertura(v_id, BIDashboardWindow, **kwargs)
+            elif v_id == "aeat":
+                from src.gui.aeat_gui import AEATWindow
+
+                self.manejar_apertura(v_id, AEATWindow, **kwargs)
+            elif v_id == "seguridad":
+                from src.gui.seguridad_gui import SeguridadWindow
+
+                self.manejar_apertura(v_id, SeguridadWindow, **kwargs)
+            elif v_id == "workflow":
+                from src.gui.workflow_gui import WorkflowWindow
+
+                self.manejar_apertura(v_id, WorkflowWindow, **kwargs)
+            elif v_id == "notificaciones":
+                from src.gui.notificaciones_gui import NotificacionesWindow
+
+                self.manejar_apertura(v_id, NotificacionesWindow, **kwargs)
+            elif v_id == "saas":
+                from src.gui.saas_admin import SaaSAdminWindow
+
+                self.manejar_apertura(v_id, SaaSAdminWindow, **kwargs)
             elif v_id == "inventario_fisico":
                 from src.gui.inventario_fisico import InventarioFisicoWindow
 
@@ -955,9 +1086,12 @@ class MenuPrincipal(QWidget):
         smart_app = self.parent()
 
         if smart_app is None or not hasattr(smart_app, "setCurrentWidget"):
-            self.manejar_apertura("tpv", TPVWindow,
-                                  callback_vuelta=self.mostrar_menu_principal,
-                                  usuario=sesion_global.usuario_actual)
+            self.manejar_apertura(
+                "tpv",
+                TPVWindow,
+                callback_vuelta=self.mostrar_menu_principal,
+                usuario=sesion_global.usuario_actual,
+            )
             return
 
         # Cerrar instancia anterior si existe
@@ -1000,6 +1134,22 @@ class MenuPrincipal(QWidget):
         smart_app.setCurrentWidget(tpv)
 
     def manejar_apertura(self, identificador, clase_ventana, **kwargs):
+        # Gate SaaS (P0.1/P0.3): el plan y el estado de pago restringen el acceso a módulos.
+        # Legacy (sin licencia) → siempre permitido. El portal SaaS nunca se bloquea.
+        try:
+            from src.services.saas import enforcement as _enf
+
+            permitido, motivo = _enf.acceso_modulo(identificador)
+            if not permitido:
+                try:
+                    from PyQt6.QtWidgets import QMessageBox
+
+                    QMessageBox.warning(self, "Suscripción", motivo)
+                except Exception:
+                    pass
+                return
+        except Exception as _e:
+            logging.getLogger("menu").debug("gate saas: %s", _e)
         try:
             if identificador in self._ventanas:
                 v_antigua = self._ventanas.pop(identificador, None)
@@ -1045,14 +1195,25 @@ class MenuPrincipal(QWidget):
             self.mostrar_menu_principal()
 
     def mostrar_menu_principal(self):
-        v_activas = {}
-        for v_id, v_instancia in list(self._ventanas.items()):
-            try:
-                if v_instancia is not None and v_instancia.isVisible():
-                    v_activas[v_id] = v_instancia
-            except Exception:
-                continue
-        self._ventanas = v_activas
+        # Al volver al menú se CIERRAN los módulos abiertos para no acumular
+        # ventanas en la barra de tareas de Windows. El cierre se DIFIERE (singleShot)
+        # porque este método suele invocarse desde el propio botón "Volver" de la
+        # ventana: destruirla dentro de su manejador de evento sería inseguro.
+        ventanas = [v for v in self._ventanas.values() if v is not None]
+        self._ventanas = {}
+
+        if ventanas:
+            def _cerrar_diferido(_ventanas=ventanas):
+                for v in _ventanas:
+                    try:
+                        v.close()
+                    except Exception:
+                        pass
+                    try:
+                        v.deleteLater()
+                    except Exception:
+                        pass
+            QTimer.singleShot(0, _cerrar_diferido)
 
         self.showMaximized()
         self.raise_()
@@ -1070,10 +1231,18 @@ class MenuPrincipal(QWidget):
         try:
             from src.db import empresa as _emp
             from src.db import tiendas as _t
+
             e = _emp.obtener_empresa(_emp.empresa_actual_id()) or {}
-            nombre_emp = (e.get("nombre_comercial") or e.get("razon_social")
-                          or e.get("nombre_empresa") or e.get("codigo_empresa") or "—")
-            linea2 = _t.etiqueta_tienda_actual() or tr("menu.sin_tienda", default="Sin tienda activa")
+            nombre_emp = (
+                e.get("nombre_comercial")
+                or e.get("razon_social")
+                or e.get("nombre_empresa")
+                or e.get("codigo_empresa")
+                or "—"
+            )
+            linea2 = _t.etiqueta_tienda_actual() or tr(
+                "menu.sin_tienda", default="Sin tienda activa"
+            )
             self.btn_tienda.setText(f"🏪  {nombre_emp}\n{linea2}")
         except Exception:
             pass
@@ -1082,6 +1251,7 @@ class MenuPrincipal(QWidget):
         """Abre el selector de tienda; si se cambia, recarga el contexto."""
         try:
             from src.gui.selector_tienda import SelectorTiendaDialog
+
             dlg = SelectorTiendaDialog(self)
             dlg.exec()
             if dlg.get_resultado():
@@ -1094,12 +1264,15 @@ class MenuPrincipal(QWidget):
         nuevo contexto) y refresca la barra superior."""
         for _v_id, v in list(self._ventanas.items()):
             try:
-                v.close(); v.deleteLater()
+                v.close()
+                v.deleteLater()
             except Exception:
                 pass
         self._ventanas = {}
         self._actualizar_chip_tienda()
-        self.showMaximized(); self.raise_(); self.activateWindow()
+        self.showMaximized()
+        self.raise_()
+        self.activateWindow()
 
     def cerrar_ventana_activa(self) -> bool:
         """
@@ -1126,7 +1299,25 @@ class MenuPrincipal(QWidget):
         self.mostrar_menu_principal()
         return cerro_alguna
 
-    def abrir_modulo_configuracion(self, tab_inicial=None):
+    def abrir_gestion_caja(self, accion_inicial=None):
+        """P4/P4.1 — Abre la Gestión de Caja en su VENTANA PROPIA (GestionCajaWindow),
+        reutilizando la lógica de caja existente. accion_inicial (opcional) dispara
+        directamente movimiento/cambio de cajero (acceso rápido desde el TPV)."""
+        try:
+            from src.gui.gestion_usuarios import GestionCajaWindow
+
+            kwargs = {
+                "callback_vuelta": self.mostrar_menu_principal,
+                "usuario": sesion_global.usuario_actual,
+            }
+            if accion_inicial is not None:
+                kwargs["accion_inicial"] = accion_inicial
+            self.manejar_apertura("gestion_caja", GestionCajaWindow, **kwargs)
+        except Exception as e:
+            logger.error(f"Error al abrir Gestión de Caja: {e}", exc_info=True)
+            self.mostrar_menu_principal()
+
+    def abrir_modulo_configuracion(self, tab_inicial=None, accion_inicial=None):
         try:
             from src.gui.gestion_usuarios import ConfiguracionWindow
 
@@ -1136,6 +1327,8 @@ class MenuPrincipal(QWidget):
             }
             if tab_inicial is not None:
                 kwargs["tab_inicial"] = tab_inicial
+            if accion_inicial is not None:
+                kwargs["accion_inicial"] = accion_inicial
 
             logger.info(
                 f"Navegación: Usuario '{self.nombre_usuario}' entrando a CONFIGURACIÓN."
@@ -1147,7 +1340,9 @@ class MenuPrincipal(QWidget):
             logger.error(f"Error crítico al abrir Configuración: {e}", exc_info=True)
             _det = tr("menu.error_module", modulo="configuración") + f"\n{str(e)}"
             if mostrar_mensaje is not None:
-                mostrar_mensaje(self, tr("menu.error_module_title"), _det, nivel="error")
+                mostrar_mensaje(
+                    self, tr("menu.error_module_title"), _det, nivel="error"
+                )
             else:
                 QMessageBox.critical(self, tr("menu.error_module_title"), _det)
             self.mostrar_menu_principal()
@@ -1195,7 +1390,9 @@ class MenuPrincipal(QWidget):
         )
         lay.addWidget(titulo)
 
-        sub = QLabel(tr("menu.cita_sub", default="Tienes eventos programados para hoy:"))
+        sub = QLabel(
+            tr("menu.cita_sub", default="Tienes eventos programados para hoy:")
+        )
         sub.setStyleSheet(
             "color:#8B949E;font-family:'Segoe UI';font-size:12px;font-weight:700;"
             "background:transparent;border:none;"

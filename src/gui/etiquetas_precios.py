@@ -216,7 +216,7 @@ class _CambiarPrecioPage(QWidget):
             tr("etiq.search_ph", default="Introduce código o nombre del artículo...")
         )
         self.search_bar.setStyleSheet(_NEON_INPUT_SS)
-        self.search_bar.setFixedWidth(500)
+        self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
         self.search_bar.returnPressed.connect(self._buscar_y_editar)
         layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -380,7 +380,7 @@ class _CarpetaEtiquetasPage(QWidget):
 
         self._btn = QPushButton(tr("etiq.open_folder_btn", default="ABRIR CARPETA DE ETIQUETAS"))
         self._btn.setStyleSheet(_BTN_CIAN_SS)
-        self._btn.setFixedSize(300, 60)
+        self._btn.setMinimumSize(220, 60); self._btn.setMaximumWidth(360)  # responsive (P2)
         self._btn.clicked.connect(self._abrir)
         _sombra_cian(self._btn)
         layout.addWidget(self._btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -411,7 +411,7 @@ class _PreciosNuevosPage(QWidget):
 
         self._btn = QPushButton(tr("etiq.view_new_btn", default="VER PRECIOS NUEVOS (CENTRAL)"))
         self._btn.setStyleSheet(_BTN_CIAN_SS)
-        self._btn.setFixedSize(300, 60)
+        self._btn.setMinimumSize(220, 60); self._btn.setMaximumWidth(360)  # responsive (P2)
         self._btn.clicked.connect(self._abrir_nube)
         _sombra_cian(self._btn)
         layout.addWidget(self._btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -442,7 +442,7 @@ class _PromocionesPage(QWidget):
 
         self._btn = QPushButton(tr("etiq.view_promo_btn", default="VER PROMOCIONES / OFERTAS"))
         self._btn.setStyleSheet(_BTN_CIAN_SS)
-        self._btn.setFixedSize(300, 60)
+        self._btn.setMinimumSize(220, 60); self._btn.setMaximumWidth(360)  # responsive (P2)
         self._btn.clicked.connect(self._abrir_promos)
         _sombra_cian(self._btn)
         layout.addWidget(self._btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -467,11 +467,19 @@ class EtiquetasPreciosWindow(QWidget):
         self.usuario_actual = usuario
 
         self.setWindowTitle(tr("etiq.window_title", default="Etiquetas de Precio"))
-        self.setMinimumSize(1100, 750)
+        self.setMinimumSize(1024, 680)  # responsive (P2): apto tablet (antes 1100x750)
         self.setStyleSheet(f"background-color: {_FONDO}; color: white;")
 
         self.setup_ui()
         i18n.conectar_retraduccion(self, self._retraducir)
+
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            if getattr(self, "sidebar", None) is not None:
+                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario_actual, clave="etiquetas")
+        except Exception:
+            pass
 
     def setup_ui(self):
         root = QHBoxLayout(self)
@@ -480,6 +488,7 @@ class EtiquetasPreciosWindow(QWidget):
 
         # ---- SIDEBAR ----
         sidebar = QFrame()
+        self.sidebar = sidebar  # P3: referencia para el toggle colapsable
         sidebar.setFixedWidth(280)
         sidebar.setStyleSheet(
             f"background-color: {_PANEL_BG}; border-right: 1px solid {_BORDE};"

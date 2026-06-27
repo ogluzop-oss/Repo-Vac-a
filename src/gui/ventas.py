@@ -2156,6 +2156,14 @@ class VentasAnaliticaWindow(QWidget):
         self._setup_ui()
         i18n.conectar_retraduccion(self, self._retraducir)
 
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            if getattr(self, "sidebar", None) is not None:
+                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario, clave="ventas")
+        except Exception:
+            pass
+
     def _retraducir(self):
         _tab_def = ["RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
         for i, btn in enumerate(self._sidebar_btns):
@@ -2187,6 +2195,7 @@ class VentasAnaliticaWindow(QWidget):
 
     def _build_sidebar(self):
         sidebar = QFrame()
+        self.sidebar = sidebar  # P3: referencia para el toggle colapsable
         sidebar.setFixedWidth(280)
         sidebar.setStyleSheet(
             f"QFrame {{ background: {SIDEBAR}; border-right: 1px solid {BORDE}; }}"
@@ -2503,7 +2512,8 @@ class VentasAnaliticaWindow(QWidget):
         btn_row = QHBoxLayout(); btn_row.addStretch()
         self.btn_subir_hist = QPushButton(tr("vta.btn_upload_hist", default="SUBIR VENTAS PASADAS"))
         self.btn_subir_hist.setStyleSheet(_SS_BTN_CIAN)
-        self.btn_subir_hist.setFixedHeight(48); self.btn_subir_hist.setFixedWidth(260)
+        self.btn_subir_hist.setFixedHeight(48)
+        self.btn_subir_hist.setMinimumWidth(200); self.btn_subir_hist.setMaximumWidth(320)  # responsive (P2)
         self.btn_subir_hist.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_subir_hist.clicked.connect(self._subir_ventas_pasadas)
         btn_row.addWidget(self.btn_subir_hist); btn_row.addStretch()
@@ -2792,7 +2802,8 @@ class VentasAnaliticaWindow(QWidget):
         br = QHBoxLayout(); br.addStretch()
         self.btn_rend_guardar = QPushButton(tr("vta.perf_save", default="GUARDAR CAMBIOS"))
         self.btn_rend_guardar.setStyleSheet(_SS_BTN_VERDE)
-        self.btn_rend_guardar.setFixedHeight(44); self.btn_rend_guardar.setFixedWidth(220)
+        self.btn_rend_guardar.setFixedHeight(44)
+        self.btn_rend_guardar.setMinimumWidth(180); self.btn_rend_guardar.setMaximumWidth(300)  # responsive (P2)
         self.btn_rend_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_rend_guardar.clicked.connect(self._guardar_rendimiento)
         br.addWidget(self.btn_rend_guardar); root.addLayout(br)

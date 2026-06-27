@@ -1065,6 +1065,18 @@ if __name__ == "__main__":
     except Exception as _e:
         logger.debug(f"AI translator no registrado: {_e}")
 
+    # P2 (UX-TPV-01) — Escalado High-DPI fluido. En Qt6 el high-DPI está activo por
+    # defecto; la política de redondeo PassThrough permite factores fraccionarios
+    # (125/150/175 %) sin "saltar" a 100/200 %, evitando layouts rotos en tablets/4K.
+    # Debe fijarse ANTES de crear el QApplication.
+    try:
+        from PyQt6.QtGui import QGuiApplication
+        QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
+    except Exception as _e:
+        logger.debug(f"High-DPI rounding policy no aplicada: {_e}")
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     aplicar_estilo_app(app)

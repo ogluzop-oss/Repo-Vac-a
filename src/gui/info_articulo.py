@@ -258,7 +258,7 @@ class _BuscarArticuloPage(QWidget):
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText(tr("info.search_ph", default="Introduce código o nombre del artículo..."))
         self.search_bar.setStyleSheet(_NEON_INPUT_SS)
-        self.search_bar.setFixedWidth(500)  # Ajustar ancho a 500px
+        self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
         self.search_bar.returnPressed.connect(self._buscar)
 
         self._btn_scan = btn_scan = QPushButton("📷 " + tr("info.scan", default="SCAN"))
@@ -447,7 +447,7 @@ class _ImagenArticuloPage(QWidget):
             tr("info.image_search_ph", default="Introduce código o nombre para actualizar imagen...")
         )
         self.search_bar.setStyleSheet(_NEON_INPUT_SS)  # Mantener estilo neón
-        self.search_bar.setFixedWidth(500)
+        self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
         layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Completer para la barra de búsqueda
@@ -494,7 +494,7 @@ class _EditarArticuloPage(QWidget):
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText(tr("info.edit_search_ph", default="Introduce código o nombre para editar..."))
         self.search_bar.setStyleSheet(_NEON_INPUT_SS)
-        self.search_bar.setFixedWidth(500)
+        self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
         layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._btn = btn = QPushButton(tr("info.search_for_edit", default="BUSCAR PARA EDITAR"))
@@ -829,11 +829,19 @@ class InfoArticuloWindow(QWidget):
         self.usuario_actual = usuario
 
         self.setWindowTitle(tr("info.window_title", default="Información de Artículo"))
-        self.setMinimumSize(1100, 750)
+        self.setMinimumSize(1024, 680)  # responsive (P2): apto tablet (antes 1100x750)
         self.setStyleSheet(f"background-color: {_FONDO}; color: white;")
 
         self.setup_ui()
         i18n.conectar_retraduccion(self, self._retraducir)
+
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            if getattr(self, "sidebar", None) is not None:
+                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario_actual, clave="info_articulo")
+        except Exception:
+            pass
 
     def setup_ui(self):
         root = QHBoxLayout(self)
@@ -842,6 +850,7 @@ class InfoArticuloWindow(QWidget):
 
         # ---- SIDEBAR ----
         sidebar = QFrame()
+        self.sidebar = sidebar  # P3: referencia para el toggle colapsable
         sidebar.setFixedWidth(280)
         sidebar.setStyleSheet(
             f"background-color: {_PANEL_BG}; border-right: 1px solid {_BORDE};"

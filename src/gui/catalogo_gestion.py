@@ -374,11 +374,20 @@ class CatalogoWindow(QWidget):
         super().__init__(parent)
         self._volver = callback_vuelta
         self._main = main
+        self.usuario = usuario
         self._sec_btns = {}
         self.setWindowTitle("Smart Manager — " + tr("cat.titulo", default="CATÁLOGO"))
         self.setStyleSheet(f"background:{_BG};")
         self._build()
         QTimer.singleShot(0, self._recargar_todo)
+
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            if getattr(self, "sidebar", None) is not None:
+                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario, clave="catalogo")
+        except Exception:
+            pass
 
     def _build(self):
         root = QHBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
@@ -408,7 +417,7 @@ class CatalogoWindow(QWidget):
         return cab
 
     def _build_sidebar(self):
-        wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(230)
+        wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(230); self.sidebar = wrap  # P3
         wrap.setStyleSheet(f"QFrame#sw{{background:{_SIDEBAR};border:none;border-right:1px solid {_BORDE};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
         cab = QLabel(tr("cat.secciones", default="GESTIÓN"))
