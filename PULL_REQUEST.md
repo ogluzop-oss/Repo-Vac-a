@@ -5,14 +5,12 @@
 > **Último commit de la rama:** `84c13b4` — `docs(pr): documentación oficial del PR de la suite enterprise`
 >
 > ### Estado de fusión (actualizado)
-> - ✅ **PR #1 ya fusionado en `main`** mediante el commit de merge `271469c`
->   (*Merge pull request #1 from ogluzop-oss/feat/erp-enterprise-suite*; padres `1b42d51` + `c866b20`).
->   Incorporó los **14 primeros commits** de la rama (ver detalle en la sección 22).
-> - ⏳ **PR #2 pendiente**: solo quedan por fusionar **2 commits**:
->   - `32b73e0` — endurecimiento OAuth / Secret Manager
->   - `84c13b4` — `PULL_REQUEST.md`
-> - ✅ **Merge limpio verificado** (`git merge-tree`, sin conflictos).
-> - ⚠️ **No fast-forward**: `main` contiene el commit de merge `271469c`, ausente en `feat` → el merge del PR #2 generará un commit de merge (no es avance rápido).
+> - ✅ **PR #1 fusionado en `main`** (merge `271469c`; padres `1b42d51` + `c866b20`) — 14 primeros commits.
+> - ✅ **PR #2 fusionado en `main`** (merge `2989fef`) — `32b73e0` (endurecimiento OAuth / Secret Manager) + `84c13b4` (`PULL_REQUEST.md`).
+> - ✅ **Todo el trabajo funcional está ya en `main`.** No queda nada funcional pendiente.
+> - ✅ **Merge limpio verificado** (`git merge-tree`, sin conflictos en ningún momento).
+> - ⚠️ Los merges se realizaron con **commit de merge** (no fast-forward), por la existencia de los nodos de merge `271469c`/`2989fef`.
+> - 🔁 Único delta restante en `feat`: commits de **sincronización de esta documentación**; pueden fusionarse con un PR de docs o descartarse eliminando la rama.
 
 ---
 
@@ -265,24 +263,24 @@ los **14 primeros commits** de la rama, es decir, los bloques:
 | `10b2e75` | UX-TPV-01 (TPV/navegación/responsive) |
 | `2be830f`, `c866b20` | Higiene de repo (.gitignore: artefactos y credenciales) |
 
-### PR #2 — pendiente ⏳
+### PR #2 — ya fusionado en `main` ✅
 
-Quedan **2 commits** en `feat/erp-enterprise-suite` sin fusionar:
+Fusionado mediante el commit de merge `2989fef` (*Merge pull request #2 from
+ogluzop-oss/feat/erp-enterprise-suite*). Incorporó a `main`:
 
 - `32b73e0` — endurecimiento OAuth / Secret Manager (correo corporativo).
-- `84c13b4` — `PULL_REQUEST.md` (este documento).
+- `84c13b4` — `PULL_REQUEST.md` (documentación del PR).
 
-### Características del merge del PR #2
+### Estado consolidado
 
-- **Merge limpio verificado:** `git merge-tree` sin conflictos (exit 0).
-- **Sin conflictos detectados.**
-- **No fast-forward:** `main` contiene el commit de merge `271469c` (ausente en `feat`),
-  por lo que el PR #2 generará un commit de merge — **no** es avance rápido.
-- **Secretos:** 0 referencias a credenciales en el historial de la rama y en `main`
+- ✅ **Todo el trabajo funcional de la rama está en `main`** (bloques de PR #1 + endurecimiento OAuth de PR #2).
+- ✅ **Merge limpio verificado** (`git merge-tree`, sin conflictos).
+- ⚠️ **No fast-forward:** ambos merges generaron commit de merge (`271469c`, `2989fef`).
+- ✅ **Secretos:** 0 referencias a credenciales en el historial de la rama y en `main`
   (secreto purgado y rotado).
-- **Esquema:** 100% aditivo (`IF NOT EXISTS`) — no rompe instalaciones con datos.
-
-> Abrir PR #2: `https://github.com/ogluzop-oss/Repo-Vac-a/compare/main...feat/erp-enterprise-suite`
+- ✅ **Esquema:** 100% aditivo (`IF NOT EXISTS`) — no rompe instalaciones con datos.
+- 🔁 **Pendiente (no funcional):** sincronizar esta documentación con `main` mediante un PR de
+  docs, o cerrar la rama si no se necesita conservarla.
 
 ---
 
