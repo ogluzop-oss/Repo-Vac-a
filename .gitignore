@@ -54,3 +54,7 @@ logs/
 .coverage
 .coverage.*
 _tmp_*.txt
+
+# Credenciales OAuth (nunca versionar)
+src/gui/client_secrets.json
+client_secret*.json
