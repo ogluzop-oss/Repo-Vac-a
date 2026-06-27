@@ -18,7 +18,18 @@ from src.db.conexion import (_fila_a_dict, _filas_a_dicts, ensure_schema,
 logger = logging.getLogger("inventario.lotes")
 
 ACTIVO, AGOTADO = "activo", "agotado"
-TIPOS_SALIDA = ("SALIDA_VENTA", "MERMA", "TRASPASO", "AJUSTE", "DEVOLUCION_PROVEEDOR")
+TIPOS_SALIDA = ("SALIDA_VENTA", "MERMA", "TRASPASO", "AJUSTE", "DEVOLUCION_PROVEEDOR",
+                "SALIDA_PRODUCCION")  # SALIDA_PRODUCCION: consumo de componentes (MRP, BLOQUE 3)
+
+
+def _tnd_int(tnd) -> int:
+    """Coerciona el id de tienda a INT (la columna lotes.id_tienda es INT, 0 = global).
+    El contexto de tienda puede ser un código alfanumérico (p. ej. un almacén 'ALMC');
+    en ese caso se trata como 0 (global) en lugar de reventar."""
+    try:
+        return int(tnd or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _tenant(id_empresa=None, id_tienda=None):
@@ -30,7 +41,7 @@ def _tenant(id_empresa=None, id_tienda=None):
         from src.db.conexion import EMPRESA_DEFAULT_ID
         emp = id_empresa or EMPRESA_DEFAULT_ID
         tnd = id_tienda
-    return emp, int(tnd or 0)
+    return emp, _tnd_int(tnd)
 
 
 def _mov(cur, id_empresa, id_lote, codigo, tipo, cantidad, id_documento=None,
@@ -191,7 +202,7 @@ def lotes_por_caducar(dias=30, id_empresa=None, id_tienda=None) -> list:
                 "fecha_caducidad>=%s", "fecha_caducidad<=%s"]
         params = [id_empresa, hoy.isoformat(), limite]
         if id_tienda is not None:
-            cond.append("id_tienda=%s"); params.append(int(id_tienda))
+            cond.append("id_tienda=%s"); params.append(_tnd_int(id_tienda))
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(f"SELECT * FROM lotes WHERE {' AND '.join(cond)} ORDER BY fecha_caducidad",
                         params)
@@ -208,7 +219,7 @@ def lotes_caducados(id_empresa=None, id_tienda=None) -> list:
         cond = ["id_empresa=%s", "cantidad>0", "fecha_caducidad IS NOT NULL", "fecha_caducidad<%s"]
         params = [id_empresa, hoy]
         if id_tienda is not None:
-            cond.append("id_tienda=%s"); params.append(int(id_tienda))
+            cond.append("id_tienda=%s"); params.append(_tnd_int(id_tienda))
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(f"SELECT * FROM lotes WHERE {' AND '.join(cond)} ORDER BY fecha_caducidad",
                         params)
