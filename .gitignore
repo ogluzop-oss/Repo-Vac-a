@@ -49,3 +49,8 @@ app_settings.json
 # ── Logs ────────────────────────────────────────────────────
 *.log
 logs/
+
+# Artefactos de cobertura y temporales (UX-TPV-01 cleanup)
+.coverage
+.coverage.*
+_tmp_*.txt
