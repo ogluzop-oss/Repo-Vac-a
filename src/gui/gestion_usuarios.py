@@ -3089,7 +3089,8 @@ class _WizardDocumentoFiscal(WizardFormsRRHHMixin, QDialog):
         if self._pdf_ruta and os.path.exists(self._pdf_ruta):
             _ruta = self._pdf_ruta
             bo = self._nav_btn("🔍  " + tr("cfg.open_pdf", default="ABRIR PDF"))
-            bo.clicked.connect(lambda: os.startfile(_ruta))
+            from src.utils import plataforma
+            bo.clicked.connect(lambda: plataforma.abrir_archivo(_ruta))
             br.addWidget(bo)
         bc = self._nav_btn(tr("cfg.close", default="CERRAR"), "#6E7681"); bc.clicked.connect(self.accept)
         br.addWidget(bc); self._card_ly.addLayout(br)

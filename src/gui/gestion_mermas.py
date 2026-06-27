@@ -832,7 +832,8 @@ class _ExportarExcelPage(QWidget):
                 tr("merma.export_ok", default="Archivo generado:\n{path}", path=path),
                 nivel="success",
             )
-            os.startfile(ruta_dir)
+            from src.utils import plataforma
+            plataforma.abrir_carpeta(ruta_dir)
         except Exception as e:
             mostrar_mensaje(
                 self,

@@ -601,7 +601,8 @@ class CentroDocumentalWindow(QWidget):
         ruta = self._ruta_existente(d)
         if ruta:
             try:
-                os.startfile(ruta)  # noqa: S606 (Windows)
+                from src.utils import plataforma
+                plataforma.abrir_archivo(ruta)
             except Exception as e:
                 self._aviso("Error", str(e), nivel="error")
 
@@ -623,7 +624,8 @@ class CentroDocumentalWindow(QWidget):
         ruta = self._ruta_existente(d)
         if ruta:
             try:
-                os.startfile(ruta, "print")  # noqa: S606 (Windows)
+                from src.utils import plataforma
+                plataforma.imprimir_archivo(ruta)
             except Exception as e:
                 self._aviso("Error", str(e), nivel="error")
 
@@ -633,8 +635,9 @@ class CentroDocumentalWindow(QWidget):
             return
         try:
             from PyQt6.QtWidgets import QApplication
+            from src.utils import plataforma
             QApplication.clipboard().setText(ruta)
-            os.startfile(os.path.dirname(ruta))  # noqa: S606 (Windows)
+            plataforma.abrir_carpeta(ruta)
             self._aviso(tr("doc.compartir", default="Compartir"),
                         tr("doc.compartido", default="Ruta copiada y carpeta abierta."))
         except Exception as e:

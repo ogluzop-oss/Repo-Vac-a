@@ -7353,7 +7353,8 @@ class UbicacionTiendaWindow(QMainWindow):
             doc.build(elementos)
 
             # 5. Apertura automática y Feedback
-            os.startfile(dest_path)
+            from src.utils import plataforma
+            plataforma.abrir_archivo(dest_path)
             if self.window().statusBar():
                 self.window().statusBar().showMessage(
                     f"Hoja de ruta generada en: {nombre_archivo}", 6000
@@ -7562,8 +7563,8 @@ class UbicacionTiendaWindow(QMainWindow):
                     5000,
                 )
 
-            if os.name == "nt":
-                os.startfile(ruta_carpeta)
+            from src.utils import plataforma
+            plataforma.abrir_carpeta(ruta_carpeta)
 
         except Exception as e:
             QMessageBox.critical(
@@ -8523,8 +8524,8 @@ class UbicacionTiendaWindow(QMainWindow):
             )
 
             # Abrir la carpeta contenedora automáticamente
-            if os.name == "nt":  # Windows
-                os.startfile(ruta_base)
+            from src.utils import plataforma
+            plataforma.abrir_carpeta(ruta_base)
 
         except Exception as e:
             print(f"Error en PDF: {e}")
@@ -8590,7 +8591,8 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         msg.exec()
         if msg.clickedButton() == btn_abrir:
-            os.startfile(ruta)
+            from src.utils import plataforma
+            plataforma.abrir_archivo(ruta)
 
     # ============================================================
     # BLOQUE CALIBRACIÓN DE ESCALA

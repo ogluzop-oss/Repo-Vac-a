@@ -176,7 +176,8 @@ class PortalEmpleadoWindow(QWidget):
         ruta = (d or {}).get("ref_documento")
         if ruta and os.path.exists(ruta):
             try:
-                os.startfile(ruta)  # noqa: S606
+                from src.utils import plataforma
+                plataforma.abrir_archivo(ruta)
             except Exception as e:
                 QMessageBox.warning(self, "Portal", f"No se pudo abrir: {e}")
         else:
@@ -258,7 +259,8 @@ class PortalEmpleadoWindow(QWidget):
         ruta = self._docs[i].get("ref_documento")
         if ruta and os.path.exists(ruta):
             try:
-                os.startfile(ruta)  # noqa: S606 (Windows; documento propio del empleado)
+                from src.utils import plataforma
+                plataforma.abrir_archivo(ruta)
             except Exception as e:
                 QMessageBox.warning(self, "Portal", f"No se pudo abrir: {e}")
         else:

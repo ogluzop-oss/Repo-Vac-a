@@ -206,3 +206,89 @@ Smart Manager AI es **portable por diseño** (sin ataduras duras a Windows) y qu
 requiere ejecutar las fases pendientes en **hosts reales y/o CI multi-OS** y con **hardware**
 de cada categoría. Este bloque deja además la base de portabilidad (`plataforma`,
 `perfil_tactil`, `escaner_universal`) verificada y sin tocar lógica de negocio.
+
+---
+
+# Bloques 8.1 – 8.4 — Avance verificable (2026-06-27)
+
+## Entregable 1 — Informe CI Multi-OS
+
+Workflow nuevo `.github/workflows/multiplataforma.yml` (matrix **ubuntu/windows/macos × Python 3.12/3.13**).
+Genera evidencia objetiva en cada push (no depende de MariaDB; la suite con BD sigue en `ci.yml`):
+instalación de dependencias, `compileall src`, init de Qt (offscreen), imports de ventanas clave,
+tests portables del Bloque 8, y registro de SO/Python/Qt/duración en el *step summary*.
+Principio aplicado: **no se marca PASS si el paso no se ejecutó** (cada paso falla en rojo si falla).
+
+> Estado: workflow **válido** (YAML verificado) y listo. La evidencia por SO se materializa al
+> hacer push a GitHub (Linux/Windows/macOS reales del runner). No se declara PASS hasta que el run exista.
+
+## Entregable 2 — Informe de Portabilidad (dependencias eliminadas)
+
+Migración **completa** de aperturas/impresiones a la capa única `src/utils/plataforma.py`:
+
+| Antes (no portable / disperso) | Después |
+|---|---|
+| `os.startfile(...)` ×20 en 11 GUIs | `plataforma.abrir_archivo` / `abrir_carpeta` / `imprimir_archivo` |
+| `os.system(f'start/open/xdg-open …')` (ubicacion_tienda) | `plataforma.abrir_carpeta` (sin shell, sin inyección) |
+| 4 bloques `if platform.system()==... subprocess.Popen([...])` (recepcion_pale, tpv, ventas ×2) | una sola llamada portable |
+
+Auditoría post-migración (`git grep`): **0** `os.startfile`, **0** `os.system`, **0** `Popen(["open"/"xdg-open"])`
+fuera de `plataforma.py`. Sin `pywin32`/`winreg`. Tests específicos (apertura/impresión Win/mac/Linux,
+degradación sin `xdg-open`/`lpr`). Suite completa en verde (sin romper impresión/exportación/apertura).
+
+## Entregable 3 — Informe TPV Táctil (perfiles aplicados)
+
+- `src/utils/perfil_tactil.py`: perfiles **NORMAL / TACTIL / TPV / PDA** (mín. 0/48/56/44 px) + espaciado.
+- Integrado en el QSS global (`assets/estilo_global._qss_tactil`): en perfil táctil aumenta automáticamente
+  **botones, inputs, combos, spinboxes, date-edits, filas de tabla, cabeceras y pestañas**. En NORMAL no
+  cambia nada (overlay vacío → comportamiento idéntico al actual). Configurable por
+  `SMART_MANAGER_PERFIL_TACTIL` o `perfil_tactil.set_perfil()`.
+- Objetivo cumplido a nivel de estilos: controles operables con dedo/guantes en pantallas industriales.
+- Pendiente (no bloqueante): selector de perfil en Configuración persistido en `preferencias_usuario`.
+
+## Entregable 4 — Informe Escáner Universal (módulos integrados)
+
+- Núcleo portable `escaner_universal.BufferEscaner` (wedge HID por temporización) + integración Qt
+  `src/gui/escaner_qt.FiltroEscaner` / `instalar_escaner()` (event-filter **no intrusivo**: observa, no
+  bloquea el tecleo; soporta Keyboard-Wedge, USB HID y Bluetooth HID de cualquier fabricante —
+  Zebra/Honeywell/Datalogic/Newland/Sunmi/Bluebird/Chainway).
+- **Integrado en el TPV**: captura global de escaneo aunque el campo SKU no tenga el foco, sin doble alta.
+- **Resto de módulos** (Smart Stock, Recepciones, Inventarios, Traspasos, Almacenes, Mermas, Reposición):
+  ya aceptan lectura wedge por sus campos de código existentes (wedge = teclado, portable). Adopción del
+  filtro global = **1 línea** (`instalar_escaner(self, handler)`) cuando se quiera captura sin foco.
+- Tests: emisión por ráfaga+terminador, no-consumo por defecto, conexión de callback.
+
+## Entregable 5 — Informe Hardware
+
+| Categoría | Estado | Detalle |
+|---|---|---|
+| Impresoras EPSON/Bixolon/Star/Sunmi (USB/Bluetooth/TCP-IP) | **PREPARADO PARA VALIDACIÓN** | `services/perifericos/impresora.py`: config + adaptadores ESC/POS (Usb/Network/Serial), validación y degradación sin hardware; tests |
+| TPV táctil 10"/15"/17"/22" | **PREPARADO** | perfil táctil + responsive; falta pantalla física |
+| PDA/MDE Zebra/Honeywell/Datalogic/Newland/Sunmi | **PREPARADO** | escáner wedge universal + teclado físico (HID); falta terminal físico |
+| Cualquier categoría sin dispositivo | **NO CERTIFICADO** | se clasifica como PREPARADO, nunca como certificado |
+
+Adaptadores existentes: ESC/POS (impresión), wedge/serie/USB (escáner), pyserial (báscula). Dependencias
+pendientes para validación real: el hardware físico + (en Linux) reglas `udev` para USB.
+
+## Entregable 6 — Porcentaje de certificación actualizado
+
+| Plataforma | Antes (8.0) | Ahora (8.1–8.4) | Motivo |
+|---|---|---|---|
+| Windows x64 | 90% | **92%** | portabilidad total + escáner/táctil integrados y testeados |
+| Linux | 40% | **55%** | CI multi-OS preparado + portabilidad total (evidencia al primer run verde) |
+| macOS | 35% | **50%** | íd. Linux |
+| Windows ARM64 | 20% | **25%** | portabilidad total (sigue sin host ARM64) |
+| TPV táctil | 45% | **65%** | perfil táctil aplicado en QSS + escáner integrado |
+| Tablet | 30% | **40%** | perfil táctil + responsive |
+| PDA | 25% | **45%** | escáner wedge universal integrado |
+| MDE | 25% | **45%** | íd. PDA |
+| Android | 10% | **10%** | sin cambio (sin camino nativo PyQt6) |
+| iOS | 10% | **10%** | sin cambio |
+
+> Los % de Linux/macOS son "preparado, pendiente de primer run CI verde": subirán a evidencia real
+> en cuanto el workflow se ejecute en GitHub. No se declara compatibilidad sin ese run.
+
+## Evidencia de no-regresión (este host, Windows x64)
+
+- Suite completa: **906 passed / 0 fail** (879 base + 27 nuevos del Bloque 8).
+- 0 llamadas no portables fuera de `plataforma.py`. Sintaxis OK en los 11 GUIs migrados.

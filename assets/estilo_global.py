@@ -1110,6 +1110,31 @@ class SmartMessageDialog(QDialog):
 # ============================================================
 # BLOQUE API PÚBLICA
 # ============================================================
+def _qss_tactil() -> str:
+    """QSS superpuesto según el perfil táctil activo (Bloque 8.3).
+
+    Vacío en perfil NORMAL (comportamiento idéntico al actual). En TACTIL/TPV/PDA
+    aumenta los objetivos táctiles de botones, inputs, combos, spinboxes, filas de
+    tabla y pestañas para uso con dedo/guantes en pantallas industriales.
+    """
+    try:
+        from src.utils import perfil_tactil
+        h = perfil_tactil.altura_min_control()
+        if h <= 0:
+            return ""
+        esp = perfil_tactil.espaciado_min()
+        return (
+            "QPushButton { min-height: %dpx; }\n"
+            "QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit { min-height: %dpx; }\n"
+            "QComboBox QAbstractItemView::item { min-height: %dpx; }\n"
+            "QTableView::item { padding: %dpx; }\n"
+            "QHeaderView::section { min-height: %dpx; }\n"
+            "QTabBar::tab { min-height: %dpx; }\n"
+        ) % (h, h, h, max(4, esp // 2), h, h)
+    except Exception:
+        return ""
+
+
 def aplicar_estilo_app(app):
     global _APP_FILTER
 
@@ -1119,7 +1144,7 @@ def aplicar_estilo_app(app):
     if QFont is not None:
         app.setFont(QFont(FUENTE_APP, 10, QFont.Weight.Bold))
 
-    app.setStyleSheet(ESTILO_GLOBAL)
+    app.setStyleSheet(ESTILO_GLOBAL + _qss_tactil())
 
     if _APP_FILTER is None and QObject is not object:
         _APP_FILTER = _SmartGlobalFilter(app)

@@ -246,12 +246,8 @@ def abrir_pdf(ruta_pdf):
         return False
 
     try:
-        if platform.system() == "Windows":
-            os.startfile(ruta_pdf)
-        elif platform.system() == "Darwin":
-            subprocess.Popen(["open", ruta_pdf])
-        else:
-            subprocess.Popen(["xdg-open", ruta_pdf])
+        from src.utils import plataforma
+        plataforma.abrir_archivo(ruta_pdf)
         return True
     except Exception as e:
         print(f"Error al abrir PDF: {e}")
@@ -5933,8 +5929,9 @@ class TraspasoDialog(QDialog):
                     ruta_alb = os.path.join(
                         os.getcwd(), "documentos", "albaranes", f"ALB_{id_doc}.pdf"
                     )
+                    from src.utils import plataforma
                     if os.path.exists(ruta_alb):
-                        os.startfile(ruta_alb)
+                        plataforma.abrir_archivo(ruta_alb)
 
                     # Abrir etiquetas de palés si se generaron
                     from pathlib import Path as _Path
@@ -5942,7 +5939,7 @@ class TraspasoDialog(QDialog):
                     if etiq_dir.exists():
                         etiq_files = sorted(etiq_dir.glob("ETIQ_*.pdf"), key=lambda f: f.stat().st_mtime, reverse=True)
                         if etiq_files:
-                            os.startfile(str(etiq_files[0]))
+                            plataforma.abrir_archivo(str(etiq_files[0]))
 
                     _mensaje_ui(
                         self, "Éxito", f"Traspaso {id_doc} finalizado.", "success"

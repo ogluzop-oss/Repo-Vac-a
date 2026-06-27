@@ -392,7 +392,8 @@ class _CarpetaEtiquetasPage(QWidget):
     def _abrir(self):
         path = os.path.join(os.getcwd(), "documentos", "etiquetas")
         os.makedirs(path, exist_ok=True)
-        os.startfile(path)
+        from src.utils import plataforma
+        plataforma.abrir_carpeta(path)
 
 
 class _PreciosNuevosPage(QWidget):
