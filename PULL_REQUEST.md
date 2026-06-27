@@ -1,10 +1,16 @@
 # Pull Request — Suite Enterprise Smart Manager AI
 
-> **Fecha de generación:** 2026-06-27
+> **Fecha de generación:** 2026-06-27 · **Actualizado:** 2026-06-27
 > **Rama:** `feat/erp-enterprise-suite` → `main`
-> **Último commit de la rama (en el momento de generación):** `32b73e0` — `feat(correo): client OAuth Google por entorno/secret-manager (endurecimiento)`
-> **Hash completo:** `32b73e01ee1c470193124cefc0d7baf7429979c6`
-> *(Este documento se añade en un commit posterior sobre ese tip.)*
+> **Último commit de la rama:** `84c13b4` — `docs(pr): documentación oficial del PR de la suite enterprise`
+>
+> ### Estado de fusión (actualizado)
+> - ✅ **PR #1 fusionado en `main`** (merge `271469c`; padres `1b42d51` + `c866b20`) — 14 primeros commits.
+> - ✅ **PR #2 fusionado en `main`** (merge `2989fef`) — `32b73e0` (endurecimiento OAuth / Secret Manager) + `84c13b4` (`PULL_REQUEST.md`).
+> - ✅ **Todo el trabajo funcional está ya en `main`.** No queda nada funcional pendiente.
+> - ✅ **Merge limpio verificado** (`git merge-tree`, sin conflictos en ningún momento).
+> - ⚠️ Los merges se realizaron con **commit de merge** (no fast-forward), por la existencia de los nodos de merge `271469c`/`2989fef`.
+> - 🔁 Único delta restante en `feat`: commits de **sincronización de esta documentación**; pueden fusionarse con un PR de docs o descartarse eliminando la rama.
 
 ---
 
@@ -18,7 +24,7 @@
 
 Esta rama eleva Smart Manager AI de ERP operativo a **plataforma empresarial multiempresa/SaaS completa**, añadiendo 12 bloques funcionales de forma **estrictamente aditiva, idempotente y reversible**, sin alterar la lógica ya validada (kárdex, lotes, compras, ventas, fiscalidad Verifactu/Facturae, contabilidad PGC, tesorería/SEPA).
 
-- **16 commits temáticos** · **258 ficheros** · **+25.216 / −1.103 líneas**
+- **16 commits temáticos** (14 ya fusionados vía PR #1 + 2 pendientes en PR #2) · **258 ficheros** · **+25.216 / −1.103 líneas**
 - **16 migraciones nuevas** (0052 → 0067), todas `CREATE/ALTER … IF NOT EXISTS`
 - **16 paquetes de servicios** + **8 servicios transversales** + **16 nuevas GUIs**
 - **43 nuevos ficheros de test** · **suite: 879 passed / 0 fail**
@@ -234,10 +240,47 @@ Migraciones verificadas en BD vacía / con datos / upgrade. Arranque de ventanas
 
 ## 22. Estado de fusión
 
-- **Divergencia con `main`:** 16 commits por delante, 0 por detrás (`merge-base == main`).
-- **Tipo de merge:** **fast-forward limpio** — sin posibilidad de conflicto.
-- **Secretos:** 0 referencias a credenciales en el historial de la rama (secreto purgado y rotado).
-- **Esquema:** 100% aditivo (`IF NOT EXISTS`) — no rompe instalaciones con datos.
+### PR #1 — ya fusionado en `main` ✅
+
+Fusionado mediante el commit de merge `271469c` (*Merge pull request #1 from
+ogluzop-oss/feat/erp-enterprise-suite*; padres `1b42d51` + `c866b20`). Incorporó a `main`
+los **14 primeros commits** de la rama, es decir, los bloques:
+
+| Commit | Bloque incorporado a `main` |
+|---|---|
+| `024f750` | DevOps/CD (Docker, gunicorn/wsgi, CI build) |
+| `60b6fc9` | Migraciones 0052–0067 |
+| `47d326b` | Fiscalidad AEAT (303/390/111/190/347/349) |
+| `f2a7724` | Seguridad/Observabilidad (RBAC/ACL, MFA TOTP, RGPD) |
+| `d0c3008` | Workflow/BPM + Comunicaciones |
+| `7e21790` | BI + SaaS |
+| `65c021b` | Disaster Recovery + CRM |
+| `316e81c` | MRP/Fabricación + Calidad |
+| `670abdb` | GMAO + SAT/Helpdesk |
+| `c4aae43` | Finanzas avanzadas + BI Corporativo |
+| `f95ec3a` | Resiliencia / Offline-first |
+| `8b11b64` | Ajustes Tesorería/Contabilidad (SEPA/posting) |
+| `10b2e75` | UX-TPV-01 (TPV/navegación/responsive) |
+| `2be830f`, `c866b20` | Higiene de repo (.gitignore: artefactos y credenciales) |
+
+### PR #2 — ya fusionado en `main` ✅
+
+Fusionado mediante el commit de merge `2989fef` (*Merge pull request #2 from
+ogluzop-oss/feat/erp-enterprise-suite*). Incorporó a `main`:
+
+- `32b73e0` — endurecimiento OAuth / Secret Manager (correo corporativo).
+- `84c13b4` — `PULL_REQUEST.md` (documentación del PR).
+
+### Estado consolidado
+
+- ✅ **Todo el trabajo funcional de la rama está en `main`** (bloques de PR #1 + endurecimiento OAuth de PR #2).
+- ✅ **Merge limpio verificado** (`git merge-tree`, sin conflictos).
+- ⚠️ **No fast-forward:** ambos merges generaron commit de merge (`271469c`, `2989fef`).
+- ✅ **Secretos:** 0 referencias a credenciales en el historial de la rama y en `main`
+  (secreto purgado y rotado).
+- ✅ **Esquema:** 100% aditivo (`IF NOT EXISTS`) — no rompe instalaciones con datos.
+- 🔁 **Pendiente (no funcional):** sincronizar esta documentación con `main` mediante un PR de
+  docs, o cerrar la rama si no se necesita conservarla.
 
 ---
 
