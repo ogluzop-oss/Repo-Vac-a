@@ -356,8 +356,13 @@ def construir_tabla_estilizada(parent=None):
     # Paints the 4 corner areas with the panel background colour, then redraws
     # the neon border arc on top — hiding any child-widget content (rows,
     # scrollbars) that bleeds past the rounded border without pixelated clipping.
-    if (QPainter is not None and QPen is not None and QColor is not None
-            and QPainterPath is not None and QRectF is not None):
+    if (
+        QPainter is not None
+        and QPen is not None
+        and QColor is not None
+        and QPainterPath is not None
+        and QRectF is not None
+    ):
         _bg = QColor(COLOR_FONDO_APP)
         _border = QColor(COLOR_CIAN)
         _r = 20.0
@@ -379,7 +384,9 @@ def construir_tabla_estilizada(parent=None):
                 p.fillPath(full.subtracted(inner), _bg)
                 p.setPen(QPen(_border, 2.0))
                 p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawRoundedRect(QRectF(1.0, 1.0, W - 2.0, H - 2.0), _r - 1.0, _r - 1.0)
+                p.drawRoundedRect(
+                    QRectF(1.0, 1.0, W - 2.0, H - 2.0), _r - 1.0, _r - 1.0
+                )
                 p.end()
 
         _cover = _CornerCover(contenedor)
@@ -396,7 +403,7 @@ def construir_tabla_estilizada(parent=None):
                 return False
 
         _filt = _CoverFilter(contenedor)
-        contenedor._cover_filter = _filt   # prevent GC
+        contenedor._cover_filter = _filt  # prevent GC
         contenedor._corner_cover = _cover  # prevent GC
         contenedor.installEventFilter(_filt)
         if QTimer is not None:
@@ -430,7 +437,10 @@ def _set_widget_cursor(widget):
     if widget is None or Qt is None:
         return
     try:
-        if any(_safe_instance(widget, klass) for klass in (QLineEdit, QTextEdit, QPlainTextEdit)):
+        if any(
+            _safe_instance(widget, klass)
+            for klass in (QLineEdit, QTextEdit, QPlainTextEdit)
+        ):
             # Un campo de solo lectura que actúa como botón (p. ej. el filtro de
             # fecha con triángulo) puede pedir conservar su cursor (manita) en vez
             # del IBeam de texto.
@@ -469,9 +479,30 @@ def _button_role_from_name_or_text(widget):
     if object_name in {"btn_peligro", "btn_sidebar_exit"}:
         return "danger"
 
-    danger_words = {"salir", "cerrar", "eliminar", "borrar", "abortar", "exit", "delete"}
+    danger_words = {
+        "salir",
+        "cerrar",
+        "eliminar",
+        "borrar",
+        "abortar",
+        "exit",
+        "delete",
+    }
     neutral_words = {"cancelar", "cancel", "volver", "no", "omitir", "skip"}
-    success_words = {"aceptar", "continuar", "confirmar", "guardar", "aplicar", "iniciar", "si", "yes", "save", "ok", "confirm", "continue"}
+    success_words = {
+        "aceptar",
+        "continuar",
+        "confirmar",
+        "guardar",
+        "aplicar",
+        "iniciar",
+        "si",
+        "yes",
+        "save",
+        "ok",
+        "confirm",
+        "continue",
+    }
 
     if words & danger_words:
         return "danger"
@@ -496,7 +527,9 @@ def _apply_button_role(widget):
         pass
 
 
-class _RoundedComboDelegate(QStyledItemDelegate if QStyledItemDelegate is not None else object):
+class _RoundedComboDelegate(
+    QStyledItemDelegate if QStyledItemDelegate is not None else object
+):
     """Draws combo-box list items with a rounded-rect highlight on hover/selection."""
 
     def paint(self, painter, option, index):
@@ -505,10 +538,12 @@ class _RoundedComboDelegate(QStyledItemDelegate if QStyledItemDelegate is not No
             return
         try:
             from PyQt6.QtWidgets import QStyle
+
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             is_active = bool(
-                option.state & (QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_Selected)
+                option.state
+                & (QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_Selected)
             )
             if is_active:
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -555,9 +590,7 @@ def _apply_combo_extras(widget):
             # Scroll por píxel: evita el hueco vacío bajo el último item cuando el
             # viewport no es múltiplo exacto de la altura de item.
             try:
-                view.setVerticalScrollMode(
-                    QAbstractItemView.ScrollMode.ScrollPerPixel
-                )
+                view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
             except Exception:
                 pass
             # Diseño unificado de scrollbar para TODOS los desplegables:
@@ -626,9 +659,7 @@ def _apply_native_dialog_chrome(widget):
             return
         flags = widget.windowFlags()
         widget.setWindowFlags(
-            flags
-            | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.Dialog
+            flags | Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog
         )
     except Exception:
         pass
@@ -641,6 +672,7 @@ def _traducir_dialogo_nativo(widget):
     sin backend no hace nada (degradación elegante: queda en español)."""
     try:
         from src.utils import i18n
+
         lang = i18n.current_language()
         if not lang or lang == "es":
             return
@@ -702,7 +734,9 @@ class _SmartGlobalFilter(QObject):
         if watched is None or event is None or Qt is None or QEvent is None:
             return super().eventFilter(watched, event)
         try:
-            if event.type() == QEvent.Type.Show and _safe_instance(watched, QMessageBox):
+            if event.type() == QEvent.Type.Show and _safe_instance(
+                watched, QMessageBox
+            ):
                 # QInputDialog is intentionally excluded: setWindowFlags(FramelessHint) on a
                 # visible QInputDialog causes Qt to destroy/recreate the native handle, which
                 # puts the internal spinbox/buttons into a geometry-correction loop where
@@ -713,7 +747,11 @@ class _SmartGlobalFilter(QObject):
             # QComboBoxPrivateContainer: clip OS window to rounded rect (SetWindowRgn)
             # so the QAbstractItemView's QSS border-radius + neon border shows correctly.
             try:
-                _cn = watched.metaObject().className() if hasattr(watched, 'metaObject') else ""
+                _cn = (
+                    watched.metaObject().className()
+                    if hasattr(watched, "metaObject")
+                    else ""
+                )
                 _is_combo_container = _cn == "QComboBoxPrivateContainer"
             except Exception:
                 _is_combo_container = False
@@ -728,7 +766,9 @@ class _SmartGlobalFilter(QObject):
                         if _pcombo is not None and _safe_instance(_pcombo, QComboBox):
                             if not _pcombo.property("horario_cb"):
                                 _saved = _pcombo.property("_sm_qss_saved")
-                                _pcombo.setStyleSheet(_saved if _saved is not None else "")
+                                _pcombo.setStyleSheet(
+                                    _saved if _saved is not None else ""
+                                )
                     except Exception:
                         pass
                 # Combos marcados con 'horario_cb' gestionan su propio popup
@@ -737,12 +777,16 @@ class _SmartGlobalFilter(QObject):
                 try:
                     _pc = watched.parentWidget()
                     _self_styled = bool(
-                        _pc is not None and _safe_instance(_pc, QComboBox)
+                        _pc is not None
+                        and _safe_instance(_pc, QComboBox)
                         and _pc.property("horario_cb")
                     )
                 except Exception:
                     _self_styled = False
-                if _self_styled and event.type() in {QEvent.Type.Show, QEvent.Type.Polish}:
+                if _self_styled and event.type() in {
+                    QEvent.Type.Show,
+                    QEvent.Type.Polish,
+                }:
                     # El combo se auto-estiliza (borde + scrollbar en su vista).
                     # NO tocamos windowFlags/atributos aquí (recrearía el handle
                     # nativo en cada Show → lentitud y parpadeos). Sólo dejamos el
@@ -783,7 +827,9 @@ class _SmartGlobalFilter(QObject):
                         # Collapse QComboBoxPrivateScroller widgets (top/bottom scroll arrows)
                         # so they don't appear as black bars inside the popup.
                         for _child in watched.children():
-                            if hasattr(_child, 'metaObject') and hasattr(_child, 'setStyleSheet'):
+                            if hasattr(_child, "metaObject") and hasattr(
+                                _child, "setStyleSheet"
+                            ):
                                 try:
                                     if "Scroller" in _child.metaObject().className():
                                         _child.setStyleSheet(
@@ -815,10 +861,13 @@ class _SmartGlobalFilter(QObject):
                                 )
                     except Exception:
                         pass
-                if (not _self_styled
-                        and event.type() in {QEvent.Type.Show, QEvent.Type.Resize}
-                        and sys.platform == "win32"):
+                if (
+                    not _self_styled
+                    and event.type() in {QEvent.Type.Show, QEvent.Type.Resize}
+                    and sys.platform == "win32"
+                ):
                     _ctr = watched
+
                     def _clip_combo_popup(_w=_ctr):
                         try:
                             hwnd = int(_w.winId())
@@ -834,6 +883,7 @@ class _SmartGlobalFilter(QObject):
                             ctypes.windll.user32.SetWindowRgn(hwnd, rgn, True)
                         except Exception:
                             pass
+
                     if QTimer is not None:
                         QTimer.singleShot(0, _clip_combo_popup)
             if event.type() in {
@@ -896,7 +946,9 @@ class SmartMessageDialog(QDialog):
             shadow = QGraphicsDropShadowEffect(self)
             shadow.setBlurRadius(34)
             shadow.setOffset(0, 0)
-            shadow.setColor(self._to_qcolor(self.LEVEL_COLORS.get(self.level, COLOR_CIAN), 180))
+            shadow.setColor(
+                self._to_qcolor(self.LEVEL_COLORS.get(self.level, COLOR_CIAN), 180)
+            )
             self.panel.setGraphicsEffect(shadow)
 
         layout = QVBoxLayout(self.panel)
@@ -955,6 +1007,7 @@ class SmartMessageDialog(QDialog):
     def _button_text(self, role):
         try:
             from src.utils.i18n import tr
+
             mapping = {
                 "ok": tr("common.accept", default="OK"),
                 "yes": tr("common.yes", default="Sí"),
@@ -979,8 +1032,7 @@ class SmartMessageDialog(QDialog):
 
     def _apply_inline_visuals(self):
         accent = self.LEVEL_COLORS.get(self.level, COLOR_CIAN)
-        self.panel.setStyleSheet(
-            f"""
+        self.panel.setStyleSheet(f"""
             QFrame#smart_message_panel {{
                 background-color: {COLOR_NEGRO_PANEL};
                 border: 2px solid {accent};
@@ -1039,8 +1091,7 @@ class SmartMessageDialog(QDialog):
                 background-color: {COLOR_CIAN};
                 color: {COLOR_FONDO_APP};
             }}
-            """
-        )
+            """)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1082,7 +1133,11 @@ def aplicar_estilo_app(app):
 
 
 def _apply_button_glow(widget):
-    if widget is None or not _safe_instance(widget, QPushButton) or QGraphicsDropShadowEffect is None:
+    if (
+        widget is None
+        or not _safe_instance(widget, QPushButton)
+        or QGraphicsDropShadowEffect is None
+    ):
         return
     try:
         name = widget.objectName() if hasattr(widget, "objectName") else ""
@@ -1091,6 +1146,7 @@ def _apply_button_glow(widget):
         if widget.graphicsEffect() is not None:
             return
         from PyQt6.QtGui import QColor
+
         fx = QGraphicsDropShadowEffect()
         fx.setBlurRadius(22)
         fx.setColor(QColor(COLOR_CIAN))

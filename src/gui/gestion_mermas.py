@@ -191,7 +191,7 @@ class _StockSourceDialog(QDialog):
 
         for btn in [self.btn_lineal, self.btn_almacen]:
             btn.setStyleSheet(_NEON_BUTTON_INPUT_SS)
-            btn.setFixedWidth(300)
+            btn.setMinimumWidth(200); btn.setMaximumWidth(340)  # responsive (P2)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             inner.addWidget(btn)
 
@@ -249,7 +249,7 @@ class _RegistrarMermaPage(QWidget):
         )
         self.search_bar.setStyleSheet(_NEON_INPUT_SS)
         # Reducción de tamaño horizontal de la barra de búsqueda
-        self.search_bar.setFixedWidth(480)
+        self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
         self.search_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.search_bar.returnPressed.connect(self._buscar)
 
@@ -265,7 +265,7 @@ class _RegistrarMermaPage(QWidget):
 
         # --- FASE 2: FLUJO DE REGISTRO (QStackedWidget para fases) ---
         self.flow_stacked_widget = QStackedWidget()
-        self.flow_stacked_widget.setFixedWidth(600)  # Fixed width for centering
+        self.flow_stacked_widget.setMinimumWidth(320); self.flow_stacked_widget.setMaximumWidth(600)  # responsive (P2)
         self.flow_stacked_widget.setStyleSheet("background: transparent; border: none;")
         self.flow_stacked_widget.setVisible(False)
 
@@ -303,7 +303,7 @@ class _RegistrarMermaPage(QWidget):
         self.btn_lineal = QPushButton(tr("merma.stock_shelf", default="STOCK LINEAL"))
         self.btn_almacen = QPushButton(tr("merma.stock_warehouse", default="STOCK ALMACÉN"))
         for btn in (self.btn_lineal, self.btn_almacen):
-            btn.setFixedWidth(400)
+            btn.setMinimumWidth(240); btn.setMaximumWidth(440)  # responsive (P2)
             btn.setStyleSheet(_NEON_BUTTON_INPUT_SS)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
         phase1_ly.addWidget(self.btn_lineal)
@@ -335,13 +335,13 @@ class _RegistrarMermaPage(QWidget):
         self.combo_motivo = QComboBox()
         self.combo_motivo.setEditable(True)
         self.combo_motivo.addItems(self._motivos_traducidos())
-        self.combo_motivo.setFixedWidth(400)
+        self.combo_motivo.setMinimumWidth(240); self.combo_motivo.setMaximumWidth(440)  # responsive (P2)
         self.combo_motivo.setStyleSheet(_NEON_INPUT_SS)
         phase2_ly.addWidget(self.combo_motivo)
 
         self.btn_save = QPushButton(tr("merma.save", default="REGISTRAR MERMA"))
         self.btn_save.setStyleSheet(_BTN_CIAN_SS)
-        self.btn_save.setFixedWidth(300)
+        self.btn_save.setMinimumWidth(200); self.btn_save.setMaximumWidth(340)  # responsive (P2)
         self.btn_save.clicked.connect(self._registrar_final)
         phase2_ly.addWidget(self.btn_save)
 
@@ -855,6 +855,14 @@ class GestionMermasWindow(QWidget):
         self.setup_ui()
         i18n.conectar_retraduccion(self, self._retraducir)
 
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            if getattr(self, "sidebar", None) is not None:
+                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario_actual, clave="mermas")
+        except Exception:
+            pass
+
     def setup_ui(self):
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -862,6 +870,7 @@ class GestionMermasWindow(QWidget):
 
         # --- SIDEBAR ---
         sidebar = QFrame()
+        self.sidebar = sidebar  # P3: referencia para el toggle colapsable
         sidebar.setFixedWidth(280)
         sidebar.setStyleSheet(
             f"background-color: {_PANEL_BG}; border-right: 1px solid {_BORDE};"

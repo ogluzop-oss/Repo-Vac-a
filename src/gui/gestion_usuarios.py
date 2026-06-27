@@ -2213,24 +2213,14 @@ class _MovimientoDialog(QDialog):
         pin = self._pin_mov.text().strip()
         if len(pin) != 4 or not pin.isdigit():
             self._lbl_error.setText(tr("cfg.pin_len_err", default="El PIN debe tener exactamente 4 dígitos.")); return
-        import hashlib
-        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
         try:
-            from src.db.conexion import obtener_conexion as _ocon
-            with _ocon() as _conn:
-                _cur = _conn.cursor()
-                _cur.execute("SHOW COLUMNS FROM usuarios")
-                _cols = [r["Field"] if isinstance(r, dict) else r[0] for r in _cur.fetchall()]
-                _col = "nombre" if "nombre" in _cols else "usuario"
-                _cur.execute(
-                    f"SELECT {_col} FROM usuarios WHERE id=%s AND password=%s AND activo=1",
-                    (uid, pin_hash)
-                )
-                _row = _cur.fetchone()
-                if not _row:
-                    self._lbl_error.setText(tr("cfg.pin_wrong_emp", default="PIN incorrecto para el empleado seleccionado."))
-                    self._pin_mov.clear(); self._pin_mov.setFocus(); return
-                _empleado_nombre = _row[_col] if isinstance(_row, dict) else _row[0]
+            # Verificación canónica Argon2id (dual SHA-256 legado + rehash); sin igualdad en SQL.
+            from src.db import usuario as _usuario
+            _resp = _usuario.validar_pin_de_usuario(uid, pin)
+            if not _resp:
+                self._lbl_error.setText(tr("cfg.pin_wrong_emp", default="PIN incorrecto para el empleado seleccionado."))
+                self._pin_mov.clear(); self._pin_mov.setFocus(); return
+            _empleado_nombre = _resp.get("nombre")
         except Exception:
             self._lbl_error.setText(tr("cfg.pin_conn_err", default="Error de conexión con la base de datos.")); return
 
@@ -3732,11 +3722,24 @@ class ConfiguracionWindow(QWidget):
         self.setup_ui()
         # Abrir directamente en una pestaña concreta (p. ej. desde "VER CITA").
         ti = kwargs.get("tab_inicial")
-        if ti is not None and hasattr(self, "btns") and 0 <= ti < len(self.btns):
+        if (ti is not None and hasattr(self, "btns") and 0 <= ti < len(self.btns)
+                and self.btns[ti] is not None):
             try:
                 self.btns[ti].click()
             except Exception:
                 pass
+        # UX-TPV-01 (P5/5.1): disparar una acción de caja al abrir (acceso directo
+        # desde el TPV). Reutiliza EXACTAMENTE los métodos validados; no duplica lógica.
+        accion = kwargs.get("accion_inicial")
+        if accion:
+            _acciones = {
+                "movimiento": "_fn_movimiento",
+                "cambio_cajero": "_fn_cambio_cajero",
+            }
+            metodo = _acciones.get(accion)
+            if metodo and hasattr(self, metodo):
+                from PyQt6.QtCore import QTimer as _QTimer
+                _QTimer.singleShot(300, getattr(self, metodo))
 
     def setup_ui(self):
         main_layout = QHBoxLayout(self)
@@ -3745,6 +3748,7 @@ class ConfiguracionWindow(QWidget):
 
         # --- SIDEBAR ---
         sidebar = QFrame()
+        self.sidebar = sidebar  # P3: referencia para el toggle colapsable
         sidebar.setFixedWidth(260)
         sidebar.setStyleSheet(
             f"background-color: {_PANEL_BG}; border-right: 1px solid #30363D;"
@@ -3779,6 +3783,12 @@ class ConfiguracionWindow(QWidget):
 
         self.btns = []
         for i, key in enumerate(self._tab_keys):
+            # P4.1: GESTIÓN CAJA (índice 0) ya NO es una pestaña de Configuración;
+            # vive en su propia ventana (GestionCajaWindow). Mantenemos un placeholder
+            # en self.btns para no re-indexar el resto de pestañas ni su lógica.
+            if i == 0:
+                self.btns.append(None)
+                continue
             btn = _SidebarBtn(tr(key, default=_tab_def[i]))
             btn.clicked.connect(lambda _, idx=i: self._cambiar_vista(idx))
             self.side_btns_ly.addWidget(btn)
@@ -3813,7 +3823,7 @@ class ConfiguracionWindow(QWidget):
         # la página inicial; el resto se crean la primera vez que se visitan.
         self.stack = QStackedWidget()
         self._page_builders = {
-            0: self._crear_page_caja,
+            0: QWidget,  # P4.1: caja gestionada en GestionCajaWindow (placeholder aquí)
             1: self._crear_page_plazo_devolucion,
             2: self._crear_page_perfiles,
             3: self._crear_page_horarios,
@@ -3826,16 +3836,26 @@ class ConfiguracionWindow(QWidget):
         }
         self._loaded_pages = set()
         for i in range(len(self._page_builders)):
-            if i == 0:
-                self.stack.addWidget(self._crear_page_caja())
-                self._loaded_pages.add(0)
+            if i == 1:
+                # Primera pestaña visible ahora que GESTIÓN CAJA (0) tiene ventana propia.
+                self.stack.addWidget(self._crear_page_plazo_devolucion())
+                self._loaded_pages.add(1)
             else:
                 self.stack.addWidget(QWidget())  # placeholder — se crea al visitarla
 
         main_layout.addWidget(sidebar)
         main_layout.addWidget(self.stack)
-        self.btns[0].setChecked(True)
+        self.stack.setCurrentIndex(1)
+        if len(self.btns) > 1 and self.btns[1] is not None:
+            self.btns[1].setChecked(True)
         i18n.conectar_retraduccion(self, self._retraducir_cfg)
+
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario, clave="configuracion")
+        except Exception:
+            pass
 
     def _retraducir_cfg(self):
         """Re-traduce el chrome (título, pestañas, salir) al cambiar de idioma."""
@@ -3847,6 +3867,8 @@ class ConfiguracionWindow(QWidget):
             "DATOS DE EMPRESA",
         ]
         for i, btn in enumerate(self.btns):
+            if btn is None:  # P4.1: índice 0 (caja) no tiene pestaña en Configuración
+                continue
             _def = _tab_def[i] if i < len(_tab_def) else ""
             btn.setText(tr(self._tab_keys[i], default=_def))
         if hasattr(self, "_btn_salir"):
@@ -4201,7 +4223,7 @@ class ConfiguracionWindow(QWidget):
         y los importes pasan a esa divisa (sin reiniciar)."""
         frame = QFrame()
         frame.setObjectName("divisaBox")
-        frame.setFixedHeight(60)
+        frame.setMinimumHeight(60)  # responsive (P2): antes fijo
         frame.setStyleSheet(f"QFrame#divisaBox{{background:#161B22;border:2px solid {_BORDE};border-radius:14px;}}")
         ly = QHBoxLayout(frame)
         ly.setContentsMargins(20, 0, 20, 0)
@@ -4211,7 +4233,9 @@ class ConfiguracionWindow(QWidget):
         # de la app (igual que el resto de desplegables), y abre correctamente.
         combo = _NeonComboBox()
         combo.setFixedHeight(38)
-        combo.setMinimumWidth(320)
+        combo.setMinimumWidth(200)  # responsive (P2): cabe en pantallas estrechas (antes 320)
+        combo.setMaximumWidth(420)
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         combo.setMaxVisibleItems(10)
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
         # Borde neón ESTABLE: el filtro global guarda/restaura el QSS inline del
@@ -4268,7 +4292,7 @@ class ConfiguracionWindow(QWidget):
         # ── Estado banner ────────────────────────────────────────────────────
         status_frame = QFrame()
         status_frame.setObjectName("cajaStatus")
-        status_frame.setFixedHeight(60)
+        status_frame.setMinimumHeight(60)  # responsive (P2): antes fijo
         status_frame.setStyleSheet(f"QFrame#cajaStatus{{background:#161B22;border:2px solid {_BORDE};border-radius:14px;}}")
         sf_ly = QHBoxLayout(status_frame); sf_ly.setContentsMargins(20, 0, 20, 0)
 
@@ -4293,10 +4317,14 @@ class ConfiguracionWindow(QWidget):
 
         # ── Grid de botones ──────────────────────────────────────────────────
         grid = QGridLayout(); grid.setSpacing(16)
+        grid.setColumnStretch(0, 1); grid.setColumnStretch(1, 1)  # responsive: 2 col elásticas
 
         def _mk_btn(txt, icono=""):
             b = QPushButton(f"{icono}  {txt}" if icono else txt)
-            b.setFixedSize(310, 88)
+            # Responsive (P2): expansible en ancho, alto táctil; antes era fijo 310x88.
+            b.setMinimumSize(200, 72)
+            b.setMaximumHeight(96)
+            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(f"""
                 QPushButton{{background:#161B22;border:2px solid {_CIAN};color:white;
@@ -6771,3 +6799,50 @@ from src.rrhh.gui.empleados import (  # noqa: E402,F401
     _AsignarEmpleadoDialog,
     _IdentificacionEmpleadoDialog,
 )
+
+
+# ============================================================
+# P4.1 — GESTIÓN DE CAJA EN VENTANA PROPIA
+# ============================================================
+class GestionCajaWindow(ConfiguracionWindow):
+    """Ventana INDEPENDIENTE de Gestión de Caja (UX-TPV-01, P4/P4.1).
+
+    REUTILIZA íntegramente la lógica de caja de ConfiguracionWindow (todos los
+    métodos `_fn_*`, `_get_caja_estado`, `_crear_page_caja`, etc. se heredan). Solo
+    cambia el contenedor: en vez de una pestaña dentro de Configuración, es una
+    ventana propia accesible desde el Menú Principal y el TPV. NO duplica lógica.
+    """
+
+    def setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # Cabecera con título + botón de regreso (a la altura del título).
+        header = QFrame()
+        header.setFixedHeight(64)
+        header.setStyleSheet(f"background-color:{_PANEL_BG};border-bottom:1px solid #30363D;")
+        h_ly = QHBoxLayout(header)
+        h_ly.setContentsMargins(28, 0, 28, 0)
+        titulo = QLabel("🧰  " + tr("cfg.tab_caja", default="GESTIÓN CAJA"))
+        titulo.setStyleSheet("color:white;font-weight:900;font-size:16px;letter-spacing:1px;")
+        h_ly.addWidget(titulo)
+        h_ly.addStretch()
+        btn_volver = QPushButton(tr("cfg.exit", default="SALIR AL MENÚ"))
+        btn_volver.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_volver.setFixedHeight(38)
+        btn_volver.setStyleSheet(
+            "QPushButton{background:transparent;color:#F85149;border:2px solid #F85149;"
+            "border-radius:8px;padding:0 18px;font-family:'Segoe UI';font-weight:900;font-size:12px;}"
+            "QPushButton:hover{background:#F85149;color:#0E1117;}"
+        )
+        btn_volver.clicked.connect(self.ejecutar_regreso)
+        h_ly.addWidget(btn_volver)
+        root.addWidget(header)
+
+        # Página de caja reutilizada (misma construcción y lógica que en Configuración).
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        scroll.setWidget(self._crear_page_caja())
+        root.addWidget(scroll)

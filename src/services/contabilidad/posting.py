@@ -83,12 +83,15 @@ def encolar_venta(ref, total, fecha, forma_pago="efectivo", subtipo="ticket", id
                    extra={"forma_pago": forma_pago}, id_empresa=id_empresa)
 
 
-def encolar_compra(ref, total, fecha, id_empresa=None, base=None, iva=None, subtipo="factura"):
+def encolar_compra(ref, total, fecha, id_empresa=None, base=None, iva=None, subtipo="factura",
+                   retencion=None):
     extra = {}
     if base is not None:
         extra["base"] = round(float(base), 2)
     if iva is not None:
         extra["iva"] = round(float(iva), 2)
+    if retencion:
+        extra["retencion"] = round(float(retencion), 2)
     return encolar("compra", ref, total, fecha, subtipo=subtipo, extra=extra, id_empresa=id_empresa)
 
 
@@ -246,8 +249,14 @@ def _asiento_compra(ev, p, id_empresa):
     if iva:
         lineas.append({"codigo_cuenta": M.cuenta("iva_sop", id_empresa=id_empresa), "debe": iva,
                        "tipo_iva": tipo_iva, "descripcion": "IVA soportado"})
-    lineas.append({"codigo_cuenta": M.cuenta("proveedor", id_empresa=id_empresa), "haber": round(base + iva, 2),
-                   "descripcion": "Proveedor"})
+    # AEAT-3: retención IRPF de profesionales (4751 HP acreedora). El proveedor se reduce en la
+    # retención y se abona a 4751. Sin retención el asiento es idéntico al anterior.
+    retencion = round(float(p.get("retencion") or 0), 2)
+    lineas.append({"codigo_cuenta": M.cuenta("proveedor", id_empresa=id_empresa),
+                   "haber": round(base + iva - retencion, 2), "descripcion": "Proveedor"})
+    if retencion:
+        lineas.append({"codigo_cuenta": "4751", "haber": retencion,
+                       "descripcion": "HP acreedora retenciones IRPF"})
     r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=f"Factura compra {ev['ref']}",
                         origen="compra", ref_origen=f"compra:{ev['ref']}", id_empresa=id_empresa, idempotente=True)
     return r["id"] if r else None

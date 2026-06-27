@@ -275,3 +275,82 @@ def revocar_tokens(id_correo: str) -> bool:
     except Exception as e:
         logger.error("Error revocar_tokens(%s): %s", id_correo, e)
         return False
+
+
+# ── Correo recibido (FASE COM-4) — recepción/sincronización IMAP/Graph ───────
+def _emp_corr(id_empresa=None):
+    if id_empresa:
+        return id_empresa
+    try:
+        from src.db.empresa import empresa_actual_id
+        return empresa_actual_id()
+    except Exception:
+        from src.db.conexion import EMPRESA_DEFAULT_ID
+        return EMPRESA_DEFAULT_ID
+
+
+def guardar_recibido(id_correo, remitente, asunto, cuerpo=None, *, message_id=None,
+                     fecha=None, adjuntos=None, id_empresa=None):
+    """Persiste (idempotente por message_id) un correo recibido y sus adjuntos. Audita."""
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("INSERT IGNORE INTO correos_recibidos (id_empresa, id_correo, remitente, "
+                        "asunto, cuerpo, message_id, fecha) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, id_correo, remitente, asunto, cuerpo, message_id, fecha))
+            rid = cur.lastrowid
+            if not rid:        # ya existía (idempotente)
+                cur.execute("SELECT id FROM correos_recibidos WHERE id_empresa=%s AND id_correo=%s "
+                            "AND message_id=%s", (id_empresa, id_correo, message_id))
+                r = cur.fetchone()
+                rid = (r[0] if not isinstance(r, dict) else list(r.values())[0]) if r else None
+            for adj in (adjuntos or []):
+                cur.execute("INSERT INTO correos_adjuntos (id_empresa, id_correo_recibido, nombre, ruta) "
+                            "VALUES (%s,%s,%s,%s)", (id_empresa, rid, adj.get("nombre"), adj.get("ruta")))
+            conn.commit()
+        try:
+            from src.db.conexion import log_auditoria
+            log_auditoria("sistema", "CORREO_RECIBIDO", "correos_recibidos", f"id={rid} de {remitente}")
+        except Exception:
+            pass
+        return rid
+    except Exception as e:
+        logger.error("guardar_recibido: %s", e)
+        return None
+
+
+def listar_recibidos(id_correo=None, *, solo_no_leidos=False, id_empresa=None):
+    id_empresa = _emp_corr(id_empresa)
+    q = "SELECT * FROM correos_recibidos WHERE id_empresa=%s"
+    p = [id_empresa]
+    if id_correo:
+        q += " AND id_correo=%s"; p.append(id_correo)
+    if solo_no_leidos:
+        q += " AND leido=0"
+    q += " ORDER BY fecha DESC, id DESC LIMIT 500"
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(q, p)
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_recibidos: %s", e)
+        return []
+
+
+def marcar_recibido_leido(id_recibido, id_empresa=None):
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE correos_recibidos SET leido=1 WHERE id=%s AND id_empresa=%s",
+                        (id_recibido, id_empresa))
+            conn.commit()
+        try:
+            from src.db.conexion import log_auditoria
+            log_auditoria("sistema", "CORREO_ABIERTO", "correos_recibidos", f"id={id_recibido}")
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        logger.error("marcar_recibido_leido: %s", e)
+        return False

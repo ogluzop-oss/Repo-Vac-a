@@ -211,6 +211,7 @@ class CentroDocumentalWindow(QWidget):
         super().__init__(parent)
         self._volver = callback_vuelta
         self._main = main
+        self.usuario = usuario
         self._tipo_sel = ""              # categoría activa ("" = todos)
         self._cat_btns = {}
         self._docs = []                  # filas mostradas (para resolver acciones)
@@ -220,6 +221,14 @@ class CentroDocumentalWindow(QWidget):
         self.setStyleSheet(f"background:{_BG};")
         self._build()
         QTimer.singleShot(0, self._cargar_inicial)
+
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            if getattr(self, "sidebar", None) is not None:
+                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario, clave="centro_documental")
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------- construcción
     def _build(self):
@@ -259,7 +268,7 @@ class CentroDocumentalWindow(QWidget):
     def _build_sidebar(self) -> QWidget:
         # Sidebar al estilo del resto de la app: riel oscuro + border-right, sin
         # tarjeta redondeada; botones gris→blanco al pasar; activo en cian.
-        wrap = QFrame(); wrap.setObjectName("sideWrap"); wrap.setFixedWidth(250)
+        wrap = QFrame(); wrap.setObjectName("sideWrap"); wrap.setFixedWidth(250); self.sidebar = wrap  # P3
         wrap.setStyleSheet(f"QFrame#sideWrap{{background:{_SIDEBAR};border:none;"
                            f"border-right:1px solid {_BORDE};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)

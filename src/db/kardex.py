@@ -20,10 +20,12 @@ logger = logging.getLogger("inventario.kardex")
 TIPOS = (
     "ENTRADA_COMPRA", "ENTRADA_PALE", "ENTRADA_TRASPASO", "TRASPASO", "MERMA",
     "SALIDA_VENTA", "DEVOLUCION", "AJUSTE", "DEVOLUCION_PROVEEDOR",
+    # MRP / Fabricación (BLOQUE 3) — alta de producto terminado y consumo de componentes.
+    "ENTRADA_PRODUCCION", "SALIDA_PRODUCCION",
 )
 # Signo orientativo (+ entra, − sale) — informativo, no altera el dato almacenado.
-ENTRADAS = {"ENTRADA_COMPRA", "ENTRADA_PALE", "ENTRADA_TRASPASO", "DEVOLUCION"}
-SALIDAS = {"SALIDA_VENTA", "MERMA"}
+ENTRADAS = {"ENTRADA_COMPRA", "ENTRADA_PALE", "ENTRADA_TRASPASO", "DEVOLUCION", "ENTRADA_PRODUCCION"}
+SALIDAS = {"SALIDA_VENTA", "MERMA", "SALIDA_PRODUCCION"}
 
 
 def _tenant():

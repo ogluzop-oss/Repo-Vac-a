@@ -44,19 +44,50 @@ def _dir_logs():
     return d
 
 
+class _JsonFormatter(logging.Formatter):
+    """Formatter JSON estructurado (OBS-1): timestamp/nivel/módulo/mensaje + correlation_id."""
+    def format(self, record):
+        import json as _json
+        base = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "nivel": record.levelname,
+            "modulo": record.name,
+            "mensaje": record.getMessage(),
+            "correlation_id": getattr(record, "correlation_id", "-"),
+        }
+        if record.exc_info:
+            base["exc"] = self.formatException(record.exc_info)
+        return _json.dumps(base, ensure_ascii=False)
+
+
 def configurar_logging(nivel=logging.INFO, consola=True):
-    """Configura el logging global. Idempotente (llamar una vez al arranque)."""
+    """Configura el logging global. Idempotente (llamar una vez al arranque).
+    Si SM_LOG_JSON=1, usa formato JSON estructurado. Inyecta correlation_id en cada registro."""
     global _configurado
     if _configurado:
         return logging.getLogger(_RAIZ)
 
-    fmt = logging.Formatter(
-        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    if os.getenv("SM_LOG_JSON", "0") == "1":
+        fmt = _JsonFormatter()
+    else:
+        fmt = logging.Formatter(
+            "%(asctime)s | %(levelname)-8s | %(name)s | [%(correlation_id)s] | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+
+    # Filtro que añade correlation_id a todos los registros (OBS-2).
+    try:
+        from src.services.observabilidad.correlation import CorrelationFilter
+        _cfilter = CorrelationFilter()
+    except Exception:
+        class _NF(logging.Filter):
+            def filter(self, r):
+                r.correlation_id = getattr(r, "correlation_id", "-"); return True
+        _cfilter = _NF()
 
     root = logging.getLogger()
     root.setLevel(nivel)
+    root.addFilter(_cfilter)
 
     # Archivo rotativo
     try:
@@ -66,6 +97,7 @@ def configurar_logging(nivel=logging.INFO, consola=True):
         )
         fh.setLevel(nivel)
         fh.setFormatter(fmt)
+        fh.addFilter(_cfilter)        # correlation_id en registros propagados
         root.addHandler(fh)
     except Exception:
         pass
@@ -75,6 +107,7 @@ def configurar_logging(nivel=logging.INFO, consola=True):
         ch = logging.StreamHandler()
         ch.setLevel(nivel)
         ch.setFormatter(fmt)
+        ch.addFilter(_cfilter)
         root.addHandler(ch)
 
     # Bajar el ruido de librerías muy verbosas.

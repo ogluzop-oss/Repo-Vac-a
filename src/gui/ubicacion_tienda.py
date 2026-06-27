@@ -154,6 +154,15 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # 5. CONSTRUIR INTERFAZ
         self.setup_ui()
+
+        # P3 (UX-TPV-01): sidebar de navegación colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            if getattr(self, "sidebar", None) is not None:
+                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario_actual, clave="ubicacion")
+        except Exception:
+            pass
+
         app = QApplication.instance()
         if app:
             app.installEventFilter(self)
@@ -1504,7 +1513,9 @@ class UbicacionTiendaWindow(QMainWindow):
     def setup_ui(self):
         """Configuración de interfaz: Premium Dark y Navegación Sincronizada."""
         self.setWindowTitle(tr("ubic.window_title", default="SISTEMA DE UBICACIÓN Y GPS INTERNO - Smart Manager"))
-        self.setMinimumSize(1280, 850)
+        # Responsive (P2): mínimo apto para tablets landscape (antes 1280x850 bloqueaba
+        # su uso en pantallas <1280). El editor sigue siendo una herramienta de escritorio/tablet.
+        self.setMinimumSize(1024, 700)
         self.setFont(self._crear_fuente_segoe(10))
 
         # --- ESTILO RAÍZ ---
@@ -4228,7 +4239,9 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # --- PANEL IZQUIERDO: CONTROL DE ACTIVOS ---
         panel_izquierdo = QFrame()
-        panel_izquierdo.setFixedWidth(300)
+        # Responsive (P2): puede encoger en pantallas pequeñas (antes fijo 300).
+        panel_izquierdo.setMinimumWidth(240)
+        panel_izquierdo.setMaximumWidth(300)
         panel_izquierdo.setStyleSheet(
             "QFrame { background-color: #05070A; border-radius: 18px; border: 1.5px solid #1C2128; }"
         )

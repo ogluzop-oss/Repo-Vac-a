@@ -152,7 +152,7 @@ class _NuevoCorreoDialog(QDialog):
         bk.clicked.connect(self._aceptar)
         botones.addWidget(bc); botones.addWidget(bk)
         ly.addLayout(botones)
-        self.setFixedWidth(560)
+        self.setMinimumWidth(360); self.setMaximumWidth(560)  # responsive (P2): antes fijo 560
 
     def _aceptar(self):
         direccion = self.inp_dir.text().strip()
@@ -234,7 +234,7 @@ class EnviarDocumentoDialog(QDialog):
         bk.clicked.connect(self._enviar)
         botones.addWidget(bc); botones.addWidget(bk)
         ly.addLayout(botones)
-        self.setFixedWidth(560)
+        self.setMinimumWidth(360); self.setMaximumWidth(560)  # responsive (P2): antes fijo 560
 
     def _enviar(self):
         if not self._buzones:

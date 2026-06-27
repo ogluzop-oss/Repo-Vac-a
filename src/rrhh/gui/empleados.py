@@ -158,26 +158,17 @@ class _PinDialog(QDialog):
         pin = self._pin_inp.text().strip()
         if len(pin) != 4 or not pin.isdigit():
             self._lbl_err.setText(tr("cfg.pin_len_err", default="El PIN debe tener exactamente 4 dígitos.")); return
-        import hashlib
-        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
         roles = self._roles_permitidos()
         try:
-            from src.db.conexion import obtener_conexion
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute("SHOW COLUMNS FROM usuarios")
-                cols = [r["Field"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
-                col = "nombre" if "nombre" in cols else "usuario"
-                ph = ",".join(["%s"] * len(roles))
-                cur.execute(
-                    f"SELECT id, {col} FROM usuarios WHERE password=%s AND activo=1 AND perfil IN ({ph})",
-                    (pin_hash, *roles))
-                row = cur.fetchone()
-                if row:
-                    self._ok = True
-                    self._usuario_id = row[0] if not isinstance(row, dict) else row["id"]
-                    self._usuario_nombre = row[1] if not isinstance(row, dict) else row[col]
-                    self.accept(); return
+            # Verificación canónica: Argon2id (con soporte dual SHA-256 legado + rehash).
+            # No se compara el hash en SQL porque Argon2id no admite igualdad directa.
+            from src.db import usuario as _usuario
+            resp = _usuario.validar_pin_por_rol(pin, roles)
+            if resp:
+                self._ok = True
+                self._usuario_id = resp.get("id")
+                self._usuario_nombre = resp.get("nombre")
+                self.accept(); return
             self._lbl_err.setText(tr("cfg.pin_wrong_auth", default="PIN incorrecto o usuario no autorizado."))
             self._pin_inp.clear(); self._pin_inp.setFocus()
         except Exception:
@@ -442,24 +433,14 @@ class _IdentificacionEmpleadoDialog(QDialog):
         pin = self._pin_inp.text().strip()
         if len(pin) != 4 or not pin.isdigit():
             self._lbl_err.setText(tr("cfg.pin_len_err", default="El PIN debe tener exactamente 4 dígitos.")); return
-        import hashlib
-        pin_hash = hashlib.sha256(pin.encode()).hexdigest()
         try:
-            from src.db.conexion import obtener_conexion
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute("SHOW COLUMNS FROM usuarios")
-                cols = [r["Field"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
-                col = "nombre" if "nombre" in cols else "usuario"
-                cur.execute(
-                    f"SELECT {col} FROM usuarios WHERE id=%s AND password=%s AND activo=1",
-                    (uid, pin_hash)
-                )
-                row = cur.fetchone()
-                if row:
-                    self._empleado_id = uid
-                    self._empleado_nombre = (row[col] if isinstance(row, dict) else row[0])
-                    self.accept(); return
+            # Verificación canónica Argon2id (dual SHA-256 legado + rehash); sin igualdad en SQL.
+            from src.db import usuario as _usuario
+            resp = _usuario.validar_pin_de_usuario(uid, pin)
+            if resp:
+                self._empleado_id = resp.get("id")
+                self._empleado_nombre = resp.get("nombre")
+                self.accept(); return
             self._lbl_err.setText(tr("cfg.pin_wrong_emp", default="PIN incorrecto para el empleado seleccionado."))
             self._pin_inp.clear(); self._pin_inp.setFocus()
         except Exception:

@@ -71,6 +71,14 @@ class ContabilidadWindow(QWidget):
         root.addWidget(right, 1)
         self._ir(0)
 
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            if getattr(self, "sidebar", None) is not None:
+                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario, clave="contabilidad")
+        except Exception:
+            pass
+
     # ── Cabecera / sidebar ───────────────────────────────────────────────────
     def _header(self):
         cab = QHBoxLayout()
@@ -85,7 +93,7 @@ class ContabilidadWindow(QWidget):
         return cab
 
     def _sidebar(self):
-        wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(230)
+        wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(230); self.sidebar = wrap  # P3
         wrap.setStyleSheet(f"#sw{{background:{_SIDEBAR};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
         cab = QLabel(tr("contab.secciones", default="CONTABILIDAD"))

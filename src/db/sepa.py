@@ -222,6 +222,12 @@ def cambiar_estado(id_remesa, estado, *, fecha_ejecucion=None, id_empresa=None) 
     actual = (obtener_remesa(id_remesa, id_empresa) or {}).get("estado")
     if actual is not None and estado not in _TRANSICIONES.get(actual, set()):
         raise ValueError(f"transición no permitida: {actual} → {estado}")
+    if estado == "ejecutada":
+        try:
+            from src.services import autorizacion
+            autorizacion.exigir(None, "tesoreria.remesas.ejecutar")
+        except ImportError:
+            pass
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             if fecha_ejecucion:

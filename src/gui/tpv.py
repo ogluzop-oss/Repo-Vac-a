@@ -1,5 +1,6 @@
 # src/gui/tpv.py
 """Terminal Punto de Venta (TPV) — Enterprise Edition"""
+
 from __future__ import annotations
 
 import datetime
@@ -7,7 +8,8 @@ import json
 import logging
 import os
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt, QTimer
+from PyQt6.QtCore import QByteArray, QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt, QTimer
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtGui import (
     QBitmap,
     QColor,
@@ -30,6 +32,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
@@ -44,12 +47,17 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from src.db.conexion import (obtener_articulo, obtener_conexion, stock_signals,
-                             transaccion)
+from src.db.conexion import (
+    obtener_articulo,
+    obtener_conexion,
+    stock_signals,
+    transaccion,
+)
 from src.db.usuario import listar_usuarios, sesion_global, validar_login_empleado
 from src.utils import divisas, i18n
 from src.utils.customer_display_bridge import customer_display_bridge
@@ -61,27 +69,28 @@ logger = logging.getLogger(__name__)
 # CONSTANTES DE ESTILO
 # ============================================================
 
-_BG    = "#0E1117"
-_BG2   = "#161B22"
-_CIAN  = "#00FFC6"
-_ROJO  = "#FF4C4C"
+_BG = "#0E1117"
+_BG2 = "#161B22"
+_CIAN = "#00FFC6"
+_ROJO = "#FF4C4C"
 _VERDE = "#3FB950"
 _BORDE = "#30363D"
-_TEXT  = "#E6EDF3"
+_TEXT = "#E6EDF3"
 _TEXT2 = "#8B949E"
-_FONT  = "Segoe UI"
+_FONT = "Segoe UI"
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_LOGO_CORP_PATH  = os.path.join(_ROOT, "documentos", "logo_corporativo.png")
+_LOGO_CORP_PATH = os.path.join(_ROOT, "documentos", "logo_corporativo.png")
 _CAJA_STATE_FILE = os.path.join(_ROOT, "documentos", "estado_caja.json")
-_RETENIDAS_FILE  = os.path.join(_ROOT, "documentos", "tpv_retenidas.json")
-_AUDIT_FILE      = os.path.join(_ROOT, "documentos", "tpv_auditoria.json")
-_TICKETS_DIR     = os.path.join(_ROOT, "documentos", "Tickets")
+_RETENIDAS_FILE = os.path.join(_ROOT, "documentos", "tpv_retenidas.json")
+_AUDIT_FILE = os.path.join(_ROOT, "documentos", "tpv_auditoria.json")
+_TICKETS_DIR = os.path.join(_ROOT, "documentos", "Tickets")
 
 
 # ============================================================
 # HELPERS DE ESTILO
 # ============================================================
+
 
 def _lbl(text: str, bold: bool = False, size: int = 12, color: str = _TEXT) -> QLabel:
     lb = QLabel(text)
@@ -94,13 +103,13 @@ def _lbl(text: str, bold: bool = False, size: int = 12, color: str = _TEXT) -> Q
 
 def _btn(
     text: str,
-    color_bg:     str = _BG2,
-    color_fg:     str = _TEXT,
+    color_bg: str = _BG2,
+    color_fg: str = _TEXT,
     color_border: str = _BORDE,
-    hover_bg:     str = _CIAN,
-    hover_fg:     str = "#0D1117",
-    h:            int = 38,
-    radius:       int = 10,
+    hover_bg: str = _CIAN,
+    hover_fg: str = "#0D1117",
+    h: int = 38,
+    radius: int = 10,
 ) -> QPushButton:
     b = QPushButton(text)
     b.setFixedHeight(h)
@@ -118,8 +127,7 @@ def _btn(
 def _card() -> QFrame:
     f = QFrame()
     f.setStyleSheet(
-        f"QFrame{{background:{_BG2};border:1px solid {_BORDE};"
-        f"border-radius:14px;}}"
+        f"QFrame{{background:{_BG2};border:1px solid {_BORDE};" f"border-radius:14px;}}"
     )
     return f
 
@@ -128,6 +136,7 @@ def _solo_texto(s: str) -> str:
     """Quita un icono/símbolo inicial (y espacios) del texto de un botón,
     p. ej. '⚖  BÁSCULA' -> 'BÁSCULA'. Conserva acentos y ñ."""
     import re
+
     out = re.sub(r"^[^0-9A-Za-zÁÉÍÓÚÑÜáéíóúñü]+", "", s or "").strip()
     return out or (s or "")
 
@@ -136,6 +145,7 @@ class _RoundTableCorners(QObject):
     """Redondea las esquinas exteriores de un QTableWidget con una máscara: las 4
     del widget y, además, las superiores de la cabecera (para que el contorno
     neón no se corte arriba)."""
+
     def __init__(self, table, radius=10):
         super().__init__(table)
         self._r = radius
@@ -146,14 +156,19 @@ class _RoundTableCorners(QObject):
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.Type.Resize, QEvent.Type.Show) and obj.width() > 0:
             from PyQt6.QtCore import QRect
+
             if obj is self._table:
-                rect = QRect(0, 0, obj.width(), obj.height())          # 4 esquinas
+                rect = QRect(0, 0, obj.width(), obj.height())  # 4 esquinas
             else:  # cabecera: redondear solo arriba (extiende el rect por abajo)
                 rect = QRect(0, 0, obj.width(), obj.height() + self._r)
-            bmp = QBitmap(obj.size()); bmp.fill(Qt.GlobalColor.color0)
-            p = QPainter(bmp); p.setBrush(Qt.GlobalColor.color1); p.setPen(Qt.PenStyle.NoPen)
+            bmp = QBitmap(obj.size())
+            bmp.fill(Qt.GlobalColor.color0)
+            p = QPainter(bmp)
+            p.setBrush(Qt.GlobalColor.color1)
+            p.setPen(Qt.PenStyle.NoPen)
             p.drawRoundedRect(rect, self._r, self._r)
-            p.end(); obj.setMask(QRegion(bmp))
+            p.end()
+            obj.setMask(QRegion(bmp))
         return False
 
 
@@ -176,7 +191,9 @@ def _ss_tabla_neon() -> str:
 def _sep() -> QFrame:
     s = QFrame()
     s.setFrameShape(QFrame.Shape.HLine)
-    s.setStyleSheet(f"QFrame{{color:{_BORDE};background:{_BORDE};max-height:1px;border:none;}}")
+    s.setStyleSheet(
+        f"QFrame{{color:{_BORDE};background:{_BORDE};max-height:1px;border:none;}}"
+    )
     s.setFixedHeight(1)
     return s
 
@@ -197,7 +214,9 @@ def _icono_papelera(color: str, size: int = 22) -> QIcon:
     p.setPen(pen)
     p.setBrush(Qt.BrushStyle.NoBrush)
 
-    def X(f): return W * f
+    def X(f):
+        return W * f
+
     # Asa superior (mango)
     p.drawLine(QPointF(X(0.40), X(0.20)), QPointF(X(0.60), X(0.20)))
     # Barra de la tapa
@@ -219,8 +238,14 @@ def _icono_papelera(color: str, size: int = 22) -> QIcon:
     for fx in (0.42, 0.50, 0.58):
         p.drawLine(QPointF(X(fx), X(0.40)), QPointF(X(fx), X(0.74)))
     p.end()
-    return QIcon(pm.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
-                           Qt.TransformationMode.SmoothTransformation))
+    return QIcon(
+        pm.scaled(
+            size,
+            size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+    )
 
 
 def _icono_lapiz(color: str, size: int = 22) -> QIcon:
@@ -239,14 +264,16 @@ def _icono_lapiz(color: str, size: int = 22) -> QIcon:
     p.setPen(pen)
     p.setBrush(Qt.BrushStyle.NoBrush)
 
-    def X(f): return W * f
+    def X(f):
+        return W * f
+
     # Lápiz diagonal centrado en el cuadro (centro ~0.50, 0.50).
     # Cuerpo (rectángulo girado 45°)
     body = QPainterPath()
-    body.moveTo(X(0.28), X(0.62))   # esquina interior junto a la punta
-    body.lineTo(X(0.64), X(0.26))   # hacia el cabezal
-    body.lineTo(X(0.76), X(0.38))   # ancho del lápiz en el cabezal
-    body.lineTo(X(0.40), X(0.74))   # vuelta a la zona de la punta
+    body.moveTo(X(0.28), X(0.62))  # esquina interior junto a la punta
+    body.lineTo(X(0.64), X(0.26))  # hacia el cabezal
+    body.lineTo(X(0.76), X(0.38))  # ancho del lápiz en el cabezal
+    body.lineTo(X(0.40), X(0.74))  # vuelta a la zona de la punta
     body.closeSubpath()
     p.drawPath(body)
     # Banda que separa cuerpo y cabezal
@@ -255,22 +282,29 @@ def _icono_lapiz(color: str, size: int = 22) -> QIcon:
     tip = QPainterPath()
     tip.moveTo(X(0.28), X(0.62))
     tip.lineTo(X(0.40), X(0.74))
-    tip.lineTo(X(0.20), X(0.82))   # vértice de la punta
+    tip.lineTo(X(0.20), X(0.82))  # vértice de la punta
     tip.closeSubpath()
     p.setBrush(c)
     p.drawPath(tip)
     p.setBrush(Qt.BrushStyle.NoBrush)
     p.end()
-    return QIcon(pm.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
-                           Qt.TransformationMode.SmoothTransformation))
+    return QIcon(
+        pm.scaled(
+            size,
+            size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+    )
 
 
 class _IconButton(QPushButton):
     """Botón de icono dibujado que intercambia el color del icono en hover
     (Qt no recolorea un QIcon vía QSS, así que lo hacemos en enter/leaveEvent)."""
 
-    def __init__(self, draw_fn, color_base: str, color_hover: str,
-                 icon_px: int = 20, parent=None):
+    def __init__(
+        self, draw_fn, color_base: str, color_hover: str, icon_px: int = 20, parent=None
+    ):
         super().__init__(parent)
         self._draw_fn = draw_fn
         self._color_base = color_base
@@ -291,8 +325,13 @@ class _IconButton(QPushButton):
         super().leaveEvent(event)
 
 
-def _confirmar(parent, titulo: str, mensaje: str,
-               txt_ok: str = "ACEPTAR", txt_cancel: str = "CANCELAR") -> bool:
+def _confirmar(
+    parent,
+    titulo: str,
+    mensaje: str,
+    txt_ok: str = "ACEPTAR",
+    txt_cancel: str = "CANCELAR",
+) -> bool:
     """
     Diálogo de confirmación frameless (mismo estilo que el resto de la app).
     Reemplaza a QMessageBox.question(), que sobre ventanas frameless+translúcidas
@@ -325,8 +364,15 @@ def _confirmar(parent, titulo: str, mensaje: str,
     fila.setSpacing(12)
     b_cancel = _btn(txt_cancel, h=44)
     b_cancel.clicked.connect(dlg.reject)
-    b_ok = _btn(txt_ok, color_bg=_ROJO, color_fg="#FFFFFF", color_border=_ROJO,
-                hover_bg="#FFFFFF", hover_fg=_ROJO, h=44)
+    b_ok = _btn(
+        txt_ok,
+        color_bg=_ROJO,
+        color_fg="#FFFFFF",
+        color_border=_ROJO,
+        hover_bg="#FFFFFF",
+        hover_fg=_ROJO,
+        h=44,
+    )
     b_ok.clicked.connect(dlg.accept)
     fila.addWidget(b_cancel)
     fila.addWidget(b_ok)
@@ -349,7 +395,8 @@ def _elegir_recuperar(parent, titulo, mensaje, txt_sumar, txt_reemplazar) -> str
     cuerpo = QFrame()
     cuerpo.setObjectName("cuerpo_confirm")
     cuerpo.setStyleSheet(
-        f"QFrame#cuerpo_confirm{{background:{_BG};border:2px solid {_CIAN};border-radius:20px;}}")
+        f"QFrame#cuerpo_confirm{{background:{_BG};border:2px solid {_CIAN};border-radius:20px;}}"
+    )
     outer.addWidget(cuerpo)
     v = QVBoxLayout(cuerpo)
     v.setContentsMargins(24, 22, 24, 22)
@@ -362,10 +409,24 @@ def _elegir_recuperar(parent, titulo, mensaje, txt_sumar, txt_reemplazar) -> str
     fila = QHBoxLayout()
     fila.setSpacing(10)
     b_cancel = _btn(tr("common.cancel", default="Cancelar").upper(), h=46)
-    b_sumar = _btn(txt_sumar, color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
-                   hover_bg="#FFFFFF", hover_fg="#0D1117", h=46)
-    b_reemp = _btn(txt_reemplazar, color_bg=_VERDE, color_fg="#0D1117", color_border=_VERDE,
-                   hover_bg="#FFFFFF", hover_fg="#0D1117", h=46)
+    b_sumar = _btn(
+        txt_sumar,
+        color_bg=_CIAN,
+        color_fg="#0D1117",
+        color_border=_CIAN,
+        hover_bg="#FFFFFF",
+        hover_fg="#0D1117",
+        h=46,
+    )
+    b_reemp = _btn(
+        txt_reemplazar,
+        color_bg=_VERDE,
+        color_fg="#0D1117",
+        color_border=_VERDE,
+        hover_bg="#FFFFFF",
+        hover_fg="#0D1117",
+        h=46,
+    )
 
     def _set(val):
         res["v"] = val
@@ -408,16 +469,24 @@ def _aviso_modal(parent, titulo: str, mensaje: str):
     msg.setWordWrap(True)
     v.addWidget(msg)
     v.addSpacing(4)
-    b_ok = _btn("ENTENDIDO", color_bg="#F1C40F", color_fg="#0D1117",
-                color_border="#F1C40F", hover_bg="#FFFFFF", hover_fg="#0D1117", h=46)
+    b_ok = _btn(
+        "ENTENDIDO",
+        color_bg="#F1C40F",
+        color_fg="#0D1117",
+        color_border="#F1C40F",
+        hover_bg="#FFFFFF",
+        hover_fg="#0D1117",
+        h=46,
+    )
     b_ok.clicked.connect(dlg.accept)
     v.addWidget(b_ok)
     # Centrar sobre la pantalla
     try:
         scr = QApplication.primaryScreen().availableGeometry()
         dlg.adjustSize()
-        dlg.move(scr.center().x() - dlg.width() // 2,
-                 scr.center().y() - dlg.height() // 2)
+        dlg.move(
+            scr.center().x() - dlg.width() // 2, scr.center().y() - dlg.height() // 2
+        )
     except Exception:
         pass
     dlg.exec()
@@ -426,6 +495,7 @@ def _aviso_modal(parent, titulo: str, mensaje: str):
 # ============================================================
 # AUXILIARES — ESTADO CAJA
 # ============================================================
+
 
 def _leer_estado_caja() -> dict:
     try:
@@ -494,8 +564,11 @@ def _cajas_de_empleado(est: dict, nombre_empleado: str = "", id_empleado=None) -
     estado = est.get("estado", "SIN_APERTURA")
     if estado not in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA"):
         return []
-    return [c for c in est.get("cajas_activas", [])
-            if _caja_pertenece(c, nombre_empleado, id_empleado)]
+    return [
+        c
+        for c in est.get("cajas_activas", [])
+        if _caja_pertenece(c, nombre_empleado, id_empleado)
+    ]
 
 
 def _motivo_bloqueo(est: dict) -> str:
@@ -513,6 +586,7 @@ def _motivo_bloqueo(est: dict) -> str:
 # ============================================================
 # AUXILIARES — RETENIDAS / AUDITORÍA
 # ============================================================
+
 
 def _leer_retenidas() -> list[dict]:
     try:
@@ -547,6 +621,7 @@ def _log_auditoria(entry: dict):
 # ============================================================
 # BLOQUE — DIÁLOGO LOGIN TPV
 # ============================================================
+
 
 class _SeleccionCajaDialog(QDialog):
     """Selector de caja cuando un empleado tiene más de una asignada."""
@@ -590,10 +665,17 @@ class _SeleccionCajaDialog(QDialog):
             f"QPushButton:hover{{background:{_CIAN};color:#0D1117;border-color:{_CIAN};}}"
         )
         for caja in self._cajas:
-            cid   = caja.get("id", "?")
-            resp  = caja.get("responsable", "?")
+            cid = caja.get("id", "?")
+            resp = caja.get("responsable", "?")
             fondo = float(caja.get("fondo", 0.0))
-            btn = QPushButton(tr("sel_caja.caja_btn", cid=cid, resp=resp, fondo=divisas.formatear(fondo)))
+            btn = QPushButton(
+                tr(
+                    "sel_caja.caja_btn",
+                    cid=cid,
+                    resp=resp,
+                    fondo=divisas.formatear(fondo),
+                )
+            )
             btn.setFixedHeight(54)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(_btn_caja_ss)
@@ -621,6 +703,7 @@ class _SeleccionCajaDialog(QDialog):
 
 
 # ============================================================
+
 
 class _LoginTPVDialog(QDialog):
     """Identificación del empleado antes de acceder al TPV.
@@ -677,6 +760,7 @@ class _LoginTPVDialog(QDialog):
         col_izq.addWidget(lbl_lista)
 
         from PyQt6.QtWidgets import QListWidget
+
         self._lista = QListWidget()
         self._lista.setFixedWidth(260)
         self._lista.setFixedHeight(260)
@@ -703,7 +787,9 @@ class _LoginTPVDialog(QDialog):
         # ── columna derecha: PIN pad ────────────────────────────
         col_der = QVBoxLayout()
         col_der.setSpacing(10)
-        col_der.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
+        col_der.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter
+        )
 
         self._lbl_sel = QLabel("—")
         self._lbl_sel.setStyleSheet(
@@ -721,9 +807,7 @@ class _LoginTPVDialog(QDialog):
             d = QLabel("○")
             d.setFixedSize(34, 34)
             d.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            d.setStyleSheet(
-                f"color:#30363D;font-size:28px;font-family:'{_FONT}';"
-            )
+            d.setStyleSheet(f"color:#30363D;font-size:28px;font-family:'{_FONT}';")
             dots_row.addWidget(d)
             self._dots.append(d)
         col_der.addLayout(dots_row)
@@ -756,10 +840,17 @@ class _LoginTPVDialog(QDialog):
         grid.setContentsMargins(0, 0, 0, 0)
 
         teclas = [
-            ("1", 0, 0), ("2", 0, 1), ("3", 0, 2),
-            ("4", 1, 0), ("5", 1, 1), ("6", 1, 2),
-            ("7", 2, 0), ("8", 2, 1), ("9", 2, 2),
-            ("⌫", 3, 0), ("0", 3, 1),
+            ("1", 0, 0),
+            ("2", 0, 1),
+            ("3", 0, 2),
+            ("4", 1, 0),
+            ("5", 1, 1),
+            ("6", 1, 2),
+            ("7", 2, 0),
+            ("8", 2, 1),
+            ("9", 2, 2),
+            ("⌫", 3, 0),
+            ("0", 3, 1),
         ]
         for label, row, col in teclas:
             btn = QPushButton(label)
@@ -835,21 +926,19 @@ class _LoginTPVDialog(QDialog):
         for i, d in enumerate(self._dots):
             if i < len(self._pin):
                 d.setText("●")
-                d.setStyleSheet(
-                    f"color:{_CIAN};font-size:26px;font-family:'{_FONT}';"
-                )
+                d.setStyleSheet(f"color:{_CIAN};font-size:26px;font-family:'{_FONT}';")
             else:
                 d.setText("○")
-                d.setStyleSheet(
-                    f"color:#30363D;font-size:26px;font-family:'{_FONT}';"
-                )
+                d.setStyleSheet(f"color:#30363D;font-size:26px;font-family:'{_FONT}';")
 
     def _confirmar(self):
         if not self._nombre_empleado or len(self._pin) != self._PIN_LEN:
             return
         resultado = validar_login_empleado(self._nombre_empleado, self._pin)
         if resultado:
-            self._nombre_empleado = (resultado.get("nombre") or self._nombre_empleado).upper()
+            self._nombre_empleado = (
+                resultado.get("nombre") or self._nombre_empleado
+            ).upper()
             self._id_empleado = resultado.get("id")
             self.accept()
         else:
@@ -882,6 +971,7 @@ class _LoginTPVDialog(QDialog):
 # BLOQUE — PANTALLA BLOQUEADA
 # ============================================================
 
+
 class _PantallaBlockeada(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -901,15 +991,20 @@ class _PantallaBlockeada(QWidget):
 
         self.lbl_motivo = _lbl(
             tr("bloq.motivo_default"),
-            size=13, color=_TEXT2,
+            size=13,
+            color=_TEXT2,
         )
         self.lbl_motivo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(self.lbl_motivo)
 
         self.btn_ir = _btn(
             tr("bloq.go_caja"),
-            color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
-            hover_bg="#FFFFFF", hover_fg="#0D1117", h=46,
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFFFFF",
+            hover_fg="#0D1117",
+            h=46,
         )
         self.btn_ir.setFixedWidth(260)
         lay.addWidget(self.btn_ir, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -920,8 +1015,11 @@ class _PantallaBlockeada(QWidget):
 
         self.btn_menu = _btn(
             tr("bloq.back_menu"),
-            color_fg=_ROJO, color_border=_ROJO,
-            hover_bg=_ROJO, hover_fg="#FFF", h=38,
+            color_fg=_ROJO,
+            color_border=_ROJO,
+            hover_bg=_ROJO,
+            hover_fg="#FFF",
+            h=38,
         )
         self.btn_menu.setFixedWidth(260)
         lay.addWidget(self.btn_menu, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -990,6 +1088,7 @@ class _ComboMaxPopup(QComboBox):
 # BLOQUE — DIALOGO EDICIÓN DE LÍNEA
 # ============================================================
 
+
 class _LineaEditDialog(QDialog):
     def __init__(self, linea: dict, parent=None):
         super().__init__(parent)
@@ -1014,7 +1113,14 @@ class _LineaEditDialog(QDialog):
         lay.setContentsMargins(22, 20, 22, 20)
 
         lay.addWidget(_lbl(tr("linea.header"), bold=True, size=15, color=_CIAN))
-        lay.addWidget(_lbl(linea.get("nombre", tr("linea.default_name")), bold=True, size=13, color=_TEXT2))
+        lay.addWidget(
+            _lbl(
+                linea.get("nombre", tr("linea.default_name")),
+                bold=True,
+                size=13,
+                color=_TEXT2,
+            )
+        )
         lay.addWidget(_sep())
 
         _inp_ss = (
@@ -1050,8 +1156,21 @@ class _LineaEditDialog(QDialog):
         lay.addWidget(_sep())
 
         br = QHBoxLayout()
-        btn_cancel = _btn(tr("common.cancel"), color_fg=_ROJO, color_border=_ROJO, hover_bg=_ROJO, hover_fg="#FFF")
-        btn_ok     = _btn(tr("common.accept"), color_bg=_VERDE, color_fg="#0D1117", color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117")
+        btn_cancel = _btn(
+            tr("common.cancel"),
+            color_fg=_ROJO,
+            color_border=_ROJO,
+            hover_bg=_ROJO,
+            hover_fg="#FFF",
+        )
+        btn_ok = _btn(
+            tr("common.accept"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+        )
         br.addWidget(btn_cancel)
         br.addStretch()
         br.addWidget(btn_ok)
@@ -1062,7 +1181,9 @@ class _LineaEditDialog(QDialog):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_pos = (
+                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            )
             event.accept()
 
     def mouseMoveEvent(self, event):
@@ -1076,13 +1197,13 @@ class _LineaEditDialog(QDialog):
     def _aceptar(self):
         try:
             precio = float(self.inp_precio.text().replace(",", "."))
-            dto    = float(self.inp_dto.text().replace(",", "."))
+            dto = float(self.inp_dto.text().replace(",", "."))
             if precio < 0 or not (0 <= dto <= 100):
                 raise ValueError
-            self._linea["cantidad"]      = self.spin_qty.value()
-            self._linea["precio"]        = round(precio, 2)
+            self._linea["cantidad"] = self.spin_qty.value()
+            self._linea["precio"] = round(precio, 2)
             self._linea["descuento_pct"] = round(dto, 2)
-            self._linea["subtotal"]      = round(
+            self._linea["subtotal"] = round(
                 self._linea["cantidad"] * precio * (1 - dto / 100), 2
             )
             self.accept()
@@ -1096,6 +1217,7 @@ class _LineaEditDialog(QDialog):
 # ============================================================
 # BLOQUE — DIALOGO VENTAS RETENIDAS
 # ============================================================
+
 
 class _RetenidasDialog(QDialog):
     def __init__(self, parent=None):
@@ -1160,25 +1282,41 @@ class _RetenidasDialog(QDialog):
             cl.setContentsMargins(12, 8, 12, 8)
 
             fecha_str = r.get("fecha", "")[:19].replace("T", " ")
-            total     = r.get("total", 0.0)
-            lineas    = r.get("lineas", [])
+            total = r.get("total", 0.0)
+            lineas = r.get("lineas", [])
 
             header = QHBoxLayout()
             header.addWidget(_lbl(f"#{i+1}  {fecha_str}", bold=True))
             header.addStretch()
-            header.addWidget(_lbl(f"{divisas.formatear(total)}", bold=True, color=_CIAN))
+            header.addWidget(
+                _lbl(f"{divisas.formatear(total)}", bold=True, color=_CIAN)
+            )
             cl.addLayout(header)
 
             resumen = ", ".join(f"{l['nombre']} x{l['cantidad']}" for l in lineas[:3])
             if len(lineas) > 3:
-                resumen += tr("retenidas.more", n=len(lineas)-3)
+                resumen += tr("retenidas.more", n=len(lineas) - 3)
             cl.addWidget(_lbl(resumen, size=11, color=_TEXT2))
 
             fila_btns = QHBoxLayout()
-            btn_rec = _btn(tr("retenidas.recover"), color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
-                           hover_bg="#FFF", hover_fg="#0D1117", h=30)
-            btn_del = _btn(tr("retenidas.delete"), color_bg=_BG, color_fg=_ROJO, color_border=_ROJO,
-                           hover_bg=_ROJO, hover_fg="#FFF", h=30)
+            btn_rec = _btn(
+                tr("retenidas.recover"),
+                color_bg=_CIAN,
+                color_fg="#0D1117",
+                color_border=_CIAN,
+                hover_bg="#FFF",
+                hover_fg="#0D1117",
+                h=30,
+            )
+            btn_del = _btn(
+                tr("retenidas.delete"),
+                color_bg=_BG,
+                color_fg=_ROJO,
+                color_border=_ROJO,
+                hover_bg=_ROJO,
+                hover_fg="#FFF",
+                h=30,
+            )
             btn_rec.clicked.connect(lambda checked, idx=i: self._recuperar(idx))
             btn_del.clicked.connect(lambda checked, idx=i: self._eliminar(idx))
             fila_btns.addWidget(btn_rec)
@@ -1210,6 +1348,7 @@ class _RetenidasDialog(QDialog):
 # BLOQUE — DIALOGO DE PAGO
 # ============================================================
 
+
 class _BilleteButton(QPushButton):
     """Botón de denominación rápida que muestra la IMAGEN del billete (de
     assets/currencies/<DIVISA>/banknotes). Si no hay imagen, dibuja una
@@ -1226,10 +1365,12 @@ class _BilleteButton(QPushButton):
         self.setFixedHeight(88)
 
     def enterEvent(self, e):
-        self.update(); super().enterEvent(e)
+        self.update()
+        super().enterEvent(e)
 
     def leaveEvent(self, e):
-        self.update(); super().leaveEvent(e)
+        self.update()
+        super().leaveEvent(e)
 
     def paintEvent(self, _e):
         p = QPainter(self)
@@ -1243,18 +1384,25 @@ class _BilleteButton(QPushButton):
 
         # Área de imagen (arriba) + área de texto (abajo, el valor del billete).
         text_h = 20.0
-        img_area = QRectF(r.x() + 6, r.y() + 6, r.width() - 12, r.height() - text_h - 10)
+        img_area = QRectF(
+            r.x() + 6, r.y() + 6, r.width() - 12, r.height() - text_h - 10
+        )
         if not self._pix.isNull():
             # Rellenar el área recortando el sobrante (KeepAspectRatioByExpanding):
             # TODOS los billetes quedan del MISMO tamaño, ninguno más pequeño.
             scaled = self._pix.scaled(
                 img_area.size().toSize(),
                 Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation)
+                Qt.TransformationMode.SmoothTransformation,
+            )
             x = img_area.x() + (img_area.width() - scaled.width()) / 2
             y = img_area.y() + (img_area.height() - scaled.height()) / 2
-            path = QPainterPath(); path.addRoundedRect(img_area, 5, 5)
-            p.save(); p.setClipPath(path); p.drawPixmap(int(x), int(y), scaled); p.restore()
+            path = QPainterPath()
+            path.addRoundedRect(img_area, 5, 5)
+            p.save()
+            p.setClipPath(path)
+            p.drawPixmap(int(x), int(y), scaled)
+            p.restore()
         else:
             p.setBrush(QColor("#2E5E46"))
             p.setPen(QPen(QColor("#3FAE7E"), 1))
@@ -1263,8 +1411,11 @@ class _BilleteButton(QPushButton):
         # Valor del billete debajo de la imagen.
         p.setPen(QColor("#E6EDF3"))
         p.setFont(QFont(_FONT, 11, QFont.Weight.Black))
-        p.drawText(QRectF(r.x(), r.bottom() - text_h - 1, r.width(), text_h),
-                   int(Qt.AlignmentFlag.AlignCenter), self._etiqueta)
+        p.drawText(
+            QRectF(r.x(), r.bottom() - text_h - 1, r.width(), text_h),
+            int(Qt.AlignmentFlag.AlignCenter),
+            self._etiqueta,
+        )
 
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(QPen(QColor(_CIAN if hover else _BORDE), 2))
@@ -1284,18 +1435,22 @@ class _PagoDialog(QDialog):
         # contorno). El contenido va en un panel centrado para no verse vacío.
         self.setObjectName("dlg_cobrar")
         self.setStyleSheet(f"#dlg_cobrar {{ background: {_BG}; }}")
-        self._total     = total
+        self._total = total
         self._resultado: dict | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.addStretch()
-        fila = QHBoxLayout(); fila.addStretch()
+        fila = QHBoxLayout()
+        fila.addStretch()
         root.addLayout(fila)
         root.addStretch()
 
-        panel = QFrame(); panel.setObjectName("pago_panel")
-        panel.setStyleSheet(f"QFrame#pago_panel{{background:{_BG2};border:none;border-radius:26px;}}")
+        panel = QFrame()
+        panel.setObjectName("pago_panel")
+        panel.setStyleSheet(
+            f"QFrame#pago_panel{{background:{_BG2};border:none;border-radius:26px;}}"
+        )
         fila.addWidget(panel)
         fila.addStretch()
 
@@ -1304,24 +1459,40 @@ class _PagoDialog(QDialog):
         body.setSpacing(48)
 
         # Columna izquierda: información de cobro.
-        izq = QWidget(); izq.setFixedWidth(540)
-        lay = QVBoxLayout(izq); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(16)
+        izq = QWidget()
+        izq.setFixedWidth(540)
+        lay = QVBoxLayout(izq)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(16)
         body.addWidget(izq, 0, Qt.AlignmentFlag.AlignTop)
 
         # Columna derecha: teclado numérico + importe entregado exacto (mismo ancho).
-        der = QVBoxLayout(); der.setSpacing(14)
+        der = QVBoxLayout()
+        der.setSpacing(14)
         der.addWidget(self._build_pago_numpad(), 0, Qt.AlignmentFlag.AlignTop)
         self.btn_exacto = _btn(
             f"{tr('pago.exact_label', default='Importe entregado exacto:')}\n{divisas.formatear(total)}",
-            color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
-            hover_bg="#FFF", hover_fg="#0D1117", h=60)
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=60,
+        )
         self.btn_exacto.setFixedWidth(self._NUMPAD_W)
         self.btn_exacto.clicked.connect(self._pago_exacto)
         der.addWidget(self.btn_exacto)
         der.addStretch()
         body.addLayout(der, 0)
 
-        lay.addWidget(_lbl(tr("pago.total_label", x=divisas.formatear(total)), bold=True, size=22, color=_CIAN))
+        lay.addWidget(
+            _lbl(
+                tr("pago.total_label", x=divisas.formatear(total)),
+                bold=True,
+                size=22,
+                color=_CIAN,
+            )
+        )
         lay.addWidget(_sep())
 
         # Tabs forma de pago
@@ -1345,10 +1516,23 @@ class _PagoDialog(QDialog):
         lay.addWidget(_sep())
 
         br = QHBoxLayout()
-        btn_cancelar = _btn(tr("pago.cancel"), color_fg=_ROJO, color_border=_ROJO,
-                            hover_bg=_ROJO, hover_fg="#FFF", h=50)
-        self.btn_cobrar = _btn(tr("pago.charge"), color_bg=_VERDE, color_fg="#0D1117",
-                               color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=50)
+        btn_cancelar = _btn(
+            tr("pago.cancel"),
+            color_fg=_ROJO,
+            color_border=_ROJO,
+            hover_bg=_ROJO,
+            hover_fg="#FFF",
+            h=50,
+        )
+        self.btn_cobrar = _btn(
+            tr("pago.charge"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=50,
+        )
         br.addWidget(btn_cancelar)
         br.addStretch()
         br.addWidget(self.btn_cobrar)
@@ -1414,16 +1598,22 @@ class _PagoDialog(QDialog):
         # botones cambia con la divisa seleccionada.
         grid = QGridLayout()
         grid.setSpacing(12)
-        billetes = [d for d in divisas.denominaciones(descendente=False)
-                    if d["tipo"] == "billete"]
+        billetes = [
+            d
+            for d in divisas.denominaciones(descendente=False)
+            if d["tipo"] == "billete"
+        ]
         for i, d in enumerate(billetes):
             b = _BilleteButton(d["valor"], d["etiqueta"], d.get("imagen"))
             b.clicked.connect(
-                lambda checked, v=float(d["valor"]): self.inp_ef.setText(f"{v:.2f}"))
+                lambda checked, v=float(d["valor"]): self.inp_ef.setText(f"{v:.2f}")
+            )
             grid.addWidget(b, i // 3, i % 3)
         lay.addLayout(grid)
 
-        self.lbl_cambio = _lbl(tr("pago.change", x="0,00"), bold=True, size=13, color=_VERDE)
+        self.lbl_cambio = _lbl(
+            tr("pago.change", x="0,00"), bold=True, size=13, color=_VERDE
+        )
         lay.addWidget(self.lbl_cambio)
         self._actualizar_cambio()
         return w
@@ -1452,7 +1642,8 @@ class _PagoDialog(QDialog):
         card.setObjectName("pago_numpad")
         card.setFixedWidth(self._NUMPAD_W)
         card.setStyleSheet(
-            f"QFrame#pago_numpad{{background:{_BG2};border:1px solid {_BORDE};border-radius:14px;}}")
+            f"QFrame#pago_numpad{{background:{_BG2};border:1px solid {_BORDE};border-radius:14px;}}"
+        )
         gl = QGridLayout(card)
         gl.setContentsMargins(12, 12, 12, 12)
         gl.setSpacing(8)
@@ -1471,10 +1662,18 @@ class _PagoDialog(QDialog):
             f"QPushButton:hover{{background:{_ROJO};color:#FFF;}}"
         )
         layout_keys = [
-            ("7", 0, 0, "num"), ("8", 0, 1, "num"), ("9", 0, 2, "num"),
-            ("4", 1, 0, "num"), ("5", 1, 1, "num"), ("6", 1, 2, "num"),
-            ("1", 2, 0, "num"), ("2", 2, 1, "num"), ("3", 2, 2, "num"),
-            (".", 3, 0, "num"), ("0", 3, 1, "num"), ("⌫", 3, 2, "del"),
+            ("7", 0, 0, "num"),
+            ("8", 0, 1, "num"),
+            ("9", 0, 2, "num"),
+            ("4", 1, 0, "num"),
+            ("5", 1, 1, "num"),
+            ("6", 1, 2, "num"),
+            ("1", 2, 0, "num"),
+            ("2", 2, 1, "num"),
+            ("3", 2, 2, "num"),
+            (".", 3, 0, "num"),
+            ("0", 3, 1, "num"),
+            ("⌫", 3, 2, "del"),
         ]
         for c in range(3):
             gl.setColumnStretch(c, 1)
@@ -1526,7 +1725,13 @@ class _PagoDialog(QDialog):
         w.setStyleSheet("background:transparent;")
         lay = QVBoxLayout(w)
         lay.setSpacing(10)
-        lay.addWidget(_lbl(tr("pago.card_amount", x=divisas.formatear(self._total)), bold=True, size=14))
+        lay.addWidget(
+            _lbl(
+                tr("pago.card_amount", x=divisas.formatear(self._total)),
+                bold=True,
+                size=14,
+            )
+        )
         lay.addWidget(_lbl(tr("pago.card_hint"), size=12, color=_TEXT2))
         lay.addStretch()
         return w
@@ -1545,7 +1750,13 @@ class _PagoDialog(QDialog):
             f"QLineEdit:focus{{border-color:{_CIAN};}}"
         )
 
-        lay.addWidget(_lbl(tr("pago.mixed_total", x=divisas.formatear(self._total)), bold=True, size=14))
+        lay.addWidget(
+            _lbl(
+                tr("pago.mixed_total", x=divisas.formatear(self._total)),
+                bold=True,
+                size=14,
+            )
+        )
 
         fila = QHBoxLayout()
         fila.addWidget(_lbl(tr("pago.mixed_cash"), size=12))
@@ -1555,8 +1766,10 @@ class _PagoDialog(QDialog):
         fila.addWidget(self.inp_mx_ef)
         lay.addLayout(fila)
 
-        self.lbl_mx_tj     = _lbl(tr("pago.mixed_card", x="0,00"), size=12, color=_TEXT2)
-        self.lbl_mx_cambio = _lbl(tr("pago.mixed_change", x="0,00"), bold=True, color=_VERDE)
+        self.lbl_mx_tj = _lbl(tr("pago.mixed_card", x="0,00"), size=12, color=_TEXT2)
+        self.lbl_mx_cambio = _lbl(
+            tr("pago.mixed_change", x="0,00"), bold=True, color=_VERDE
+        )
         lay.addWidget(self.lbl_mx_tj)
         lay.addWidget(self.lbl_mx_cambio)
         lay.addStretch()
@@ -1568,7 +1781,9 @@ class _PagoDialog(QDialog):
             tj = max(0.0, self._total - ef)
             cambio = max(0.0, ef - self._total)
             self.lbl_mx_tj.setText(tr("pago.mixed_card", x=divisas.formatear(tj)))
-            self.lbl_mx_cambio.setText(tr("pago.mixed_change", x=divisas.formatear(cambio)))
+            self.lbl_mx_cambio.setText(
+                tr("pago.mixed_change", x=divisas.formatear(cambio))
+            )
         except ValueError:
             pass
 
@@ -1581,28 +1796,35 @@ class _PagoDialog(QDialog):
             try:
                 entregado = float(self.inp_ef.text().replace(",", "."))
             except ValueError:
-                QMessageBox.warning(self, tr("pago.err_invalid_title"), tr("pago.err_invalid_msg"))
+                QMessageBox.warning(
+                    self, tr("pago.err_invalid_title"), tr("pago.err_invalid_msg")
+                )
                 return
             if entregado < self._total - 0.005:
                 QMessageBox.warning(
-                    self, tr("pago.err_insufficient_title"),
-                    tr("pago.err_insufficient_msg", e=divisas.formatear(entregado), t=divisas.formatear(self._total))
+                    self,
+                    tr("pago.err_insufficient_title"),
+                    tr(
+                        "pago.err_insufficient_msg",
+                        e=divisas.formatear(entregado),
+                        t=divisas.formatear(self._total),
+                    ),
                 )
                 return
             self._resultado = {
-                "forma_pago":    "efectivo",
-                "total":         self._total,
-                "entregado":     round(entregado, 2),
-                "cambio":        round(entregado - self._total, 2),
+                "forma_pago": "efectivo",
+                "total": self._total,
+                "entregado": round(entregado, 2),
+                "cambio": round(entregado - self._total, 2),
                 "efectivo_neto": round(self._total, 2),
             }
 
         elif idx == 1:  # tarjeta
             self._resultado = {
-                "forma_pago":    "tarjeta",
-                "total":         self._total,
-                "entregado":     self._total,
-                "cambio":        0.0,
+                "forma_pago": "tarjeta",
+                "total": self._total,
+                "entregado": self._total,
+                "cambio": 0.0,
                 "efectivo_neto": 0.0,
             }
 
@@ -1610,21 +1832,24 @@ class _PagoDialog(QDialog):
             try:
                 ef = float(self.inp_mx_ef.text().replace(",", "."))
             except ValueError:
-                QMessageBox.warning(self, tr("pago.err_invalid_title"), tr("pago.err_cash_msg"))
+                QMessageBox.warning(
+                    self, tr("pago.err_invalid_title"), tr("pago.err_cash_msg")
+                )
                 return
             if ef < 0 or ef > self._total + 0.005:
-                QMessageBox.warning(self, tr("pago.err_invalid_title"),
-                                    tr("pago.err_cash_over"))
+                QMessageBox.warning(
+                    self, tr("pago.err_invalid_title"), tr("pago.err_cash_over")
+                )
                 return
-            tj     = round(max(0.0, self._total - ef), 2)
+            tj = round(max(0.0, self._total - ef), 2)
             cambio = round(max(0.0, ef - self._total), 2)
             self._resultado = {
-                "forma_pago":    "mixto",
-                "total":         self._total,
-                "entregado":     round(ef + tj, 2),
-                "cambio":        cambio,
+                "forma_pago": "mixto",
+                "total": self._total,
+                "entregado": round(ef + tj, 2),
+                "cambio": cambio,
                 "efectivo_neto": round(ef, 2),
-                "tarjeta":       tj,
+                "tarjeta": tj,
             }
 
         self.accept()
@@ -1636,6 +1861,7 @@ class _PagoDialog(QDialog):
 # ============================================================
 # BÁSCULA — VENTA A GRANEL
 # ============================================================
+
 
 def _es_gerente_o_admin() -> bool:
     """True si el usuario en sesión es GERENTE o ADMINISTRADOR."""
@@ -1652,10 +1878,11 @@ class _BasculaDialog(QDialog):
     def __init__(self, caja_id: str = "—", cajero: str = "—", parent=None):
         super().__init__(parent)
         self._caja_id = caja_id
-        self._cajero  = cajero
+        self._cajero = cajero
         self._producto_sel: dict | None = None
         self._linea_resultado: dict | None = None
         from src.services.tpv.scale_service import get_scale_manager
+
         self._scale = get_scale_manager()
         try:
             self._scale.detect_and_connect()
@@ -1698,12 +1925,18 @@ class _BasculaDialog(QDialog):
         root.setContentsMargins(16, 14, 16, 16)
         root.setSpacing(12)
         cab = QFrame()
-        cab.setStyleSheet(f"QFrame{{background:{_BG2};border:1px solid {_BORDE};border-radius:12px;}}")
+        cab.setStyleSheet(
+            f"QFrame{{background:{_BG2};border:1px solid {_BORDE};border-radius:12px;}}"
+        )
         cl = QHBoxLayout(cab)
         cl.setContentsMargins(18, 12, 18, 12)
         cl.addWidget(_lbl(tr("bascula.header"), bold=True, size=20, color=_CIAN))
         cl.addStretch()
-        self.lbl_info = _lbl(tr("bascula.info", caja=self._caja_id, cajero=self._cajero), size=12, color=_TEXT2)
+        self.lbl_info = _lbl(
+            tr("bascula.info", caja=self._caja_id, cajero=self._cajero),
+            size=12,
+            color=_TEXT2,
+        )
         cl.addWidget(self.lbl_info)
         cl.addSpacing(16)
         self.lbl_reloj = _lbl("", size=12, color=_TEXT2)
@@ -1725,7 +1958,9 @@ class _BasculaDialog(QDialog):
         body.setSpacing(12)
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
-        self._scroll.setStyleSheet(f"QScrollArea{{background:{_BG};border:1px solid {_BORDE};border-radius:12px;}}")
+        self._scroll.setStyleSheet(
+            f"QScrollArea{{background:{_BG};border:1px solid {_BORDE};border-radius:12px;}}"
+        )
         self._grid_host = QWidget()
         self._grid_host.setStyleSheet("background:transparent;")
         self._grid = QGridLayout(self._grid_host)
@@ -1735,15 +1970,21 @@ class _BasculaDialog(QDialog):
         body.addWidget(self._scroll, 7)
 
         panel = QFrame()
-        panel.setStyleSheet(f"QFrame{{background:{_BG2};border:1px solid {_BORDE};border-radius:12px;}}")
+        panel.setStyleSheet(
+            f"QFrame{{background:{_BG2};border:1px solid {_BORDE};border-radius:12px;}}"
+        )
         pl = QVBoxLayout(panel)
         pl.setContentsMargins(18, 16, 18, 16)
         pl.setSpacing(10)
-        pl.addWidget(_lbl(tr("bascula.selected_product"), bold=True, size=12, color=_TEXT2))
+        pl.addWidget(
+            _lbl(tr("bascula.selected_product"), bold=True, size=12, color=_TEXT2)
+        )
         self.lbl_prod = _lbl(tr("bascula.none"), bold=True, size=18, color=_TEXT)
         self.lbl_prod.setWordWrap(True)
         pl.addWidget(self.lbl_prod)
-        self.lbl_precio_kg = _lbl(tr("bascula.price_dash"), bold=True, size=14, color=_CIAN)
+        self.lbl_precio_kg = _lbl(
+            tr("bascula.price_dash"), bold=True, size=14, color=_CIAN
+        )
         pl.addWidget(self.lbl_precio_kg)
         pl.addWidget(_sep())
         self.lbl_modo = _lbl("", bold=True, size=11, color=_TEXT2)
@@ -1767,7 +2008,9 @@ class _BasculaDialog(QDialog):
         self.btn_tara.clicked.connect(self._tara)
         pl.addWidget(self.btn_tara)
         pl.addWidget(_sep())
-        self.lbl_total = _lbl(tr("bascula.total", x="0,00"), bold=True, size=26, color=_VERDE)
+        self.lbl_total = _lbl(
+            tr("bascula.total", x="0,00"), bold=True, size=26, color=_VERDE
+        )
         self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignRight)
         pl.addWidget(self.lbl_total)
         pl.addStretch()
@@ -1783,7 +2026,14 @@ class _BasculaDialog(QDialog):
         )
         self.btn_add.clicked.connect(self._aceptar)
         pl.addWidget(self.btn_add)
-        btn_cerrar = _btn(tr("bascula.close"), color_fg=_ROJO, color_border=_ROJO, hover_bg=_ROJO, hover_fg="#FFF", h=40)
+        btn_cerrar = _btn(
+            tr("bascula.close"),
+            color_fg=_ROJO,
+            color_border=_ROJO,
+            hover_bg=_ROJO,
+            hover_fg="#FFF",
+            h=40,
+        )
         btn_cerrar.clicked.connect(self.reject)
         pl.addWidget(btn_cerrar)
         body.addWidget(panel, 3)
@@ -1793,15 +2043,20 @@ class _BasculaDialog(QDialog):
     def _refrescar_modo(self):
         if self._scale.has_hardware:
             self.lbl_modo.setText(tr("bascula.mode_auto"))
-            self.lbl_modo.setStyleSheet(f"color:{_VERDE};font-family:'{_FONT}';font-weight:900;font-size:11px;background:transparent;")
+            self.lbl_modo.setStyleSheet(
+                f"color:{_VERDE};font-family:'{_FONT}';font-weight:900;font-size:11px;background:transparent;"
+            )
             self.spin_peso.setReadOnly(True)
         else:
             self.lbl_modo.setText(tr("bascula.mode_manual"))
-            self.lbl_modo.setStyleSheet(f"color:{_TEXT2};font-family:'{_FONT}';font-weight:900;font-size:11px;background:transparent;")
+            self.lbl_modo.setStyleSheet(
+                f"color:{_TEXT2};font-family:'{_FONT}';font-weight:900;font-size:11px;background:transparent;"
+            )
             self.spin_peso.setReadOnly(False)
 
     def _cargar_productos(self):
         from src.services.tpv import bulk_products_service as B
+
         while self._grid.count():
             it = self._grid.takeAt(0)
             w = it.widget()
@@ -1809,7 +2064,9 @@ class _BasculaDialog(QDialog):
                 w.deleteLater()
         productos = B.listar_productos_activos()
         if not productos:
-            self._grid.addWidget(_lbl(tr("bascula.no_products"), size=14, color=_TEXT2), 0, 0)
+            self._grid.addWidget(
+                _lbl(tr("bascula.no_products"), size=14, color=_TEXT2), 0, 0
+            )
             return
         cols = 3
         for idx, p in enumerate(productos):
@@ -1833,7 +2090,9 @@ class _BasculaDialog(QDialog):
     def _seleccionar(self, p: dict):
         self._producto_sel = p
         self.lbl_prod.setText(f"{p.get('emoji','')} {p.get('nombre','—')}")
-        self.lbl_precio_kg.setText(tr("bascula.price", x=divisas.formatear(float(p.get('precio_kg',0)))))
+        self.lbl_precio_kg.setText(
+            tr("bascula.price", x=divisas.formatear(float(p.get("precio_kg", 0))))
+        )
         self.btn_add.setEnabled(True)
         if not self._scale.has_hardware:
             self.spin_peso.setFocus()
@@ -1862,38 +2121,59 @@ class _BasculaDialog(QDialog):
 
     def _recalcular(self):
         from src.services.tpv import bulk_products_service as B
+
         if not self._producto_sel:
             self.lbl_total.setText(tr("bascula.total", x="0,00"))
             return
-        total = B.calcular_total(self.spin_peso.value(), float(self._producto_sel.get("precio_kg", 0) or 0))
+        total = B.calcular_total(
+            self.spin_peso.value(), float(self._producto_sel.get("precio_kg", 0) or 0)
+        )
         self.lbl_total.setText(tr("bascula.total", x=divisas.formatear(total)))
 
     def _aceptar(self):
         from src.services.tpv import bulk_products_service as B
+
         if not self._producto_sel:
-            _aviso_modal(self, tr("bascula.sel_product_title"),
-                         tr("bascula.sel_product_msg"))
+            _aviso_modal(
+                self, tr("bascula.sel_product_title"), tr("bascula.sel_product_msg")
+            )
             return
         peso = self.spin_peso.value()
         ok, msg = B.validar_peso(peso)
         if not ok:
             # Ventana centrada con botón ENTENDIDO (no congela la UI).
             if peso <= 0:
-                _aviso_modal(self, tr("bascula.weight_missing_title"),
-                             tr("bascula.weight_missing_msg"))
+                _aviso_modal(
+                    self,
+                    tr("bascula.weight_missing_title"),
+                    tr("bascula.weight_missing_msg"),
+                )
             else:
                 _aviso_modal(self, tr("bascula.weight_invalid_title"), msg)
             return
         precio = float(self._producto_sel.get("precio_kg", 0) or 0)
         total = B.calcular_total(peso, precio)
         nombre = self._producto_sel.get("nombre", "Granel")
-        codigo = self._producto_sel.get("codigo_interno") or f"GRANEL-{self._producto_sel.get('id','')}"
+        codigo = (
+            self._producto_sel.get("codigo_interno")
+            or f"GRANEL-{self._producto_sel.get('id','')}"
+        )
         self._linea_resultado = {
             "codigo": codigo,
-            "nombre": tr("bascula.line_name", nombre=nombre, peso=f"{peso:.3f}", precio=divisas.formatear(precio)),
+            "nombre": tr(
+                "bascula.line_name",
+                nombre=nombre,
+                peso=f"{peso:.3f}",
+                precio=divisas.formatear(precio),
+            ),
             "seccion": self._producto_sel.get("categoria", "GRANEL"),
-            "cantidad": 1, "precio": total, "descuento_pct": 0.0, "subtotal": total,
-            "peso": peso, "precio_kg": precio, "modo_venta": "PESO",
+            "cantidad": 1,
+            "precio": total,
+            "descuento_pct": 0.0,
+            "subtotal": total,
+            "peso": peso,
+            "precio_kg": precio,
+            "modo_venta": "PESO",
         }
         self.accept()
 
@@ -1902,8 +2182,9 @@ class _BasculaDialog(QDialog):
 
     def _abrir_gestion(self):
         if not _es_gerente_o_admin():
-            QMessageBox.warning(self, tr("bascula.perm_denied_title"),
-                                tr("bascula.perm_denied_msg"))
+            QMessageBox.warning(
+                self, tr("bascula.perm_denied_title"), tr("bascula.perm_denied_msg")
+            )
             return
         _GestionGranelDialog(self).exec()
         self._cargar_productos()
@@ -1914,7 +2195,9 @@ class _BasculaDialog(QDialog):
     # Arrastre de ventana frameless
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_pos = (
+                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            )
             event.accept()
 
     def mouseMoveEvent(self, event):
@@ -1951,9 +2234,9 @@ class _VentaOnlineDialog(QDialog):
         super().__init__(parent)
         self._empleado = empleado
         self._id_caja = id_caja
-        self._lineas = []          # [{codigo,nombre,cantidad,precio,subtotal,origen_stock}]
+        self._lineas = []  # [{codigo,nombre,cantidad,precio,subtotal,origen_stock}]
         self._cliente = {}
-        self._art = None           # disponibilidad del artículo consultado
+        self._art = None  # disponibilidad del artículo consultado
         self.setWindowTitle(tr("online.title", default="VENTA ONLINE"))
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setObjectName("dlg_online")
@@ -1972,75 +2255,149 @@ class _VentaOnlineDialog(QDialog):
             pass
 
     def _inp(self, ph="", w=None):
-        e = QLineEdit(); e.setFixedHeight(34); e.setPlaceholderText(ph)
+        e = QLineEdit()
+        e.setFixedHeight(34)
+        e.setPlaceholderText(ph)
         if w:
             e.setFixedWidth(w)
         e.setStyleSheet(
             f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
             f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
-            f"QLineEdit:focus{{border-color:{_CIAN};}}")
+            f"QLineEdit:focus{{border-color:{_CIAN};}}"
+        )
         return e
 
     def _build(self):
-        root = QVBoxLayout(self); root.setContentsMargins(12, 12, 12, 12)
-        card = QFrame(self); card.setObjectName("vo")
-        card.setStyleSheet(f"QFrame#vo{{background:{_BG};border:none;border-radius:18px;}}")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        card = QFrame(self)
+        card.setObjectName("vo")
+        card.setStyleSheet(
+            f"QFrame#vo{{background:{_BG};border:none;border-radius:18px;}}"
+        )
         root.addWidget(card)
-        ly = QVBoxLayout(card); ly.setContentsMargins(28, 22, 28, 22); ly.setSpacing(14)
+        ly = QVBoxLayout(card)
+        ly.setContentsMargins(28, 22, 28, 22)
+        ly.setSpacing(14)
 
         hdr = QHBoxLayout()
-        hdr.addWidget(_lbl("🌐  " + tr("online.title", default="VENTA ONLINE"),
-                           bold=True, size=18, color=_CIAN))
+        hdr.addWidget(
+            _lbl(
+                "🌐  " + tr("online.title", default="VENTA ONLINE"),
+                bold=True,
+                size=18,
+                color=_CIAN,
+            )
+        )
         hdr.addStretch()
-        bx = QPushButton("✕"); bx.setFixedSize(36, 36); bx.setCursor(Qt.CursorShape.PointingHandCursor)
-        bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
-                         f"border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
-        bx.clicked.connect(self.reject); hdr.addWidget(bx)
-        ly.addLayout(hdr); ly.addWidget(_sep())
+        bx = QPushButton("✕")
+        bx.setFixedSize(36, 36)
+        bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(
+            f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
+            f"border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}"
+        )
+        bx.clicked.connect(self.reject)
+        hdr.addWidget(bx)
+        ly.addLayout(hdr)
+        ly.addWidget(_sep())
 
-        body = QHBoxLayout(); body.setSpacing(24); ly.addLayout(body, 1)
+        body = QHBoxLayout()
+        body.setSpacing(24)
+        ly.addLayout(body, 1)
         body.addLayout(self._col_articulos(), 1)
         body.addWidget(self._col_cliente(), 0)
 
     # ── columna izquierda: artículo + disponibilidad + líneas ──
     def _col_articulos(self):
-        col = QVBoxLayout(); col.setSpacing(10)
-        r1 = QHBoxLayout(); r1.setSpacing(8)
+        col = QVBoxLayout()
+        col.setSpacing(10)
+        r1 = QHBoxLayout()
+        r1.setSpacing(8)
         self.inp_codigo = self._inp(tr("online.cod_ph", default="Código de artículo…"))
         self.inp_codigo.returnPressed.connect(self._consultar)
-        b_cons = _btn(tr("online.consultar", default="CONSULTAR"), color_fg=_CIAN,
-                      color_border=_CIAN, hover_bg=_CIAN, h=34)
+        b_cons = _btn(
+            tr("online.consultar", default="CONSULTAR"),
+            color_fg=_CIAN,
+            color_border=_CIAN,
+            hover_bg=_CIAN,
+            h=34,
+        )
         b_cons.clicked.connect(self._consultar)
-        r1.addWidget(_lbl(tr("online.articulo", default="Artículo"), bold=True, size=12, color=_TEXT2))
-        r1.addWidget(self.inp_codigo, 1); r1.addWidget(b_cons)
+        r1.addWidget(
+            _lbl(
+                tr("online.articulo", default="Artículo"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        r1.addWidget(self.inp_codigo, 1)
+        r1.addWidget(b_cons)
         col.addLayout(r1)
 
-        self.lbl_disp = _lbl(tr("online.disp_vacio", default="Consulta un artículo para ver su disponibilidad."),
-                             size=12, color=_TEXT2)
+        self.lbl_disp = _lbl(
+            tr(
+                "online.disp_vacio",
+                default="Consulta un artículo para ver su disponibilidad.",
+            ),
+            size=12,
+            color=_TEXT2,
+        )
         self.lbl_disp.setWordWrap(True)
-        disp_card = _card(); dl = QVBoxLayout(disp_card); dl.setContentsMargins(14, 10, 14, 10)
+        disp_card = _card()
+        dl = QVBoxLayout(disp_card)
+        dl.setContentsMargins(14, 10, 14, 10)
         dl.addWidget(self.lbl_disp)
         col.addWidget(disp_card)
 
-        r2 = QHBoxLayout(); r2.setSpacing(8)
+        r2 = QHBoxLayout()
+        r2.setSpacing(8)
         self.inp_cant = self._inp(tr("online.cant", default="Cant."), 90)
         self.inp_cant.setText("1")
-        r2.addWidget(_lbl(tr("online.cantidad", default="Cantidad"), bold=True, size=12, color=_TEXT2))
+        r2.addWidget(
+            _lbl(
+                tr("online.cantidad", default="Cantidad"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
         r2.addWidget(self.inp_cant)
-        b_add = _btn(tr("online.add", default="AÑADIR LÍNEA"), color_bg=_CIAN, color_fg="#0D1117",
-                     color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=34)
+        b_add = _btn(
+            tr("online.add", default="AÑADIR LÍNEA"),
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=34,
+        )
         b_add.clicked.connect(self._add_linea)
-        b_quit = _btn(tr("online.quitar", default="QUITAR"), color_fg=_ROJO, color_border=_ROJO,
-                      hover_bg=_ROJO, hover_fg="#FFF", h=34)
+        b_quit = _btn(
+            tr("online.quitar", default="QUITAR"),
+            color_fg=_ROJO,
+            color_border=_ROJO,
+            hover_bg=_ROJO,
+            hover_fg="#FFF",
+            h=34,
+        )
         b_quit.clicked.connect(self._quitar_linea)
-        r2.addWidget(b_add); r2.addStretch(); r2.addWidget(b_quit)
+        r2.addWidget(b_add)
+        r2.addStretch()
+        r2.addWidget(b_quit)
         col.addLayout(r2)
 
         self.tabla = QTableWidget(0, 5)
-        self.tabla.setHorizontalHeaderLabels([
-            tr("online.col_cod", default="Código"), tr("online.col_art", default="Artículo"),
-            tr("online.col_cant", default="Cant."), tr("online.col_precio", default="Precio"),
-            tr("online.col_sub", default="Subtotal")])
+        self.tabla.setHorizontalHeaderLabels(
+            [
+                tr("online.col_cod", default="Código"),
+                tr("online.col_art", default="Artículo"),
+                tr("online.col_cant", default="Cant."),
+                tr("online.col_precio", default="Precio"),
+                tr("online.col_sub", default="Subtotal"),
+            ]
+        )
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -2049,51 +2406,102 @@ class _VentaOnlineDialog(QDialog):
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         for cidx in (0, 2, 3, 4):
             hh.setSectionResizeMode(cidx, QHeaderView.ResizeMode.Fixed)
-        self.tabla.setColumnWidth(0, 110); self.tabla.setColumnWidth(2, 70)
-        self.tabla.setColumnWidth(3, 100); self.tabla.setColumnWidth(4, 110)
+        self.tabla.setColumnWidth(0, 110)
+        self.tabla.setColumnWidth(2, 70)
+        self.tabla.setColumnWidth(3, 100)
+        self.tabla.setColumnWidth(4, 110)
         self.tabla.setStyleSheet(_ss_tabla_neon())
         _RoundTableCorners(self.tabla)
         col.addWidget(self.tabla, 1)
 
-        self.lbl_total = _lbl(tr("online.total", default="TOTAL:  {x}", x=divisas.formatear(0)), bold=True, size=16, color=_CIAN)
-        self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.lbl_total = _lbl(
+            tr("online.total", default="TOTAL:  {x}", x=divisas.formatear(0)),
+            bold=True,
+            size=16,
+            color=_CIAN,
+        )
+        self.lbl_total.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         col.addWidget(self.lbl_total)
         return col
 
     # ── columna derecha: cliente + envío + estado + crear ──
     def _col_cliente(self):
-        w = QFrame(); w.setFixedWidth(360); w.setObjectName("voc")
-        w.setStyleSheet(f"QFrame#voc{{background:{_BG2};border:1px solid {_BORDE};border-radius:14px;}}")
-        col = QVBoxLayout(w); col.setContentsMargins(16, 14, 16, 16); col.setSpacing(10)
-        col.addWidget(_lbl(tr("online.cliente", default="CLIENTE Y ENVÍO"), bold=True, size=13, color=_CIAN))
-        self.inp_cli_nombre = self._inp(tr("online.cli_nombre", default="Nombre / Razón social"))
+        w = QFrame()
+        w.setFixedWidth(360)
+        w.setObjectName("voc")
+        w.setStyleSheet(
+            f"QFrame#voc{{background:{_BG2};border:1px solid {_BORDE};border-radius:14px;}}"
+        )
+        col = QVBoxLayout(w)
+        col.setContentsMargins(16, 14, 16, 16)
+        col.setSpacing(10)
+        col.addWidget(
+            _lbl(
+                tr("online.cliente", default="CLIENTE Y ENVÍO"),
+                bold=True,
+                size=13,
+                color=_CIAN,
+            )
+        )
+        self.inp_cli_nombre = self._inp(
+            tr("online.cli_nombre", default="Nombre / Razón social")
+        )
         self.inp_cli_tel = self._inp(tr("online.cli_tel", default="Teléfono"))
         self.inp_cli_email = self._inp(tr("online.cli_email", default="Email"))
         self.inp_cli_dir = self._inp(tr("online.cli_dir", default="Dirección de envío"))
-        b_buscar = _btn(tr("online.buscar_cli", default="BUSCAR CLIENTE"), color_fg=_CIAN,
-                        color_border=_CIAN, hover_bg=_CIAN, h=34)
+        b_buscar = _btn(
+            tr("online.buscar_cli", default="BUSCAR CLIENTE"),
+            color_fg=_CIAN,
+            color_border=_CIAN,
+            hover_bg=_CIAN,
+            h=34,
+        )
         b_buscar.clicked.connect(self._buscar_cliente)
         col.addWidget(b_buscar)
-        for ww in (self.inp_cli_nombre, self.inp_cli_tel, self.inp_cli_email, self.inp_cli_dir):
+        for ww in (
+            self.inp_cli_nombre,
+            self.inp_cli_tel,
+            self.inp_cli_email,
+            self.inp_cli_dir,
+        ):
             col.addWidget(ww)
 
         col.addSpacing(6)
-        col.addWidget(_lbl(tr("online.estado", default="Estado del pedido"), bold=True, size=12, color=_TEXT2))
+        col.addWidget(
+            _lbl(
+                tr("online.estado", default="Estado del pedido"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
         from src.services.tpv.online_orders_service import ESTADOS
-        self.cmb_estado = QComboBox(); self.cmb_estado.setFixedHeight(36)
+
+        self.cmb_estado = QComboBox()
+        self.cmb_estado.setFixedHeight(36)
         self.cmb_estado.setStyleSheet(
             f"QComboBox{{combobox-popup:0;background:{_BG};color:{_TEXT};border:2px solid {_BORDE};"
             f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
             f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
             f"QComboBox::drop-down{{border:none;width:22px;}}"
             f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
-            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}"
+        )
         for e in ESTADOS:
             self.cmb_estado.addItem(e, e)
         col.addWidget(self.cmb_estado)
         col.addStretch()
-        b_crear = _btn(tr("online.crear", default="CREAR PEDIDO"), color_bg=_VERDE, color_fg="#0D1117",
-                       color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=48)
+        b_crear = _btn(
+            tr("online.crear", default="CREAR PEDIDO"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=48,
+        )
         b_crear.clicked.connect(self._crear)
         col.addWidget(b_crear)
         return w
@@ -2102,6 +2510,7 @@ class _VentaOnlineDialog(QDialog):
     def _msg(self, titulo, texto, nivel="info"):
         try:
             from assets.estilo_global import mostrar_mensaje as _mm
+
             _mm(self, titulo, texto, nivel=nivel)
         except Exception:
             pass
@@ -2111,34 +2520,58 @@ class _VentaOnlineDialog(QDialog):
         if not codigo:
             return
         from src.services.tpv import online_orders_service as OS
+
         disp = OS.consultar_disponibilidad(codigo)
         if not disp.get("nombre"):
             self._art = None
-            self.lbl_disp.setText(tr("online.no_art", default="No se encontró el artículo «{c}».", c=codigo))
+            self.lbl_disp.setText(
+                tr(
+                    "online.no_art",
+                    default="No se encontró el artículo «{c}».",
+                    c=codigo,
+                )
+            )
             return
         self._art = disp
-        otras = ", ".join(f"{t['nombre']}: {t['stock']}" for t in disp["otras_tiendas"]) or "—"
+        otras = (
+            ", ".join(f"{t['nombre']}: {t['stock']}" for t in disp["otras_tiendas"])
+            or "—"
+        )
         self.lbl_disp.setText(
             f"<b>{disp['nombre']}</b>  ·  {divisas.formatear(disp['precio'])}<br>"
-            + tr("online.disp_linea",
-                 default="Tienda: {t}   ·   Central: {c}   ·   Otras tiendas: {o}   ·   Online: {n}",
-                 t=disp["tienda"], c=disp["central"], o=otras, n=disp["online"]))
+            + tr(
+                "online.disp_linea",
+                default="Tienda: {t}   ·   Central: {c}   ·   Otras tiendas: {o}   ·   Online: {n}",
+                t=disp["tienda"],
+                c=disp["central"],
+                o=otras,
+                n=disp["online"],
+            )
+        )
 
     def _add_linea(self):
         if not self._art:
-            self._msg(tr("online.title", default="VENTA ONLINE"),
-                      tr("online.consulta_primero", default="Consulta primero un artículo."), "warning")
+            self._msg(
+                tr("online.title", default="VENTA ONLINE"),
+                tr("online.consulta_primero", default="Consulta primero un artículo."),
+                "warning",
+            )
             return
         try:
             cant = max(1, int(float(self.inp_cant.text().replace(",", "."))))
         except ValueError:
             cant = 1
         precio = float(self._art.get("precio") or 0)
-        self._lineas.append({
-            "codigo": self._art["codigo"], "nombre": self._art["nombre"],
-            "cantidad": cant, "precio": precio, "subtotal": round(cant * precio, 2),
-            "origen_stock": "central",
-        })
+        self._lineas.append(
+            {
+                "codigo": self._art["codigo"],
+                "nombre": self._art["nombre"],
+                "cantidad": cant,
+                "precio": precio,
+                "subtotal": round(cant * precio, 2),
+                "origen_stock": "central",
+            }
+        )
         self._refrescar_tabla()
 
     def _quitar_linea(self):
@@ -2151,16 +2584,24 @@ class _VentaOnlineDialog(QDialog):
         self.tabla.setRowCount(0)
         total = 0.0
         for l in self._lineas:
-            r = self.tabla.rowCount(); self.tabla.insertRow(r)
+            r = self.tabla.rowCount()
+            self.tabla.insertRow(r)
             total += l["subtotal"]
-            vals = [l["codigo"], l["nombre"], str(l["cantidad"]),
-                    divisas.formatear(l["precio"]), divisas.formatear(l["subtotal"])]
+            vals = [
+                l["codigo"],
+                l["nombre"],
+                str(l["cantidad"]),
+                divisas.formatear(l["precio"]),
+                divisas.formatear(l["subtotal"]),
+            ]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(str(v))
                 if c in (2, 3, 4):
                     it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.tabla.setItem(r, c, it)
-        self.lbl_total.setText(tr("online.total", default="TOTAL:  {x}", x=divisas.formatear(total)))
+        self.lbl_total.setText(
+            tr("online.total", default="TOTAL:  {x}", x=divisas.formatear(total))
+        )
 
     def _buscar_cliente(self):
         dlg = _ClienteDialog(parent=self)
@@ -2173,13 +2614,19 @@ class _VentaOnlineDialog(QDialog):
 
     def _crear(self):
         if not self._lineas:
-            self._msg(tr("online.title", default="VENTA ONLINE"),
-                      tr("online.sin_lineas", default="Añade al menos un artículo."), "warning")
+            self._msg(
+                tr("online.title", default="VENTA ONLINE"),
+                tr("online.sin_lineas", default="Añade al menos un artículo."),
+                "warning",
+            )
             return
         nombre = self.inp_cli_nombre.text().strip()
         if not nombre:
-            self._msg(tr("online.title", default="VENTA ONLINE"),
-                      tr("online.sin_cliente", default="Indica el nombre del cliente."), "warning")
+            self._msg(
+                tr("online.title", default="VENTA ONLINE"),
+                tr("online.sin_cliente", default="Indica el nombre del cliente."),
+                "warning",
+            )
             return
         cliente = {
             "id": (self._cliente or {}).get("id"),
@@ -2188,19 +2635,33 @@ class _VentaOnlineDialog(QDialog):
             "email": self.inp_cli_email.text().strip(),
         }
         from src.services.tpv import online_orders_service as OS
+
         pid = OS.crear_pedido_online(
-            cliente, self._lineas, direccion_envio=self.inp_cli_dir.text().strip(),
-            estado=self.cmb_estado.currentData() or "PENDIENTE")
+            cliente,
+            self._lineas,
+            direccion_envio=self.inp_cli_dir.text().strip(),
+            estado=self.cmb_estado.currentData() or "PENDIENTE",
+        )
         if not pid:
-            self._msg(tr("online.title", default="VENTA ONLINE"),
-                      tr("online.error", default="No se pudo crear el pedido."), "error")
+            self._msg(
+                tr("online.title", default="VENTA ONLINE"),
+                tr("online.error", default="No se pudo crear el pedido."),
+                "error",
+            )
             return
         try:
             OS.generar_comprobante(pid)
         except Exception:
             pass
-        self._msg(tr("online.ok_t", default="Pedido online creado"),
-                  tr("online.ok", default="Pedido {p} registrado y comprobante generado.", p=pid), "success")
+        self._msg(
+            tr("online.ok_t", default="Pedido online creado"),
+            tr(
+                "online.ok",
+                default="Pedido {p} registrado y comprobante generado.",
+                p=pid,
+            ),
+            "success",
+        )
         self.accept()
 
 
@@ -2215,60 +2676,130 @@ class _TiendaOnlineConfigDialog(QDialog):
         self.setFixedWidth(480)
         self._guardado = False
         from src.db import ecommerce as _ec
+
         self._cfg = _ec.obtener_config()
         self._build()
 
     def _inp(self, val=""):
-        e = QLineEdit(val or ""); e.setFixedHeight(36)
-        e.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
-                        f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
-                        f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        e = QLineEdit(val or "")
+        e.setFixedHeight(36)
+        e.setStyleSheet(
+            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QLineEdit:focus{{border-color:{_CIAN};}}"
+        )
         return e
 
     def _build(self):
-        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
-        cuerpo = QFrame(); cuerpo.setObjectName("cfgto")
-        cuerpo.setStyleSheet(f"QFrame#cfgto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame()
+        cuerpo.setObjectName("cfgto")
+        cuerpo.setStyleSheet(
+            f"QFrame#cfgto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}"
+        )
         outer.addWidget(cuerpo)
-        v = QVBoxLayout(cuerpo); v.setContentsMargins(24, 22, 24, 22); v.setSpacing(10)
-        v.addWidget(_lbl("⚙  " + tr("online.cfg_title", default="TIENDA ONLINE"), bold=True, size=16, color=_CIAN))
-        v.addWidget(_lbl(tr("online.cfg_plat", default="Plataforma"), bold=True, size=12, color=_TEXT2))
+        v = QVBoxLayout(cuerpo)
+        v.setContentsMargins(24, 22, 24, 22)
+        v.setSpacing(10)
+        v.addWidget(
+            _lbl(
+                "⚙  " + tr("online.cfg_title", default="TIENDA ONLINE"),
+                bold=True,
+                size=16,
+                color=_CIAN,
+            )
+        )
+        v.addWidget(
+            _lbl(
+                tr("online.cfg_plat", default="Plataforma"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
         from src.db.ecommerce import PLATAFORMAS
-        self.cmb = QComboBox(); self.cmb.setFixedHeight(36)
+
+        self.cmb = QComboBox()
+        self.cmb.setFixedHeight(36)
         self.cmb.setStyleSheet(
             f"QComboBox{{combobox-popup:0;background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
             f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
             f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
             f"QComboBox::drop-down{{border:none;width:22px;}}"
             f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
-            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
-        etiquetas = {"web": "Web propia", "woocommerce": "WooCommerce",
-                     "shopify": "Shopify", "prestashop": "PrestaShop"}
+            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}"
+        )
+        etiquetas = {
+            "web": "Web propia",
+            "woocommerce": "WooCommerce",
+            "shopify": "Shopify",
+            "prestashop": "PrestaShop",
+        }
         for p in PLATAFORMAS:
             self.cmb.addItem(etiquetas.get(p, p), p)
         i = self.cmb.findData(self._cfg.get("plataforma", "web"))
         if i >= 0:
             self.cmb.setCurrentIndex(i)
         v.addWidget(self.cmb)
-        v.addWidget(_lbl(tr("online.cfg_url", default="URL de la tienda (https://…)"), bold=True, size=12, color=_TEXT2))
-        self.inp_url = self._inp(self._cfg.get("base_url")); v.addWidget(self.inp_url)
-        v.addWidget(_lbl(tr("online.cfg_key", default="API key / Consumer key / Token"), bold=True, size=12, color=_TEXT2))
-        self.inp_key = self._inp(self._cfg.get("api_key")); v.addWidget(self.inp_key)
-        v.addWidget(_lbl(tr("online.cfg_secret", default="API secret (si aplica)"), bold=True, size=12, color=_TEXT2))
-        self.inp_secret = self._inp(self._cfg.get("api_secret")); v.addWidget(self.inp_secret)
+        v.addWidget(
+            _lbl(
+                tr("online.cfg_url", default="URL de la tienda (https://…)"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_url = self._inp(self._cfg.get("base_url"))
+        v.addWidget(self.inp_url)
+        v.addWidget(
+            _lbl(
+                tr("online.cfg_key", default="API key / Consumer key / Token"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_key = self._inp(self._cfg.get("api_key"))
+        v.addWidget(self.inp_key)
+        v.addWidget(
+            _lbl(
+                tr("online.cfg_secret", default="API secret (si aplica)"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_secret = self._inp(self._cfg.get("api_secret"))
+        v.addWidget(self.inp_secret)
         v.addSpacing(4)
-        fila = QHBoxLayout(); fila.setSpacing(10)
-        b_cancel = _btn(tr("online.cfg_cancel", default="CANCELAR"), h=44); b_cancel.clicked.connect(self.reject)
-        b_ok = _btn(tr("online.cfg_save", default="GUARDAR"), color_bg=_VERDE, color_fg="#0D1117",
-                    color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=44)
+        fila = QHBoxLayout()
+        fila.setSpacing(10)
+        b_cancel = _btn(tr("online.cfg_cancel", default="CANCELAR"), h=44)
+        b_cancel.clicked.connect(self.reject)
+        b_ok = _btn(
+            tr("online.cfg_save", default="GUARDAR"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=44,
+        )
         b_ok.clicked.connect(self._guardar)
-        fila.addWidget(b_cancel); fila.addWidget(b_ok); v.addLayout(fila)
+        fila.addWidget(b_cancel)
+        fila.addWidget(b_ok)
+        v.addLayout(fila)
 
     def _guardar(self):
         from src.db import ecommerce as _ec
+
         _ec.guardar_config(
-            plataforma=self.cmb.currentData(), base_url=self.inp_url.text().strip(),
-            api_key=self.inp_key.text().strip(), api_secret=self.inp_secret.text().strip())
+            plataforma=self.cmb.currentData(),
+            base_url=self.inp_url.text().strip(),
+            api_key=self.inp_key.text().strip(),
+            api_secret=self.inp_secret.text().strip(),
+        )
         self._guardado = True
         self.accept()
 
@@ -2285,30 +2816,78 @@ class _EnvioDialog(QDialog):
         self._build()
 
     def _inp(self, ph=""):
-        e = QLineEdit(); e.setFixedHeight(36); e.setPlaceholderText(ph)
-        e.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
-                        f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
-                        f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        e = QLineEdit()
+        e.setFixedHeight(36)
+        e.setPlaceholderText(ph)
+        e.setStyleSheet(
+            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QLineEdit:focus{{border-color:{_CIAN};}}"
+        )
         return e
 
     def _build(self):
-        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
-        cuerpo = QFrame(); cuerpo.setObjectName("envto")
-        cuerpo.setStyleSheet(f"QFrame#envto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame()
+        cuerpo.setObjectName("envto")
+        cuerpo.setStyleSheet(
+            f"QFrame#envto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}"
+        )
         outer.addWidget(cuerpo)
-        v = QVBoxLayout(cuerpo); v.setContentsMargins(24, 22, 24, 22); v.setSpacing(10)
-        v.addWidget(_lbl("🚚  " + tr("online.env_title", default="DATOS DE ENVÍO"), bold=True, size=16, color=_CIAN))
-        v.addWidget(_lbl(tr("online.env_transportista", default="Transportista"), bold=True, size=12, color=_TEXT2))
-        self.inp_trans = self._inp(tr("online.env_trans_ph", default="Ej.: SEUR, Correos, MRW…")); v.addWidget(self.inp_trans)
-        v.addWidget(_lbl(tr("online.env_seguimiento", default="Nº de seguimiento"), bold=True, size=12, color=_TEXT2))
-        self.inp_seg = self._inp(tr("online.env_seg_ph", default="Nº de tracking del envío")); v.addWidget(self.inp_seg)
+        v = QVBoxLayout(cuerpo)
+        v.setContentsMargins(24, 22, 24, 22)
+        v.setSpacing(10)
+        v.addWidget(
+            _lbl(
+                "🚚  " + tr("online.env_title", default="DATOS DE ENVÍO"),
+                bold=True,
+                size=16,
+                color=_CIAN,
+            )
+        )
+        v.addWidget(
+            _lbl(
+                tr("online.env_transportista", default="Transportista"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_trans = self._inp(
+            tr("online.env_trans_ph", default="Ej.: SEUR, Correos, MRW…")
+        )
+        v.addWidget(self.inp_trans)
+        v.addWidget(
+            _lbl(
+                tr("online.env_seguimiento", default="Nº de seguimiento"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_seg = self._inp(
+            tr("online.env_seg_ph", default="Nº de tracking del envío")
+        )
+        v.addWidget(self.inp_seg)
         v.addSpacing(4)
-        fila = QHBoxLayout(); fila.setSpacing(10)
-        b_cancel = _btn(tr("online.cfg_cancel", default="CANCELAR"), h=44); b_cancel.clicked.connect(self.reject)
-        b_ok = _btn(tr("online.env_ok", default="MARCAR ENVIADO"), color_bg=_VERDE, color_fg="#0D1117",
-                    color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=44)
+        fila = QHBoxLayout()
+        fila.setSpacing(10)
+        b_cancel = _btn(tr("online.cfg_cancel", default="CANCELAR"), h=44)
+        b_cancel.clicked.connect(self.reject)
+        b_ok = _btn(
+            tr("online.env_ok", default="MARCAR ENVIADO"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=44,
+        )
         b_ok.clicked.connect(self.accept)
-        fila.addWidget(b_cancel); fila.addWidget(b_ok); v.addLayout(fila)
+        fila.addWidget(b_cancel)
+        fila.addWidget(b_ok)
+        v.addLayout(fila)
 
     def transportista(self):
         return self.inp_trans.text().strip()
@@ -2327,25 +2906,31 @@ class _PasarelaConfigDialog(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedWidth(480)
         from src.db import pagos as _pg
+
         self._cfg = _pg.obtener_config()
         self._build()
 
     def _inp(self, val=""):
-        e = QLineEdit(val or ""); e.setFixedHeight(36)
-        e.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
-                        f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
-                        f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        e = QLineEdit(val or "")
+        e.setFixedHeight(36)
+        e.setStyleSheet(
+            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
+            f"QLineEdit:focus{{border-color:{_CIAN};}}"
+        )
         return e
 
     def _combo(self, opciones, actual):
-        cb = QComboBox(); cb.setFixedHeight(36)
+        cb = QComboBox()
+        cb.setFixedHeight(36)
         cb.setStyleSheet(
             f"QComboBox{{combobox-popup:0;background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
             f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
             f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
             f"QComboBox::drop-down{{border:none;width:22px;}}"
             f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
-            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}"
+        )
         for etq, val in opciones:
             cb.addItem(etq, val)
         i = cb.findData(actual)
@@ -2354,51 +2939,152 @@ class _PasarelaConfigDialog(QDialog):
         return cb
 
     def _build(self):
-        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
-        cuerpo = QFrame(); cuerpo.setObjectName("pasto")
-        cuerpo.setStyleSheet(f"QFrame#pasto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame()
+        cuerpo.setObjectName("pasto")
+        cuerpo.setStyleSheet(
+            f"QFrame#pasto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}"
+        )
         outer.addWidget(cuerpo)
-        v = QVBoxLayout(cuerpo); v.setContentsMargins(24, 22, 24, 22); v.setSpacing(10)
-        v.addWidget(_lbl("💳  " + tr("online.pas_title", default="PASARELA DE PAGO"), bold=True, size=16, color=_CIAN))
-        v.addWidget(_lbl(tr("online.pas_prov", default="Proveedor"), bold=True, size=12, color=_TEXT2))
+        v = QVBoxLayout(cuerpo)
+        v.setContentsMargins(24, 22, 24, 22)
+        v.setSpacing(10)
+        v.addWidget(
+            _lbl(
+                "💳  " + tr("online.pas_title", default="PASARELA DE PAGO"),
+                bold=True,
+                size=16,
+                color=_CIAN,
+            )
+        )
+        v.addWidget(
+            _lbl(
+                tr("online.pas_prov", default="Proveedor"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
         # El combo se construye desde el registro de pasarelas (extensible): añadir
         # una pasarela nueva la hace aparecer aquí sin tocar este diálogo.
-        from src.services.tpv.pagos.registry import pasarelas_registradas, proveedor_por_defecto
+        from src.services.tpv.pagos.registry import (
+            pasarelas_registradas,
+            proveedor_por_defecto,
+        )
+
         _rec = tr("online.pas_recomendado", default="recomendado")
-        opciones = [(meta["etiqueta"] + (f"  ({_rec})" if meta["recomendada"] else ""), nombre)
-                    for nombre, meta in pasarelas_registradas().items()]
-        self.cmb = self._combo(opciones, self._cfg.get("proveedor") or proveedor_por_defecto())
+        opciones = [
+            (meta["etiqueta"] + (f"  ({_rec})" if meta["recomendada"] else ""), nombre)
+            for nombre, meta in pasarelas_registradas().items()
+        ]
+        self.cmb = self._combo(
+            opciones, self._cfg.get("proveedor") or proveedor_por_defecto()
+        )
         v.addWidget(self.cmb)
-        v.addWidget(_lbl(tr("online.pas_key", default="API key / Client ID / Nº terminal"), bold=True, size=12, color=_TEXT2))
-        self.inp_key = self._inp(self._cfg.get("api_key")); v.addWidget(self.inp_key)
-        v.addWidget(_lbl(tr("online.pas_secret", default="API secret / Client secret / Clave Redsys"), bold=True, size=12, color=_TEXT2))
-        self.inp_secret = self._inp(self._cfg.get("api_secret")); v.addWidget(self.inp_secret)
-        v.addWidget(_lbl(tr("online.pas_com", default="Comercio / FUC (Redsys)"), bold=True, size=12, color=_TEXT2))
-        self.inp_com = self._inp(self._cfg.get("comercio")); v.addWidget(self.inp_com)
-        v.addWidget(_lbl(tr("online.pas_whsecret", default="Webhook secret (confirmación automática del pago)"), bold=True, size=12, color=_TEXT2))
-        self.inp_whsecret = self._inp(self._cfg.get("webhook_secret")); v.addWidget(self.inp_whsecret)
-        fila_m = QHBoxLayout(); fila_m.setSpacing(10)
-        colm = QVBoxLayout(); colm.addWidget(_lbl(tr("online.pas_modo", default="Modo"), bold=True, size=12, color=_TEXT2))
-        self.cmb_modo = self._combo([("Test", "test"), ("Live", "live")], self._cfg.get("modo", "test"))
-        colm.addWidget(self.cmb_modo); fila_m.addLayout(colm)
-        colc = QVBoxLayout(); colc.addWidget(_lbl(tr("online.pas_moneda", default="Moneda"), bold=True, size=12, color=_TEXT2))
-        self.inp_moneda = self._inp(self._cfg.get("moneda") or "EUR"); colc.addWidget(self.inp_moneda)
-        fila_m.addLayout(colc); v.addLayout(fila_m)
+        v.addWidget(
+            _lbl(
+                tr("online.pas_key", default="API key / Client ID / Nº terminal"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_key = self._inp(self._cfg.get("api_key"))
+        v.addWidget(self.inp_key)
+        v.addWidget(
+            _lbl(
+                tr(
+                    "online.pas_secret",
+                    default="API secret / Client secret / Clave Redsys",
+                ),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_secret = self._inp(self._cfg.get("api_secret"))
+        v.addWidget(self.inp_secret)
+        v.addWidget(
+            _lbl(
+                tr("online.pas_com", default="Comercio / FUC (Redsys)"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_com = self._inp(self._cfg.get("comercio"))
+        v.addWidget(self.inp_com)
+        v.addWidget(
+            _lbl(
+                tr(
+                    "online.pas_whsecret",
+                    default="Webhook secret (confirmación automática del pago)",
+                ),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_whsecret = self._inp(self._cfg.get("webhook_secret"))
+        v.addWidget(self.inp_whsecret)
+        fila_m = QHBoxLayout()
+        fila_m.setSpacing(10)
+        colm = QVBoxLayout()
+        colm.addWidget(
+            _lbl(
+                tr("online.pas_modo", default="Modo"), bold=True, size=12, color=_TEXT2
+            )
+        )
+        self.cmb_modo = self._combo(
+            [("Test", "test"), ("Live", "live")], self._cfg.get("modo", "test")
+        )
+        colm.addWidget(self.cmb_modo)
+        fila_m.addLayout(colm)
+        colc = QVBoxLayout()
+        colc.addWidget(
+            _lbl(
+                tr("online.pas_moneda", default="Moneda"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        self.inp_moneda = self._inp(self._cfg.get("moneda") or "EUR")
+        colc.addWidget(self.inp_moneda)
+        fila_m.addLayout(colc)
+        v.addLayout(fila_m)
         v.addSpacing(4)
-        fila = QHBoxLayout(); fila.setSpacing(10)
-        b_cancel = _btn(tr("online.cfg_cancel", default="CANCELAR"), h=44); b_cancel.clicked.connect(self.reject)
-        b_ok = _btn(tr("online.cfg_save", default="GUARDAR"), color_bg=_VERDE, color_fg="#0D1117",
-                    color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=44)
+        fila = QHBoxLayout()
+        fila.setSpacing(10)
+        b_cancel = _btn(tr("online.cfg_cancel", default="CANCELAR"), h=44)
+        b_cancel.clicked.connect(self.reject)
+        b_ok = _btn(
+            tr("online.cfg_save", default="GUARDAR"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=44,
+        )
         b_ok.clicked.connect(self._guardar)
-        fila.addWidget(b_cancel); fila.addWidget(b_ok); v.addLayout(fila)
+        fila.addWidget(b_cancel)
+        fila.addWidget(b_ok)
+        v.addLayout(fila)
 
     def _guardar(self):
         from src.db import pagos as _pg
+
         _pg.guardar_config(
-            proveedor=self.cmb.currentData(), api_key=self.inp_key.text().strip(),
-            api_secret=self.inp_secret.text().strip(), comercio=self.inp_com.text().strip(),
-            modo=self.cmb_modo.currentData(), moneda=(self.inp_moneda.text().strip() or "EUR").upper(),
-            webhook_secret=self.inp_whsecret.text().strip())
+            proveedor=self.cmb.currentData(),
+            api_key=self.inp_key.text().strip(),
+            api_secret=self.inp_secret.text().strip(),
+            comercio=self.inp_com.text().strip(),
+            modo=self.cmb_modo.currentData(),
+            moneda=(self.inp_moneda.text().strip() or "EUR").upper(),
+            webhook_secret=self.inp_whsecret.text().strip(),
+        )
         self.accept()
 
 
@@ -2416,58 +3102,117 @@ class _CobroDialog(QDialog):
         self._refrescar()
 
     def _build(self):
-        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
-        cuerpo = QFrame(); cuerpo.setObjectName("cobto")
-        cuerpo.setStyleSheet(f"QFrame#cobto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame()
+        cuerpo.setObjectName("cobto")
+        cuerpo.setStyleSheet(
+            f"QFrame#cobto{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}"
+        )
         outer.addWidget(cuerpo)
-        v = QVBoxLayout(cuerpo); v.setContentsMargins(24, 22, 24, 22); v.setSpacing(10)
-        v.addWidget(_lbl("💳  " + tr("online.cobro_title", default="COBRO ONLINE"), bold=True, size=16, color=_CIAN))
-        self.lbl_info = _lbl("", size=12, color=_TEXT); v.addWidget(self.lbl_info)
-        self.lbl_estado = _lbl("", bold=True, size=12, color=_CIAN); v.addWidget(self.lbl_estado)
-        self.inp_enlace = QLineEdit(); self.inp_enlace.setReadOnly(True); self.inp_enlace.setFixedHeight(34)
-        self.inp_enlace.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
-                                      f"border-radius:8px;padding:0 10px;font-size:11px;font-family:'{_FONT}';}}")
+        v = QVBoxLayout(cuerpo)
+        v.setContentsMargins(24, 22, 24, 22)
+        v.setSpacing(10)
+        v.addWidget(
+            _lbl(
+                "💳  " + tr("online.cobro_title", default="COBRO ONLINE"),
+                bold=True,
+                size=16,
+                color=_CIAN,
+            )
+        )
+        self.lbl_info = _lbl("", size=12, color=_TEXT)
+        v.addWidget(self.lbl_info)
+        self.lbl_estado = _lbl("", bold=True, size=12, color=_CIAN)
+        v.addWidget(self.lbl_estado)
+        self.inp_enlace = QLineEdit()
+        self.inp_enlace.setReadOnly(True)
+        self.inp_enlace.setFixedHeight(34)
+        self.inp_enlace.setStyleSheet(
+            f"QLineEdit{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
+            f"border-radius:8px;padding:0 10px;font-size:11px;font-family:'{_FONT}';}}"
+        )
         v.addWidget(self.inp_enlace)
-        fila_e = QHBoxLayout(); fila_e.setSpacing(10)
-        self.b_gen = _btn(tr("online.cobro_gen", default="Generar enlace de pago"), color_fg=_CIAN,
-                          color_border=_CIAN, hover_bg=_CIAN, h=40); self.b_gen.clicked.connect(self._generar)
-        self.b_open = _btn(tr("online.cobro_open", default="Abrir"), h=40); self.b_open.clicked.connect(self._abrir)
-        self.b_copy = _btn(tr("online.cobro_copy", default="Copiar"), h=40); self.b_copy.clicked.connect(self._copiar)
+        fila_e = QHBoxLayout()
+        fila_e.setSpacing(10)
+        self.b_gen = _btn(
+            tr("online.cobro_gen", default="Generar enlace de pago"),
+            color_fg=_CIAN,
+            color_border=_CIAN,
+            hover_bg=_CIAN,
+            h=40,
+        )
+        self.b_gen.clicked.connect(self._generar)
+        self.b_open = _btn(tr("online.cobro_open", default="Abrir"), h=40)
+        self.b_open.clicked.connect(self._abrir)
+        self.b_copy = _btn(tr("online.cobro_copy", default="Copiar"), h=40)
+        self.b_copy.clicked.connect(self._copiar)
         for b in (self.b_gen, self.b_open, self.b_copy):
             fila_e.addWidget(b)
         v.addLayout(fila_e)
         v.addSpacing(2)
-        fila = QHBoxLayout(); fila.setSpacing(10)
-        b_cfg = _btn(tr("online.cobro_cfg", default="Configurar pasarela"), h=44); b_cfg.clicked.connect(self._configurar)
-        b_ver = _btn(tr("online.cobro_verificar", default="VERIFICAR PAGO"), color_bg=_VERDE, color_fg="#0D1117",
-                     color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=44); b_ver.clicked.connect(self._verificar)
-        b_close = _btn(tr("online.cfg_cancel", default="CERRAR"), h=44); b_close.clicked.connect(self.reject)
-        fila.addWidget(b_cfg); fila.addWidget(b_close); fila.addWidget(b_ver); v.addLayout(fila)
+        fila = QHBoxLayout()
+        fila.setSpacing(10)
+        b_cfg = _btn(tr("online.cobro_cfg", default="Configurar pasarela"), h=44)
+        b_cfg.clicked.connect(self._configurar)
+        b_ver = _btn(
+            tr("online.cobro_verificar", default="VERIFICAR PAGO"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=44,
+        )
+        b_ver.clicked.connect(self._verificar)
+        b_close = _btn(tr("online.cfg_cancel", default="CERRAR"), h=44)
+        b_close.clicked.connect(self.reject)
+        fila.addWidget(b_cfg)
+        fila.addWidget(b_close)
+        fila.addWidget(b_ver)
+        v.addLayout(fila)
 
     def _ped(self):
         from src.services.tpv import online_orders_service as OS
+
         return OS.obtener_pedido(self._pid) or {}
 
     def _refrescar(self):
         from src.services.tpv.pagos import pasarela_actual
+
         p = self._ped()
         total = divisas.formatear(float(p.get("total") or 0))
-        self.lbl_info.setText(tr("online.cobro_info", default="Pedido {pid} · Total {total} · Pasarela: {prov}",
-                                 pid=str(self._pid)[:8], total=total,
-                                 prov=getattr(pasarela_actual(), "nombre", "—")))
+        self.lbl_info.setText(
+            tr(
+                "online.cobro_info",
+                default="Pedido {pid} · Total {total} · Pasarela: {prov}",
+                pid=str(self._pid)[:8],
+                total=total,
+                prov=getattr(pasarela_actual(), "nombre", "—"),
+            )
+        )
         ep = p.get("estado_pago") or tr("online.cobro_sin", default="sin iniciar")
-        self.lbl_estado.setText(tr("online.cobro_estado", default="Estado del pago: {e}", e=ep))
+        self.lbl_estado.setText(
+            tr("online.cobro_estado", default="Estado del pago: {e}", e=ep)
+        )
         enlace = p.get("enlace_pago") or ""
         self.inp_enlace.setText(enlace)
-        self.b_open.setEnabled(bool(enlace)); self.b_copy.setEnabled(bool(enlace))
+        self.b_open.setEnabled(bool(enlace))
+        self.b_copy.setEnabled(bool(enlace))
 
     def _generar(self):
         from src.services.tpv import online_orders_service as OS
         from assets.estilo_global import mostrar_mensaje as _mm
+
         res = OS.crear_cobro(self._pid)
         if not res.get("ok"):
-            _mm(self, tr("online.cobro_title", default="COBRO ONLINE"),
-                res.get("mensaje") or tr("online.cobro_err", default="No se pudo iniciar el cobro."), "warning")
+            _mm(
+                self,
+                tr("online.cobro_title", default="COBRO ONLINE"),
+                res.get("mensaje")
+                or tr("online.cobro_err", default="No se pudo iniciar el cobro."),
+                "warning",
+            )
         self._refrescar()
 
     def _abrir(self):
@@ -2475,6 +3220,7 @@ class _CobroDialog(QDialog):
         if enlace:
             try:
                 import webbrowser
+
                 webbrowser.open(enlace)
             except Exception:
                 pass
@@ -2489,14 +3235,30 @@ class _CobroDialog(QDialog):
     def _verificar(self):
         from src.services.tpv import online_orders_service as OS
         from assets.estilo_global import mostrar_mensaje as _mm
+
         estado = OS.verificar_pago(self._pid)
         if estado == "pagado":
-            _mm(self, tr("online.cobro_title", default="COBRO ONLINE"),
-                tr("online.cobro_pagado", default="Pago confirmado. El pedido se ha marcado como PAGADO."), "info")
+            _mm(
+                self,
+                tr("online.cobro_title", default="COBRO ONLINE"),
+                tr(
+                    "online.cobro_pagado",
+                    default="Pago confirmado. El pedido se ha marcado como PAGADO.",
+                ),
+                "info",
+            )
             self.accept()
         else:
-            _mm(self, tr("online.cobro_title", default="COBRO ONLINE"),
-                tr("online.cobro_pend", default="El pago aún no consta como completado (estado: {e}).", e=estado), "warning")
+            _mm(
+                self,
+                tr("online.cobro_title", default="COBRO ONLINE"),
+                tr(
+                    "online.cobro_pend",
+                    default="El pago aún no consta como completado (estado: {e}).",
+                    e=estado,
+                ),
+                "warning",
+            )
             self._refrescar()
 
 
@@ -2527,46 +3289,97 @@ class _GestionPedidosOnlineDialog(QDialog):
             pass
 
     def _build(self):
-        root = QVBoxLayout(self); root.setContentsMargins(12, 12, 12, 12)
-        card = QFrame(self); card.setObjectName("go")
-        card.setStyleSheet(f"QFrame#go{{background:{_BG};border:none;border-radius:18px;}}")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        card = QFrame(self)
+        card.setObjectName("go")
+        card.setStyleSheet(
+            f"QFrame#go{{background:{_BG};border:none;border-radius:18px;}}"
+        )
         root.addWidget(card)
-        ly = QVBoxLayout(card); ly.setContentsMargins(28, 22, 28, 22); ly.setSpacing(14)
+        ly = QVBoxLayout(card)
+        ly.setContentsMargins(28, 22, 28, 22)
+        ly.setSpacing(14)
 
         hdr = QHBoxLayout()
-        hdr.addWidget(_lbl("🌐  " + tr("online.ges_title", default="GESTIÓN DE PEDIDOS ONLINE"),
-                           bold=True, size=18, color=_CIAN))
+        hdr.addWidget(
+            _lbl(
+                "🌐  " + tr("online.ges_title", default="GESTIÓN DE PEDIDOS ONLINE"),
+                bold=True,
+                size=18,
+                color=_CIAN,
+            )
+        )
         hdr.addStretch()
-        b_nuevo = _btn("＋  " + tr("online.ges_nuevo", default="Nuevo pedido"), color_fg=_CIAN,
-                       color_border=_CIAN, hover_bg=_CIAN, h=38)
+        b_nuevo = _btn(
+            "＋  " + tr("online.ges_nuevo", default="Nuevo pedido"),
+            color_fg=_CIAN,
+            color_border=_CIAN,
+            hover_bg=_CIAN,
+            h=38,
+        )
         b_nuevo.clicked.connect(self._nuevo)
-        b_import = _btn("⭳  " + tr("online.ges_importar", default="Importar de la web"),
-                       color_fg=_CIAN, color_border=_CIAN, hover_bg=_CIAN, h=38)
+        b_import = _btn(
+            "⭳  " + tr("online.ges_importar", default="Importar de la web"),
+            color_fg=_CIAN,
+            color_border=_CIAN,
+            hover_bg=_CIAN,
+            h=38,
+        )
         b_import.clicked.connect(self._importar)
-        b_sync = _btn("⭱  " + tr("online.ges_sync", default="Sincronizar catálogo"),
-                      color_fg=_CIAN, color_border=_CIAN, hover_bg=_CIAN, h=38)
+        b_sync = _btn(
+            "⭱  " + tr("online.ges_sync", default="Sincronizar catálogo"),
+            color_fg=_CIAN,
+            color_border=_CIAN,
+            hover_bg=_CIAN,
+            h=38,
+        )
         b_sync.clicked.connect(self._sincronizar_catalogo)
-        b_cobro = _btn("💳  " + tr("online.ges_cobrar", default="Cobrar"),
-                       color_fg=_CIAN, color_border=_CIAN, hover_bg=_CIAN, h=38)
+        b_cobro = _btn(
+            "💳  " + tr("online.ges_cobrar", default="Cobrar"),
+            color_fg=_CIAN,
+            color_border=_CIAN,
+            hover_bg=_CIAN,
+            h=38,
+        )
         b_cobro.clicked.connect(self._cobrar)
         b_cfg = _btn("⚙", color_fg=_TEXT2, color_border=_BORDE, hover_bg=_CIAN, h=38)
-        b_cfg.setFixedWidth(46); b_cfg.clicked.connect(self._configurar)
-        b_web = _btn("🌐  " + tr("online.ir_web", default="Ir a la Web"), color_bg=_CIAN, color_fg="#0D1117",
-                     color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=38)
+        b_cfg.setFixedWidth(46)
+        b_cfg.clicked.connect(self._configurar)
+        b_web = _btn(
+            "🌐  " + tr("online.ir_web", default="Ir a la Web"),
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=38,
+        )
         b_web.clicked.connect(self._ir_web)
-        bx = QPushButton("✕"); bx.setFixedSize(38, 38); bx.setCursor(Qt.CursorShape.PointingHandCursor)
-        bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
-                         f"border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
+        bx = QPushButton("✕")
+        bx.setFixedSize(38, 38)
+        bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(
+            f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
+            f"border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}"
+        )
         bx.clicked.connect(self.reject)
         for b in (b_nuevo, b_import, b_sync, b_cobro, b_cfg, b_web, bx):
             hdr.addWidget(b)
-        ly.addLayout(hdr); ly.addWidget(_sep())
+        ly.addLayout(hdr)
+        ly.addWidget(_sep())
 
-        cols = [tr("online.gc_pedido", default="Pedido"), tr("online.gc_fecha", default="Fecha"),
-                tr("online.gc_cliente", default="Cliente"), tr("online.gc_tel", default="Teléfono"),
-                tr("online.gc_total", default="Total"), tr("online.gc_estado", default="Estado"),
-                tr("online.gc_plat", default="Plataforma"), tr("online.gc_ref", default="Ref. web"),
-                tr("online.gc_envio", default="Envío")]
+        cols = [
+            tr("online.gc_pedido", default="Pedido"),
+            tr("online.gc_fecha", default="Fecha"),
+            tr("online.gc_cliente", default="Cliente"),
+            tr("online.gc_tel", default="Teléfono"),
+            tr("online.gc_total", default="Total"),
+            tr("online.gc_estado", default="Estado"),
+            tr("online.gc_plat", default="Plataforma"),
+            tr("online.gc_ref", default="Ref. web"),
+            tr("online.gc_envio", default="Envío"),
+        ]
         self.tabla = QTableWidget(0, len(cols))
         self.tabla.setHorizontalHeaderLabels(cols)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -2576,8 +3389,18 @@ class _GestionPedidosOnlineDialog(QDialog):
         self.tabla.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         hh = self.tabla.horizontalHeader()
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        for ci, w in {0: 150, 1: 140, 3: 110, 4: 100, 5: 150, 6: 120, 7: 120, 8: 180}.items():
-            hh.setSectionResizeMode(ci, QHeaderView.ResizeMode.Fixed); self.tabla.setColumnWidth(ci, w)
+        for ci, w in {
+            0: 150,
+            1: 140,
+            3: 110,
+            4: 100,
+            5: 150,
+            6: 120,
+            7: 120,
+            8: 180,
+        }.items():
+            hh.setSectionResizeMode(ci, QHeaderView.ResizeMode.Fixed)
+            self.tabla.setColumnWidth(ci, w)
         self.tabla.setStyleSheet(_ss_tabla_neon())
         _RoundTableCorners(self.tabla)
         ly.addWidget(self.tabla, 1)
@@ -2587,15 +3410,30 @@ class _GestionPedidosOnlineDialog(QDialog):
 
     def _refrescar(self):
         from src.services.tpv import online_orders_service as OS
+
         self._pedidos = OS.listar_pedidos_online()
         self.tabla.setRowCount(0)
         for p in self._pedidos:
-            r = self.tabla.rowCount(); self.tabla.insertRow(r)
+            r = self.tabla.rowCount()
+            self.tabla.insertRow(r)
             fecha = str(p.get("fecha") or "")[:16]
-            envio = " · ".join(x for x in (p.get("transportista"), p.get("seguimiento")) if x) or "—"
-            vals = [str(p.get("id_pedido") or "")[:8], fecha, p.get("cliente_nombre") or "—",
-                    p.get("cliente_telefono") or "—", divisas.formatear(float(p.get("total") or 0)),
-                    None, p.get("plataforma") or "—", p.get("referencia_externa") or "—", envio]
+            envio = (
+                " · ".join(
+                    x for x in (p.get("transportista"), p.get("seguimiento")) if x
+                )
+                or "—"
+            )
+            vals = [
+                str(p.get("id_pedido") or "")[:8],
+                fecha,
+                p.get("cliente_nombre") or "—",
+                p.get("cliente_telefono") or "—",
+                divisas.formatear(float(p.get("total") or 0)),
+                None,
+                p.get("plataforma") or "—",
+                p.get("referencia_externa") or "—",
+                envio,
+            ]
             for c, val in enumerate(vals):
                 if c == 5:
                     self.tabla.setCellWidget(r, 5, self._combo_estado(p))
@@ -2604,32 +3442,42 @@ class _GestionPedidosOnlineDialog(QDialog):
                 if c in (1, 3, 4, 6, 7, 8):
                     it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.tabla.setItem(r, c, it)
-        self.lbl_estado.setText(tr("online.ges_n", default="{n} pedido(s) online", n=len(self._pedidos)))
+        self.lbl_estado.setText(
+            tr("online.ges_n", default="{n} pedido(s) online", n=len(self._pedidos))
+        )
 
     def _combo_estado(self, p):
         from src.services.tpv.online_orders_service import ESTADOS
-        cb = QComboBox(); cb.setFixedHeight(30)
+
+        cb = QComboBox()
+        cb.setFixedHeight(30)
         cb.setStyleSheet(
             f"QComboBox{{combobox-popup:0;background:{_BG};color:{_CIAN};border:1px solid {_BORDE};"
             f"border-radius:7px;padding:0 8px;font-size:11px;font-family:'{_FONT}';font-weight:900;}}"
             f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
             f"QComboBox::drop-down{{border:none;width:18px;}}"
             f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
-            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}"
+        )
         for e in ESTADOS:
             cb.addItem(e, e)
         i = cb.findData(p.get("estado"))
         if i >= 0:
             cb.setCurrentIndex(i)
-        cb.currentIndexChanged.connect(lambda _i, pid=p.get("id_pedido"), c=cb: self._cambiar_estado(pid, c.currentData()))
+        cb.currentIndexChanged.connect(
+            lambda _i, pid=p.get("id_pedido"), c=cb: self._cambiar_estado(
+                pid, c.currentData()
+            )
+        )
         return cb
 
     def _cambiar_estado(self, pid, estado):
         from src.services.tpv import online_orders_service as OS
+
         if estado == "ENVIADO":
             dlg = _EnvioDialog(parent=self)
             if dlg.exec() != QDialog.DialogCode.Accepted:
-                self._refrescar()   # revierte el combo al estado anterior
+                self._refrescar()  # revierte el combo al estado anterior
                 return
             OS.cambiar_estado(pid, estado)
             OS.registrar_envio(pid, dlg.transportista(), dlg.seguimiento())
@@ -2639,7 +3487,9 @@ class _GestionPedidosOnlineDialog(QDialog):
         self._refrescar()
 
     def _nuevo(self):
-        _VentaOnlineDialog(empleado=self._empleado, id_caja=self._id_caja, parent=self).exec()
+        _VentaOnlineDialog(
+            empleado=self._empleado, id_caja=self._id_caja, parent=self
+        ).exec()
         self._refrescar()
 
     def _configurar(self):
@@ -2648,8 +3498,10 @@ class _GestionPedidosOnlineDialog(QDialog):
     def _importar(self):
         from src.services.tpv import online_orders_service as OS
         from assets.estilo_global import mostrar_mensaje as _mm
+
         try:
             from src.services.tpv.ecommerce import adaptador_actual
+
             if not adaptador_actual().configurado():
                 dlg = _TiendaOnlineConfigDialog(parent=self)
                 if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -2659,20 +3511,41 @@ class _GestionPedidosOnlineDialog(QDialog):
         try:
             res = OS.importar_pedidos_remotos()
         except Exception as e:
-            _mm(self, tr("online.ges_importar", default="Importar de la web"),
-                tr("online.imp_err", default="No se pudieron importar los pedidos: {e}", e=e), "error")
+            _mm(
+                self,
+                tr("online.ges_importar", default="Importar de la web"),
+                tr(
+                    "online.imp_err",
+                    default="No se pudieron importar los pedidos: {e}",
+                    e=e,
+                ),
+                "error",
+            )
             return
         self._refrescar()
-        _mm(self, tr("online.ges_importar", default="Importar de la web"),
-            tr("online.imp_ok", default="Importados {n} pedido(s) nuevos de {p} ({m} en la web).",
-               n=res.get("importados", 0), p=res.get("plataforma", "web"),
-               m=res.get("total_remotos", 0)), "info")
+        _mm(
+            self,
+            tr("online.ges_importar", default="Importar de la web"),
+            tr(
+                "online.imp_ok",
+                default="Importados {n} pedido(s) nuevos de {p} ({m} en la web).",
+                n=res.get("importados", 0),
+                p=res.get("plataforma", "web"),
+                m=res.get("total_remotos", 0),
+            ),
+            "info",
+        )
 
     def _sincronizar_catalogo(self):
         from src.services.tpv import catalog_sync_service as CS
-        from assets.estilo_global import mostrar_mensaje as _mm, mostrar_confirmacion as _mc
+        from assets.estilo_global import (
+            mostrar_mensaje as _mm,
+            mostrar_confirmacion as _mc,
+        )
+
         try:
             from src.services.tpv.ecommerce import adaptador_actual
+
             if not adaptador_actual().configurado():
                 dlg = _TiendaOnlineConfigDialog(parent=self)
                 if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -2680,35 +3553,64 @@ class _GestionPedidosOnlineDialog(QDialog):
         except Exception:
             pass
         n = len(CS.articulos_para_sync())
-        if not _mc(self, tr("online.ges_sync", default="Sincronizar catálogo"),
-                   tr("online.sync_confirm",
-                      default="Se enviarán precio y existencias de {n} artículo(s) a la tienda online. ¿Continuar?",
-                      n=n)):
+        if not _mc(
+            self,
+            tr("online.ges_sync", default="Sincronizar catálogo"),
+            tr(
+                "online.sync_confirm",
+                default="Se enviarán precio y existencias de {n} artículo(s) a la tienda online. ¿Continuar?",
+                n=n,
+            ),
+        ):
             return
         try:
             res = CS.sincronizar_catalogo()
         except Exception as e:
-            _mm(self, tr("online.ges_sync", default="Sincronizar catálogo"),
-                tr("online.sync_err", default="No se pudo sincronizar: {e}", e=e), "error")
+            _mm(
+                self,
+                tr("online.ges_sync", default="Sincronizar catálogo"),
+                tr("online.sync_err", default="No se pudo sincronizar: {e}", e=e),
+                "error",
+            )
             return
         if not res.get("ok"):
-            _mm(self, tr("online.ges_sync", default="Sincronizar catálogo"),
-                tr("online.sync_sin_cfg", default="Configura la tienda online antes de sincronizar."),
-                "warning")
+            _mm(
+                self,
+                tr("online.ges_sync", default="Sincronizar catálogo"),
+                tr(
+                    "online.sync_sin_cfg",
+                    default="Configura la tienda online antes de sincronizar.",
+                ),
+                "warning",
+            )
             return
-        _mm(self, tr("online.ges_sync", default="Sincronizar catálogo"),
-            tr("online.sync_ok",
-               default="Sincronizados {a} de {t} artículo(s) con {p}.",
-               a=res.get("actualizados", 0), t=res.get("total", 0), p=res.get("plataforma", "web")),
-            "info")
+        _mm(
+            self,
+            tr("online.ges_sync", default="Sincronizar catálogo"),
+            tr(
+                "online.sync_ok",
+                default="Sincronizados {a} de {t} artículo(s) con {p}.",
+                a=res.get("actualizados", 0),
+                t=res.get("total", 0),
+                p=res.get("plataforma", "web"),
+            ),
+            "info",
+        )
 
     def _cobrar(self):
         from assets.estilo_global import mostrar_mensaje as _mm
+
         row = self.tabla.currentRow()
         if row < 0 or row >= len(self._pedidos):
-            _mm(self, tr("online.ges_cobrar", default="Cobrar"),
-                tr("online.cobro_sel", default="Selecciona un pedido de la tabla para cobrarlo."),
-                "warning")
+            _mm(
+                self,
+                tr("online.ges_cobrar", default="Cobrar"),
+                tr(
+                    "online.cobro_sel",
+                    default="Selecciona un pedido de la tabla para cobrarlo.",
+                ),
+                "warning",
+            )
             return
         pedido = self._pedidos[row]
         _CobroDialog(pedido, parent=self).exec()
@@ -2716,6 +3618,7 @@ class _GestionPedidosOnlineDialog(QDialog):
 
     def _ir_web(self):
         from src.services.tpv.ecommerce import adaptador_actual
+
         url = adaptador_actual().url_web()
         if not url:
             dlg = _TiendaOnlineConfigDialog(parent=self)
@@ -2725,8 +3628,16 @@ class _GestionPedidosOnlineDialog(QDialog):
         if not url:
             try:
                 from assets.estilo_global import mostrar_mensaje as _mm
-                _mm(self, tr("online.ges_title", default="GESTIÓN DE PEDIDOS ONLINE"),
-                    tr("online.web_sin_url", default="Configura la URL de la tienda online."), "warning")
+
+                _mm(
+                    self,
+                    tr("online.ges_title", default="GESTIÓN DE PEDIDOS ONLINE"),
+                    tr(
+                        "online.web_sin_url",
+                        default="Configura la URL de la tienda online.",
+                    ),
+                    "warning",
+                )
             except Exception:
                 pass
             return
@@ -2734,6 +3645,7 @@ class _GestionPedidosOnlineDialog(QDialog):
             url = "https://" + url
         try:
             import webbrowser
+
             webbrowser.open(url)
         except Exception:
             pass
@@ -2757,7 +3669,9 @@ class _GestionGranelDialog(QDialog):
     # Arrastre de ventana frameless
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_pos = (
+                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            )
             event.accept()
 
     def mouseMoveEvent(self, event):
@@ -2784,16 +3698,28 @@ class _GestionGranelDialog(QDialog):
         cab = QHBoxLayout()
         cab.addWidget(_lbl(tr("ges_granel.header"), bold=True, size=18, color=_CIAN))
         cab.addStretch()
-        btn_nuevo = _btn(tr("ges_granel.new"), color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN, hover_bg="#FFF", h=38)
+        btn_nuevo = _btn(
+            tr("ges_granel.new"),
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            h=38,
+        )
         btn_nuevo.clicked.connect(self._nuevo)
         cab.addWidget(btn_nuevo)
         root.addLayout(cab)
         self.tabla = QTableWidget()
         self.tabla.setColumnCount(5)
-        self.tabla.setHorizontalHeaderLabels([
-            tr("ges_granel.col_product"), tr("ges_granel.col_category"), tr("ges_granel.col_price"),
-            tr("ges_granel.col_status"), tr("ges_granel.col_actions"),
-        ])
+        self.tabla.setHorizontalHeaderLabels(
+            [
+                tr("ges_granel.col_product"),
+                tr("ges_granel.col_category"),
+                tr("ges_granel.col_price"),
+                tr("ges_granel.col_status"),
+                tr("ges_granel.col_actions"),
+            ]
+        )
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.verticalHeader().setVisible(False)
@@ -2809,26 +3735,40 @@ class _GestionGranelDialog(QDialog):
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for c in (1, 2, 3, 4):
             hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Fixed)
-        hh.resizeSection(1, 140); hh.resizeSection(2, 90); hh.resizeSection(3, 100); hh.resizeSection(4, 300)
+        hh.resizeSection(1, 140)
+        hh.resizeSection(2, 90)
+        hh.resizeSection(3, 100)
+        hh.resizeSection(4, 300)
         root.addWidget(self.tabla, 1)
-        btn_cerrar = _btn(tr("common.close"), color_fg=_ROJO, color_border=_ROJO,
-                          hover_bg=_ROJO, hover_fg="#FFFFFF", h=40)
+        btn_cerrar = _btn(
+            tr("common.close"),
+            color_fg=_ROJO,
+            color_border=_ROJO,
+            hover_bg=_ROJO,
+            hover_fg="#FFFFFF",
+            h=40,
+        )
         btn_cerrar.clicked.connect(self.accept)
         root.addWidget(btn_cerrar)
 
     def _cargar(self):
         from src.services.tpv import bulk_products_service as B
+
         productos = B.listar_todos()
         self.tabla.setRowCount(len(productos))
         for row, p in enumerate(productos):
             emoji = p.get("emoji", "🛒")
-            self.tabla.setItem(row, 0, QTableWidgetItem(f"{emoji}  {p.get('nombre','—')}"))
+            self.tabla.setItem(
+                row, 0, QTableWidgetItem(f"{emoji}  {p.get('nombre','—')}")
+            )
             self.tabla.setItem(row, 1, QTableWidgetItem(p.get("categoria", "—")))
             it_precio = QTableWidgetItem(f"{float(p.get('precio_kg',0)):.2f}")
             it_precio.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tabla.setItem(row, 2, it_precio)
             activo = bool(p.get("activo", 1))
-            it_estado = QTableWidgetItem(tr("ges_granel.active") if activo else tr("ges_granel.inactive"))
+            it_estado = QTableWidgetItem(
+                tr("ges_granel.active") if activo else tr("ges_granel.inactive")
+            )
             it_estado.setForeground(QColor(_VERDE if activo else _ROJO))
             it_estado.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tabla.setItem(row, 3, it_estado)
@@ -2846,7 +3786,9 @@ class _GestionGranelDialog(QDialog):
             )
             b_edit.setCursor(Qt.CursorShape.PointingHandCursor)
             b_edit.clicked.connect(lambda _=False, pr=p: self._editar(pr))
-            b_tog = QPushButton(tr("ges_granel.deactivate") if activo else tr("ges_granel.activate"))
+            b_tog = QPushButton(
+                tr("ges_granel.deactivate") if activo else tr("ges_granel.activate")
+            )
             b_tog.setFixedHeight(34)
             b_tog.setStyleSheet(
                 f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};"
@@ -2868,6 +3810,7 @@ class _GestionGranelDialog(QDialog):
 
     def _toggle(self, p: dict):
         from src.services.tpv import bulk_products_service as B
+
         B.cambiar_estado(p["id"], not bool(p.get("activo", 1)))
         self._cargar()
 
@@ -2878,7 +3821,9 @@ class _EditarGranelDialog(QDialog):
     def __init__(self, p: dict | None, parent=None):
         super().__init__(parent)
         self._p = p
-        self.setWindowTitle(tr("ed_granel.title_edit") if p else tr("ed_granel.title_new"))
+        self.setWindowTitle(
+            tr("ed_granel.title_edit") if p else tr("ed_granel.title_new")
+        )
         self.setModal(True)
         self.setFixedWidth(440)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
@@ -2890,7 +3835,9 @@ class _EditarGranelDialog(QDialog):
     # Arrastre de ventana frameless
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_pos = (
+                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            )
             event.accept()
 
     def mouseMoveEvent(self, event):
@@ -2942,7 +3889,9 @@ class _EditarGranelDialog(QDialog):
         self.spin_precio = QDoubleSpinBox()
         self.spin_precio.setDecimals(3)
         self.spin_precio.setRange(0.0, 9999.0)
-        self.spin_precio.setValue(float(self._p.get("precio_kg", 0)) if self._p else 0.0)
+        self.spin_precio.setValue(
+            float(self._p.get("precio_kg", 0)) if self._p else 0.0
+        )
         self.spin_precio.setStyleSheet(
             f"QDoubleSpinBox{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
             f"border-radius:8px;padding:8px;font-size:14px;font-weight:900;}}"
@@ -2954,7 +3903,18 @@ class _EditarGranelDialog(QDialog):
         root.addWidget(_lbl(tr("ed_granel.category"), bold=True, size=12, color=_TEXT2))
         self.cmb_cat = _ComboMaxPopup(max_items=5, item_h=44)
         self.cmb_cat.setEditable(True)
-        self.cmb_cat.addItems(["FRUTA", "VERDURA", "FRUTOS SECOS", "DULCES", "FRESCOS", "CARNE", "PESCADO", "GENERAL"])
+        self.cmb_cat.addItems(
+            [
+                "FRUTA",
+                "VERDURA",
+                "FRUTOS SECOS",
+                "DULCES",
+                "FRESCOS",
+                "CARNE",
+                "PESCADO",
+                "GENERAL",
+            ]
+        )
         # Mostrar pocas categorías a la vez para forzar la scrollbar.
         self.cmb_cat.setMaxVisibleItems(5)
         # Marcamos el combo para que el filtro global de estilos lo IGNORE
@@ -2999,9 +3959,21 @@ class _EditarGranelDialog(QDialog):
         root.addWidget(self.cmb_cat)
         root.addSpacing(6)
         botones = QHBoxLayout()
-        b_cancel = _btn(tr("common.cancel"), color_fg=_ROJO, color_border=_ROJO, hover_bg=_ROJO, hover_fg="#FFF")
+        b_cancel = _btn(
+            tr("common.cancel"),
+            color_fg=_ROJO,
+            color_border=_ROJO,
+            hover_bg=_ROJO,
+            hover_fg="#FFF",
+        )
         b_cancel.clicked.connect(self.reject)
-        b_guardar = _btn(tr("common.save"), color_bg=_VERDE, color_fg="#0D1117", color_border=_VERDE, hover_bg="#FFF")
+        b_guardar = _btn(
+            tr("common.save"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+        )
         b_guardar.clicked.connect(self._guardar)
         botones.addWidget(b_cancel)
         botones.addWidget(b_guardar)
@@ -3009,6 +3981,7 @@ class _EditarGranelDialog(QDialog):
 
     def _guardar(self):
         from src.services.tpv import bulk_products_service as B
+
         ok, msg = B.guardar_producto(
             nombre=self.inp_nombre.text().strip(),
             precio_kg=self.spin_precio.value(),
@@ -3025,6 +3998,7 @@ class _EditarGranelDialog(QDialog):
 # ============================================================
 # DEVOLUCIONES
 # ============================================================
+
 
 class _AutorizacionDialog(QDialog):
     """Pide credenciales de un GERENTE/ADMINISTRADOR para autorizar."""
@@ -3059,9 +4033,21 @@ class _AutorizacionDialog(QDialog):
         root.addWidget(self.inp_pin)
         root.addSpacing(8)
         bl = QHBoxLayout()
-        b_cancel = _btn(tr("common.cancel"), color_fg=_ROJO, color_border=_ROJO, hover_bg=_ROJO, hover_fg="#FFF")
+        b_cancel = _btn(
+            tr("common.cancel"),
+            color_fg=_ROJO,
+            color_border=_ROJO,
+            hover_bg=_ROJO,
+            hover_fg="#FFF",
+        )
         b_cancel.clicked.connect(self.reject)
-        b_ok = _btn(tr("autoriz.authorize"), color_bg=_VERDE, color_fg="#0D1117", color_border=_VERDE, hover_bg="#FFF")
+        b_ok = _btn(
+            tr("autoriz.authorize"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+        )
         b_ok.clicked.connect(self._validar)
         bl.addWidget(b_cancel)
         bl.addWidget(b_ok)
@@ -3069,7 +4055,10 @@ class _AutorizacionDialog(QDialog):
 
     def _validar(self):
         from src.services.tpv import refund_service as R
-        ok, res = R.verificar_autorizacion(self.inp_user.text().strip(), self.inp_pin.text())
+
+        ok, res = R.verificar_autorizacion(
+            self.inp_user.text().strip(), self.inp_pin.text()
+        )
         if ok:
             self.autorizador = res
             self.accept()
@@ -3132,7 +4121,14 @@ class _DevolucionDialog(QDialog):
         )
         self.inp_ticket.returnPressed.connect(self._buscar)
         busq.addWidget(self.inp_ticket, 1)
-        b_buscar = _btn(tr("devol.search"), color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN, hover_bg="#FFF", h=40)
+        b_buscar = _btn(
+            tr("devol.search"),
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            h=40,
+        )
         b_buscar.clicked.connect(self._buscar)
         busq.addWidget(b_buscar)
         root.addLayout(busq)
@@ -3146,10 +4142,15 @@ class _DevolucionDialog(QDialog):
         root.addWidget(self.lbl_estado)
         self.tabla = QTableWidget()
         self.tabla.setColumnCount(5)
-        self.tabla.setHorizontalHeaderLabels([
-            tr("devol.col_return"), tr("devol.col_article"), tr("devol.col_sold"),
-            tr("devol.col_price"), tr("devol.col_subtotal"),
-        ])
+        self.tabla.setHorizontalHeaderLabels(
+            [
+                tr("devol.col_return"),
+                tr("devol.col_article"),
+                tr("devol.col_sold"),
+                tr("devol.col_price"),
+                tr("devol.col_subtotal"),
+            ]
+        )
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.verticalHeader().setVisible(False)
         self.tabla.setStyleSheet(_ss_tabla_neon())
@@ -3159,11 +4160,16 @@ class _DevolucionDialog(QDialog):
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         for c in (2, 3, 4):
             hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Fixed)
-        hh.resizeSection(0, 90); hh.resizeSection(2, 90); hh.resizeSection(3, 90); hh.resizeSection(4, 100)
+        hh.resizeSection(0, 90)
+        hh.resizeSection(2, 90)
+        hh.resizeSection(3, 90)
+        hh.resizeSection(4, 100)
         root.addWidget(self.tabla, 1)
         fila = QHBoxLayout()
         col_m = QVBoxLayout()
-        col_m.addWidget(_lbl(tr("devol.reason_label"), bold=True, size=12, color=_TEXT2))
+        col_m.addWidget(
+            _lbl(tr("devol.reason_label"), bold=True, size=12, color=_TEXT2)
+        )
         # _ScrollCombo(6): dimensiona el popup para mostrar los 6 motivos a la vez
         # (sin scrollbar → sin columna de barra que corte el contorno del popup).
         self.inp_motivo = _ScrollCombo(6)
@@ -3197,7 +4203,9 @@ class _DevolucionDialog(QDialog):
         col_m.addWidget(self.inp_motivo)
         fila.addLayout(col_m, 2)
         col_r = QVBoxLayout()
-        col_r.addWidget(_lbl(tr("devol.refund_method"), bold=True, size=12, color=_TEXT2))
+        col_r.addWidget(
+            _lbl(tr("devol.refund_method"), bold=True, size=12, color=_TEXT2)
+        )
         self.cmb_reembolso = QComboBox()
         # El TEXTO mostrado se traduce, pero el VALOR lógico (userData) se mantiene
         # en español para no romper las comprobaciones de método de reembolso.
@@ -3212,7 +4220,14 @@ class _DevolucionDialog(QDialog):
         fila.addLayout(col_r, 1)
         root.addLayout(fila)
         bl = QHBoxLayout()
-        b_cancel = _btn(tr("devol.close"), color_fg=_ROJO, color_border=_ROJO, hover_bg=_ROJO, hover_fg="#FFF", h=46)
+        b_cancel = _btn(
+            tr("devol.close"),
+            color_fg=_ROJO,
+            color_border=_ROJO,
+            hover_bg=_ROJO,
+            hover_fg="#FFF",
+            h=46,
+        )
         b_cancel.clicked.connect(self.reject)
         self.btn_procesar = QPushButton(tr("devol.process"))
         self.btn_procesar.setFixedHeight(46)
@@ -3231,6 +4246,7 @@ class _DevolucionDialog(QDialog):
 
     def _buscar(self):
         from src.services.tpv import refund_validation_service as RV
+
         txt = self.inp_ticket.text().strip()
         if not txt:
             return
@@ -3238,7 +4254,9 @@ class _DevolucionDialog(QDialog):
         self._autorizador = None
         self.lbl_estado.show()
         if not self._eval.get("existe"):
-            self.lbl_estado.setText("⚠  " + self._eval.get("mensaje", tr("devol.not_found")))
+            self.lbl_estado.setText(
+                "⚠  " + self._eval.get("mensaje", tr("devol.not_found"))
+            )
             self.lbl_estado.setStyleSheet(
                 f"color:{_ROJO};background:{_BG2};border:1px solid {_ROJO};"
                 f"border-radius:10px;padding:10px;font-family:'{_FONT}';font-weight:700;"
@@ -3255,10 +4273,15 @@ class _DevolucionDialog(QDialog):
         else:
             self.cmb_reembolso.setEnabled(True)
         if self._eval["dentro_plazo"]:
-            self.lbl_estado.setText(tr(
-                "devol.status_ok", id=venta['id'], total=divisas.formatear(venta['total']),
-                fp=venta['forma_pago'], limite=self._eval['fecha_limite'],
-            ))
+            self.lbl_estado.setText(
+                tr(
+                    "devol.status_ok",
+                    id=venta["id"],
+                    total=divisas.formatear(venta["total"]),
+                    fp=venta["forma_pago"],
+                    limite=self._eval["fecha_limite"],
+                )
+            )
             self.lbl_estado.setStyleSheet(
                 f"color:{_VERDE};background:{_BG2};border:1px solid {_VERDE};"
                 f"border-radius:10px;padding:10px;font-family:'{_FONT}';font-weight:700;"
@@ -3269,10 +4292,16 @@ class _DevolucionDialog(QDialog):
         self._cargar_items(venta)
 
     def _mostrar_alerta_caducado(self, venta):
-        self.lbl_estado.setText(tr(
-            "devol.status_expired", msg=self._eval['mensaje'], id=venta['id'],
-            total=divisas.formatear(venta['total']), fecha=venta['fecha'], limite=self._eval['fecha_limite'],
-        ))
+        self.lbl_estado.setText(
+            tr(
+                "devol.status_expired",
+                msg=self._eval["mensaje"],
+                id=venta["id"],
+                total=divisas.formatear(venta["total"]),
+                fecha=venta["fecha"],
+                limite=self._eval["fecha_limite"],
+            )
+        )
         self.lbl_estado.setStyleSheet(
             f"color:{_ROJO};background:{_BG2};border:2px solid {_ROJO};"
             f"border-radius:10px;padding:12px;font-family:'{_FONT}';font-weight:900;"
@@ -3282,12 +4311,18 @@ class _DevolucionDialog(QDialog):
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle(tr("devol.expired_box_title"))
         box.setText(tr("devol.expired_box_text"))
-        box.setInformativeText(tr(
-            "devol.expired_box_info", total=divisas.formatear(venta['total']),
-            fecha=venta['fecha'], limite=self._eval['fecha_limite'],
-        ))
+        box.setInformativeText(
+            tr(
+                "devol.expired_box_info",
+                total=divisas.formatear(venta["total"]),
+                fecha=venta["fecha"],
+                limite=self._eval["fecha_limite"],
+            )
+        )
         box.addButton(tr("devol.btn_cancel"), QMessageBox.ButtonRole.RejectRole)
-        btn_auth = box.addButton(tr("devol.btn_request_auth"), QMessageBox.ButtonRole.AcceptRole)
+        btn_auth = box.addButton(
+            tr("devol.btn_request_auth"), QMessageBox.ButtonRole.AcceptRole
+        )
         box.exec()
         if box.clickedButton() == btn_auth:
             self._solicitar_autorizacion()
@@ -3296,7 +4331,11 @@ class _DevolucionDialog(QDialog):
         dlg = _AutorizacionDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.autorizador:
             self._autorizador = dlg.autorizador
-            self.lbl_estado.setText(self.lbl_estado.text() + "\n" + tr("devol.authorized_by", nombre=self._autorizador))
+            self.lbl_estado.setText(
+                self.lbl_estado.text()
+                + "\n"
+                + tr("devol.authorized_by", nombre=self._autorizador)
+            )
             self.lbl_estado.setStyleSheet(
                 f"color:{_CIAN};background:{_BG2};border:2px solid {_CIAN};"
                 f"border-radius:10px;padding:12px;font-family:'{_FONT}';font-weight:900;"
@@ -3308,6 +4347,7 @@ class _DevolucionDialog(QDialog):
         from PyQt6.QtWidgets import QCheckBox
 
         from src.db import devoluciones_baneados as _ban
+
         items = venta.get("items", [])
         self.tabla.setRowCount(len(items))
         self._checks = []
@@ -3333,16 +4373,27 @@ class _DevolucionDialog(QDialog):
             hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tabla.setCellWidget(row, 0, cont)
 
-            it_nom = QTableWidgetItem(("🚫  " if ban else "") + str(it.get("nombre", "—")))
+            it_nom = QTableWidgetItem(
+                ("🚫  " if ban else "") + str(it.get("nombre", "—"))
+            )
             it_cant = QTableWidgetItem(str(it.get("cantidad", 0)))
             it_cant.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            it_pre = QTableWidgetItem(f"{divisas.formatear(float(it.get('precio_unitario',0)))}")
-            it_pre.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            it_sub = QTableWidgetItem(f"{divisas.formatear(float(it.get('subtotal',0)))}")
-            it_sub.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            it_pre = QTableWidgetItem(
+                f"{divisas.formatear(float(it.get('precio_unitario',0)))}"
+            )
+            it_pre.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
+            it_sub = QTableWidgetItem(
+                f"{divisas.formatear(float(it.get('subtotal',0)))}"
+            )
+            it_sub.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
             if ban:
                 # TACHADO en rojo en toda la fila (solo afecta a este artículo).
-                fuente = QFont(); fuente.setStrikeOut(True)
+                fuente = QFont()
+                fuente.setStrikeOut(True)
                 for celda in (it_nom, it_cant, it_pre, it_sub):
                     celda.setForeground(QColor(_ROJO))
                     celda.setFont(fuente)
@@ -3357,32 +4408,45 @@ class _DevolucionDialog(QDialog):
     def _avisar_baneados(self, baneados):
         """Mensaje centrado: el ticket contiene artículos no devolubles (baneados)."""
         lineas = "\n".join(f"•  {nombre}: {motivo}" for nombre, motivo in baneados)
-        cuerpo = tr("devol.ban_intro",
-                    default="Estos artículos quedan EXCLUIDOS de la devolución (aparecen tachados). "
-                            "El resto del ticket sí se puede devolver:") \
-            + "\n\n" + lineas
+        cuerpo = (
+            tr(
+                "devol.ban_intro",
+                default="Estos artículos quedan EXCLUIDOS de la devolución (aparecen tachados). "
+                "El resto del ticket sí se puede devolver:",
+            )
+            + "\n\n"
+            + lineas
+        )
         titulo = tr("devol.ban_titulo", default="🚫 Artículos no devolubles")
         try:
             from assets.estilo_global import mostrar_mensaje as _mm
+
             _mm(self, titulo, cuerpo, "warning")
         except Exception:
             QMessageBox.warning(self, titulo, cuerpo)
 
     def _procesar(self):
         from src.services.tpv import refund_service as R
+
         if not self._eval or not self._eval.get("existe"):
             return
         venta = self._eval["venta"]
         motivo = self.inp_motivo.currentText().strip()
         if not motivo:
-            QMessageBox.warning(self, tr("devol.reason_required_title"), tr("devol.reason_required_msg"))
+            QMessageBox.warning(
+                self, tr("devol.reason_required_title"), tr("devol.reason_required_msg")
+            )
             return
         items = venta.get("items", [])
         seleccion = [items[i] for i, chk in enumerate(self._checks) if chk.isChecked()]
         if not seleccion:
-            QMessageBox.warning(self, tr("devol.no_selection_title"), tr("devol.no_selection_msg"))
+            QMessageBox.warning(
+                self, tr("devol.no_selection_title"), tr("devol.no_selection_msg")
+            )
             return
-        forma_reembolso = self.cmb_reembolso.currentData() or self.cmb_reembolso.currentText()
+        forma_reembolso = (
+            self.cmb_reembolso.currentData() or self.cmb_reembolso.currentText()
+        )
         forma_original = venta.get("forma_pago", "")
         ok, msg = R.metodo_reembolso_permitido(forma_original, forma_reembolso)
         if not ok:
@@ -3391,21 +4455,33 @@ class _DevolucionDialog(QDialog):
         total = round(sum(float(it.get("subtotal", 0)) for it in seleccion), 2)
         if "tarjeta" in forma_reembolso.lower():
             from src.services.tpv.card_terminal_service import get_terminal
+
             res = get_terminal().devolver(total)
             if not res.ok:
-                QMessageBox.critical(self, tr("devol.terminal_title"),
-                                     tr("devol.terminal_rejected", msg=res.mensaje))
+                QMessageBox.critical(
+                    self,
+                    tr("devol.terminal_title"),
+                    tr("devol.terminal_rejected", msg=res.mensaje),
+                )
                 return
         requirio = not self._eval["dentro_plazo"]
         ok, msg, dev_id = R.procesar_devolucion(
-            venta_id=venta["id"], items_devolver=seleccion, forma_reembolso=forma_reembolso,
-            forma_pago_original=forma_original, empleado=self._empleado, numero_caja=self._id_caja,
-            motivo=motivo, autorizado_por=self._autorizador, requirio_autorizacion=requirio,
+            venta_id=venta["id"],
+            items_devolver=seleccion,
+            forma_reembolso=forma_reembolso,
+            forma_pago_original=forma_original,
+            empleado=self._empleado,
+            numero_caja=self._id_caja,
+            motivo=motivo,
+            autorizado_por=self._autorizador,
+            requirio_autorizacion=requirio,
         )
         if ok:
             for it in seleccion:
                 try:
-                    stock_signals.stock_actualizado.emit(str(it.get("codigo_articulo", "")))
+                    stock_signals.stock_actualizado.emit(
+                        str(it.get("codigo_articulo", ""))
+                    )
                 except Exception:
                     pass
             QMessageBox.information(self, tr("devol.refund_done_title"), msg)
@@ -3414,10 +4490,10 @@ class _DevolucionDialog(QDialog):
             QMessageBox.critical(self, tr("devol.error_title"), msg)
 
 
-
 # ============================================================
 # BLOQUE — SELECCIÓN / ALTA DE CLIENTE
 # ============================================================
+
 
 class _ClienteDialog(QDialog):
     """Selecciona un cliente existente, da de alta uno nuevo, o usa el cliente
@@ -3432,36 +4508,74 @@ class _ClienteDialog(QDialog):
         self._build()
 
     def _build(self):
-        card = QFrame(self); card.setObjectName("cl")
-        card.setStyleSheet(f"QFrame#cl{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}")
-        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
-        ly = QVBoxLayout(card); ly.setContentsMargins(24, 20, 24, 20); ly.setSpacing(12)
+        card = QFrame(self)
+        card.setObjectName("cl")
+        card.setStyleSheet(
+            f"QFrame#cl{{background:{_BG};border:2px solid {_CIAN};border-radius:18px;}}"
+        )
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(card)
+        ly = QVBoxLayout(card)
+        ly.setContentsMargins(24, 20, 24, 20)
+        ly.setSpacing(12)
 
         hdr = QHBoxLayout()
-        hdr.addWidget(_lbl("👤  " + tr("tpv.cli_title", default="CLIENTE DE LA VENTA"), bold=True, size=16, color=_CIAN))
+        hdr.addWidget(
+            _lbl(
+                "👤  " + tr("tpv.cli_title", default="CLIENTE DE LA VENTA"),
+                bold=True,
+                size=16,
+                color=_CIAN,
+            )
+        )
         hdr.addStretch()
-        bx = QPushButton("✕"); bx.setFixedSize(34, 34); bx.setCursor(Qt.CursorShape.PointingHandCursor)
-        bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
-        bx.clicked.connect(self.reject); hdr.addWidget(bx)
+        bx = QPushButton("✕")
+        bx.setFixedSize(34, 34)
+        bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(
+            f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}"
+        )
+        bx.clicked.connect(self.reject)
+        hdr.addWidget(bx)
         ly.addLayout(hdr)
 
-        _iss = (f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
-                f"border-radius:8px;padding:6px 10px;font-size:13px;font-family:'{_FONT}';}}"
-                f"QLineEdit:focus{{border-color:{_CIAN};}}")
-        f = QHBoxLayout(); f.setSpacing(8)
-        self.inp_buscar = QLineEdit(); self.inp_buscar.setStyleSheet(_iss)
-        self.inp_buscar.setPlaceholderText(tr("tpv.cli_search_ph", default="Buscar por nombre, NIF, teléfono o email…"))
+        _iss = (
+            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:6px 10px;font-size:13px;font-family:'{_FONT}';}}"
+            f"QLineEdit:focus{{border-color:{_CIAN};}}"
+        )
+        f = QHBoxLayout()
+        f.setSpacing(8)
+        self.inp_buscar = QLineEdit()
+        self.inp_buscar.setStyleSheet(_iss)
+        self.inp_buscar.setPlaceholderText(
+            tr("tpv.cli_search_ph", default="Buscar por nombre, NIF, teléfono o email…")
+        )
         self.inp_buscar.returnPressed.connect(self._buscar)
-        b_b = _btn(tr("tpv.find_btn", default="BUSCAR"), color_bg=_CIAN, color_fg="#0D1117",
-                   color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=38)
+        b_b = _btn(
+            tr("tpv.find_btn", default="BUSCAR"),
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=38,
+        )
         b_b.clicked.connect(self._buscar)
-        f.addWidget(self.inp_buscar, 1); f.addWidget(b_b)
+        f.addWidget(self.inp_buscar, 1)
+        f.addWidget(b_b)
         ly.addLayout(f)
 
         self.tabla = QTableWidget(0, 4)
-        self.tabla.setHorizontalHeaderLabels([
-            tr("tpv.cli_c_name", default="Nombre"), tr("tpv.cli_c_nif", default="NIF"),
-            tr("tpv.cli_c_phone", default="Teléfono"), tr("tpv.cli_c_email", default="Email")])
+        self.tabla.setHorizontalHeaderLabels(
+            [
+                tr("tpv.cli_c_name", default="Nombre"),
+                tr("tpv.cli_c_nif", default="NIF"),
+                tr("tpv.cli_c_phone", default="Teléfono"),
+                tr("tpv.cli_c_email", default="Email"),
+            ]
+        )
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -3469,26 +4583,64 @@ class _ClienteDialog(QDialog):
         self.tabla.setAlternatingRowColors(True)
         self.tabla.setStyleSheet(_ss_tabla_neon())
         _RoundTableCorners(self.tabla)
-        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
         self.tabla.doubleClicked.connect(self._usar_seleccionado)
         ly.addWidget(self.tabla, 1)
 
         # Alta rápida de cliente nuevo
-        nb = QFrame(); nb.setStyleSheet(f"QFrame{{background:{_BG2};border:1px solid {_BORDE};border-radius:10px;}}")
-        nl = QVBoxLayout(nb); nl.setContentsMargins(12, 10, 12, 10); nl.setSpacing(6)
-        nl.addWidget(_lbl(tr("tpv.cli_new", default="NUEVO CLIENTE"), bold=True, size=12, color=_TEXT2))
-        r1 = QHBoxLayout(); r1.setSpacing(8)
-        self.n_nombre = QLineEdit(); self.n_nombre.setStyleSheet(_iss); self.n_nombre.setPlaceholderText(tr("tpv.cli_name", default="Nombre / Razón social"))
-        self.n_nif = QLineEdit(); self.n_nif.setStyleSheet(_iss); self.n_nif.setPlaceholderText(tr("tpv.cli_nif", default="NIF / CIF")); self.n_nif.setFixedWidth(140)
-        r1.addWidget(self.n_nombre, 1); r1.addWidget(self.n_nif)
+        nb = QFrame()
+        nb.setStyleSheet(
+            f"QFrame{{background:{_BG2};border:1px solid {_BORDE};border-radius:10px;}}"
+        )
+        nl = QVBoxLayout(nb)
+        nl.setContentsMargins(12, 10, 12, 10)
+        nl.setSpacing(6)
+        nl.addWidget(
+            _lbl(
+                tr("tpv.cli_new", default="NUEVO CLIENTE"),
+                bold=True,
+                size=12,
+                color=_TEXT2,
+            )
+        )
+        r1 = QHBoxLayout()
+        r1.setSpacing(8)
+        self.n_nombre = QLineEdit()
+        self.n_nombre.setStyleSheet(_iss)
+        self.n_nombre.setPlaceholderText(
+            tr("tpv.cli_name", default="Nombre / Razón social")
+        )
+        self.n_nif = QLineEdit()
+        self.n_nif.setStyleSheet(_iss)
+        self.n_nif.setPlaceholderText(tr("tpv.cli_nif", default="NIF / CIF"))
+        self.n_nif.setFixedWidth(140)
+        r1.addWidget(self.n_nombre, 1)
+        r1.addWidget(self.n_nif)
         nl.addLayout(r1)
-        r2 = QHBoxLayout(); r2.setSpacing(8)
-        self.n_tel = QLineEdit(); self.n_tel.setStyleSheet(_iss); self.n_tel.setPlaceholderText(tr("tpv.cli_phone", default="Teléfono")); self.n_tel.setFixedWidth(140)
-        self.n_email = QLineEdit(); self.n_email.setStyleSheet(_iss); self.n_email.setPlaceholderText(tr("tpv.cli_email", default="Email"))
-        b_alta = _btn(tr("tpv.cli_create", default="CREAR Y USAR"), color_bg=_VERDE, color_fg="#0D1117",
-                      color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=38)
+        r2 = QHBoxLayout()
+        r2.setSpacing(8)
+        self.n_tel = QLineEdit()
+        self.n_tel.setStyleSheet(_iss)
+        self.n_tel.setPlaceholderText(tr("tpv.cli_phone", default="Teléfono"))
+        self.n_tel.setFixedWidth(140)
+        self.n_email = QLineEdit()
+        self.n_email.setStyleSheet(_iss)
+        self.n_email.setPlaceholderText(tr("tpv.cli_email", default="Email"))
+        b_alta = _btn(
+            tr("tpv.cli_create", default="CREAR Y USAR"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=38,
+        )
         b_alta.clicked.connect(self._crear_y_usar)
-        r2.addWidget(self.n_tel); r2.addWidget(self.n_email, 1); r2.addWidget(b_alta)
+        r2.addWidget(self.n_tel)
+        r2.addWidget(self.n_email, 1)
+        r2.addWidget(b_alta)
         nl.addLayout(r2)
         ly.addWidget(nb)
 
@@ -3496,16 +4648,26 @@ class _ClienteDialog(QDialog):
         br = QHBoxLayout()
         b_gen = _btn(tr("tpv.cli_generic", default="CLIENTE GENÉRICO"), h=40)
         b_gen.clicked.connect(self._usar_generico)
-        b_use = _btn("✔  " + tr("tpv.cli_use", default="USAR SELECCIONADO"), color_bg=_CIAN, color_fg="#0D1117",
-                     color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=40)
+        b_use = _btn(
+            "✔  " + tr("tpv.cli_use", default="USAR SELECCIONADO"),
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=40,
+        )
         b_use.clicked.connect(self._usar_seleccionado)
-        br.addWidget(b_gen); br.addStretch(); br.addWidget(b_use)
+        br.addWidget(b_gen)
+        br.addStretch()
+        br.addWidget(b_use)
         ly.addLayout(br)
         QTimer.singleShot(0, self.inp_buscar.setFocus)
         self._buscar()
 
     def _buscar(self):
         from src.db.clientes import buscar_clientes
+
         filas = buscar_clientes(self.inp_buscar.text().strip())
         self.tabla.setRowCount(len(filas))
         for r, c in enumerate(filas):
@@ -3528,11 +4690,17 @@ class _ClienteDialog(QDialog):
 
     def _crear_y_usar(self):
         from src.db.clientes import crear_cliente, obtener_cliente
+
         nombre = self.n_nombre.text().strip()
         if not nombre:
-            self.n_nombre.setFocus(); return
-        cid = crear_cliente(nombre, nif=self.n_nif.text().strip(),
-                            telefono=self.n_tel.text().strip(), email=self.n_email.text().strip())
+            self.n_nombre.setFocus()
+            return
+        cid = crear_cliente(
+            nombre,
+            nif=self.n_nif.text().strip(),
+            telefono=self.n_tel.text().strip(),
+            email=self.n_email.text().strip(),
+        )
         if cid:
             self._cliente = obtener_cliente(cid)
             self.accept()
@@ -3544,6 +4712,7 @@ class _ClienteDialog(QDialog):
 # ============================================================
 # BLOQUE — BÚSQUEDA / REIMPRESIÓN DE TICKETS
 # ============================================================
+
 
 class _ScrollCombo(QComboBox):
     """QComboBox que limita el popup a N filas y muestra scrollbar para el resto.
@@ -3559,7 +4728,7 @@ class _ScrollCombo(QComboBox):
         super().showPopup()
         view = self.view()
         n = self.count()
-        visibles = min(n, self._maxvis)          # nunca más de maxvis filas a la vez
+        visibles = min(n, self._maxvis)  # nunca más de maxvis filas a la vez
         row_h = view.sizeHintForRow(0)
         if row_h <= 0:
             row_h = 30
@@ -3569,19 +4738,29 @@ class _ScrollCombo(QComboBox):
         popup.resize(popup.width(), alto)
         # Scrollbar solo si hay más opciones de las visibles.
         view.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded if n > self._maxvis
-            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            if n > self._maxvis
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
 
 
 class _TriLineEdit(QLineEdit):
     """QLineEdit que pinta un triángulo cian en su extremo derecho (indicador de
     desplegable). Se pinta sobre el propio campo, así no queda tapado."""
+
     def paintEvent(self, event):
         super().paintEvent(event)
-        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        cx = self.width() - 15; cy = self.height() // 2
-        p.setBrush(QColor(_CIAN)); p.setPen(Qt.PenStyle.NoPen)
-        p.drawPolygon(QPolygon([QPoint(cx - 5, cy - 3), QPoint(cx + 5, cy - 3), QPoint(cx, cy + 4)]))
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cx = self.width() - 15
+        cy = self.height() // 2
+        p.setBrush(QColor(_CIAN))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawPolygon(
+            QPolygon(
+                [QPoint(cx - 5, cy - 3), QPoint(cx + 5, cy - 3), QPoint(cx, cy + 4)]
+            )
+        )
         p.end()
 
 
@@ -3597,9 +4776,11 @@ class _FechaFilter(QWidget):
         self._date = qdate
         self._popup = None
         self._backdrop = None
-        lay = QHBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
         self._le = _TriLineEdit(qdate.toString("dd/MM/yyyy"))
-        self._le.setReadOnly(True); self._le.setFixedHeight(34)
+        self._le.setReadOnly(True)
+        self._le.setFixedHeight(34)
         # smKeepCursor: que el filtro global de estilo no le imponga el IBeam de
         # texto; este campo actúa como botón desplegable (cursor manita).
         self._le.setProperty("smKeepCursor", True)
@@ -3607,7 +4788,8 @@ class _FechaFilter(QWidget):
         self._le.setStyleSheet(
             f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
             f"border-radius:8px;padding:0 26px 0 10px;font-size:12px;font-family:'{_FONT}';}}"
-            f"QLineEdit:hover{{border-color:{_CIAN};}}")
+            f"QLineEdit:hover{{border-color:{_CIAN};}}"
+        )
         self._le.mousePressEvent = lambda _e: self._toggle()
         lay.addWidget(self._le)
 
@@ -3620,18 +4802,29 @@ class _FechaFilter(QWidget):
 
     def _toggle(self):
         if self._popup is not None:
-            self._close(); return
+            self._close()
+            return
         from src.gui.ventas import _VentasCalendarWidget
+
         win = self.window()
-        bd = QWidget(win); bd.setGeometry(0, 0, win.width(), win.height())
+        bd = QWidget(win)
+        bd.setGeometry(0, 0, win.width(), win.height())
         bd.setStyleSheet("background: transparent;")
         bd.mousePressEvent = lambda _e: self._close()
-        bd.show(); bd.raise_(); self._backdrop = bd
+        bd.show()
+        bd.raise_()
+        self._backdrop = bd
 
         fr = QFrame(win)
-        fr.setStyleSheet(f"QFrame{{background:#11181D;border:2px solid {_CIAN};border-radius:12px;}}")
-        v = QVBoxLayout(fr); v.setContentsMargins(11, 11, 11, 11); v.setSpacing(0)
-        cal = _VentasCalendarWidget(fr); cal.setSelectedDate(self._date); v.addWidget(cal)
+        fr.setStyleSheet(
+            f"QFrame{{background:#11181D;border:2px solid {_CIAN};border-radius:12px;}}"
+        )
+        v = QVBoxLayout(fr)
+        v.setContentsMargins(11, 11, 11, 11)
+        v.setSpacing(0)
+        cal = _VentasCalendarWidget(fr)
+        cal.setSelectedDate(self._date)
+        v.addWidget(cal)
         cal.clicked.connect(lambda qd: (self.setDate(qd), self._close()))
         fr.setFixedSize(cal.minimumWidth() + 22, cal.minimumHeight() + 22)
         tl = self.mapTo(win, QPoint(0, self.height()))
@@ -3639,7 +4832,10 @@ class _FechaFilter(QWidget):
         y = tl.y()
         if y + fr.height() > win.height() - 4:
             y = self.mapTo(win, QPoint(0, 0)).y() - fr.height()
-        fr.move(x, max(6, y)); fr.show(); fr.raise_(); self._popup = fr
+        fr.move(x, max(6, y))
+        fr.show()
+        fr.raise_()
+        self._popup = fr
 
         def _retry(c=cal, n=8):
             try:
@@ -3649,6 +4845,7 @@ class _FechaFilter(QWidget):
                 pass
             if n > 0:
                 QTimer.singleShot(30, lambda: _retry(c, n - 1))
+
         QTimer.singleShot(0, _retry)
 
     def _close(self):
@@ -3656,7 +4853,8 @@ class _FechaFilter(QWidget):
             w = getattr(self, a, None)
             if w is not None:
                 try:
-                    w.hide(); w.deleteLater()
+                    w.hide()
+                    w.deleteLater()
                 except RuntimeError:
                     pass
                 setattr(self, a, None)
@@ -3687,18 +4885,21 @@ class _BuscarTicketDialog(QDialog):
             self.setMinimumSize(1100, 700)
 
     def _inp(self, ph="", w=None):
-        e = QLineEdit(); e.setFixedHeight(34)
+        e = QLineEdit()
+        e.setFixedHeight(34)
         if w:
             e.setFixedWidth(w)
         e.setPlaceholderText(ph)
         e.setStyleSheet(
             f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
             f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
-            f"QLineEdit:focus{{border-color:{_CIAN};}}")
+            f"QLineEdit:focus{{border-color:{_CIAN};}}"
+        )
         return e
 
     def _combo(self, items, w=None, maxvis=8):
-        cb = _ScrollCombo(maxvis); cb.setFixedHeight(34)
+        cb = _ScrollCombo(maxvis)
+        cb.setFixedHeight(34)
         if w:
             cb.setFixedWidth(w)
         cb.setStyleSheet(
@@ -3715,7 +4916,8 @@ class _BuscarTicketDialog(QDialog):
             f"QComboBox QAbstractItemView QScrollBar:vertical{{background:#0D1117;width:10px;margin:3px;border-radius:5px;}}"
             f"QComboBox QAbstractItemView QScrollBar::handle:vertical{{background:{_CIAN};border-radius:5px;min-height:28px;}}"
             f"QComboBox QAbstractItemView QScrollBar::add-line:vertical,"
-            f"QComboBox QAbstractItemView QScrollBar::sub-line:vertical{{height:0;}}")
+            f"QComboBox QAbstractItemView QScrollBar::sub-line:vertical{{height:0;}}"
+        )
         for label, data in items:
             cb.addItem(label, data)
         return cb
@@ -3727,126 +4929,233 @@ class _BuscarTicketDialog(QDialog):
         return l
 
     def _build(self):
-        card = QFrame(self); card.setObjectName("bt")
+        card = QFrame(self)
+        card.setObjectName("bt")
         # Sin borde interno: el contorno neón ya lo aporta el chrome de la ventana
         # (un solo contorno externo, no dos concéntricos).
-        card.setStyleSheet(f"QFrame#bt{{background:{_BG};border:none;border-radius:18px;}}")
-        root = QVBoxLayout(self); root.setContentsMargins(10, 10, 10, 10); root.addWidget(card)
-        ly = QVBoxLayout(card); ly.setContentsMargins(28, 22, 28, 22); ly.setSpacing(12)
+        card.setStyleSheet(
+            f"QFrame#bt{{background:{_BG};border:none;border-radius:18px;}}"
+        )
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.addWidget(card)
+        ly = QVBoxLayout(card)
+        ly.setContentsMargins(28, 22, 28, 22)
+        ly.setSpacing(12)
 
         hdr = QHBoxLayout()
-        hdr.addWidget(_lbl("🔎  " + tr("tpv.find_title", default="BUSCAR / REIMPRIMIR TICKET"), bold=True, size=17, color=_CIAN))
+        hdr.addWidget(
+            _lbl(
+                "🔎  " + tr("tpv.find_title", default="BUSCAR / REIMPRIMIR TICKET"),
+                bold=True,
+                size=17,
+                color=_CIAN,
+            )
+        )
         hdr.addStretch()
-        bx = QPushButton("✕"); bx.setFixedSize(36, 36); bx.setCursor(Qt.CursorShape.PointingHandCursor)
-        bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
-        bx.clicked.connect(self.reject); hdr.addWidget(bx)
+        bx = QPushButton("✕")
+        bx.setFixedSize(36, 36)
+        bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(
+            f"QPushButton{{background:{_BG2};color:{_TEXT2};border:1px solid {_BORDE};border-radius:8px;font-weight:900;}}QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}"
+        )
+        bx.clicked.connect(self.reject)
+        hdr.addWidget(bx)
         ly.addLayout(hdr)
         ly.addWidget(_sep())
 
         from PyQt6.QtCore import QDate
+
         hoy = QDate.currentDate()
 
         # Fila 1: Nº ticket (escáner) + Artículo
-        r1 = QHBoxLayout(); r1.setSpacing(8)
-        self.inp_ticket = self._inp(tr("tpv.find_q_ph", default="Escanear QR / código de barras o nº de ticket…"))
+        r1 = QHBoxLayout()
+        r1.setSpacing(8)
+        self.inp_ticket = self._inp(
+            tr(
+                "tpv.find_q_ph",
+                default="Escanear QR / código de barras o nº de ticket…",
+            )
+        )
         self.inp_ticket.returnPressed.connect(self._buscar)
-        self.inp_articulo = self._inp(tr("vta.ph_article", default="Código o nombre de artículo"))
-        r1.addWidget(self._lbl_r(tr("vta.lbl_ticket", default="Nº Ticket"))); r1.addWidget(self.inp_ticket, 1)
+        self.inp_articulo = self._inp(
+            tr("vta.ph_article", default="Código o nombre de artículo")
+        )
+        r1.addWidget(self._lbl_r(tr("vta.lbl_ticket", default="Nº Ticket")))
+        r1.addWidget(self.inp_ticket, 1)
         r1.addSpacing(10)
-        r1.addWidget(self._lbl_r(tr("vta.lbl_article", default="Artículo"), 70)); r1.addWidget(self.inp_articulo, 1)
+        r1.addWidget(self._lbl_r(tr("vta.lbl_article", default="Artículo"), 70))
+        r1.addWidget(self.inp_articulo, 1)
         ly.addLayout(r1)
 
         # Fila 2: Fechas (calendario) + Horas
-        r2 = QHBoxLayout(); r2.setSpacing(8)
+        r2 = QHBoxLayout()
+        r2.setSpacing(8)
         self.fecha_desde = _FechaFilter(hoy.addDays(-30))
         self.fecha_hasta = _FechaFilter(hoy)
-        self.hora_desde = self._inp(tr("vta.ph_time_from", default="Hora desde (HH:MM)"))
+        self.hora_desde = self._inp(
+            tr("vta.ph_time_from", default="Hora desde (HH:MM)")
+        )
         self.hora_hasta = self._inp(tr("vta.ph_time_to", default="Hora hasta (HH:MM)"))
-        r2.addWidget(self._lbl_r(tr("tpv.find_date_from", default="Fecha inicio"))); r2.addWidget(self.fecha_desde, 1); r2.addSpacing(8)
-        r2.addWidget(self._lbl_r(tr("tpv.find_date_to", default="Fecha fin"))); r2.addWidget(self.fecha_hasta, 1); r2.addSpacing(8)
-        r2.addWidget(self._lbl_r(tr("vta.lbl_time_from", default="Hora desde"))); r2.addWidget(self.hora_desde, 1); r2.addSpacing(8)
-        r2.addWidget(self._lbl_r(tr("vta.lbl_time_to", default="Hora hasta"))); r2.addWidget(self.hora_hasta, 1)
+        r2.addWidget(self._lbl_r(tr("tpv.find_date_from", default="Fecha inicio")))
+        r2.addWidget(self.fecha_desde, 1)
+        r2.addSpacing(8)
+        r2.addWidget(self._lbl_r(tr("tpv.find_date_to", default="Fecha fin")))
+        r2.addWidget(self.fecha_hasta, 1)
+        r2.addSpacing(8)
+        r2.addWidget(self._lbl_r(tr("vta.lbl_time_from", default="Hora desde")))
+        r2.addWidget(self.hora_desde, 1)
+        r2.addSpacing(8)
+        r2.addWidget(self._lbl_r(tr("vta.lbl_time_to", default="Hora hasta")))
+        r2.addWidget(self.hora_hasta, 1)
         ly.addLayout(r2)
 
         # Fila 3: Empleado + Caja + Forma de pago + Precios
-        r3 = QHBoxLayout(); r3.setSpacing(8)
+        r3 = QHBoxLayout()
+        r3.setSpacing(8)
         from src.db.ventas_busqueda import obtener_empleados
-        emp_items = [(tr("vta.opt_all_m", default="Todos"), "")] + [(e, e) for e in obtener_empleados()]
-        self.cmb_emp = self._combo(emp_items, maxvis=2)   # máx 2 visibles + scrollbar
+
+        emp_items = [(tr("vta.opt_all_m", default="Todos"), "")] + [
+            (e, e) for e in obtener_empleados()
+        ]
+        self.cmb_emp = self._combo(emp_items, maxvis=2)  # máx 2 visibles + scrollbar
         self.cmb_caja = self._combo(
-            [(tr("vta.opt_all_f", default="Todas"), "")] + [(str(i), str(i)) for i in range(1, 21)],
-            w=120, maxvis=5)   # máx 5 visibles + scrollbar; ancho para que "Todas" se vea
-        self.cmb_pago = self._combo([
-            (tr("vta.opt_all_m", default="Todos"), ""), (tr("vta.pay_cash", default="efectivo"), "efectivo"),
-            (tr("vta.pay_card", default="tarjeta"), "tarjeta"), ("mixto", "mixto"),
-            (tr("vta.pay_coupon", default="cupón"), "cupón")], w=150, maxvis=4)  # 4 visibles + scrollbar
+            [(tr("vta.opt_all_f", default="Todas"), "")]
+            + [(str(i), str(i)) for i in range(1, 21)],
+            w=120,
+            maxvis=5,
+        )  # máx 5 visibles + scrollbar; ancho para que "Todas" se vea
+        self.cmb_pago = self._combo(
+            [
+                (tr("vta.opt_all_m", default="Todos"), ""),
+                (tr("vta.pay_cash", default="efectivo"), "efectivo"),
+                (tr("vta.pay_card", default="tarjeta"), "tarjeta"),
+                ("mixto", "mixto"),
+                (tr("vta.pay_coupon", default="cupón"), "cupón"),
+            ],
+            w=150,
+            maxvis=4,
+        )  # 4 visibles + scrollbar
         self.inp_pmin = self._inp(tr("vta.ph_price_min", default="Importe mínimo"), 120)
         self.inp_pmax = self._inp(tr("vta.ph_price_max", default="Importe máximo"), 120)
-        r3.addWidget(self._lbl_r(tr("vta.lbl_employee", default="Empleado"))); r3.addWidget(self.cmb_emp, 1); r3.addSpacing(8)
-        r3.addWidget(self._lbl_r(tr("vta.lbl_register", default="Caja"), 48)); r3.addWidget(self.cmb_caja); r3.addSpacing(8)
-        r3.addWidget(self._lbl_r(tr("vta.lbl_payment", default="Forma de pago"), 100)); r3.addWidget(self.cmb_pago); r3.addSpacing(8)
-        r3.addWidget(self._lbl_r(tr("vta.lbl_price_min", default="Precio mín."), 84)); r3.addWidget(self.inp_pmin)
-        r3.addWidget(self._lbl_r(tr("vta.lbl_price_max", default="Precio máx."), 84)); r3.addWidget(self.inp_pmax)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_employee", default="Empleado")))
+        r3.addWidget(self.cmb_emp, 1)
+        r3.addSpacing(8)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_register", default="Caja"), 48))
+        r3.addWidget(self.cmb_caja)
+        r3.addSpacing(8)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_payment", default="Forma de pago"), 100))
+        r3.addWidget(self.cmb_pago)
+        r3.addSpacing(8)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_price_min", default="Precio mín."), 84))
+        r3.addWidget(self.inp_pmin)
+        r3.addWidget(self._lbl_r(tr("vta.lbl_price_max", default="Precio máx."), 84))
+        r3.addWidget(self.inp_pmax)
         ly.addLayout(r3)
 
         # Botonera
-        bb = QHBoxLayout(); bb.setSpacing(10)
-        b_buscar = _btn(tr("tpv.find_btn", default="BUSCAR"), color_bg=_CIAN, color_fg="#0D1117",
-                        color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=38)
+        bb = QHBoxLayout()
+        bb.setSpacing(10)
+        b_buscar = _btn(
+            tr("tpv.find_btn", default="BUSCAR"),
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=38,
+        )
         b_buscar.clicked.connect(self._buscar)
         b_limpiar = _btn(tr("vta.btn_clear", default="LIMPIAR"), h=38)
         b_limpiar.clicked.connect(self._limpiar)
-        bb.addWidget(b_buscar); bb.addWidget(b_limpiar); bb.addStretch()
+        bb.addWidget(b_buscar)
+        bb.addWidget(b_limpiar)
+        bb.addStretch()
         ly.addLayout(bb)
 
         # Tabla (columnas como BUSCAR VENTAS + Cliente): esquinas redondeadas,
         # contorno neón y hover swap en cabeceras.
         self.tabla = QTableWidget(0, 7)
-        self.tabla.setHorizontalHeaderLabels([
-            tr("vta.col_ticket", default="Ticket"), tr("vta.col_date", default="Fecha"),
-            tr("vta.col_employee", default="Empleado"), tr("vta.col_register", default="Caja"),
-            tr("vta.col_payment", default="Forma de pago"), tr("tpv.find_c_cli", default="Cliente"),
-            tr("vta.col_total", default="Total")])
+        self.tabla.setHorizontalHeaderLabels(
+            [
+                tr("vta.col_ticket", default="Ticket"),
+                tr("vta.col_date", default="Fecha"),
+                tr("vta.col_employee", default="Empleado"),
+                tr("vta.col_register", default="Caja"),
+                tr("vta.col_payment", default="Forma de pago"),
+                tr("tpv.find_c_cli", default="Cliente"),
+                tr("vta.col_total", default="Total"),
+            ]
+        )
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tabla.setAlternatingRowColors(True)
         self.tabla.verticalHeader().setVisible(False)
         self.tabla.setStyleSheet(_ss_tabla_neon())
-        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
         _RoundTableCorners(self.tabla)
         self.tabla.doubleClicked.connect(lambda: self._emitir(regalo=False))
         ly.addWidget(self.tabla, 1)
 
         self.lbl_info = _lbl("", size=11, color=_TEXT2)
-        br = QHBoxLayout(); br.addWidget(self.lbl_info); br.addStretch()
-        b_re = _btn("🖨  " + tr("tpv.find_reprint", default="REIMPRIMIR"), color_bg=_CIAN, color_fg="#0D1117",
-                    color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=42)
+        br = QHBoxLayout()
+        br.addWidget(self.lbl_info)
+        br.addStretch()
+        b_re = _btn(
+            "🖨  " + tr("tpv.find_reprint", default="REIMPRIMIR"),
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=42,
+        )
         b_re.clicked.connect(lambda: self._emitir(regalo=False))
-        b_gift = _btn("🎁  " + tr("vta.btn_gift", default="TICKET REGALO"), color_bg=_VERDE, color_fg="#0D1117",
-                      color_border=_VERDE, hover_bg="#FFF", hover_fg="#0D1117", h=42)
+        b_gift = _btn(
+            "🎁  " + tr("vta.btn_gift", default="TICKET REGALO"),
+            color_bg=_VERDE,
+            color_fg="#0D1117",
+            color_border=_VERDE,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=42,
+        )
         b_gift.clicked.connect(lambda: self._emitir(regalo=True))
-        br.addWidget(b_re); br.addWidget(b_gift)
+        br.addWidget(b_re)
+        br.addWidget(b_gift)
         ly.addLayout(br)
         QTimer.singleShot(0, self.inp_ticket.setFocus)
         self._buscar()
 
     def _limpiar(self):
         from PyQt6.QtCore import QDate
+
         hoy = QDate.currentDate()
-        for w in (self.inp_ticket, self.inp_articulo, self.hora_desde, self.hora_hasta,
-                  self.inp_pmin, self.inp_pmax):
+        for w in (
+            self.inp_ticket,
+            self.inp_articulo,
+            self.hora_desde,
+            self.hora_hasta,
+            self.inp_pmin,
+            self.inp_pmax,
+        ):
             w.clear()
-        self.fecha_desde.setDate(hoy.addDays(-30)); self.fecha_hasta.setDate(hoy)
+        self.fecha_desde.setDate(hoy.addDays(-30))
+        self.fecha_hasta.setDate(hoy)
         for cb in (self.cmb_emp, self.cmb_caja, self.cmb_pago):
             cb.setCurrentIndex(0)
         self._buscar()
 
     def _buscar(self):
         from src.db.ventas_busqueda import buscar_ventas
+
         idemp = None
         try:
             from src.db.empresa import empresa_actual_id
+
             idemp = empresa_actual_id()
         except Exception:
             pass
@@ -3862,14 +5171,25 @@ class _BuscarTicketDialog(QDialog):
             forma_pago=(self.cmb_pago.currentData() or "").strip() or None,
             precio_min=self.inp_pmin.text().strip() or None,
             precio_max=self.inp_pmax.text().strip() or None,
-            id_empresa=idemp)
+            id_empresa=idemp,
+        )
         self.tabla.setRowCount(len(filas))
         for r, v in enumerate(filas):
             fecha = v.get("fecha")
-            fecha_txt = fecha.strftime("%d/%m/%Y %H:%M") if hasattr(fecha, "strftime") else str(fecha or "")
-            vals = [f"T-{int(v.get('id') or 0):06d}", fecha_txt, str(v.get("empleado") or "—"),
-                    f"CAJA-{int(v.get('numero_caja') or 1):02d}", str(v.get("forma_pago") or "—"),
-                    str(v.get("cliente_nombre") or "—"), divisas.formatear(v.get("total", 0))]
+            fecha_txt = (
+                fecha.strftime("%d/%m/%Y %H:%M")
+                if hasattr(fecha, "strftime")
+                else str(fecha or "")
+            )
+            vals = [
+                f"T-{int(v.get('id') or 0):06d}",
+                fecha_txt,
+                str(v.get("empleado") or "—"),
+                f"CAJA-{int(v.get('numero_caja') or 1):02d}",
+                str(v.get("forma_pago") or "—"),
+                str(v.get("cliente_nombre") or "—"),
+                divisas.formatear(v.get("total", 0)),
+            ]
             for c, t in enumerate(vals):
                 it = QTableWidgetItem(t)
                 it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -3877,7 +5197,9 @@ class _BuscarTicketDialog(QDialog):
                 if c == 6:
                     it.setForeground(QColor(_CIAN))
                 self.tabla.setItem(r, c, it)
-        self.lbl_info.setText(tr("tpv.find_count", default="{n} resultado(s)", n=len(filas)))
+        self.lbl_info.setText(
+            tr("tpv.find_count", default="{n} resultado(s)", n=len(filas))
+        )
 
     def _emitir(self, regalo=False):
         row = self.tabla.currentRow()
@@ -3889,19 +5211,26 @@ class _BuscarTicketDialog(QDialog):
             return
         try:
             from src.utils.ticket_data import reimprimir_ticket
+
             ruta = reimprimir_ticket(venta_id, regalo=regalo)
             if ruta:
                 import os as _os
                 import platform
                 import subprocess
+
                 if platform.system() == "Windows":
                     _os.startfile(ruta)
                 else:
                     subprocess.Popen(["xdg-open", ruta])
             else:
                 from assets.estilo_global import mostrar_mensaje as _mm
-                _mm(self, tr("tpv.find_err_t", default="Sin datos"),
-                    tr("tpv.find_err", default="No se pudo recuperar la venta."), "warning")
+
+                _mm(
+                    self,
+                    tr("tpv.find_err_t", default="Sin datos"),
+                    tr("tpv.find_err", default="No se pudo recuperar la venta."),
+                    "warning",
+                )
         except Exception as e:
             logger.warning("Error emitiendo ticket: %s", e)
 
@@ -3910,19 +5239,29 @@ class _BuscarTicketDialog(QDialog):
 # BLOQUE — VENTANA PRINCIPAL TPV
 # ============================================================
 
+
 class TPVWindow(QWidget):
-    def __init__(self, empleado_id=None, main_window=None,
-                 callback_vuelta=None, usuario=None, main=None, parent=None):
+    def __init__(
+        self,
+        empleado_id=None,
+        main_window=None,
+        callback_vuelta=None,
+        usuario=None,
+        main=None,
+        parent=None,
+    ):
         super().__init__(parent)
-        self.empleado_id      = empleado_id or (usuario or {}).get("id")
-        self.main_window      = main
+        self.empleado_id = empleado_id or (usuario or {}).get("id")
+        self.main_window = main
         self._callback_vuelta = callback_vuelta
         self._lineas: list[dict] = []
         self._id_caja: str | None = None
         self._empleado_tpv: str = ""
         self._empleado_id_tpv = None
-        self._cliente: dict | None = None   # None = cliente genérico
-        self._auth_cancelled: bool = False  # login cancelado → _abrir_tpv_en_stack no muestra el TPV
+        self._cliente: dict | None = None  # None = cliente genérico
+        self._auth_cancelled: bool = (
+            False  # login cancelado → _abrir_tpv_en_stack no muestra el TPV
+        )
 
         self._sidebar_visible = True
         self._compact_auto_sidebar = False
@@ -3968,12 +5307,14 @@ class TPVWindow(QWidget):
         self._verificar_caja()
 
         # Customer display (second screen only)
-        self._cd_result_mode   = False
+        self._cd_result_mode = False
         self._customer_display = None
         try:
             from PyQt6.QtGui import QGuiApplication as _QGA
+
             if len(_QGA.screens()) > 1:
                 from src.gui.customer_display import get_customer_display
+
                 self._customer_display = get_customer_display()
                 if self._customer_display:
                     self._customer_display.show()
@@ -3984,30 +5325,34 @@ class TPVWindow(QWidget):
 
     def _verificar_caja_directa(self, nombre_empleado: str, id_empleado=None):
         """Entra al TPV directamente sin mostrar el diálogo de login."""
-        est  = _leer_estado_caja()
+        est = _leer_estado_caja()
         caja = _caja_activa(est, nombre_empleado, id_empleado)
         if caja:
-            self._id_caja      = caja.get("id", "CAJA-01")
+            self._id_caja = caja.get("id", "CAJA-01")
             self._empleado_tpv = nombre_empleado
             self._stack.setCurrentIndex(1)
             self._refresh_caja_info(caja)
         else:
-            self._id_caja      = None
+            self._id_caja = None
             self._empleado_tpv = ""
             # Sin caja propia → bloquear (no se permite usar la caja de otro).
             est_estado = est.get("estado", "SIN_APERTURA")
-            if est_estado in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA") and est.get("cajas_activas"):
+            if est_estado in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA") and est.get(
+                "cajas_activas"
+            ):
                 self._bloqueada.set_motivo(tr("bloq.reason_sin_asignar"))
             else:
                 self._bloqueada.set_motivo(_motivo_bloqueo(est))
             self._stack.setCurrentIndex(0)
 
     def _verificar_caja(self):
-        est    = _leer_estado_caja()
+        est = _leer_estado_caja()
         estado = est.get("estado", "SIN_APERTURA")
 
         # Sin cajas operativas → pantalla bloqueada directamente
-        if estado not in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA") or not est.get("cajas_activas"):
+        if estado not in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA") or not est.get(
+            "cajas_activas"
+        ):
             self._id_caja = None
             self._empleado_tpv = ""
             self._bloqueada.set_motivo(_motivo_bloqueo(est))
@@ -4043,7 +5388,7 @@ class TPVWindow(QWidget):
                 return
             caja = sel_dlg.get_caja()
 
-        self._id_caja      = caja.get("id", "CAJA-01")
+        self._id_caja = caja.get("id", "CAJA-01")
         self._empleado_tpv = nombre_empleado
         self._empleado_id_tpv = id_empleado
         self._stack.setCurrentIndex(1)
@@ -4054,8 +5399,12 @@ class TPVWindow(QWidget):
             pix = QPixmap(_LOGO_CORP_PATH)
             if not pix.isNull():
                 self.lbl_logo_tpv.setPixmap(
-                    pix.scaled(120, 42, Qt.AspectRatioMode.KeepAspectRatio,
-                               Qt.TransformationMode.SmoothTransformation)
+                    pix.scaled(
+                        120,
+                        42,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
                 )
                 return
         self.lbl_logo_tpv.setPixmap(QPixmap())
@@ -4064,7 +5413,8 @@ class TPVWindow(QWidget):
         # Si hay una venta en curso, avisar y no salir de golpe.
         if self._lineas:
             if not _confirmar(
-                self, tr("tpv.exit_confirm_title"),
+                self,
+                tr("tpv.exit_confirm_title"),
                 tr("tpv.exit_confirm_msg"),
                 txt_ok=tr("tpv.exit_confirm_ok"),
             ):
@@ -4078,7 +5428,7 @@ class TPVWindow(QWidget):
         else:
             self.hide()
 
-    def _ir_gestion_caja(self):
+    def _ir_gestion_caja(self, *, accion_inicial=None):
         self._cd_result_mode = False
         customer_display_bridge.cart_cleared.emit()
         if self._customer_display:
@@ -4087,8 +5437,64 @@ class TPVWindow(QWidget):
             self._callback_vuelta()
         else:
             self.hide()
-        if self.main_window and hasattr(self.main_window, "abrir_modulo_configuracion"):
+        # P4.1: Gestión de Caja en ventana propia (reutiliza la lógica existente).
+        if self.main_window and hasattr(self.main_window, "abrir_gestion_caja"):
+            QTimer.singleShot(200, lambda: self.main_window.abrir_gestion_caja(accion_inicial=accion_inicial))
+        elif self.main_window and hasattr(self.main_window, "abrir_modulo_configuracion"):
             QTimer.singleShot(200, self.main_window.abrir_modulo_configuracion)
+
+    # ── UX-TPV-01: accesos directos reutilizando ventanas/lógica existentes ────
+    def _abrir_mostrar_stock(self):
+        """P1 — Consulta de stock desde el TPV sin abandonar la venta. Abre la
+        ventana de stock EXISTENTE (MostrarStockWindow) como ventana hija."""
+        # Permiso (legacy-safe: si no hay RBAC asignado, permitido).
+        try:
+            from src.services import autorizacion
+            if not autorizacion.puede("stock.consultar_desde_tpv"):
+                QMessageBox.warning(self, tr("tpv.no_perm_title", default="Sin permiso"),
+                                    tr("tpv.no_perm_stock", default="No tiene permiso para consultar stock."))
+                return
+        except Exception:
+            pass
+        # Auditoría.
+        try:
+            from src.db.conexion import log_auditoria
+            log_auditoria(self._empleado_tpv or "TPV", "ABRIR_STOCK_DESDE_TPV", "stock",
+                          f"caja={self._id_caja}")
+        except Exception:
+            pass
+        try:
+            from src.gui.mostrar_stock import MostrarStockWindow
+            self._win_stock = MostrarStockWindow(
+                callback_vuelta=lambda: self._cerrar_win_hija("_win_stock"),
+                usuario=getattr(self, "usuario", None) or {})
+            if hasattr(self._win_stock, "showMaximized"):
+                self._win_stock.showMaximized()
+            else:
+                self._win_stock.show()
+        except Exception as e:
+            logger.error("_abrir_mostrar_stock: %s", e)
+            QMessageBox.critical(self, tr("tpv.error", default="Error"), str(e))
+
+    def _cerrar_win_hija(self, attr):
+        w = getattr(self, attr, None)
+        if w is not None:
+            try:
+                w.close(); w.deleteLater()
+            except Exception:
+                pass
+            setattr(self, attr, None)
+        self.raise_(); self.activateWindow()
+
+    def _abrir_movimiento_efectivo(self):
+        """P5 — Movimiento de efectivo: enruta a la Gestión de Caja existente y
+        dispara la acción validada (misma lógica/permisos/auditoría)."""
+        self._ir_gestion_caja(accion_inicial="movimiento")
+
+    def _abrir_cambio_cajero(self):
+        """P5.1 — Cambio de cajero: enruta a la Gestión de Caja existente y dispara
+        la acción validada (misma autenticación/validación/auditoría)."""
+        self._ir_gestion_caja(accion_inicial="cambio_cajero")
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -4112,6 +5518,11 @@ class TPVWindow(QWidget):
         body.setSpacing(10)
         body.addWidget(self._build_izq(), 6)
         self._panel_der = self._build_der()
+        # Responsive (P2): el panel derecho (numpad/acciones) mantiene un mínimo usable
+        # (teclado no se estruja) y un máximo (no domina en pantallas anchas; deja más
+        # espacio al carrito). Entre medias, reparto proporcional 6:4.
+        self._panel_der.setMinimumWidth(300)
+        self._panel_der.setMaximumWidth(560)
         body.addWidget(self._panel_der, 4)
         lay.addLayout(body, 1)  # stretch=1 → ocupa todo el alto disponible
 
@@ -4128,7 +5539,9 @@ class TPVWindow(QWidget):
         self.lbl_logo_tpv = QLabel()
         self.lbl_logo_tpv.setFixedSize(56, 42)
         self.lbl_logo_tpv.setStyleSheet("background:transparent;border:none;")
-        self.lbl_logo_tpv.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        self.lbl_logo_tpv.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+        )
         self._tpv_refresh_logo()
         lay.addWidget(self.lbl_logo_tpv)
         lay.addSpacing(2)
@@ -4137,7 +5550,9 @@ class TPVWindow(QWidget):
         lay.addWidget(self._lbl_titulo_tpv)
         lay.addStretch()
 
-        self.lbl_caja_top = _lbl(tr("tpv.register_dash"), bold=True, size=14, color=_TEXT2)
+        self.lbl_caja_top = _lbl(
+            tr("tpv.register_dash"), bold=True, size=14, color=_TEXT2
+        )
         lay.addWidget(self.lbl_caja_top)
 
         lay.addSpacing(20)
@@ -4145,7 +5560,9 @@ class TPVWindow(QWidget):
         lay.addWidget(self.lbl_reloj)
 
         lay.addSpacing(16)
-        self._btn_sidebar_toggle = btn_side = QPushButton(tr("tpv.hide_sidebar", default="OCULTAR"))
+        self._btn_sidebar_toggle = btn_side = QPushButton(
+            tr("tpv.hide_sidebar", default="OCULTAR")
+        )
         btn_side.setFixedSize(112, 36)
         btn_side.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_side.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -4154,7 +5571,9 @@ class TPVWindow(QWidget):
             f"border-radius:8px;font-family:'{_FONT}';font-weight:900;font-size:11px;outline:0px;}}"
             f"QPushButton:hover{{background:{_CIAN};color:#0D1117;}}"
         )
-        btn_side.clicked.connect(self._toggle_sidebar)
+        # clicked emite checked=False (botón no checkable); ignorarlo para que el
+        # botón ALTERNE de verdad (OCULTAR ↔ ACCIONES) en vez de ocultar siempre.
+        btn_side.clicked.connect(lambda *_: self._toggle_sidebar())
         lay.addWidget(btn_side)
 
         lay.addSpacing(8)
@@ -4175,11 +5594,14 @@ class TPVWindow(QWidget):
     def _toggle_sidebar(self, visible: bool | None = None):
         if not hasattr(self, "_panel_der"):
             return
-        self._sidebar_visible = (not self._sidebar_visible) if visible is None else bool(visible)
+        self._sidebar_visible = (
+            (not self._sidebar_visible) if visible is None else bool(visible)
+        )
         self._panel_der.setVisible(self._sidebar_visible)
         if hasattr(self, "_btn_sidebar_toggle"):
             self._btn_sidebar_toggle.setText(
-                tr("tpv.hide_sidebar", default="OCULTAR") if self._sidebar_visible
+                tr("tpv.hide_sidebar", default="OCULTAR")
+                if self._sidebar_visible
                 else tr("tpv.show_sidebar", default="ACCIONES")
             )
 
@@ -4192,6 +5614,13 @@ class TPVWindow(QWidget):
         elif not compacto and self._compact_auto_sidebar:
             self._compact_auto_sidebar = False
             self._toggle_sidebar(True)
+
+        # Responsive (P2): en pantallas estrechas, ocultar adornos de la barra superior
+        # (logo + reloj) para que no desborden; se conservan título, info de caja y botones.
+        for _attr in ("lbl_logo_tpv", "lbl_reloj"):
+            _w = getattr(self, _attr, None)
+            if _w is not None:
+                _w.setVisible(not compacto)
 
         if hasattr(self, "tabla"):
             self.tabla.setColumnHidden(4, compacto)
@@ -4223,7 +5652,7 @@ class TPVWindow(QWidget):
         lay.setSpacing(8)
         lay.addWidget(self._build_busqueda())
         lay.addWidget(self._build_tabla(), 1)
-        lay.addWidget(self._build_resumen_bar())   # resumen bajo la tabla (horizontal)
+        lay.addWidget(self._build_resumen_bar())  # resumen bajo la tabla (horizontal)
         return w
 
     def _build_resumen_bar(self) -> QFrame:
@@ -4233,22 +5662,28 @@ class TPVWindow(QWidget):
         cl.setContentsMargins(16, 10, 18, 10)
         cl.setSpacing(22)
         self._lbl_resumen = _lbl(tr("tpv.summary"), bold=True, size=14)
-        self.lbl_n_items  = _lbl(tr("tpv.items", n=0, uds=0), bold=True, size=14, color=_TEXT2)
-        self.lbl_subtotal = _lbl(tr("tpv.subtotal", x="0,00"), bold=True, size=14, color=_TEXT2)
-        self.lbl_dto      = _lbl(tr("tpv.discount_zero"), bold=True, size=14, color=_TEXT2)
+        self.lbl_n_items = _lbl(
+            tr("tpv.items", n=0, uds=0), bold=True, size=14, color=_TEXT2
+        )
+        self.lbl_subtotal = _lbl(
+            tr("tpv.subtotal", x="0,00"), bold=True, size=14, color=_TEXT2
+        )
+        self.lbl_dto = _lbl(tr("tpv.discount_zero"), bold=True, size=14, color=_TEXT2)
         cl.addWidget(self._lbl_resumen)
         cl.addSpacing(6)
         cl.addWidget(self.lbl_n_items)
         cl.addWidget(self.lbl_subtotal)
         cl.addWidget(self.lbl_dto)
         cl.addStretch()
-        self.lbl_total = _lbl(tr("tpv.total", x="0,00"), bold=True, size=22, color=_CIAN)
+        self.lbl_total = _lbl(
+            tr("tpv.total", x="0,00"), bold=True, size=22, color=_CIAN
+        )
         cl.addWidget(self.lbl_total)
         return card
 
     def _build_busqueda(self) -> QFrame:
         card = _card()
-        lay  = QHBoxLayout(card)
+        lay = QHBoxLayout(card)
         lay.setContentsMargins(12, 8, 12, 8)
         lay.setSpacing(8)
 
@@ -4273,7 +5708,9 @@ class TPVWindow(QWidget):
         qty_row.setSpacing(2)
 
         lbl_x = QLabel("×")
-        lbl_x.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter)
+        lbl_x.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter
+        )
         lbl_x.setStyleSheet(
             f"color:{_TEXT2};font-size:15px;font-family:'{_FONT}';font-weight:900;"
             f"background:transparent;border:none;margin-bottom:1px;"
@@ -4291,8 +5728,15 @@ class TPVWindow(QWidget):
 
         lay.addWidget(qty_frame)
 
-        self._btn_add = btn_add = _btn(tr("tpv.add"), color_bg=_CIAN, color_fg="#0D1117",
-                       color_border=_CIAN, hover_bg="#FFF", hover_fg="#0D1117", h=38)
+        self._btn_add = btn_add = _btn(
+            tr("tpv.add"),
+            color_bg=_CIAN,
+            color_fg="#0D1117",
+            color_border=_CIAN,
+            hover_bg="#FFF",
+            hover_fg="#0D1117",
+            h=38,
+        )
         btn_add.clicked.connect(self._agregar)
         lay.addWidget(btn_add)
         return card
@@ -4323,10 +5767,18 @@ class TPVWindow(QWidget):
 
         H = 50  # alto fijo → botones grandes y cuadrados, sin desbordar la columna
         layout_keys = [
-            ("7", 0, 0, "num"), ("8", 0, 1, "num"), ("9", 0, 2, "num"),
-            ("4", 1, 0, "num"), ("5", 1, 1, "num"), ("6", 1, 2, "num"),
-            ("1", 2, 0, "num"), ("2", 2, 1, "num"), ("3", 2, 2, "num"),
-            ("C", 3, 0, "fn"),  ("0", 3, 1, "num"), ("⌫", 3, 2, "del"),
+            ("7", 0, 0, "num"),
+            ("8", 0, 1, "num"),
+            ("9", 0, 2, "num"),
+            ("4", 1, 0, "num"),
+            ("5", 1, 1, "num"),
+            ("6", 1, 2, "num"),
+            ("1", 2, 0, "num"),
+            ("2", 2, 1, "num"),
+            ("3", 2, 2, "num"),
+            ("C", 3, 0, "fn"),
+            ("0", 3, 1, "num"),
+            ("⌫", 3, 2, "del"),
         ]
         for c in range(3):
             gl.setColumnStretch(c, 1)
@@ -4336,7 +5788,9 @@ class TPVWindow(QWidget):
             b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            b.setStyleSheet(_ss_num if sk == "num" else (_ss_del if sk == "del" else _ss_fn))
+            b.setStyleSheet(
+                _ss_num if sk == "num" else (_ss_del if sk == "del" else _ss_fn)
+            )
             b.clicked.connect(lambda checked, t=txt: self._num_pulse(t))
             gl.addWidget(b, row, col)
 
@@ -4354,14 +5808,18 @@ class TPVWindow(QWidget):
 
     def _tpv_headers(self) -> list:
         return [
-            tr("tpv.col_code"), tr("tpv.col_name"), tr("tpv.col_qty"),
-            tr("tpv.col_unit"), tr("tpv.col_disc"), tr("tpv.col_subtotal"),
+            tr("tpv.col_code"),
+            tr("tpv.col_name"),
+            tr("tpv.col_qty"),
+            tr("tpv.col_unit"),
+            tr("tpv.col_disc"),
+            tr("tpv.col_subtotal"),
             tr("tpv.col_actions"),
         ]
 
     def _build_tabla(self) -> QFrame:
         card = _card()
-        lay  = QVBoxLayout(card)
+        lay = QVBoxLayout(card)
         lay.setContentsMargins(0, 0, 0, 0)
 
         self.tabla = QTableWidget()
@@ -4397,16 +5855,75 @@ class TPVWindow(QWidget):
         hh.resizeSection(0, 104)
         hh.resizeSection(2, 54)
         hh.resizeSection(3, 72)
-        hh.resizeSection(4, 82)   # Dto%: más ancho para que se vea el valor completo
+        hh.resizeSection(4, 82)  # Dto%: más ancho para que se vea el valor completo
         hh.resizeSection(5, 82)
-        hh.resizeSection(6, 120)  # ACCIONES: editar (lápiz) + borrar (papelera) con su contorno
+        hh.resizeSection(
+            6, 120
+        )  # ACCIONES: editar (lápiz) + borrar (papelera) con su contorno
         hh.setMinimumSectionSize(40)
 
         self.tabla.doubleClicked.connect(self._editar_linea)
         lay.addWidget(self.tabla)
         return card
 
-    def _btn_accion_card(self, icono: str, texto: str, color: str, on_click=None, danger=False):
+    @staticmethod
+    def _icono_people(color: str) -> QIcon:
+        """Icono SVG 'people' idéntico al de la tarjeta CLIENTES del menú principal."""
+        svg = f"""
+            <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+              <g fill="none" stroke="{color}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="48" cy="44" r="16"/>
+                <path d="M22 96c0-16 12-26 26-26s26 10 26 26"/>
+                <circle cx="88" cy="50" r="12"/>
+                <path d="M84 72c12 0 22 9 22 24"/>
+              </g>
+            </svg>
+        """
+        renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+        pm = QPixmap(128, 128)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        renderer.render(p)
+        p.end()
+        return QIcon(pm)
+
+    def _btn_cliente_card(self, on_click=None):
+        """Tarjeta de cliente con el MISMO aspecto que el botón CLIENTES del menú
+        principal (QToolButton, icono SVG 'people' sobre el texto, borde cian + glow),
+        pero dimensionada como las tarjetas de acción (mismo tamaño que la rejilla)."""
+        color = _CIAN
+        b = QToolButton()
+        b._icono_normal = self._icono_people(color)
+        b._icono_hover = self._icono_people("#0B1118")
+        b.setIcon(b._icono_normal)
+        b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        b.setIconSize(QSize(30, 30))
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        b.setMinimumHeight(58)
+        b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        b.setStyleSheet(
+            "QToolButton{background-color:rgba(25,34,44,0.88);color:#F3F6F9;"
+            "border:1px solid rgba(0,255,198,0.10);border-radius:14px;padding:4px;"
+            f"font-family:'{_FONT}';font-size:11px;font-weight:900;outline:0px;}}"
+            f"QToolButton:hover{{background-color:{color};color:#0B1118;border:1px solid {color};}}"
+            f"QToolButton:pressed{{background-color:{color};color:#0B1118;border:1px solid {color};}}"
+        )
+        glow = QGraphicsDropShadowEffect(b)
+        glow.setBlurRadius(18)
+        glow.setColor(QColor(color))
+        glow.setOffset(0, 0)
+        b.setGraphicsEffect(glow)
+        # Recolorea el icono al pasar el ratón (igual que MenuCardButton).
+        b.enterEvent = lambda e, _b=b: (_b.setIcon(_b._icono_hover), QToolButton.enterEvent(_b, e))
+        b.leaveEvent = lambda e, _b=b: (_b.setIcon(_b._icono_normal), QToolButton.leaveEvent(_b, e))
+        if on_click:
+            b.clicked.connect(on_click)
+        return b
+
+    def _btn_accion_card(
+        self, icono: str, texto: str, color: str, on_click=None, danger=False
+    ):
         """Botón de acción cuadrado: icono centrado arriba y texto debajo.
         Devuelve (boton, label_texto) para poder re-traducir el texto."""
         col = _ROJO if danger else color
@@ -4425,11 +5942,15 @@ class TPVWindow(QWidget):
         v.setSpacing(3)
         li = QLabel(icono)
         li.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        li.setStyleSheet(f"color:{col};font-family:'{_FONT}';font-size:24px;background:transparent;border:none;")
+        li.setStyleSheet(
+            f"color:{col};font-family:'{_FONT}';font-size:24px;background:transparent;border:none;"
+        )
         lt = QLabel(_solo_texto(texto))
         lt.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lt.setWordWrap(True)
-        lt.setStyleSheet(f"color:{col};font-family:'{_FONT}';font-weight:900;font-size:11px;background:transparent;border:none;")
+        lt.setStyleSheet(
+            f"color:{col};font-family:'{_FONT}';font-weight:900;font-size:11px;background:transparent;border:none;"
+        )
         for l in (li, lt):
             l.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         v.addWidget(li)
@@ -4446,20 +5967,8 @@ class TPVWindow(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(8)
 
-        # Selector de cliente (genérico por defecto) — captura en el flujo de venta
-        self.btn_cliente = QPushButton()
-        self.btn_cliente.setFixedHeight(38)
-        self.btn_cliente.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_cliente.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_cliente.setStyleSheet(
-            f"QPushButton{{background:{_BG2};color:{_CIAN};border:2px solid {_BORDE};"
-            f"border-radius:10px;font-family:'{_FONT}';font-weight:900;font-size:13px;"
-            f"text-align:left;padding:0 14px;outline:0px;}}"
-            f"QPushButton:hover{{border-color:{_CIAN};}}"
-        )
-        self.btn_cliente.clicked.connect(self._seleccionar_cliente)
-        lay.addWidget(self.btn_cliente)
-        self._refrescar_cliente_btn()
+        # (El selector de cliente se ha movido abajo, junto a "Venta online",
+        #  con el aspecto de la tarjeta CLIENTES del menú principal.)
 
         # Botón COBRAR
         self.btn_cobrar = QPushButton(tr("tpv.charge"))
@@ -4495,36 +6004,81 @@ class TPVWindow(QWidget):
             grid_acc.setColumnStretch(c, 1)
 
         self._acc_labels = {}
-        self.btn_bascula,    lb = self._btn_accion_card("⚖", tr("tpv.scale"), _CIAN, self._abrir_bascula)
-        self.btn_devolucion, ld = self._btn_accion_card("↩", tr("tpv.refund"), _CIAN, self._abrir_devolucion)
-        self.btn_retener,    lr = self._btn_accion_card("⏸", tr("tpv.hold"), _CIAN, self._retener)
-        self.btn_recuperar,  lc = self._btn_accion_card("📂", tr("tpv.recover"), _CIAN, self._recuperar)
-        self.btn_tickets,    lt2 = self._btn_accion_card("🔎", tr("tpv.tickets", default="Tickets"), _CIAN, self._abrir_buscar_tickets)
-        self._btn_vaciar,    lv = self._btn_accion_card("🗑", tr("tpv.empty_cart"), _ROJO, self._vaciar, danger=True)
-        self._acc_labels = {"tpv.scale": lb, "tpv.refund": ld, "tpv.hold": lr,
-                            "tpv.recover": lc, "tpv.tickets": lt2, "tpv.empty_cart": lv}
+        self.btn_bascula, lb = self._btn_accion_card(
+            "⚖", tr("tpv.scale"), _CIAN, self._abrir_bascula
+        )
+        self.btn_devolucion, ld = self._btn_accion_card(
+            "↩", tr("tpv.refund"), _CIAN, self._abrir_devolucion
+        )
+        self.btn_retener, lr = self._btn_accion_card(
+            "⏸", tr("tpv.hold"), _CIAN, self._retener
+        )
+        self.btn_recuperar, lc = self._btn_accion_card(
+            "📂", tr("tpv.recover"), _CIAN, self._recuperar
+        )
+        self.btn_tickets, lt2 = self._btn_accion_card(
+            "🔎",
+            tr("tpv.tickets", default="Tickets"),
+            _CIAN,
+            self._abrir_buscar_tickets,
+        )
+        self._btn_vaciar, lv = self._btn_accion_card(
+            "🗑", tr("tpv.empty_cart"), _ROJO, self._vaciar, danger=True
+        )
+        self._acc_labels = {
+            "tpv.scale": lb,
+            "tpv.refund": ld,
+            "tpv.hold": lr,
+            "tpv.recover": lc,
+            "tpv.tickets": lt2,
+            "tpv.empty_cart": lv,
+        }
         self.btn_retener.setEnabled(False)
 
-        grid_acc.addWidget(self.btn_bascula,    0, 0)
+        grid_acc.addWidget(self.btn_bascula, 0, 0)
         grid_acc.addWidget(self.btn_devolucion, 0, 1)
-        grid_acc.addWidget(self.btn_retener,    0, 2)
-        grid_acc.addWidget(self.btn_recuperar,  1, 0)
-        grid_acc.addWidget(self.btn_tickets,    1, 1)
-        grid_acc.addWidget(self._btn_vaciar,    1, 2)
+        grid_acc.addWidget(self.btn_retener, 0, 2)
+        grid_acc.addWidget(self.btn_recuperar, 1, 0)
+        grid_acc.addWidget(self.btn_tickets, 1, 1)
+        grid_acc.addWidget(self._btn_vaciar, 1, 2)
         cl2.addLayout(grid_acc)
-        lay.addWidget(card_acc)
 
-        # Pedidos online (F2): botón a lo ancho, DEBAJO de las acciones → abre la
-        # pantalla de gestión de pedidos online.
-        self.btn_pedidos_online = QPushButton("🌐  " + tr("tpv.online", default="Venta online"))
-        self.btn_pedidos_online.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_pedidos_online.setFixedHeight(46)
-        self.btn_pedidos_online.setStyleSheet(
-            f"QPushButton{{background:{_BG2};color:{_CIAN};border:2px solid {_CIAN};"
-            f"border-radius:12px;font-family:'{_FONT}';font-weight:900;font-size:14px;}}"
-            f"QPushButton:hover{{background:{_CIAN};color:#0D1117;}}")
-        self.btn_pedidos_online.clicked.connect(self._abrir_gestion_pedidos_online)
-        lay.addWidget(self.btn_pedidos_online)
+        # Fila inferior 1: CLIENTES (tarjeta estilo menú principal) + MOSTRAR STOCK
+        # + VENTA ONLINE, con el MISMO tamaño/estilo que las tarjetas de acción.
+        fila_inf = QHBoxLayout()
+        fila_inf.setSpacing(8)
+        self.btn_cliente = self._btn_cliente_card(self._seleccionar_cliente)
+        fila_inf.addWidget(self.btn_cliente)
+        self.btn_mostrar_stock, self._lbl_stock = self._btn_accion_card(
+            "📦", tr("tpv.show_stock", default="Mostrar stock"), _CIAN,
+            self._abrir_mostrar_stock
+        )
+        fila_inf.addWidget(self.btn_mostrar_stock)
+        self.btn_pedidos_online, self._lbl_online = self._btn_accion_card(
+            "🌐", tr("tpv.online", default="Venta online"), _CIAN,
+            self._abrir_gestion_pedidos_online
+        )
+        fila_inf.addWidget(self.btn_pedidos_online)
+        cl2.addLayout(fila_inf)
+
+        # Fila inferior 2: MOVIMIENTO DE EFECTIVO + CAMBIO DE CAJERO (acceso rápido
+        # a la Gestión de Caja existente; misma lógica/permisos/auditoría).
+        fila_caja = QHBoxLayout()
+        fila_caja.setSpacing(8)
+        self.btn_mov_efectivo, self._lbl_mov = self._btn_accion_card(
+            "💶", tr("tpv.cash_move", default="Mov. efectivo"), _CIAN,
+            self._abrir_movimiento_efectivo
+        )
+        fila_caja.addWidget(self.btn_mov_efectivo)
+        self.btn_cambio_cajero, self._lbl_cajero = self._btn_accion_card(
+            "🔁", tr("tpv.cashier_change", default="Cambio cajero"), _CIAN,
+            self._abrir_cambio_cajero
+        )
+        fila_caja.addWidget(self.btn_cambio_cajero)
+        cl2.addLayout(fila_caja)
+
+        lay.addWidget(card_acc)
+        self._refrescar_cliente_btn()
         lay.addStretch()
         return w
 
@@ -4534,8 +6088,8 @@ class TPVWindow(QWidget):
         self.lbl_reloj.setText(datetime.datetime.now().strftime("%d/%m/%Y  %H:%M:%S"))
 
     def _refresh_caja_info(self, caja: dict):
-        cid   = caja.get("id", "?")
-        resp  = caja.get("responsable", "?")
+        cid = caja.get("id", "?")
+        resp = caja.get("responsable", "?")
         fondo = caja.get("fondo", 0.0)
         self._caja_actual = caja  # guardado para re-traducción en caliente
         self.lbl_caja_top.setText(f"{cid}  ·  {resp}")
@@ -4550,20 +6104,24 @@ class TPVWindow(QWidget):
 
         articulo = obtener_articulo(codigo)
         if not articulo:
-            QMessageBox.warning(self, tr("tpv.not_found_title"),
-                                tr("tpv.not_found_msg", codigo=codigo))
+            QMessageBox.warning(
+                self, tr("tpv.not_found_title"), tr("tpv.not_found_msg", codigo=codigo)
+            )
             self.inp_sku.selectAll()
             return
 
-        qty    = max(1, int(self.inp_qty.text() or "1"))
-        cod    = articulo.get("codigo", codigo)
+        qty = max(1, int(self.inp_qty.text() or "1"))
+        cod = articulo.get("codigo", codigo)
         precio = float(articulo.get("precio", 0) or 0)
 
         for linea in self._lineas:
             if linea["codigo"] == cod:
                 linea["cantidad"] += qty
-                linea["subtotal"]  = round(
-                    linea["cantidad"] * linea["precio"] * (1 - linea["descuento_pct"] / 100), 2
+                linea["subtotal"] = round(
+                    linea["cantidad"]
+                    * linea["precio"]
+                    * (1 - linea["descuento_pct"] / 100),
+                    2,
                 )
                 self._refresh_tabla()
                 self.inp_sku.clear()
@@ -4571,16 +6129,18 @@ class TPVWindow(QWidget):
                 self.inp_sku.setFocus()
                 return
 
-        self._lineas.append({
-            "codigo":       cod,
-            "nombre":       articulo.get("nombre", "—"),
-            "seccion":      articulo.get("seccion", ""),
-            "cantidad":     qty,
-            "precio":       precio,
-            "descuento_pct": 0.0,
-            "subtotal":     round(qty * precio, 2),
-            "iva":          float(articulo.get("iva", 21) or 21),  # tipo de IVA del artículo
-        })
+        self._lineas.append(
+            {
+                "codigo": cod,
+                "nombre": articulo.get("nombre", "—"),
+                "seccion": articulo.get("seccion", ""),
+                "cantidad": qty,
+                "precio": precio,
+                "descuento_pct": 0.0,
+                "subtotal": round(qty * precio, 2),
+                "iva": float(articulo.get("iva", 21) or 21),  # tipo de IVA del artículo
+            }
+        )
         self._refresh_tabla()
         self.inp_sku.clear()
         self.inp_qty.setText("1")
@@ -4589,10 +6149,13 @@ class TPVWindow(QWidget):
     def _refresh_tabla(self):
         self.tabla.setRowCount(len(self._lineas))
         center = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter
-        right  = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
+        right = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight
 
         for row, l in enumerate(self._lineas):
-            def _cell(txt, align=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft):
+
+            def _cell(
+                txt, align=Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+            ):
                 it = QTableWidgetItem(txt)
                 it.setTextAlignment(align)
                 it.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
@@ -4601,10 +6164,14 @@ class TPVWindow(QWidget):
             self.tabla.setItem(row, 0, _cell(str(l["codigo"])))
             self.tabla.setItem(row, 1, _cell(l["nombre"]))
             self.tabla.setItem(row, 2, _cell(str(l["cantidad"]), center))
-            self.tabla.setItem(row, 3, _cell(f"{divisas.formatear(l['precio'])}", right))
+            self.tabla.setItem(
+                row, 3, _cell(f"{divisas.formatear(l['precio'])}", right)
+            )
             dto_txt = f"{l['descuento_pct']:.1f}%" if l["descuento_pct"] > 0 else "—"
             self.tabla.setItem(row, 4, _cell(dto_txt, center))
-            self.tabla.setItem(row, 5, _cell(f"{divisas.formatear(l['subtotal'])}", right))
+            self.tabla.setItem(
+                row, 5, _cell(f"{divisas.formatear(l['subtotal'])}", right)
+            )
 
             codigo_fila = l["codigo"]
             # Iconos dibujados con QPainter (QIcon), independientes de las fuentes.
@@ -4622,7 +6189,9 @@ class TPVWindow(QWidget):
                 f"QPushButton:hover{{background:{_CIAN};}}"
                 f"QPushButton:pressed{{background:#00CCA0;}}"
             )
-            btn_edit.clicked.connect(lambda _=False, c=codigo_fila: self._editar_por_codigo(c))
+            btn_edit.clicked.connect(
+                lambda _=False, c=codigo_fila: self._editar_por_codigo(c)
+            )
 
             # Botón BORRAR (papelera, rojo → icono blanco en hover) + confirmación
             btn_del = _IconButton(_icono_papelera, _ROJO, "#FFFFFF", 20)
@@ -4635,7 +6204,9 @@ class TPVWindow(QWidget):
                 f"QPushButton:hover{{background:{_ROJO};}}"
                 f"QPushButton:pressed{{background:#CC0000;}}"
             )
-            btn_del.clicked.connect(lambda _=False, c=codigo_fila: self._borrar_por_codigo(c))
+            btn_del.clicked.connect(
+                lambda _=False, c=codigo_fila: self._borrar_por_codigo(c)
+            )
 
             cont_acc = QWidget()
             cont_acc.setStyleSheet("background:transparent;")
@@ -4655,9 +6226,12 @@ class TPVWindow(QWidget):
         try:
             self.setWindowTitle(tr("tpv.title"))
             pares = [
-                ("_lbl_titulo_tpv", "tpv.title"), ("_btn_salir_tpv", "tpv.exit"),
-                ("_btn_add", "tpv.add"), ("_lbl_resumen", "tpv.summary"),
-                ("btn_cobrar", "tpv.charge"), ("_lbl_acciones", "tpv.actions"),
+                ("_lbl_titulo_tpv", "tpv.title"),
+                ("_btn_salir_tpv", "tpv.exit"),
+                ("_btn_add", "tpv.add"),
+                ("_lbl_resumen", "tpv.summary"),
+                ("btn_cobrar", "tpv.charge"),
+                ("_lbl_acciones", "tpv.actions"),
             ]
             for attr, clave in pares:
                 w = getattr(self, attr, None)
@@ -4666,6 +6240,22 @@ class TPVWindow(QWidget):
             # Tarjetas de acción (icono + texto debajo): re-traducir el texto.
             for clave, lbl in getattr(self, "_acc_labels", {}).items():
                 lbl.setText(_solo_texto(tr(clave)))
+            # Tarjetas inferiores + selector de cliente + toggle de barra lateral.
+            for _at, _clave, _def in (
+                ("_lbl_online", "tpv.online", "Venta online"),
+                ("_lbl_stock", "tpv.show_stock", "Mostrar stock"),
+                ("_lbl_mov", "tpv.cash_move", "Mov. efectivo"),
+                ("_lbl_cajero", "tpv.cashier_change", "Cambio cajero"),
+            ):
+                _w = getattr(self, _at, None)
+                if _w is not None:
+                    _w.setText(_solo_texto(tr(_clave, default=_def)))
+            self._refrescar_cliente_btn()
+            if hasattr(self, "_btn_sidebar_toggle"):
+                self._btn_sidebar_toggle.setText(
+                    tr("tpv.hide_sidebar", default="OCULTAR")
+                    if getattr(self, "_sidebar_visible", True)
+                    else tr("tpv.show_sidebar", default="ACCIONES"))
             if hasattr(self, "inp_sku"):
                 self.inp_sku.setPlaceholderText(tr("tpv.search_placeholder"))
             if hasattr(self, "tabla"):
@@ -4685,16 +6275,17 @@ class TPVWindow(QWidget):
             pass
 
     def _refresh_totales(self):
-        n           = len(self._lineas)
-        uds         = sum(l["cantidad"] for l in self._lineas)
-        subtotal_b  = sum(l["cantidad"] * l["precio"] for l in self._lineas)
-        total       = sum(l["subtotal"] for l in self._lineas)
-        descuento   = subtotal_b - total
+        n = len(self._lineas)
+        uds = sum(l["cantidad"] for l in self._lineas)
+        subtotal_b = sum(l["cantidad"] * l["precio"] for l in self._lineas)
+        total = sum(l["subtotal"] for l in self._lineas)
+        descuento = subtotal_b - total
 
         self.lbl_n_items.setText(tr("tpv.items", n=n, uds=uds))
         self.lbl_subtotal.setText(tr("tpv.subtotal", x=divisas.formatear(subtotal_b)))
         self.lbl_dto.setText(
-            tr("tpv.discount", x=divisas.formatear(descuento)) if descuento > 0.005
+            tr("tpv.discount", x=divisas.formatear(descuento))
+            if descuento > 0.005
             else tr("tpv.discount_zero")
         )
         self.lbl_total.setText(tr("tpv.total", x=divisas.formatear(total)))
@@ -4730,8 +6321,9 @@ class TPVWindow(QWidget):
         for i, l in enumerate(self._lineas):
             if l.get("codigo") == codigo:
                 if _confirmar(
-                    self, tr("tpv.del_item_title"),
-                    tr("tpv.del_item_msg", nombre=l.get('nombre', codigo)),
+                    self,
+                    tr("tpv.del_item_title"),
+                    tr("tpv.del_item_msg", nombre=l.get("nombre", codigo)),
                     txt_ok=tr("tpv.del_item_ok"),
                 ):
                     self._lineas.pop(i)
@@ -4756,9 +6348,12 @@ class TPVWindow(QWidget):
     def _vaciar(self):
         if not self._lineas:
             return
-        if _confirmar(self, tr("tpv.empty_cart"),
-                      tr("tpv.empty_cart_msg"),
-                      txt_ok=tr("tpv.empty_cart_ok")):
+        if _confirmar(
+            self,
+            tr("tpv.empty_cart"),
+            tr("tpv.empty_cart_msg"),
+            txt_ok=tr("tpv.empty_cart_ok"),
+        ):
             self._lineas = []
             self._refresh_tabla()
             customer_display_bridge.cart_cleared.emit()
@@ -4769,14 +6364,16 @@ class TPVWindow(QWidget):
         if not self._lineas:
             return
         total = round(sum(l["subtotal"] for l in self._lineas), 2)
-        lst   = _leer_retenidas()
-        lst.append({
-            "fecha":       datetime.datetime.now().isoformat(),
-            "empleado_id": self.empleado_id,
-            "id_caja":     self._id_caja,
-            "lineas":      list(self._lineas),
-            "total":       total,
-        })
+        lst = _leer_retenidas()
+        lst.append(
+            {
+                "fecha": datetime.datetime.now().isoformat(),
+                "empleado_id": self.empleado_id,
+                "id_caja": self._id_caja,
+                "lineas": list(self._lineas),
+                "total": total,
+            }
+        )
         _guardar_retenidas(lst)
         self._lineas = []
         self._refresh_tabla()
@@ -4791,6 +6388,7 @@ class TPVWindow(QWidget):
         (usa el diálogo propio; QMessageBox nativo queda oculto y bloquea)."""
         try:
             from assets.estilo_global import mostrar_mensaje as _mm
+
             _mm(self, titulo, mensaje, nivel)
         except Exception:
             QMessageBox.warning(self, titulo, mensaje)
@@ -4813,8 +6411,10 @@ class TPVWindow(QWidget):
             accion = _elegir_recuperar(
                 self,
                 tr("tpv.recover_title", default="Recuperar venta"),
-                tr("tpv.recover_msg",
-                   default="Ya hay artículos en el carrito. ¿Qué quieres hacer con la venta recuperada?"),
+                tr(
+                    "tpv.recover_msg",
+                    default="Ya hay artículos en el carrito. ¿Qué quieres hacer con la venta recuperada?",
+                ),
                 tr("tpv.recover_add", default="SUMAR ARTÍCULOS"),
                 tr("tpv.recover_replace", default="REEMPLAZAR"),
             )
@@ -4864,11 +6464,14 @@ class TPVWindow(QWidget):
         if not hasattr(self, "btn_cliente"):
             return
         cli = getattr(self, "_cliente", None)
+        # La tarjeta usa icono SVG 'people'; el texto va debajo, sin emoji.
         if cli:
-            nif = f"  ·  {cli.get('nif')}" if cli.get("nif") else ""
-            self.btn_cliente.setText(f"👤  {cli.get('nombre', '')}{nif}")
+            self.btn_cliente.setText(cli.get("nombre", ""))
+            nif = cli.get("nif")
+            self.btn_cliente.setToolTip(f"{cli.get('nombre', '')}  ·  {nif}" if nif else cli.get("nombre", ""))
         else:
-            self.btn_cliente.setText("👤  " + tr("tpv.cli_generic_short", default="Cliente genérico"))
+            self.btn_cliente.setText(tr("tpv.cli_generic_short", default="Clientes"))
+            self.btn_cliente.setToolTip("")
 
     # ─────────────────── FUNCIONES ENTERPRISE ────────────────
 
@@ -4903,14 +6506,18 @@ class TPVWindow(QWidget):
         if not self._id_caja:
             self._msg(tr("tpv.no_register_title"), tr("tpv.no_register_msg"), "warning")
             return
-        est  = _leer_estado_caja()
+        est = _leer_estado_caja()
         caja = _caja_activa(est, self._empleado_tpv, self._empleado_id_tpv)
         if not caja:
-            self._msg(tr("tpv.register_closed_title"), tr("tpv.register_closed_msg"), "warning")
+            self._msg(
+                tr("tpv.register_closed_title"),
+                tr("tpv.register_closed_msg"),
+                "warning",
+            )
             return
 
         total = round(sum(l["subtotal"] for l in self._lineas), 2)
-        dlg   = _PagoDialog(total, self)
+        dlg = _PagoDialog(total, self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -4919,10 +6526,10 @@ class TPVWindow(QWidget):
             self._procesar_venta(resultado)
 
     def _procesar_venta(self, pago: dict):
-        fecha      = datetime.datetime.now()
-        total      = pago["total"]
+        fecha = datetime.datetime.now()
+        total = pago["total"]
         forma_pago = pago["forma_pago"]
-        lineas     = list(self._lineas)  # snapshot antes de limpiar
+        lineas = list(self._lineas)  # snapshot antes de limpiar
 
         try:
             n_caja = int(self._id_caja.split("-")[-1])
@@ -4933,6 +6540,7 @@ class TPVWindow(QWidget):
         # Aislamiento por tenant: la venta se registra bajo la empresa y la tienda
         # ACTIVAS (multitienda, Fase 3b.1).
         from src.db.empresa import empresa_actual_id, tienda_actual_id
+
         _id_empresa = empresa_actual_id()
         _id_tienda = tienda_actual_id()
         venta_id = None
@@ -4941,16 +6549,33 @@ class TPVWindow(QWidget):
             # Verifactu, contabilidad, kárdex, FEFO, stock_almacen, política M4) en
             # registrar_venta_con_items. NO se decrementa stock aquí (lo hace la ruta canónica).
             from src.db.conexion import registrar_venta_con_items
-            items = [{"codigo_articulo": l["codigo"], "nombre": l.get("nombre"),
-                      "seccion": l.get("seccion", ""), "cantidad": l["cantidad"],
-                      "precio_unitario": l["precio"], "subtotal": l["subtotal"],
-                      "peso_vendido": l.get("peso_vendido"), "precio_kg": l.get("precio_kg"),
-                      "modo_venta": l.get("modo_venta", "UNIDAD")} for l in lineas]
+
+            items = [
+                {
+                    "codigo_articulo": l["codigo"],
+                    "nombre": l.get("nombre"),
+                    "seccion": l.get("seccion", ""),
+                    "cantidad": l["cantidad"],
+                    "precio_unitario": l["precio"],
+                    "subtotal": l["subtotal"],
+                    "peso_vendido": l.get("peso_vendido"),
+                    "precio_kg": l.get("precio_kg"),
+                    "modo_venta": l.get("modo_venta", "UNIDAD"),
+                }
+                for l in lineas
+            ]
             venta_id = registrar_venta_con_items(
-                items, fecha=fecha.strftime("%Y-%m-%d %H:%M:%S"), forma_pago=forma_pago,
-                empleado_id=self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else None),
-                cliente=cli, numero_caja=n_caja, total=total,
-                id_empresa=_id_empresa, id_tienda=_id_tienda)
+                items,
+                fecha=fecha.strftime("%Y-%m-%d %H:%M:%S"),
+                forma_pago=forma_pago,
+                empleado_id=self._empleado_tpv
+                or (str(self.empleado_id) if self.empleado_id else None),
+                cliente=cli,
+                numero_caja=n_caja,
+                total=total,
+                id_empresa=_id_empresa,
+                id_tienda=_id_tienda,
+            )
             if not venta_id:
                 raise RuntimeError("registro de venta no devolvió id")
         except Exception as e:
@@ -4973,16 +6598,19 @@ class TPVWindow(QWidget):
         self._generar_ticket(venta_id, fecha, pago, lineas)
 
         # Auditoría
-        _log_auditoria({
-            "ts":           fecha.isoformat(),
-            "tipo":         "VENTA",
-            "venta_id":     venta_id,
-            "total":        total,
-            "forma_pago":   forma_pago,
-            "empleado":     self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else None),
-            "id_caja":      self._id_caja,
-            "lineas_count": len(lineas),
-        })
+        _log_auditoria(
+            {
+                "ts": fecha.isoformat(),
+                "tipo": "VENTA",
+                "venta_id": venta_id,
+                "total": total,
+                "forma_pago": forma_pago,
+                "empleado": self._empleado_tpv
+                or (str(self.empleado_id) if self.empleado_id else None),
+                "id_caja": self._id_caja,
+                "lineas_count": len(lineas),
+            }
+        )
 
         # Customer display: mostrar pantalla de resultado
         self._cd_result_mode = True
@@ -5002,12 +6630,21 @@ class TPVWindow(QWidget):
         self.inp_sku.setFocus()
 
         cambio = pago.get("cambio", 0.0)
-        msg_cambio = tr("tpv.change_suffix", x=divisas.formatear(cambio)) if cambio > 0.005 else ""
+        msg_cambio = (
+            tr("tpv.change_suffix", x=divisas.formatear(cambio))
+            if cambio > 0.005
+            else ""
+        )
         # Feedback NO modal (evita el bloqueo de QMessageBox sobre ventana frameless)
         self._toast(
             tr("tpv.sale_done_title"),
-            tr("tpv.sale_done_msg", id=venta_id, total=divisas.formatear(total),
-               fp=forma_pago.capitalize(), cambio=msg_cambio),
+            tr(
+                "tpv.sale_done_msg",
+                id=venta_id,
+                total=divisas.formatear(total),
+                fp=forma_pago.capitalize(),
+                cambio=msg_cambio,
+            ),
             ms=2200,
         )
 
@@ -5028,32 +6665,47 @@ class TPVWindow(QWidget):
         except Exception as e:
             logger.error(f"Error actualizando fondo caja: {e}")
 
-    def _generar_ticket(self, venta_id: int, fecha: datetime.datetime,
-                        pago: dict, lineas: list[dict]):
+    def _generar_ticket(
+        self, venta_id: int, fecha: datetime.datetime, pago: dict, lineas: list[dict]
+    ):
         try:
             os.makedirs(_TICKETS_DIR, exist_ok=True)
             archivo = os.path.join(
-                _TICKETS_DIR,
-                f"ticket_{fecha.strftime('%Y%m%d_%H%M%S')}_{venta_id}.pdf"
+                _TICKETS_DIR, f"ticket_{fecha.strftime('%Y%m%d_%H%M%S')}_{venta_id}.pdf"
             )
             from src.utils.impresion import generar_ticket_pdf
             from src.utils.ticket_data import construir_datos_ticket
-            empleado = self._empleado_tpv or (str(self.empleado_id) if self.empleado_id else "—")
+
+            empleado = self._empleado_tpv or (
+                str(self.empleado_id) if self.empleado_id else "—"
+            )
             datos = construir_datos_ticket(
-                venta_id=venta_id, fecha=fecha, id_caja=self._id_caja,
-                empleado=empleado, lineas=lineas, pago=pago, copia=False,
-                cliente=getattr(self, "_cliente", None))
+                venta_id=venta_id,
+                fecha=fecha,
+                id_caja=self._id_caja,
+                empleado=empleado,
+                lineas=lineas,
+                pago=pago,
+                copia=False,
+                cliente=getattr(self, "_cliente", None),
+            )
             generar_ticket_pdf(datos, archivo)
             # Centro documental: registrar el ticket con metadatos completos.
             try:
                 from src.db import documentos as _docreg
+
                 cli = getattr(self, "_cliente", None) or {}
                 _docreg.registrar_documento(
-                    archivo, tipo="ticket",
+                    archivo,
+                    tipo="ticket",
                     referencia=(datos.get("operacion") or {}).get("ticket_num"),
                     cliente=cli.get("nombre") if isinstance(cli, dict) else None,
-                    trabajador=empleado, importe=pago.get("total"))
+                    trabajador=empleado,
+                    importe=pago.get("total"),
+                )
             except Exception as _e:
-                logger.debug("No se pudo registrar el ticket en el centro documental: %s", _e)
+                logger.debug(
+                    "No se pudo registrar el ticket en el centro documental: %s", _e
+                )
         except Exception as e:
             logger.warning(f"No se pudo generar el ticket PDF: {e}")

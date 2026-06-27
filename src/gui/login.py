@@ -218,7 +218,7 @@ class LoginWindow(QWidget):
 
         self.login_box = QWidget()
         self.login_box.setObjectName("card_neon")
-        self.login_box.setFixedWidth(400)
+        self.login_box.setMinimumWidth(300); self.login_box.setMaximumWidth(400)  # responsive (P2): antes fijo 400
 
         self.shadow = QGraphicsDropShadowEffect(self)
         self.shadow.setBlurRadius(35)

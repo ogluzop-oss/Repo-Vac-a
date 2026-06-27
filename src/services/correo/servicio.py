@@ -178,12 +178,75 @@ def enviar_documento(id_correo: str, destinatario: str, asunto: str,
 
     if proveedor == "google":
         ok, msg = _enviar_google(c, destinatario, asunto, cuerpo, adjuntos)
+    elif proveedor == "smtp":
+        ok, msg = _enviar_smtp(c, destinatario, asunto, cuerpo, adjuntos)
     else:
         ok, msg = _enviar_simulado(c, destinatario, asunto, cuerpo, adjuntos)
 
     if ok:
         correo_db.marcar_sincronizacion(id_correo)
+        try:
+            from src.db.conexion import log_auditoria
+            log_auditoria("sistema", "CORREO_ENVIADO", "correos_corporativos",
+                          f"de {remite} a {destinatario}: {asunto}")
+        except Exception:
+            pass
     return ok, msg
+
+
+def _enviar_smtp(c: dict, destinatario, asunto, cuerpo, adjuntos) -> tuple[bool, str]:
+    """Envío por SMTP genérico (host/puerto/credenciales del buzón). Requiere config SMTP."""
+    try:
+        import smtplib
+        host = c.get("smtp_host"); port = int(c.get("smtp_port") or 587)
+        if not host:
+            return False, "SMTP no configurado en el buzón."
+        mime = _construir_mime(c["direccion"], destinatario, asunto, cuerpo, adjuntos)
+        with smtplib.SMTP(host, port, timeout=20) as s:
+            s.starttls()
+            if c.get("smtp_usuario"):
+                s.login(c["smtp_usuario"], c.get("smtp_password") or "")
+            s.sendmail(c["direccion"], [destinatario], mime.as_string())
+        return True, f"Enviado por SMTP a {destinatario}."
+    except Exception as e:
+        logger.error("Error enviando por SMTP: %s", e)
+        return False, f"Error al enviar por SMTP: {e}"
+
+
+def sincronizar_imap(id_correo: str, *, limite=20) -> int:
+    """Descarga correos por IMAP y los persiste (correos_recibidos). Requiere config IMAP.
+    Devuelve el nº de mensajes nuevos guardados. Best-effort (red); no usado en tests."""
+    c = correo_db.obtener_correo(id_correo)
+    if not c or not c.get("imap_host"):
+        return 0
+    try:
+        import imaplib
+        import email as _email
+        n = 0
+        srv = imaplib.IMAP4_SSL(c["imap_host"], int(c.get("imap_port") or 993))
+        srv.login(c.get("imap_usuario") or c["direccion"], c.get("imap_password") or "")
+        srv.select("INBOX")
+        _typ, datos = srv.search(None, "ALL")
+        ids = (datos[0].split() or [])[-int(limite):]
+        for i in ids:
+            _t, msg_data = srv.fetch(i, "(RFC822)")
+            msg = _email.message_from_bytes(msg_data[0][1])
+            cuerpo = ""
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        cuerpo = part.get_payload(decode=True).decode("utf-8", "ignore"); break
+            else:
+                cuerpo = (msg.get_payload(decode=True) or b"").decode("utf-8", "ignore")
+            if correo_db.guardar_recibido(id_correo, msg.get("From"), msg.get("Subject"),
+                                          cuerpo, message_id=msg.get("Message-ID"), fecha=None):
+                n += 1
+        srv.logout()
+        correo_db.marcar_sincronizacion(id_correo)
+        return n
+    except Exception as e:
+        logger.error("sincronizar_imap: %s", e)
+        return 0
 
 
 def _enviar_google(c: dict, destinatario, asunto, cuerpo, adjuntos) -> tuple[bool, str]:

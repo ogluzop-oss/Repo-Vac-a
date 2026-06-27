@@ -1125,7 +1125,9 @@ class RecepcionStockPage(QWidget):
         # Contenedor Central Estilizado (Siguiendo estilo_global.py)
         container = QFrame()
         container.setObjectName("panel_bienvenida")
-        container.setFixedWidth(550)  # Ligeramente más ancho para mejor legibilidad
+        # Responsive (P2): se adapta a pantallas estrechas; tope visual en pantallas anchas.
+        container.setMaximumWidth(550)
+        container.setMinimumWidth(320)  # Ligeramente más ancho para mejor legibilidad
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(40, 40, 40, 40)
         container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -4626,6 +4628,13 @@ class RecepcionPaleWindow(QWidget):
         self.conectar_eventos_paginas()
         self.showMaximized()
 
+        # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        try:
+            from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
+            instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario, clave="logistica")
+        except Exception:
+            pass
+
     def setup_ui(self):
         # Layout Principal Horizontal
         self.main_layout = QHBoxLayout(self)
@@ -5569,7 +5578,10 @@ class TraspasoDialog(QDialog):
 
         self.global_pale_selector = QComboBox()
         self.global_pale_selector.addItems(_OPCIONES_PALE)
-        self.global_pale_selector.setFixedSize(220, 46)
+        # Responsive (P2): ancho flexible, alto táctil (antes fijo 220x46).
+        self.global_pale_selector.setMinimumWidth(160)
+        self.global_pale_selector.setMaximumWidth(300)
+        self.global_pale_selector.setFixedHeight(46)
 
         lbl_cargar = QLabel(tr("recep.cargar_en", default="CARGAR EN:"))
         lbl_cargar.setObjectName("etiqueta_secundaria")
@@ -6405,7 +6417,9 @@ class TraspasoStockPage(QWidget):
         # Contenedor Central Estilizado (Siguiendo estilo_global.py)
         container = QFrame()
         container.setObjectName("panel_bienvenida")
-        container.setFixedWidth(550)
+        # Responsive (P2): se adapta a pantallas estrechas; tope visual en pantallas anchas.
+        container.setMaximumWidth(550)
+        container.setMinimumWidth(320)
 
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(40, 40, 40, 40)
@@ -6430,7 +6444,10 @@ class TraspasoStockPage(QWidget):
         # BOTÓN CRÍTICO: neón + texto e icono centrados (btn_traspaso_land en estilo_global)
         self.btn_lanzar_dialogo = QPushButton(tr("recep.iniciar_traspaso", default="🚀 INICIAR TRASPASO"))
         self.btn_lanzar_dialogo.setObjectName("btn_traspaso_land")
-        self.btn_lanzar_dialogo.setFixedSize(320, 60)
+        # Responsive (P2): ancho flexible con tope, alto táctil (antes fijo 320x60).
+        self.btn_lanzar_dialogo.setMinimumSize(220, 60)
+        self.btn_lanzar_dialogo.setMaximumWidth(360)
+        self.btn_lanzar_dialogo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.btn_lanzar_dialogo.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # Conexión lógica

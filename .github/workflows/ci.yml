@@ -109,6 +109,28 @@ jobs:
       - name: Ejecutar la suite (pytest + cobertura)
         run: pytest
 
+  # ── CD: validación de migraciones + artefacto Docker del backend (OBS-8) ────
+  # Prepara el despliegue continuo SIN desplegar automáticamente.
+  build:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - name: Validar que las migraciones importan y están registradas
+        run: |
+          python - <<'PY'
+          import importlib
+          mods = importlib.import_module("src.database.migraciones").MODULOS
+          assert mods == sorted(mods), "MODULOS debe estar ordenado"
+          for m in mods:
+              importlib.import_module(f"src.database.migraciones.{m}")
+          print(f"OK {len(mods)} migraciones válidas y ordenadas")
+          PY
+      - name: Construir imagen Docker del backend (artefacto, sin desplegar)
+        run: docker build -t smart-manager-backend:ci .
+
   # ============================================================
   # PLANTILLA build del .exe (fase posterior; no se ejecuta ahora)
   # ============================================================
