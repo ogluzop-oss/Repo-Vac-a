@@ -87,6 +87,11 @@ def generar_xml(id_remesa, *, id_empresa=None) -> dict:
     """Genera y valida el XML de la remesa. Lo persiste y pasa la remesa a 'emitida'.
     Devuelve {ok, xsd_ok, mensaje_id, xml, errores}."""
     id_empresa = _emp(id_empresa)
+    try:
+        from src.services import autorizacion
+        autorizacion.exigir(None, "tesoreria.remesas.generar")
+    except ImportError:
+        pass
     rem = _S.obtener_remesa(id_remesa, id_empresa)
     if not rem:
         return {"ok": False, "errores": "remesa no encontrada"}
