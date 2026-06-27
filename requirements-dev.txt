@@ -3,6 +3,7 @@
 pytest==9.1.0
 pytest-cov==7.1.0       # cobertura integrada en pytest
 pytest-mock==3.15.1     # mocking ergonómico (fixture `mocker`)
+pytest-rerunfailures==16.3  # reintenta tests flaky en CI (infra/timing); un fallo real falla en todos los intentos
 freezegun==1.5.5        # congelar el tiempo en tests (fechas/replay)
 coverage==7.14.1        # motor de cobertura
 ruff==0.8.4
