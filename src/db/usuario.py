@@ -214,13 +214,24 @@ def validar_login_usuario(identificador: str, password: str, id_empresa=None) ->
                 filas = cur.fetchall()
             d, _bloq = _autenticar(cols, filas, password)
             if d:
+                _audit_seguridad("LOGIN", d["id"], f"identidad={ident}")
                 return {"id": d["id"], "nombre": d[col_name], "perfil": d["perfil"],
                         "tienda_id": d["tienda_id"],
                         "id_empresa": d.get("id_empresa") if tiene_emp else None,
                         "email": d.get("email") if tiene_email else None}
+            _audit_seguridad("LOGIN_FALLIDO", None, f"identidad={ident}")
     except Exception as e:
         logger.error(f"Error en validación por identidad: {e}")
     return None
+
+
+def _audit_seguridad(accion, id_usuario, detalles):
+    """Traza un evento de seguridad (FASE 10). Best-effort."""
+    try:
+        from src.services.seguridad import auditoria as _aud
+        _aud.registrar(accion, usuario=id_usuario, detalles=detalles)
+    except Exception:
+        pass
 
 
 class SesionUsuario:
@@ -417,6 +428,7 @@ def cambiar_password_usuario(id_usuario: int, nueva_password: str) -> bool:
             with conn.cursor() as cur:
                 cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (password_hash, id_usuario))
             conn.commit()
+            _audit_seguridad("CAMBIO_PASSWORD", id_usuario, f"usuario={id_usuario}")
             return True
     except Exception as e:
         logger.error(f"Error al cambiar contraseña: {e}")
@@ -437,6 +449,7 @@ def actualizar_usuario(id_usuario, nombre, perfil, tienda_id):
                 sql = f"UPDATE usuarios SET {col_name}=%s, perfil=%s, tienda_id=%s WHERE id=%s"
                 cur.execute(sql, (nombre, perfil, tienda_id, id_usuario))
             conn.commit()
+            _audit_seguridad("CAMBIO_ROL", id_usuario, f"usuario={id_usuario} perfil={perfil}")
             return True
     except Exception as e:
         logger.error(f"Error al actualizar usuario: {e}")
@@ -455,6 +468,7 @@ def eliminar_usuario(id_usuario):
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM usuarios WHERE id = %s", (id_usuario,))
             conn.commit()
+            _audit_seguridad("BAJA_USUARIO", id_usuario, f"usuario={id_usuario}")
             return True
     except Exception as e:
         logger.error(f"Error al eliminar usuario: {e}")
@@ -484,6 +498,69 @@ def validar_pin_fichaje(pin: str) -> dict | None:
                     return {"id": fila[0], "nombre": fila[1]}
     except Exception as e:
         logger.error(f"Error validando PIN fichaje: {e}")
+    return None
+
+
+def validar_pin_por_rol(pin: str, roles) -> dict | None:
+    """Valida un PIN/contraseña exigiendo un perfil dentro de `roles` (lista de perfiles
+    permitidos, p. ej. ['GERENTE','ADMINISTRADOR','SUPERADMIN']). Verifica FILA A FILA con
+    soporte dual Argon2id/SHA-256 + rehash transparente (Argon2id no admite comparación por
+    igualdad en SQL). Devuelve {id, nombre, perfil} del autorizador o None."""
+    pin = (pin or "").strip()
+    roles = [r for r in (roles or []) if r]
+    if not pin or not roles:
+        return None
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                columnas = _columnas_usuarios(cur)
+                col_name = "nombre" if "nombre" in columnas else "usuario"
+                cond_activo = " AND COALESCE(activo,1)=1" if "activo" in columnas else ""
+                ph = ",".join(["%s"] * len(roles))
+                cur.execute(
+                    f"SELECT id, {col_name}, password, perfil FROM usuarios "
+                    f"WHERE perfil IN ({ph}){cond_activo}", tuple(roles))
+                filas = cur.fetchall()
+            for fila in filas:
+                _id = fila["id"] if isinstance(fila, dict) else fila[0]
+                _nombre = fila[col_name] if isinstance(fila, dict) else fila[1]
+                _hash = fila["password"] if isinstance(fila, dict) else fila[2]
+                _perfil = fila["perfil"] if isinstance(fila, dict) else fila[3]
+                ok, nuevo = _pw.verificar(pin, _hash)
+                if ok:
+                    _rehash(_id, nuevo)
+                    return {"id": _id, "nombre": _nombre, "perfil": _perfil}
+    except Exception as e:
+        logger.error("Error validando PIN por rol: %s", e)
+    return None
+
+
+def validar_pin_de_usuario(id_usuario, pin: str) -> dict | None:
+    """Valida el PIN/contraseña de un usuario CONCRETO (por id). Verificación Argon2id (dual
+    SHA-256 legado + rehash). Devuelve {id, nombre} si coincide y el usuario está activo, o None."""
+    pin = (pin or "").strip()
+    if id_usuario is None or not pin:
+        return None
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                columnas = _columnas_usuarios(cur)
+                col_name = "nombre" if "nombre" in columnas else "usuario"
+                cond_activo = " AND COALESCE(activo,1)=1" if "activo" in columnas else ""
+                cur.execute(f"SELECT id, {col_name}, password FROM usuarios WHERE id=%s{cond_activo}",
+                            (id_usuario,))
+                fila = cur.fetchone()
+            if not fila:
+                return None
+            _id = fila["id"] if isinstance(fila, dict) else fila[0]
+            _nombre = fila[col_name] if isinstance(fila, dict) else fila[1]
+            _hash = fila["password"] if isinstance(fila, dict) else fila[2]
+            ok, nuevo = _pw.verificar(pin, _hash)
+            if ok:
+                _rehash(_id, nuevo)
+                return {"id": _id, "nombre": _nombre}
+    except Exception as e:
+        logger.error("Error validando PIN de usuario %s: %s", id_usuario, e)
     return None
 
 

@@ -88,6 +88,18 @@ def crear_blueprint_api():
         if request.method == "OPTIONS":
             return ("", 204)
 
+    # ── Correlation-ID + métricas por petición (OBS-2/OBS-4) ──────────────────
+    @bp.before_request
+    def _obs_inicio():
+        try:
+            from src.services.observabilidad import correlation, metricas
+            cid = request.headers.get("X-Correlation-ID")
+            correlation.set_id(cid or correlation.nuevo("api"))
+            g._t_inicio = __import__("time").perf_counter()
+            metricas.inc("sm_api_requests_total")
+        except Exception:
+            pass
+
     @bp.after_request
     def _cors(resp):
         origin = request.headers.get("Origin")
@@ -97,6 +109,26 @@ def crear_blueprint_api():
             resp.headers["Access-Control-Allow-Credentials"] = "true"
             resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
             resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        # Cabeceras de seguridad (SEC-3), configurables por entorno.
+        import os as _os
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        resp.headers.setdefault("Content-Security-Policy",
+                                _os.getenv("API_CSP", "default-src 'none'; frame-ancestors 'none'"))
+        if _os.getenv("API_HSTS", "1") == "1":
+            resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        # Métricas de respuesta + correlation-id en la respuesta (OBS-2/4).
+        try:
+            from src.services.observabilidad import correlation, metricas
+            resp.headers["X-Correlation-ID"] = correlation.get_id() or "-"
+            if int(resp.status_code) >= 500:
+                metricas.inc("sm_api_errores_total")
+            t0 = getattr(g, "_t_inicio", None)
+            if t0 is not None:
+                metricas.observe("sm_api_latencia_segundos", __import__("time").perf_counter() - t0)
+        except Exception:
+            pass
         return resp
 
     # ── Middleware de autenticación + contexto de tenant (A4) ─────────────────
@@ -121,6 +153,20 @@ def crear_blueprint_api():
 
     bp.token_requerido = token_requerido      # disponible para los endpoints (A1.2)
 
+    # ── Autorización por PERMISO (RBAC/ACL) — además del JWT (FASE RBAC F6) ────
+    def requiere_permiso(permiso):
+        def deco(f):
+            @wraps(f)
+            def envoltorio(*args, **kwargs):
+                from src.services import autorizacion
+                if not autorizacion.puede(g.usuario, permiso):
+                    return _err("permiso insuficiente", 403)
+                return f(*args, **kwargs)
+            return envoltorio
+        return deco
+
+    bp.requiere_permiso = requiere_permiso
+
     # ── Rate limiting (A5.2) por IP+endpoint; backend enchufable (Redis-ready) ─
     def rate_limit(limite, ventana_seg):
         def deco(f):
@@ -139,6 +185,34 @@ def crear_blueprint_api():
     @bp.get("/")
     def info():
         return jsonify({"servicio": "smart-manager-api", "version": API_VERSION})
+
+    # ── Observabilidad: health/ready/live/metrics (público, OBS-3/4) ──────────
+    @bp.get("/live")
+    def _live():
+        from src.services.observabilidad import health
+        return jsonify(health.live())
+
+    @bp.get("/ready")
+    def _ready():
+        from src.services.observabilidad import health
+        r = health.ready()
+        return jsonify(r), (200 if r.get("status") == "ok" else 503)
+
+    @bp.get("/health")
+    def _health():
+        from src.services.observabilidad import health
+        h = health.health()
+        return jsonify(h), (200 if h.get("status") == "ok" else 503)
+
+    @bp.get("/metrics")
+    def _metrics():
+        from flask import Response
+        from src.services.observabilidad import metricas
+        try:
+            metricas.actualizar_negocio()
+        except Exception:
+            pass
+        return Response(metricas.render(), mimetype="text/plain; version=0.0.4")
 
     # ── Autenticación ─────────────────────────────────────────────────────────
     @bp.post("/auth/login")
@@ -208,6 +282,7 @@ def crear_blueprint_api():
     # aplica el servicio usando el TenantContext fijado por @token_requerido.
     @bp.get("/catalogo/productos")
     @token_requerido
+    @requiere_permiso("ventas.ver")
     def api_productos():
         from src.services import catalogo as C
         interno = C.es_vista_interna(g.usuario.get("rol"))
@@ -219,6 +294,7 @@ def crear_blueprint_api():
 
     @bp.get("/catalogo/productos/<int:pid>")
     @token_requerido
+    @requiere_permiso("ventas.ver")
     def api_producto(pid):
         from src.services import catalogo as C
         p = C.producto(id_producto=pid, interno=C.es_vista_interna(g.usuario.get("rol")))
@@ -228,6 +304,7 @@ def crear_blueprint_api():
 
     @bp.get("/catalogo/categorias")
     @token_requerido
+    @requiere_permiso("ventas.ver")
     def api_categorias():
         from src.services import catalogo as C
         return jsonify({"categorias": C.listar_categorias(arbol=True, solo_visibles=False)})
@@ -235,6 +312,7 @@ def crear_blueprint_api():
     # ── Pedidos online (solo lectura) — A1.2 ──────────────────────────────────
     @bp.get("/pedidos")
     @token_requerido
+    @requiere_permiso("ventas.ver")
     def api_pedidos():
         from src.services.tpv import online_orders_service as OS
         estado = request.args.get("estado")
@@ -244,6 +322,7 @@ def crear_blueprint_api():
 
     @bp.get("/pedidos/<pid>")
     @token_requerido
+    @requiere_permiso("ventas.ver")
     def api_pedido(pid):
         from src.services.tpv import online_orders_service as OS
         p = OS.obtener_pedido(pid)
