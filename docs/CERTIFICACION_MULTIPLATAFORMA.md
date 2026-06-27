@@ -1,5 +1,35 @@
 # Certificación multiplataforma — Smart Manager AI (Bloque 8)
 
+## 🏁 ACTA DE CIERRE — BLOQUE 8 CERRADO Y CERTIFICADO
+
+| Campo | Valor |
+|---|---|
+| **Estado** | **BLOQUE 8 OFICIALMENTE CERRADO** |
+| **Fecha de cierre** | 2026-06-28 |
+| **Versión de referencia** | `v1.0-enterprise-foundation` (tag) |
+| **Commit de referencia** | `main` @ `7756e8d` |
+| **GitHub Actions** | ✅ verde (CI · tests · Certificación Multi-OS) |
+| **CI** | ✅ success (lint · i18n · suite + MariaDB · build/migraciones · Docker) |
+| **Multi-OS** | ✅ success — ubuntu/windows/macos × Python 3.12/3.13 |
+| **Seguridad** | ✅ 0 credenciales reales en árbol; `client_secrets` 0 en todo el historial |
+| **Ramas** | `main` única (7 ramas de B8 fusionadas y eliminadas); 0 PRs abiertos; 0 conflictos |
+| **Selector de perfil táctil** | ✅ integrado en Configuración (persistencia por usuario + carga al login + dinámico) |
+
+### Diferencia entre niveles de certificación
+
+- **CERTIFICADO MEDIANTE EVIDENCIA** — ejecutado y verde en GitHub Actions / tests deterministas:
+  **Windows, Linux y macOS** (portabilidad Multi-OS), **suite completa + MariaDB** (Ubuntu),
+  capa de portabilidad (`plataforma`), perfil táctil + selector, escáner universal (núcleo + Qt),
+  adaptadores de impresora (lógica/validación sin hardware).
+- **PREPARADO PARA VALIDACIÓN** — base técnica implementada y lista, pendiente **exclusivamente de
+  hardware/host físico** (no certificable sin el dispositivo): impresoras EPSON/Bixolon/Star/Sunmi
+  (USB/BT/TCP-IP), PDAs/MDE (Zebra/Honeywell/Datalogic/Newland/Sunmi/Bluebird/Chainway),
+  pantallas TPV 10–22", **Windows ARM64** y **Android/iOS nativo** (PyQt6 sin camino nativo).
+
+> El detalle técnico y la evidencia por fase están más abajo en este documento.
+
+---
+
 > **Fecha:** 2026-06-27 · **Alcance:** compatibilidad, despliegue, hardware, UX, rendimiento.
 > **Regla aplicada:** *no asumir compatibilidad; demostrarla con evidencia*. Cuando no hay
 > evidencia ejecutable, se declara honestamente **NO VERIFICADO** en lugar de afirmar PASS.
