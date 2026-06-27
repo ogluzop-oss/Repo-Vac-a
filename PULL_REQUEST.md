@@ -1,10 +1,18 @@
 # Pull Request — Suite Enterprise Smart Manager AI
 
-> **Fecha de generación:** 2026-06-27
+> **Fecha de generación:** 2026-06-27 · **Actualizado:** 2026-06-27
 > **Rama:** `feat/erp-enterprise-suite` → `main`
-> **Último commit de la rama (en el momento de generación):** `32b73e0` — `feat(correo): client OAuth Google por entorno/secret-manager (endurecimiento)`
-> **Hash completo:** `32b73e01ee1c470193124cefc0d7baf7429979c6`
-> *(Este documento se añade en un commit posterior sobre ese tip.)*
+> **Último commit de la rama:** `84c13b4` — `docs(pr): documentación oficial del PR de la suite enterprise`
+>
+> ### Estado de fusión (actualizado)
+> - ✅ **PR #1 ya fusionado en `main`** mediante el commit de merge `271469c`
+>   (*Merge pull request #1 from ogluzop-oss/feat/erp-enterprise-suite*; padres `1b42d51` + `c866b20`).
+>   Incorporó los **14 primeros commits** de la rama (ver detalle en la sección 22).
+> - ⏳ **PR #2 pendiente**: solo quedan por fusionar **2 commits**:
+>   - `32b73e0` — endurecimiento OAuth / Secret Manager
+>   - `84c13b4` — `PULL_REQUEST.md`
+> - ✅ **Merge limpio verificado** (`git merge-tree`, sin conflictos).
+> - ⚠️ **No fast-forward**: `main` contiene el commit de merge `271469c`, ausente en `feat` → el merge del PR #2 generará un commit de merge (no es avance rápido).
 
 ---
 
@@ -18,7 +26,7 @@
 
 Esta rama eleva Smart Manager AI de ERP operativo a **plataforma empresarial multiempresa/SaaS completa**, añadiendo 12 bloques funcionales de forma **estrictamente aditiva, idempotente y reversible**, sin alterar la lógica ya validada (kárdex, lotes, compras, ventas, fiscalidad Verifactu/Facturae, contabilidad PGC, tesorería/SEPA).
 
-- **16 commits temáticos** · **258 ficheros** · **+25.216 / −1.103 líneas**
+- **16 commits temáticos** (14 ya fusionados vía PR #1 + 2 pendientes en PR #2) · **258 ficheros** · **+25.216 / −1.103 líneas**
 - **16 migraciones nuevas** (0052 → 0067), todas `CREATE/ALTER … IF NOT EXISTS`
 - **16 paquetes de servicios** + **8 servicios transversales** + **16 nuevas GUIs**
 - **43 nuevos ficheros de test** · **suite: 879 passed / 0 fail**
@@ -234,10 +242,47 @@ Migraciones verificadas en BD vacía / con datos / upgrade. Arranque de ventanas
 
 ## 22. Estado de fusión
 
-- **Divergencia con `main`:** 16 commits por delante, 0 por detrás (`merge-base == main`).
-- **Tipo de merge:** **fast-forward limpio** — sin posibilidad de conflicto.
-- **Secretos:** 0 referencias a credenciales en el historial de la rama (secreto purgado y rotado).
+### PR #1 — ya fusionado en `main` ✅
+
+Fusionado mediante el commit de merge `271469c` (*Merge pull request #1 from
+ogluzop-oss/feat/erp-enterprise-suite*; padres `1b42d51` + `c866b20`). Incorporó a `main`
+los **14 primeros commits** de la rama, es decir, los bloques:
+
+| Commit | Bloque incorporado a `main` |
+|---|---|
+| `024f750` | DevOps/CD (Docker, gunicorn/wsgi, CI build) |
+| `60b6fc9` | Migraciones 0052–0067 |
+| `47d326b` | Fiscalidad AEAT (303/390/111/190/347/349) |
+| `f2a7724` | Seguridad/Observabilidad (RBAC/ACL, MFA TOTP, RGPD) |
+| `d0c3008` | Workflow/BPM + Comunicaciones |
+| `7e21790` | BI + SaaS |
+| `65c021b` | Disaster Recovery + CRM |
+| `316e81c` | MRP/Fabricación + Calidad |
+| `670abdb` | GMAO + SAT/Helpdesk |
+| `c4aae43` | Finanzas avanzadas + BI Corporativo |
+| `f95ec3a` | Resiliencia / Offline-first |
+| `8b11b64` | Ajustes Tesorería/Contabilidad (SEPA/posting) |
+| `10b2e75` | UX-TPV-01 (TPV/navegación/responsive) |
+| `2be830f`, `c866b20` | Higiene de repo (.gitignore: artefactos y credenciales) |
+
+### PR #2 — pendiente ⏳
+
+Quedan **2 commits** en `feat/erp-enterprise-suite` sin fusionar:
+
+- `32b73e0` — endurecimiento OAuth / Secret Manager (correo corporativo).
+- `84c13b4` — `PULL_REQUEST.md` (este documento).
+
+### Características del merge del PR #2
+
+- **Merge limpio verificado:** `git merge-tree` sin conflictos (exit 0).
+- **Sin conflictos detectados.**
+- **No fast-forward:** `main` contiene el commit de merge `271469c` (ausente en `feat`),
+  por lo que el PR #2 generará un commit de merge — **no** es avance rápido.
+- **Secretos:** 0 referencias a credenciales en el historial de la rama y en `main`
+  (secreto purgado y rotado).
 - **Esquema:** 100% aditivo (`IF NOT EXISTS`) — no rompe instalaciones con datos.
+
+> Abrir PR #2: `https://github.com/ogluzop-oss/Repo-Vac-a/compare/main...feat/erp-enterprise-suite`
 
 ---
 
