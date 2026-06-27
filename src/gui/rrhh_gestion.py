@@ -254,7 +254,8 @@ class ExpedienteDialog(QDialog):
         ruta = (d or {}).get("ref_documento")
         if ruta and os.path.exists(ruta):
             try:
-                os.startfile(ruta)  # noqa: S606 (Windows; apertura del PDF del expediente)
+                from src.utils import plataforma
+                plataforma.abrir_archivo(ruta)
             except Exception as ex:
                 QMessageBox.warning(self, "RRHH", f"No se pudo abrir: {ex}")
         else:

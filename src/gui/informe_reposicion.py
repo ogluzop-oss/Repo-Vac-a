@@ -704,7 +704,8 @@ class InformeReposicionWindow(QWidget):
                        ruta=ruta_excel),
                 )
                 # Abrir la carpeta
-                os.startfile(folder)
+                from src.utils import plataforma
+                plataforma.abrir_carpeta(folder)
 
             except Exception as e:
                 QMessageBox.critical(

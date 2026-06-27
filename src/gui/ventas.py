@@ -2736,12 +2736,8 @@ class VentasAnaliticaWindow(QWidget):
 
             mostrar_mensaje(self, tr("vta.forecast_generated_title", default="Previsión generada"), tr("vta.excel_saved", default="Excel guardado en:\n{ruta}", ruta=ruta))
             try:
-                import platform
-                import subprocess
-                if platform.system() == "Windows":
-                    os.startfile(ruta)
-                else:
-                    subprocess.Popen(["xdg-open", ruta])
+                from src.utils import plataforma
+                plataforma.abrir_archivo(ruta)
             except Exception:
                 pass
 
@@ -3295,12 +3291,8 @@ class VentasAnaliticaWindow(QWidget):
             ruta = self._exportar_tabla_pdf()
             mostrar_mensaje(self, tr("vta.perf_print_ok_t", default="Tabla exportada"),
                             tr("vta.perf_print_ok", default="Guardada en:\n{ruta}", ruta=ruta), "success")
-            import platform
-            import subprocess
-            if platform.system() == "Windows":
-                os.startfile(ruta)  # abre el visor → permite imprimir
-            else:
-                subprocess.Popen(["xdg-open", ruta])
+            from src.utils import plataforma
+            plataforma.abrir_archivo(ruta)  # abre el visor → permite imprimir
         except Exception as e:
             mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")
 

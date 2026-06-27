@@ -5214,14 +5214,8 @@ class _BuscarTicketDialog(QDialog):
 
             ruta = reimprimir_ticket(venta_id, regalo=regalo)
             if ruta:
-                import os as _os
-                import platform
-                import subprocess
-
-                if platform.system() == "Windows":
-                    _os.startfile(ruta)
-                else:
-                    subprocess.Popen(["xdg-open", ruta])
+                from src.utils import plataforma
+                plataforma.abrir_archivo(ruta)
             else:
                 from assets.estilo_global import mostrar_mensaje as _mm
 
@@ -5697,6 +5691,14 @@ class TPVWindow(QWidget):
         self.inp_sku.returnPressed.connect(self._agregar)
         lay.addWidget(self.inp_sku, 1)
 
+        # Escáner universal (Bloque 8.3): wedge/USB/Bluetooth HID de cualquier fabricante,
+        # captura global aunque el campo no tenga el foco. No intrusivo (no consume teclas).
+        try:
+            from src.gui.escaner_qt import instalar_escaner
+            self._filtro_escaner = instalar_escaner(self, self._on_codigo_escaneado)
+        except Exception:
+            pass
+
         qty_frame = QFrame()
         qty_frame.setFixedWidth(82)
         qty_frame.setFixedHeight(38)
@@ -6096,6 +6098,22 @@ class TPVWindow(QWidget):
         self.inp_sku.setFocus()
 
     # ─────────────────── CARRITO ─────────────────────────────
+
+    def _on_codigo_escaneado(self, codigo: str):
+        """Escáner universal (Bloque 8.3): añade el artículo escaneado al ticket.
+
+        Solo actúa si el campo SKU no tiene el foco (cuando lo tiene, el escaneo ya
+        llega por la vía normal returnPressed -> _agregar, evitando doble alta).
+        """
+        try:
+            if not codigo:
+                return
+            if hasattr(self, "inp_sku") and self.inp_sku.hasFocus():
+                return
+            self.inp_sku.setText(codigo)
+            self._agregar()
+        except Exception:
+            pass
 
     def _agregar(self):
         codigo = self.inp_sku.text().strip()
