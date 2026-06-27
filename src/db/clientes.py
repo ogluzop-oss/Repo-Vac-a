@@ -78,7 +78,9 @@ def crear_cliente(nombre, nif=None, telefono=None, email=None,
 # ── VTA.1 — CRUD completo + segmentación/crédito ──────────────────────────────
 _PERMITIDOS = ("nombre", "nif", "telefono", "email", "direccion", "estado",
                "limite_credito", "riesgo_actual", "categoria", "segmento",
-               "observaciones", "estado_crediticio")
+               "observaciones", "estado_crediticio",
+               # AEAT-6 — dimensión intracomunitaria (Modelo 349)
+               "nif_iva", "es_intracomunitario", "pais_fiscal")
 
 
 def actualizar_cliente(cliente_id, id_empresa=None, **campos) -> bool:

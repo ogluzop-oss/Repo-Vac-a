@@ -344,17 +344,29 @@ def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
                       id_pedido=None, id_recepcion=None, base=None, iva=None,
                       fecha_factura=None, observaciones=None, id_empresa=None,
                       tipo_documento="factura", id_factura_rectificada=None,
-                      id_recepciones=None) -> int | None:
+                      id_recepciones=None, retencion_pct=None, retencion_importe=None) -> int | None:
     """Registra una factura/abono/rectificativa de proveedor (CMP.5). Si no se pasan
-    base/iva, base = suma de líneas e iva = 0. Total = base + iva. `id_recepciones` permite
-    conciliación n:m. Los abonos/rectificativas se contabilizan en negativo."""
+    base/iva, base = suma de líneas e iva = 0. `id_recepciones` permite conciliación n:m.
+    Los abonos/rectificativas se contabilizan en negativo.
+
+    AEAT-3: retención IRPF de profesionales opcional. Si `retencion_pct`/`retencion_importe`,
+    se almacena y el total a pagar = base + iva − retención. SIN retención el comportamiento
+    es idéntico al anterior (total = base + iva)."""
     id_empresa = _empresa(id_empresa)
     lineas = lineas or []
     base_calc = round(sum(int(l.get("cantidad") or 0) * round(float(l.get("precio_unitario") or 0), 2)
                           for l in lineas), 2)
     base_f = round(float(base), 2) if base is not None else base_calc
     iva_f = round(float(iva or 0), 2)
-    total_f = round(base_f + iva_f, 2)
+    # Retención: si llega el importe se usa; si solo el %, se calcula sobre la base.
+    ret_pct = round(float(retencion_pct or 0), 2)
+    if retencion_importe is not None:
+        ret_imp = round(float(retencion_importe), 2)
+    elif ret_pct:
+        ret_imp = round(base_f * ret_pct / 100, 2)
+    else:
+        ret_imp = 0.0
+    total_f = round(base_f + iva_f - ret_imp, 2)
     es_negativo = tipo_documento in ("abono", "rectificativa")
     try:
         ensure_schema()
@@ -362,10 +374,11 @@ def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
             cur.execute(
                 "INSERT INTO compras_facturas (id_empresa, id_proveedor, id_pedido, id_recepcion, "
                 "numero_factura, fecha_factura, base, iva, total, observaciones, tipo_documento, "
-                "id_factura_rectificada) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "id_factura_rectificada, retencion_pct, retencion_importe) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (id_empresa, id_proveedor, id_pedido, id_recepcion, numero_factura,
                  fecha_factura, base_f, iva_f, total_f, observaciones, tipo_documento,
-                 id_factura_rectificada))
+                 id_factura_rectificada, ret_pct, ret_imp))
             fid = cur.lastrowid
             for _rid in (id_recepciones or []):   # conciliación n:m
                 cur.execute("INSERT INTO compras_factura_recepciones (id_empresa, id_factura, "
@@ -386,7 +399,8 @@ def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
             from src.services.contabilidad.posting import encolar_compra
             signo = -1 if es_negativo else 1
             encolar_compra(fid, signo * total_f, fecha_factura or _hoy(), id_empresa=id_empresa,
-                           base=signo * base_f, iva=signo * iva_f, subtipo=tipo_documento)
+                           base=signo * base_f, iva=signo * iva_f, subtipo=tipo_documento,
+                           retencion=signo * ret_imp)
         except Exception:
             pass
         return fid

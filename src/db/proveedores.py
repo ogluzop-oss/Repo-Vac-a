@@ -55,7 +55,9 @@ def actualizar_proveedor(id_proveedor, id_empresa=None, **campos) -> bool:
                   "direccion_fiscal", "estado", "observaciones",
                   # CMP.1 — condiciones / bancarios / homologación
                   "plazo_pago", "lead_time_dias", "descuento", "rappel", "divisa",
-                  "iban", "irpf", "homologado", "bloqueado", "categoria")
+                  "iban", "irpf", "homologado", "bloqueado", "categoria",
+                  # AEAT-6 — dimensión intracomunitaria (Modelo 349)
+                  "nif_iva", "es_intracomunitario", "pais_fiscal")
     sets = {k: campos[k] for k in permitidos if k in campos}
     if "estado" in sets and sets["estado"] not in ESTADOS:
         sets.pop("estado")
