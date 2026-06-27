@@ -23,8 +23,8 @@ requests==2.33.1             # cliente HTTP (API / gateway RFID)
 Flask==3.1.3                  # receptor de webhooks (src/backend/app.py)
 
 # ── Correo corporativo (multi-tenant / OAuth 2.0) ───────────
-cryptography==46.0.7            # cifrado OAuth en reposo + firma 3DES de Redsys (pasarela de pago)
-pyOpenSSL==24.2.1              # mTLS en memoria con AEAT (Verifactu C3.5; sin PEM en disco)
+cryptography==43.0.3           # cifrado OAuth en reposo + firma 3DES de Redsys (pasarela de pago) — <44 por compat. pyOpenSSL 24.2.1
+pyOpenSSL==24.2.1              # mTLS en memoria con AEAT (Verifactu C3.5; sin PEM en disco) — usa X509.from_cryptography (no subir a 25/26)
 signxml==4.5.1                # firma XAdES-EPES (NO-VERIFACTU / Facturae C3.4-C3.5)
 argon2-cffi==25.1.0             # hashing de contraseñas Argon2id (seguridad/passwords)
 PyJWT==2.13.0                  # tokens JWT/refresh (seguridad/tokens) para la futura API
