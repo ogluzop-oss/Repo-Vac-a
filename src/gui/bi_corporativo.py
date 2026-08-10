@@ -39,7 +39,7 @@ class BICorporativoWindow(QWidget):
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
         cab.addWidget(_btn("Recalcular DW", self._etl))
-        cab.addWidget(_btn("Actualizar", self._load, primary=True))
+        cab.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
         cab.addWidget(_btn("Exportar", self._export))
         if callback_vuelta:
             cab.addWidget(_btn("Volver", self._volver))

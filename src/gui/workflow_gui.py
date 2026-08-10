@@ -12,7 +12,8 @@ from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QTableWidgetItem,
                              QVBoxLayout, QWidget)
 
 from src.db import workflow as _W
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _combo, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_x, _combo, _tabla
+from src.gui.foundation import tokens as T
 from src.services.workflow import plantillas as _P
 from src.services.workflow import workflow_engine as _E
 
@@ -51,14 +52,54 @@ class WorkflowWindow(QWidget):
         t = QLabel("Aprobaciones · Workflow / BPM")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
-        cab.addWidget(_btn("Actualizar", self.refrescar))
+        # (El botón Actualizar de la cabecera se retira: cada pestaña tiene su propio refresco.)
         if callback_vuelta:
-            cab.addWidget(_btn("Volver", self._volver))
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
         self.tabs = QTabWidget()
+        self.tabs.setStyleSheet(T.qss_tabs())   # mismo diseño de pestañas que el Centro de Inteligencia
         root.addWidget(self.tabs)
         self._tab_bandeja()
         self._tab_disenador()
+        self._tab_enterprise()
+
+    def _add_tab(self, w, titulo):
+        """Añade una pestaña envuelta en un scroll de PÁGINA COMPLETA (las tablas no van apretadas)."""
+        from PyQt6.QtWidgets import QScrollArea
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setFrameShape(QScrollArea.Shape.NoFrame)
+        sc.setStyleSheet("QScrollArea{background:transparent;border:none;}" + T.qss_scrollbar())
+        sc.setWidget(w)
+        self.tabs.addTab(sc, titulo)
+
+    def _tab_enterprise(self):
+        """Enterprise 4/10: Automatización, Autonomía Supervisada e Historial alojados en
+        Aprobaciones (misma familia: propuesta→aprobación→ejecución). Aditivo y compatible."""
+        for factory, titulo in ((self._panel_automatizacion, "Automatización"),
+                                (self._panel_autonomia, "Autonomía"),
+                                (self._panel_jobs, "Programador"),
+                                (self._panel_historial, "Historial")):
+            try:
+                self._add_tab(factory(), titulo)
+            except Exception as e:
+                logger.debug("tab enterprise %s: %s", titulo, e)
+
+    def _panel_automatizacion(self):
+        from src.gui.paneles.panel_automatizacion import PanelAutomatizacion
+        return PanelAutomatizacion(usuario=self.usuario)
+
+    def _panel_autonomia(self):
+        from src.gui.paneles.panel_autonomia import PanelAutonomia
+        return PanelAutonomia(usuario=self.usuario)
+
+    def _panel_jobs(self):
+        from src.gui.paneles.panel_jobs import PanelJobs
+        return PanelJobs(usuario=self.usuario)
+
+    def _panel_historial(self):
+        from src.gui.paneles.panel_historial import PanelHistorial
+        return PanelHistorial(usuario=self.usuario)
 
     # ── Bandeja ───────────────────────────────────────────────────────────────
     def _tab_bandeja(self):
@@ -66,11 +107,13 @@ class WorkflowWindow(QWidget):
         bar = QHBoxLayout()
         bar.addWidget(_btn("Aprobar", self._aprobar, primary=True))
         bar.addWidget(_btn("Rechazar", self._rechazar, danger=True))
-        bar.addStretch(); lay.addLayout(bar)
+        bar.addStretch()
+        bar.addWidget(_btn("🔄  Actualizar", self._load_bandeja))
+        lay.addLayout(bar)
         self.tbl = _tabla(["Tarea", "Instancia", "Entidad", "Entidad ID", "Permiso", "Rol", "Estado"])
         self.tbl.cellClicked.connect(self._sel)
         lay.addWidget(self.tbl)
-        self.tabs.addTab(w, "Pendientes")
+        self._add_tab(w, "Pendientes")
         self._sel_tarea = None
         self._load_bandeja()
 
@@ -115,13 +158,16 @@ class WorkflowWindow(QWidget):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         bar = QHBoxLayout()
         self.cmb_ent = _combo([(e, e) for e in _P.PLANTILLAS])
+        self.cmb_ent.setMinimumWidth(230)   # evita texto cortado en el desplegable
         bar.addWidget(QLabel("Entidad:")); bar.addWidget(self.cmb_ent)
         bar.addWidget(_btn("Crear plantilla", self._crear_plantilla, primary=True))
         bar.addWidget(_btn("Sembrar todas", self._seed))
-        bar.addStretch(); lay.addLayout(bar)
+        bar.addStretch()
+        bar.addWidget(_btn("🔄  Actualizar", self._load_def))
+        lay.addLayout(bar)
         self.tbl_def = _tabla(["ID", "Código", "Nombre", "Entidad", "Activo"])
         lay.addWidget(self.tbl_def)
-        self.tabs.addTab(w, "Diseñador")
+        self._add_tab(w, "Diseñador")
         self._load_def()
 
     def _load_def(self):

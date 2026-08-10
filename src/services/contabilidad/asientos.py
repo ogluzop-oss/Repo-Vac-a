@@ -21,13 +21,18 @@ _CENT = 0.005   # tolerancia de cuadre (medio céntimo)
 
 
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v2 (Bloque III): resolución de empresa vía capa de identidad (Strangler).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.services.contabilidad.identidad_contabilidad import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return EMPRESA_DEFAULT_ID
 
 
 def _norm(lineas):
@@ -116,6 +121,14 @@ def crear_asiento(fecha, lineas, concepto=None, tipo="normal", origen="manual",
                     "descripcion, debe, haber, tercero, tipo_iva) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                     (aid, id_empresa, a["codigo_cuenta"], a["descripcion"], a["debe"],
                      a["haber"], a["tercero"], a["tipo_iva"]))
+        # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("ASIENTO_CONTABILIZADO", id_empresa=id_empresa, origen="contabilidad",
+                         ref_entidad="asiento", ref_id=aid,
+                         payload={"numero": numero, "anio": anio, "origen": origen, "total": td})
+        except Exception:
+            pass
         return {"id": aid, "numero": numero, "anio": anio, "estado": estado, "total": td}
     except Exception as e:
         logger.error("crear_asiento: %s", e)

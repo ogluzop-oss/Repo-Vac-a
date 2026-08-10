@@ -17,12 +17,17 @@ PUNTOS_POR_EURO = 1   # 1 punto por € (configurable a futuro)
 
 
 def _emp(id_empresa=None):
+    # IOC v3 (Bloque V): seam de identidad delegado en la fachada de datos (db -> db).
     try:
-        from src.db.empresa import empresa_actual_id
-        return id_empresa or empresa_actual_id()
+        from src.db.identidad_contexto import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        from src.db.conexion import EMPRESA_DEFAULT_ID
-        return id_empresa or EMPRESA_DEFAULT_ID
+        try:
+            from src.db.empresa import empresa_actual_id
+            return id_empresa or empresa_actual_id()
+        except Exception:
+            from src.db.conexion import EMPRESA_DEFAULT_ID
+            return id_empresa or EMPRESA_DEFAULT_ID
 
 
 def _mov(cur, id_empresa, id_cliente, tipo, puntos=0, importe=0, id_venta=None, desc=None):

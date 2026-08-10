@@ -1,0 +1,22 @@
+# Entorno PRODUCTION. Sin secretos. Multi-AZ y retención de backups mayores.
+aws_region  = "eu-west-1"   # [EXTERNO]
+environment = "production"
+project     = "smart-manager"
+
+enable_network       = false
+enable_rds           = false
+enable_s3            = false
+enable_secrets       = false
+enable_observability = false
+enable_ecs           = false
+enable_ci_oidc       = false
+
+vpc_cidr                  = "10.40.0.0/16"
+az_count                  = 3
+rds_instance_class        = "db.r6g.large"
+rds_allocated_storage     = 100
+rds_multi_az              = true
+rds_backup_retention_days = 30
+
+github_org  = "<github-org>"
+github_repo = "<github-repo>"

@@ -308,6 +308,11 @@ class _EmpNameEdit(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setCursor(Qt.CursorShape.IBeamCursor)
 
+        # Color propio del empleado (None = sin color; se pinta el fondo de esta celda). El gestor de
+        # unicidad (la tabla) inyecta `solicitar_color` para validar que cada color sea único.
+        self._color: "str | None" = None
+        self.solicitar_color = None
+
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
@@ -317,24 +322,84 @@ class _EmpNameEdit(QWidget):
         # Mouse events pass through to the outer QWidget; WA_UnderMouse is
         # therefore never set on the inner QLineEdit → QLineEdit:hover cannot fire.
         self._edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._edit.setStyleSheet(
-            "QLineEdit#empNameInner {"
-            " background: transparent; border: none; color: #D0DCE8;"
-            " font-family: 'Segoe UI'; font-size: 12px; padding: 0 8px;"
-            "}"
-            "QLineEdit#empNameInner:focus { background: transparent; border: none; }"
-        )
         self._edit.textChanged.connect(self.textChanged)
         self._edit.installEventFilter(self)
-        lay.addWidget(self._edit)
+        lay.addWidget(self._edit, 1)
+
+        # Botón PINCEL (solo emoji, sin texto): abre el selector de color estándar de la app para asignar
+        # un color propio al empleado. Va a la derecha; la columna EMPLEADO se ensancha (_W_EMP) para que
+        # el botón NUNCA tape el nombre.
+        self._btn_color = QToolButton(self)
+        self._btn_color.setObjectName("empColorBtn")
+        self._btn_color.setText("🖌️")
+        self._btn_color.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_color.setFixedSize(24, 24)
+        self._btn_color.setToolTip(tr("cfg.emp_color_tip", default="Color del empleado"))
+        self._btn_color.setStyleSheet(
+            "QToolButton#empColorBtn{background:transparent;border:none;border-radius:6px;"
+            "font-size:13px;padding:0;}"
+            "QToolButton#empColorBtn:hover{background:rgba(0,255,198,40);}"
+        )
+        self._btn_color.clicked.connect(self._on_brush_clicked)
+        lay.addWidget(self._btn_color, 0, Qt.AlignmentFlag.AlignVCenter)
+        lay.addSpacing(4)
 
         self.setFocusProxy(self._edit)
+        self._aplicar_color_texto(self._row_bg)
         self._set_style(focused=False)
 
     def _set_style(self, focused: bool):
         border = f"1px solid {_CIAN}" if focused else "1px solid transparent"
+        bg = self._color or self._row_bg
         self.setStyleSheet(
-            f"QWidget#empNameOuter {{background:{self._row_bg}; border:{border};}}"
+            f"QWidget#empNameOuter {{background:{bg}; border:{border};}}"
+        )
+        # Mantener el nombre LEGIBLE sobre el color elegido (texto oscuro sobre fondo claro y viceversa).
+        self._aplicar_color_texto(bg)
+
+    def _aplicar_color_texto(self, bg_hex: str):
+        try:
+            c = QColor(bg_hex)
+            lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
+            fg = "#0D1117" if lum > 140 else "#D0DCE8"
+        except Exception:
+            fg = "#D0DCE8"
+        self._edit.setStyleSheet(
+            "QLineEdit#empNameInner {"
+            f" background: transparent; border: none; color: {fg};"
+            " font-family: 'Segoe UI'; font-size: 12px; padding: 0 8px;"
+            "}"
+            "QLineEdit#empNameInner:focus { background: transparent; border: none; }"
+        )
+
+    # ── Color propio del empleado ─────────────────────────────────────────────
+    def _on_brush_clicked(self):
+        if callable(self.solicitar_color):
+            self.solicitar_color(self)   # la tabla valida unicidad y aplica
+            return
+        # Fallback autónomo (sin gestor): abre el selector igualmente.
+        try:
+            from src.gui.color_picker import seleccionar_color
+        except Exception:
+            return
+        hexcol = seleccionar_color(self, inicial=self._color or "#00FFC6",
+                                   titulo=tr("cfg.emp_color_title", default="Color del empleado"))
+        if hexcol:
+            self.setColor(hexcol)
+
+    def color(self) -> "str | None":
+        return self._color
+
+    def setColor(self, hexcol):
+        self._color = hexcol or None
+        self._set_style(focused=False)
+
+    def avisar_color_duplicado(self):
+        from PyQt6.QtWidgets import QToolTip
+        QToolTip.showText(
+            self._btn_color.mapToGlobal(self._btn_color.rect().bottomLeft()),
+            tr("cfg.emp_color_dup", default="Ese color ya está asignado a otro empleado."),
+            self._btn_color,
         )
 
     def eventFilter(self, obj, event):
@@ -810,7 +875,9 @@ class _HorarioTable(QWidget):
     build_complete = pyqtSignal()
 
     # Fixed column widths
-    _W_EMP  = 145   # EMPLEADO column
+    # EMPLEADO se ensancha (145→184) para alojar el botón del pincel (color por empleado) a la derecha
+    # SIN recortar el espacio del nombre (queda ≈154 px de texto, igual o más que los 145 previos).
+    _W_EMP  = 184   # EMPLEADO column (nombre + botón de color)
     _W_TOT  = 145   # TOTAL SEMANA column
     _ROW_H0 = 32    # day header row
     _ROW_H1 = 30    # sub-header row
@@ -821,6 +888,7 @@ class _HorarioTable(QWidget):
         super().__init__(parent)
         self._n_emp = max(1, n_emp)
         self._names: list[str] = [""] * self._n_emp
+        self._colors: list[str] = [""] * self._n_emp   # color propio por empleado ("" = sin color)
         self._cells: list = []        # [emp][day] = (ini_w, fin_w)
         self._name_edits: list[QLineEdit] = []
         self._absences: dict = {}     # {(emp_idx, day_idx): {"text": str, "color": str}}
@@ -937,15 +1005,18 @@ class _HorarioTable(QWidget):
         total_h = self._ROW_H0 + self._ROW_H1 + n * self._ROW_EMP + self._ROW_TOT
         self.setFixedSize(total_w, total_h)
 
-        # Start incremental employee-row build — yields to event loop between rows
-        # so headers paint immediately and each row appears as it's ready.
-        if n > 0:
-            QTimer.singleShot(0, lambda: self._build_emp_row(tbl, 0, n))
-        else:
-            self._finalize_build(tbl)
+        # Construcción SÍNCRONA de todas las filas: la tabla aparece COMPLETA de una sola vez (todas las
+        # filas, columnas y empleados) y más ágil, sin ceder al bucle de eventos entre filas (que añadía
+        # un tick por empleado y hacía que se viera "a medias"). El filtro global sigue suspendido durante
+        # el build y se restaura en _finalize_build; el diseño, la lógica y el contenido son idénticos.
+        for e in range(n):
+            if tbl is not self._tbl:   # un _build_table más reciente tomó el relevo
+                return
+            self._build_emp_row(tbl, e, n)
+        self._finalize_build(tbl)
 
     def _build_emp_row(self, tbl: "QTableWidget", e: int, n: int):
-        """Build one employee row and schedule the next via a 0-ms timer."""
+        """Build one employee row (la iteración la conduce el bucle síncrono de _build_table)."""
         if tbl is not self._tbl:   # stale — a newer _build_table was called
             return
 
@@ -956,6 +1027,9 @@ class _HorarioTable(QWidget):
         name_w.setPlaceholderText(tr("cfg.emp_placeholder", default="Empleado..."))
         if e < len(self._names):
             name_w.setText(self._names[e])
+        name_w.solicitar_color = self._solicitar_color_para
+        if e < len(self._colors) and self._colors[e]:
+            name_w.setColor(self._colors[e])
         name_w.textChanged.connect(lambda t, idx=e: self._on_name_changed(idx, t))
         tbl.setCellWidget(row, 0, name_w)
         self._name_edits.append(name_w)
@@ -993,11 +1067,8 @@ class _HorarioTable(QWidget):
         it_sem.setFont(fs)
         tbl.setItem(row, 22, it_sem)
         self._cells.append(day_cells)
-
-        if e + 1 < n:
-            QTimer.singleShot(0, lambda: self._build_emp_row(tbl, e + 1, n))
-        else:
-            self._finalize_build(tbl)
+        # La siguiente fila la construye el bucle síncrono de _build_table (ya no se auto-programa por
+        # timer): así la tabla se completa de golpe, sin medias tintas.
 
     def _finalize_build(self, tbl: "QTableWidget"):
         """Called after all employee rows are populated."""
@@ -1026,6 +1097,21 @@ class _HorarioTable(QWidget):
         if idx < len(self._names):
             self._names[idx] = text
 
+    def _solicitar_color_para(self, cell: "_EmpNameEdit"):
+        """Abre el selector de color estándar para `cell` y aplica el color SOLO si es único (cada
+        empleado un color distinto). Punto único que conoce todos los colores en uso."""
+        from src.gui.color_picker import seleccionar_color
+        usados = {(c.color() or "").lower() for c in self._name_edits
+                  if c is not cell and c.color()}
+        hexcol = seleccionar_color(cell, inicial=cell.color() or _CIAN,
+                                   titulo=tr("cfg.emp_color_title", default="Color del empleado"))
+        if not hexcol:
+            return
+        if hexcol.lower() in usados:
+            cell.avisar_color_duplicado()
+            return
+        cell.setColor(hexcol)
+
     # ── row management ───────────────────────────────────────────────────────
 
     def add_row(self):
@@ -1034,10 +1120,12 @@ class _HorarioTable(QWidget):
             # Table not yet built; just bump count and let the pending build handle it.
             self._n_emp += 1
             self._names = [""] * self._n_emp
+            self._colors = [""] * self._n_emp
             return
 
         e = self._n_emp
         self._names = [ed.text() for ed in self._name_edits] + [""]
+        self._colors = [(ed.color() or "") for ed in self._name_edits] + [""]
         self._n_emp += 1
 
         from assets import estilo_global as _eg
@@ -1057,6 +1145,7 @@ class _HorarioTable(QWidget):
 
         name_w = _EmpNameEdit(row_bg)
         name_w.setPlaceholderText(tr("cfg.emp_placeholder", default="Empleado..."))
+        name_w.solicitar_color = self._solicitar_color_para
         name_w.textChanged.connect(lambda t, idx=e: self._on_name_changed(idx, t))
         tbl.setCellWidget(insert_pos, 0, name_w)
         self._name_edits.append(name_w)
@@ -1216,6 +1305,7 @@ class _HorarioTable(QWidget):
 
     def get_state(self) -> dict:
         names = [e.text() for e in self._name_edits]
+        colors = [(e.color() or "") for e in self._name_edits]
         schedule: dict = {}
         for e_idx in range(len(self._cells)):
             day_data: dict = {}
@@ -1230,12 +1320,15 @@ class _HorarioTable(QWidget):
                     }
             schedule[str(e_idx)] = day_data
         absences = {f"{k[0]},{k[1]}": v for k, v in self._absences.items()}
-        return {"names": names, "schedule": schedule, "absences": absences}
+        return {"names": names, "colors": colors, "schedule": schedule, "absences": absences}
 
     def set_state(self, data: dict):
         names = data.get("names", [])
+        colors = data.get("colors", [])
         n_new = max(self._n_emp, len(names))
         names_padded = list(names) + [""] * (n_new - len(names))
+        colors_padded = list(colors) + [""] * (n_new - len(colors))
+        self._colors = colors_padded
         schedule = data.get("schedule", {})
         absences_raw = data.get("absences", {})
         self._absences = {
@@ -1252,11 +1345,12 @@ class _HorarioTable(QWidget):
             self.build_complete.connect(_on_ready)
             self._build_table()
         else:
-            # Same employee count — refresh names, restore schedule, apply absences.
+            # Same employee count — refresh names, colors, restore schedule, apply absences.
             self._names = names_padded
             for i, edit in enumerate(self._name_edits):
                 if i < len(names_padded):
                     edit.setText(names_padded[i])
+                edit.setColor(colors_padded[i] if i < len(colors_padded) else None)
             self._restore_schedule(schedule)
             self._apply_all_absences()
 

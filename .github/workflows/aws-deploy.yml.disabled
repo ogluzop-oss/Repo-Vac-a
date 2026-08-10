@@ -1,0 +1,46 @@
+# Pipeline de DESPLIEGUE AWS (build → ECR → ECS) — PREPARADO, DESACTIVADO.
+#
+# Fichero con extensión `.disabled` a propósito: GitHub NO lo ejecuta (no es *.yml activo). Se renombra a
+# `aws-deploy.yml` cuando el propietario provisione AWS (rol OIDC + ECR + ECS). Autenticación por OIDC (sin
+# claves estáticas). Aun activo, sólo se dispara manualmente (`workflow_dispatch`) y despliega a un entorno
+# concreto; el `apply` de Terraform NO forma parte de este pipeline (infra = `aws-iac.yml` + revisión manual).
+#
+# name: AWS Deploy (build → ECR → ECS)
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       environment: { description: "dev|staging|production", required: true, default: "staging" }
+# permissions:
+#   id-token: write
+#   contents: read
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     environment: ${{ github.event.inputs.environment }}   # protección/approval por environment de GitHub
+#     steps:
+#       - uses: actions/checkout@v4
+#       - name: Tests (gate)
+#         run: |
+#           # QT_QPA_PLATFORM=offscreen DB_NAME=smart_manager_test python -m pytest -q tests/unit
+#           echo "ejecutar la suite antes de construir"
+#       - name: Configure AWS (OIDC)
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}   # [EXTERNO] ARN del rol, NO una credencial
+#           aws-region: ${{ vars.AWS_REGION }}
+#       - name: Login ECR
+#         uses: aws-actions/amazon-ecr-login@v2
+#       - name: Build & push (TAG = SHA inmutable)
+#         run: |
+#           IMAGE=${{ vars.ECR_REPO }}:${{ github.sha }}
+#           docker build -t "$IMAGE" .
+#           docker push "$IMAGE"          # ← SÓLO cuando el propietario active el pipeline; NO se ejecuta ahora
+#       - name: Deploy ECS (nueva task definition + update-service)
+#         run: |
+#           # aws ecs update-service --cluster ${{ vars.ECS_CLUSTER }} --service ${{ vars.ECS_SERVICE }} --force-new-deployment
+#           echo "registrar task def con la nueva imagen y actualizar el servicio"
+#       - name: Smoke test
+#         run: |
+#           # curl -fsS https://<dominio>/api/v1/ready
+#           echo "validar /api/v1/ready tras el despliegue"
+#       # Rollback: volver a la task definition anterior (aws ecs update-service --task-definition <prev>).

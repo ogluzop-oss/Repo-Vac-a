@@ -1,0 +1,8 @@
+# Namespace del backend Enterprise (Etapa E · Fase E4). Aditivo: no altera Docker/compose/gunicorn/CI.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: smart-manager
+  labels:
+    app.kubernetes.io/name: smart-manager
+    app.kubernetes.io/part-of: smart-manager-ai

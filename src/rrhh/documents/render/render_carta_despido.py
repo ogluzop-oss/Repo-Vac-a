@@ -47,6 +47,14 @@ def _impl():
                 "<b>33 días de salario por año de servicio</b> desde el 12/02/2012, "
                 "o de 45 días por los períodos anteriores (máximo 720 días de salario)."
             ),
+            "PERÍODO DE PRUEBA": (
+                "Por medio de la presente, y al amparo de lo dispuesto en el <b>artículo 14 del "
+                "Estatuto de los Trabajadores</b> (RDL 2/2015), la dirección de la empresa le "
+                "comunica la <b>extinción de su contrato de trabajo durante el período de prueba</b>, "
+                f"con efectos desde el día <b>{fecha}</b>, al <b>no haber superado satisfactoriamente "
+                "dicho período</b>. La resolución del contrato durante el período de prueba no "
+                "requiere preaviso ni genera derecho a indemnización."
+            ),
         }
         story.append(_P(intro_map.get(subtipo_label,
             f"Se le comunica la extinción de su relación laboral con efectos desde el {fecha}."), st_body))

@@ -128,6 +128,91 @@ def desglose_iva(total_pvp, id_empresa=None, tipo=None) -> dict:
     return {"tipo": r, "base": base, "cuota": round(total - base, 2), "total": total}
 
 
+# ── Motor fiscal AVANZADO (FASE 3.2): recargo equiv. · ISP · intracom · IRPF ──
+# Recargo de equivalencia (España) por tipo de IVA. Fuente única; ampliable.
+_RECARGO_POR_IVA = {21.0: 5.2, 10.0: 1.4, 4.0: 0.5, 0.0: 0.0, 5.0: 0.62, 2.0: 0.26}
+
+# Leyendas legales por régimen (se incrustan en la factura).
+LEYENDA_ISP = ("Operación con inversión del sujeto pasivo (art. 84.Uno.2º LIVA). "
+               "El IVA será liquidado por el destinatario.")
+LEYENDA_INTRACOM = ("Entrega intracomunitaria exenta (art. 25 LIVA). "
+                    "Operación exenta de IVA.")
+LEYENDA_EXENTO = "Operación exenta de IVA."
+
+
+def recargo_de(tipo_iva) -> float:
+    """% de recargo de equivalencia que corresponde a un tipo de IVA."""
+    try:
+        return float(_RECARGO_POR_IVA.get(round(float(tipo_iva), 2), 0.0))
+    except Exception:
+        return 0.0
+
+
+def calcular_fiscalidad(lineas, perfil=None, id_empresa=None, tipo_general=None) -> dict:
+    """MOTOR ÚNICO de fiscalidad de una factura a partir de sus líneas y del PERFIL
+    fiscal del cliente (clientes.perfil_fiscal). Determina automáticamente:
+
+    - IVA por tipo (PVP IVA-incluido), como el desglose actual.
+    - Recargo de equivalencia (si el perfil lo aplica): cuota adicional por tipo.
+    - ISP / intracomunitaria / exento: IVA repercutido = 0 (el subtotal es la base) + leyenda.
+    - Retención de IRPF (si aplica): importe = base × % (resta del total).
+
+    Devuelve un dict completo. Con perfil GENERAL (o None) el resultado de base/cuota/total es
+    IDÉNTICO al de `desglose_iva_lineas` (cero impacto en facturas sin régimen especial)."""
+    p = perfil or {}
+    exento = bool(p.get("exento") or p.get("isp") or p.get("intracomunitario"))
+    aplica_recargo = bool(p.get("recargo_equivalencia"))
+    base_emp = float(tipo_general) if tipo_general is not None else iva_empresa(id_empresa)
+
+    por_tipo: dict = {}
+    for ln in lineas or []:
+        sub = round(float(ln.get("subtotal", 0) or 0), 2)
+        r = float(ln.get("iva", base_emp) if ln.get("iva") is not None else base_emp)
+        if exento:
+            # Sin IVA repercutido: el subtotal ES la base imponible (precio neto).
+            acc = por_tipo.setdefault(0.0, {"base": 0.0, "cuota": 0.0, "total": 0.0,
+                                            "tipo_recargo": 0.0, "cuota_recargo": 0.0})
+            acc["base"] += sub; acc["total"] += sub
+        else:
+            d = desglose_iva(sub, tipo=r)
+            acc = por_tipo.setdefault(r, {"base": 0.0, "cuota": 0.0, "total": 0.0,
+                                          "tipo_recargo": 0.0, "cuota_recargo": 0.0})
+            acc["base"] += d["base"]; acc["cuota"] += d["cuota"]; acc["total"] += d["total"]
+            if aplica_recargo:
+                tr = recargo_de(r)
+                acc["tipo_recargo"] = tr
+                acc["cuota_recargo"] += round(d["base"] * tr / 100, 2)
+    for r, acc in por_tipo.items():
+        for k in ("base", "cuota", "total", "cuota_recargo"):
+            acc[k] = round(acc[k], 2)
+
+    base = round(sum(a["base"] for a in por_tipo.values()), 2)
+    cuota_iva = round(sum(a["cuota"] for a in por_tipo.values()), 2)
+    cuota_recargo = round(sum(a["cuota_recargo"] for a in por_tipo.values()), 2)
+    # Retención de IRPF sobre la base imponible (resta del total).
+    pct_ret = float(p.get("porcentaje_retencion") or 0) if p.get("retencion_irpf") else 0.0
+    retencion = round(base * pct_ret / 100, 2)
+    total = round(base + cuota_iva + cuota_recargo - retencion, 2)
+
+    leyendas = []
+    if p.get("isp"):
+        leyendas.append(LEYENDA_ISP)
+    elif p.get("intracomunitario"):
+        leyendas.append(LEYENDA_INTRACOM)
+    elif p.get("exento"):
+        leyendas.append(LEYENDA_EXENTO)
+
+    return {
+        "por_tipo": por_tipo, "base": base, "cuota": cuota_iva, "cuota_iva": cuota_iva,
+        "cuota_recargo": cuota_recargo, "retencion_pct": pct_ret, "retencion": retencion,
+        "total": total, "regimen": p.get("regimen") or "general",
+        "exento": exento, "isp": bool(p.get("isp")),
+        "intracomunitario": bool(p.get("intracomunitario")),
+        "recargo_equivalencia": aplica_recargo,
+        "leyenda": "  ".join(leyendas) if leyendas else None,
+    }
+
+
 def desglose_iva_lineas(lineas, id_empresa=None, tipo_general=None) -> dict:
     """Desglose por tipo de IVA de una lista de líneas (cada una con 'subtotal'
     PVP y, opcionalmente, 'iva'; si no, se usa `tipo_general` o el IVA de la

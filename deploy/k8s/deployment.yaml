@@ -1,0 +1,59 @@
+# Deployment del backend. Reutiliza la imagen del Dockerfile (gunicorn wsgi:app en :8000) SIN sobrescribir
+# el comando: mismo comportamiento que docker-compose. Probes = endpoints reales /api/v1/live y /ready.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-manager-backend
+  namespace: smart-manager
+  labels:
+    app.kubernetes.io/name: smart-manager
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: smart-manager
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smart-manager
+        app.kubernetes.io/component: backend
+    spec:
+      containers:
+        - name: backend
+          image: smart-manager/backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: smart-manager-config
+            - secretRef:
+                name: smart-manager-secrets
+          # Liveness: proceso vivo (endpoint público /api/v1/live).
+          livenessProbe:
+            httpGet:
+              path: /api/v1/live
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Readiness: listo para tráfico (comprueba dependencias, /api/v1/ready → 200/503).
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"

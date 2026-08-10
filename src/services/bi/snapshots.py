@@ -44,6 +44,14 @@ def generar_snapshot(tipo="daily", *, fecha=None, id_empresa=None) -> dict:
                         (id_empresa, tipo, fecha.isoformat(), len(valores)))
             conn.commit()
         _audit("BI_SNAPSHOT_GENERADO", f"{tipo} {fecha} ({len(valores)} kpis)")
+        # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("BI_SNAPSHOT_GENERADO", id_empresa=id_empresa, origen="bi",
+                         ref_entidad="bi_snapshot", ref_id=f"{tipo}:{fecha.isoformat()}",
+                         payload={"tipo": tipo, "kpis": len(valores)})
+        except Exception:
+            pass
     except Exception as e:
         logger.error("generar_snapshot: %s", e)
     return {"tipo": tipo, "fecha": fecha.isoformat(), "kpis": len(valores)}

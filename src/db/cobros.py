@@ -17,12 +17,17 @@ METODOS = ("efectivo", "tarjeta", "transferencia", "paypal", "stripe", "redsys",
 
 
 def _emp(id_empresa=None):
+    # IOC v3 (Bloque V): seam de identidad delegado en la fachada de datos (db -> db).
     try:
-        from src.db.empresa import empresa_actual_id
-        return id_empresa or empresa_actual_id()
+        from src.db.identidad_contexto import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        from src.db.conexion import EMPRESA_DEFAULT_ID
-        return id_empresa or EMPRESA_DEFAULT_ID
+        try:
+            from src.db.empresa import empresa_actual_id
+            return id_empresa or empresa_actual_id()
+        except Exception:
+            from src.db.conexion import EMPRESA_DEFAULT_ID
+            return id_empresa or EMPRESA_DEFAULT_ID
 
 
 def registrar_cobro(id_venta, metodo, importe, referencia=None, estado="cobrado",
@@ -38,7 +43,17 @@ def registrar_cobro(id_venta, metodo, importe, referencia=None, estado="cobrado"
                         (id_empresa, id_venta, metodo, round(float(importe or 0), 2),
                          referencia, estado))
             conn.commit()
-            return cur.lastrowid
+            _cobro_id = cur.lastrowid
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("COBRO_REGISTRADO", id_empresa=id_empresa, origen="tesoreria",
+                         ref_entidad="cobro", ref_id=_cobro_id,
+                         payload={"id_venta": id_venta, "metodo": metodo,
+                                  "importe": round(float(importe or 0), 2)})
+        except Exception:
+            pass
+        return _cobro_id
     except Exception as e:
         logger.error("registrar_cobro: %s", e); return None
 
@@ -69,6 +84,21 @@ def total_cobrado(id_venta, id_empresa=None) -> float:
 def saldo_pendiente(id_venta, total_venta, id_empresa=None) -> float:
     """Total de la venta menos lo cobrado (>0 = pago diferido/parcial pendiente)."""
     return round(float(total_venta or 0) - total_cobrado(id_venta, id_empresa), 2)
+
+
+def cobrar_pendiente(id_venta, total_venta, metodo="efectivo", referencia=None, id_empresa=None) -> dict:
+    """'Cobro express' de FACTURACIÓN (ledger, NO pasarela): registra en 1 paso el SALDO PENDIENTE de la
+    venta/factura como cobrado, reutilizando `registrar_cobro`. Idempotente: si ya está saldada (saldo<=0)
+    no registra nada. Devuelve {ok, importe, idempotente|error}. Distinto de `pagos.cobrar_express`
+    (que cobra un pedido online por pasarela): aquí solo se asienta el cobro en el ledger."""
+    emp = _emp(id_empresa)
+    saldo = saldo_pendiente(id_venta, total_venta, emp)
+    if saldo <= 0.005:
+        return {"ok": True, "importe": 0.0, "idempotente": True}     # ya cobrada por completo
+    cid = registrar_cobro(id_venta, metodo, saldo, referencia=referencia, id_empresa=emp)
+    if not cid:
+        return {"ok": False, "error": "no se pudo registrar el cobro"}
+    return {"ok": True, "importe": saldo, "id_cobro": cid, "metodo": metodo}
 
 
 def desglose_por_metodo(id_empresa=None, desde=None, hasta=None) -> dict:

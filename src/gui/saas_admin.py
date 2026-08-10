@@ -10,7 +10,7 @@ import logging
 from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QTableWidgetItem, QTabWidget,
                              QVBoxLayout, QWidget)
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _combo, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_x, _combo, _tabla
 from src.services.saas import licensing as _L, metricas as _M, planes as _P, suscripciones as _S
 
 logger = logging.getLogger("saas.gui")
@@ -52,15 +52,16 @@ class SaaSAdminWindow(QWidget):
         t = QLabel("SaaS · Administración y Portal")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
-        cab.addWidget(_btn("Actualizar", self.refrescar))
+        # "Actualizar" se reubica en la esquina superior derecha de la tabla (ver _tab_portal).
         if callback_vuelta:
-            cab.addWidget(_btn("Volver", self._volver))
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
         self.tabs = QTabWidget()
         root.addWidget(self.tabs)
         self._tab_portal()
         if _es_superadmin():
             self._tab_tenants()
+            self._tab_crm_saas()   # funnel de venta del PROPIO Smart Manager (movido desde CRM Comercial)
 
     # ── Portal cliente (empresa activa) ───────────────────────────────────────
     def _tab_portal(self):
@@ -69,11 +70,15 @@ class SaaSAdminWindow(QWidget):
         lay.addWidget(self.lbl_plan)
         bar = QHBoxLayout()
         self.cmb_plan = _combo([(c, c) for c in _P.PLANES])
+        self.cmb_plan.setMinimumWidth(150)   # evita texto cortado en el desplegable
         bar.addWidget(QLabel("Plan:")); bar.addWidget(self.cmb_plan)
         bar.addWidget(_btn("Cambiar plan", self._cambiar_plan, primary=True))
         bar.addWidget(_btn("Renovar", self._renovar))
         bar.addWidget(_btn("Descargar última factura", self._descargar_factura))
-        bar.addStretch(); lay.addLayout(bar)
+        bar.addStretch()
+        # "Actualizar" en la esquina superior derecha, justo encima de la tabla.
+        bar.addWidget(_btn("🔄 Actualizar", self.refrescar))
+        lay.addLayout(bar)
         self.tbl_consumo = _tabla(["Recurso", "Consumo"])
         lay.addWidget(self.tbl_consumo)
         self.tabs.addTab(w, "Mi plan")
@@ -90,7 +95,37 @@ class SaaSAdminWindow(QWidget):
         for i, (k, v) in enumerate(cons.items()):
             self.tbl_consumo.setItem(i, 0, _it(k)); self.tbl_consumo.setItem(i, 1, _it(v))
 
+    # ── CRM SaaS (funnel de venta de Smart Manager) — nivel plataforma/operador ────────────────
+    def _tab_crm_saas(self):
+        """Embudo comercial del PROPIO Smart Manager (lead→demo→prueba→cliente). Es una función del
+        OPERADOR/vendedor del software (captación de empresas suscriptoras), no del cliente-suscriptor que
+        gestiona SUS clientes en CRM Comercial → por eso vive aquí, junto a la administración SaaS."""
+        w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
+        bar = QHBoxLayout()
+        lbl = QLabel("Embudo de venta de Smart Manager (lead → demo → prueba → cliente).")
+        lbl.setStyleSheet(f"color:{_DIM};")
+        bar.addWidget(lbl); bar.addStretch()
+        bar.addWidget(_btn("🔄  Actualizar", self._load_crm_saas))
+        lay.addLayout(bar)
+        self.tbl_crm_saas = _tabla(["Fase", "Nº"])
+        lay.addWidget(self.tbl_crm_saas)
+        self.tabs.addTab(w, "CRM SaaS (funnel)")
+        self._load_crm_saas()
+
+    def _load_crm_saas(self):
+        try:
+            from src.services.crm import crm_saas
+            emb = crm_saas.embudo()
+            self.tbl_crm_saas.setRowCount(len(emb))
+            for i, (f, n) in enumerate(emb.items()):
+                self.tbl_crm_saas.setItem(i, 0, _it(f)); self.tbl_crm_saas.setItem(i, 1, _it(n))
+        except Exception as e:
+            logger.debug("crm_saas embudo: %s", e)
+
     def _cambiar_plan(self):
+        from src.gui.mfa_gui import step_up_sesion
+        if not step_up_sesion("saas.admin", self):
+            return
         try:
             _S.cambiar_plan(_empresa(), self.cmb_plan.currentData())
             self._load_portal()
@@ -98,6 +133,9 @@ class SaaSAdminWindow(QWidget):
             QMessageBox.warning(self, "SaaS", str(e))
 
     def _renovar(self):
+        from src.gui.mfa_gui import step_up_sesion
+        if not step_up_sesion("saas.admin", self):
+            return
         try:
             _S.renovar(_empresa())
             self._load_portal()

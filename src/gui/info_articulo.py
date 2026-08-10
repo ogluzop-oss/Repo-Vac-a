@@ -4,10 +4,11 @@ import os
 import cv2
 
 from src.utils import divisas
-from PyQt6.QtCore import QStringListModel, Qt, QThread, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QSize, QStringListModel, Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QImage, QPixmap
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtWidgets import (
+    QComboBox,
     QCompleter,
     QDialog,
     QFrame,
@@ -15,6 +16,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -36,6 +39,7 @@ try:
     from assets.estilo_global import (
         aplicar_estilo_widget,
         construir_plantilla_camara,
+        estilizar_completer,
         mostrar_confirmacion,
         mostrar_mensaje,
         repolish_widget,
@@ -46,6 +50,7 @@ except Exception:
     repolish_widget = None
     mostrar_mensaje = None
     mostrar_confirmacion = None
+    estilizar_completer = None
 
 # ---------------------------------------------------------------------------
 # CONSTANTES Y ESTILOS
@@ -54,6 +59,29 @@ _CIAN = "#00FFC6"
 _FONDO = "#0E1117"
 _PANEL_BG = "#161B22"
 _BORDE = "#30363D"
+_VERDE = "#2ECC71"
+_ROJO = "#F85149"
+
+
+def _ss_boton(color):
+    """Estilo de botón con contorno de color y hover swap (relleno al pasar el ratón)."""
+    return f"""
+    QPushButton {{
+        background-color: #0E1117;
+        color: {color};
+        font-weight: bold;
+        border-radius: 14px;
+        padding: 10px 20px;
+        font-size: 13px;
+        font-family: 'Segoe UI';
+        border: 2px solid {color};
+    }}
+    QPushButton:hover {{
+        background-color: {color};
+        color: #0E1117;
+        border: 2px solid {color};
+    }}
+    """
 
 _NEON_INPUT_SS = f"""
 QLineEdit {{
@@ -90,24 +118,49 @@ QPushButton:hover {{
 }}
 """
 
+_NEON_COMBO_SS = f"""
+QComboBox {{
+    background-color: #161B22; color: #FFFFFF;
+    border: 2px solid {_CIAN}; border-radius: 10px;
+    padding: 6px 12px; font-size: 13px; font-weight: bold;
+}}
+QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox QAbstractItemView {{
+    background-color: #161B22; color: #FFFFFF;
+    border: 1px solid {_CIAN};
+    selection-background-color: {_CIAN}; selection-color: #0E1117;
+}}
+"""
+
+_LISTA_SS = f"""
+QListWidget {{
+    background-color: {_PANEL_BG}; color: #FFFFFF;
+    border: 1px solid {_BORDE}; border-radius: 12px; font-size: 13px; font-weight: bold;
+    outline: none; padding: 6px;
+}}
+QListWidget::item {{ padding: 9px 12px; border-radius: 9px; margin: 2px 2px; }}
+QListWidget::item:hover {{ background-color: #1A2230; }}
+QListWidget::item:selected {{ background-color: #1A2230; color: {_CIAN}; }}
+"""
+
 # ---------------------------------------------------------------------------
 # COMPONENTES AUXILIARES
 # ---------------------------------------------------------------------------
 
 
 def _get_completer_data():
+    """Sugerencias en formato único 'CÓDIGO – NOMBRE' (sin duplicar código y nombre)."""
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT codigo, nombre FROM articulos")
-                rows = cur.fetchall()
+                cur.execute("SELECT codigo, nombre FROM articulos ORDER BY nombre")
                 data = []
-                for r in rows:
-                    if r[0]:
-                        data.append(str(r[0]))
-                    if r[1]:
-                        data.append(str(r[1]))
-                return sorted(list(set(data)))
+                for r in cur.fetchall():
+                    cod = str(r[0] or "").strip()
+                    nom = str(r[1] or "").strip()
+                    if cod or nom:
+                        data.append(f"{cod} – {nom}".strip(" –"))
+                return data
     except Exception:
         return []
 
@@ -126,6 +179,11 @@ def _sombra_roja(widget):
     fx.setColor(QColor("#F85149"))
     fx.setOffset(0)
     widget.setGraphicsEffect(fx)
+
+
+# Icono '+' neón + botón que lo oscurece en hover: fuente única compartida (gui/iconos_neon).
+from src.gui.iconos_neon import BotonMas as _BotonMas  # noqa: E402
+from src.gui.iconos_neon import icono_mas as _icono_mas  # noqa: E402
 
 
 class _SidebarBtn(QPushButton):
@@ -251,6 +309,9 @@ class _BuscarArticuloPage(QWidget):
         layout.addSpacing(20)  # Espacio adicional entre icono y siguiente elemento
         layout.addWidget(self.lbl_icon, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # Espaciador superior colapsable: al mostrar un resultado, el icono de lupa se compacta para
+        # que el panel de resultado suba (no quede pegado al suelo) y quede a una altura más centrada.
+
         # Search area
         search_container = QHBoxLayout()
         search_container.setSpacing(10)  # Reduce el espacio entre la barra y el botón
@@ -262,7 +323,7 @@ class _BuscarArticuloPage(QWidget):
         self.search_bar.returnPressed.connect(self._buscar)
 
         self._btn_scan = btn_scan = QPushButton("📷 " + tr("info.scan", default="SCAN"))
-        btn_scan.setFixedSize(110, 55)
+        btn_scan.setFixedSize(180, 55)
         btn_scan.setStyleSheet(_BTN_CIAN_SS)
         btn_scan.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_scan.clicked.connect(self._abrir_escanner)
@@ -290,7 +351,14 @@ class _BuscarArticuloPage(QWidget):
             f"background-color: {_FONDO}; border: 2px solid {_BORDE}; border-radius: 15px;"
         )
         self.lbl_foto.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        res_lyt.addWidget(self.lbl_foto)
+        # El recuadro de la imagen se ancla ARRIBA en su propia columna: un stretch por debajo lo
+        # empuja al tope del panel (que es más alto por la columna de datos), en vez de quedar
+        # centrado verticalmente. Así queda a una altura alta con el espacio sobrante debajo.
+        foto_col = QVBoxLayout()
+        foto_col.setContentsMargins(0, 0, 0, 0)
+        foto_col.addWidget(self.lbl_foto)
+        foto_col.addStretch(1)
+        res_lyt.addLayout(foto_col)
 
         # Info column
         scroll = QScrollArea()
@@ -335,7 +403,75 @@ class _BuscarArticuloPage(QWidget):
             self.labels[key] = l_val
             self._field_titles[key] = l_tit
 
+        # ── FAMILIA DEL ARTÍCULO (vínculo GLOBAL, asignación rápida) ──
+        # Combo con las familias de la empresa; cambiar el valor asigna/quita la familia del artículo
+        # cargado (se refleja en toda la app: se guarda en articulos.id_familia).
+        self._art_codigo = None
+        self._fam_cargando = False
+        self.info_lyt.addSpacing(8)
+        row_fam = QHBoxLayout()
+        self._lbl_fam = QLabel(tr("info.f_familia", default="FAMILIA:"))
+        self._lbl_fam.setStyleSheet("color:#8B949E;font-size:12px;font-weight:bold;border:none;")
+        self._lbl_fam.setFixedWidth(140)
+        self.cmb_familia = QComboBox()
+        self.cmb_familia.setStyleSheet(_NEON_COMBO_SS)
+        self.cmb_familia.setMinimumWidth(200)
+        self.cmb_familia.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cmb_familia.currentIndexChanged.connect(self._cambiar_familia)
+        row_fam.addWidget(self._lbl_fam)
+        row_fam.addWidget(self.cmb_familia, 1)
+        self.info_lyt.addLayout(row_fam)
+
+        # ── FÍSICA DE SEGURIDAD DEL AUTOCOBRO (Capa 1): peso esperado + tolerancia por artículo ──
+        # Master data que alimenta el control antifraude de las cajas de autocobro. Editable solo por
+        # gerente/administrador. Vacío = usa los valores por defecto del motor.
+        self.info_lyt.addSpacing(8)
+        self._lbl_fisica = QLabel("⚖  " + tr("info.fisica_title", default="FÍSICA DE SEGURIDAD (AUTOCOBRO)"))
+        self._lbl_fisica.setStyleSheet(f"color:{_CIAN};font-size:12px;font-weight:900;border:none;")
+        self.info_lyt.addWidget(self._lbl_fisica)
+
+        def _fila_fisica(lbl_txt):
+            row = QHBoxLayout()
+            t = QLabel(lbl_txt)
+            t.setStyleSheet("color:#8B949E;font-size:12px;font-weight:bold;border:none;")
+            t.setFixedWidth(140)
+            inp = QLineEdit()
+            inp.setStyleSheet(_NEON_INPUT_SS)
+            inp.setMaximumWidth(160)
+            inp.setPlaceholderText(tr("info.f_auto", default="auto"))
+            row.addWidget(t)
+            row.addWidget(inp)
+            row.addStretch()
+            self.info_lyt.addLayout(row)
+            return inp, t
+
+        self.inp_peso_unitario, self._lbl_pu = _fila_fisica(
+            tr("info.f_peso_unit", default="PESO UNIT. (kg):"))
+        self.inp_tolerancia, self._lbl_tp = _fila_fisica(
+            tr("info.f_tolerancia", default="TOLERANCIA (kg):"))
+        self._btn_guardar_fisica = QPushButton(tr("info.f_guardar", default="GUARDAR FÍSICA"))
+        self._btn_guardar_fisica.setStyleSheet(_BTN_CIAN_SS)
+        self._btn_guardar_fisica.setFixedHeight(40)
+        self._btn_guardar_fisica.clicked.connect(self._guardar_fisica)
+        self.info_lyt.addWidget(self._btn_guardar_fisica)
+
+        # Edición TEXTIL: gestión de variantes talla/color del modelo seleccionado (gateado por edición).
+        self._btn_variantes = QPushButton(tr("info.variantes", default="🎽 VARIANTES (TALLA/COLOR)"))
+        self._btn_variantes.setStyleSheet(_BTN_CIAN_SS)
+        self._btn_variantes.setFixedHeight(40)
+        self._btn_variantes.clicked.connect(self._abrir_variantes)
+        self.info_lyt.addWidget(self._btn_variantes)
+        try:
+            from src.services import verticales
+            if not verticales.visible("productos.tallas"):
+                self._btn_variantes.setVisible(False)
+        except Exception:
+            pass
+
         scroll.setWidget(info_widget)
+        # La columna de datos (incluida FÍSICA DE SEGURIDAD) es más alta que el panel visible: se deja
+        # que el QScrollArea muestre su barra de desplazamiento para poder acceder a todos los campos.
+        self._info_scroll = scroll
         res_lyt.addWidget(scroll, 1)
         layout.addWidget(self.result_frame)
         layout.addStretch()
@@ -347,26 +483,89 @@ class _BuscarArticuloPage(QWidget):
         self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.search_bar.setCompleter(self.completer)
+        if estilizar_completer:
+            estilizar_completer(self.completer)
+        self.completer_model.setStringList(_get_completer_data())   # precarga: sugerencias inmediatas
         self.search_bar.textChanged.connect(self._update_suggestions)
 
     def _update_suggestions(self):
-        if len(self.search_bar.text()) >= 2:
-            data = _get_completer_data()
-            self.completer_model.setStringList(data)
+        if len(self.search_bar.text()) >= 1 and not self.completer_model.stringList():
+            self.completer_model.setStringList(_get_completer_data())
 
     def _retraducir(self):
         self.search_bar.setPlaceholderText(
             tr("info.search_ph", default="Introduce código o nombre del artículo...")
         )
         self._btn_scan.setText("📷 " + tr("info.scan", default="SCAN"))
+        self._lbl_fam.setText(tr("info.f_familia", default="FAMILIA:"))
         for key, ikey, text in self._fields_def:
             self._field_titles[key].setText(tr(ikey, default=text))
 
     def _abrir_escanner(self):
         self.main_window.abrir_escanner()
 
+    def _abrir_variantes(self):
+        """Abre la gestión de variantes talla/color del modelo seleccionado (edición Textil)."""
+        codigo = (getattr(self, "_art_sel", None) or {}).get("codigo") or getattr(self, "_art_codigo", None)
+        if not codigo:
+            return
+        try:
+            from src.gui.variantes_gui import VariantesDialog
+            VariantesDialog(codigo_padre=codigo, usuario=getattr(self, "usuario", None), parent=self).exec()
+        except Exception:
+            pass
+
+    def _guardar_fisica(self):
+        """Guarda el peso esperado + tolerancia del artículo cargado (solo gerente/administrador)."""
+        if not getattr(self, "_art_codigo", None):
+            return
+        try:
+            from src.db.usuario import sesion_global
+            perfil = ((sesion_global.usuario_actual or {}).get("perfil") or "").upper()
+        except Exception:
+            perfil = ""
+        if perfil not in ("GERENTE", "ADMINISTRADOR"):
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("info.f_perm_title", default="Permiso denegado"),
+                                tr("info.f_perm_msg",
+                                   default="Solo un gerente o administrador puede editar la física de seguridad."),
+                                nivel="warning")
+            return
+        from src.db.articulos import guardar_fisica_seguridad
+        pu = self.inp_peso_unitario.text().strip().replace(",", ".") or None
+        tp = self.inp_tolerancia.text().strip().replace(",", ".") or None
+        ok, msg = guardar_fisica_seguridad(self._art_codigo, pu, tp)
+        if mostrar_mensaje:
+            mostrar_mensaje(self, tr("info.f_guardado_title", default="Física de seguridad"),
+                            msg, nivel="success" if ok else "warning")
+
+    def _recargar_familias(self, sel_id=None):
+        """Rellena el combo de familias y selecciona la del artículo cargado (o 'Sin familia')."""
+        from src.db.familias import listar_familias
+        self._fam_cargando = True
+        try:
+            self.cmb_familia.clear()
+            self.cmb_familia.addItem(tr("info.fam_none", default="— Sin familia —"), None)
+            for f in listar_familias():
+                self.cmb_familia.addItem(f["nombre"], f["id"])
+            idx = self.cmb_familia.findData(sel_id) if sel_id is not None else 0
+            self.cmb_familia.setCurrentIndex(idx if idx >= 0 else 0)
+        finally:
+            self._fam_cargando = False
+
+    def _cambiar_familia(self):
+        """Asigna (o quita) la familia del artículo cargado. Vínculo GLOBAL en articulos.id_familia."""
+        if self._fam_cargando or not getattr(self, "_art_codigo", None):
+            return
+        from src.db.familias import asignar_familia
+        # Asignación inmediata y silenciosa (el propio combo refleja el valor elegido).
+        asignar_familia(self._art_codigo, self.cmb_familia.currentData())
+
     def _buscar(self, code=None):
         q = code or self.search_bar.text().strip()
+        # Si viene del autocompletado "CÓDIGO – NOMBRE", usar solo el código.
+        if q and "–" in q:
+            q = q.split("–")[0].strip()
         if not q:
             return
 
@@ -404,6 +603,19 @@ class _BuscarArticuloPage(QWidget):
             self.labels["RECEPCION"].setText(fmt(art.get("siguiente_recepcion")))
             self.labels["VENTAS"].setText(str(ventas_semana(art.get("codigo"))))
 
+            # Física de seguridad (autocobro): peso esperado + tolerancia del artículo.
+            self._art_codigo = art.get("codigo")
+            # Familia actual del artículo (vínculo global).
+            try:
+                from src.db.familias import familia_de_articulo
+                fam = familia_de_articulo(self._art_codigo)
+                self._recargar_familias(fam["id"] if fam else None)
+            except Exception:
+                pass
+            pu, tp = art.get("peso_unitario"), art.get("tolerancia_peso")
+            self.inp_peso_unitario.setText("" if pu in (None, "") else str(pu))
+            self.inp_tolerancia.setText("" if tp in (None, "") else str(tp))
+
             # Photo
             img_path = art.get("imagen")
             if img_path and os.path.exists(img_path):
@@ -422,23 +634,51 @@ class _BuscarArticuloPage(QWidget):
                     f"background-color: {_FONDO}; border: 2px solid {_BORDE}; border-radius: 15px; color: #8B949E; font-weight: 900; font-size: 14px;"
                 )
 
+            self._compactar_icono(True)
             self.result_frame.setVisible(True)
             self.search_bar.clear()
 
         except Exception as e:
             print(f"Error búsqueda: {e}")
 
+    def _compactar_icono(self, compacto: bool):
+        """Reduce el icono de lupa cuando hay un resultado en pantalla, para que el panel de resultado
+        suba y no quede pegado al fondo de la ventana (queda a una altura más centrada)."""
+        if compacto:
+            self.lbl_icon.setFixedHeight(96)
+            self.lbl_icon.setStyleSheet("font-size: 74px;")
+        else:
+            self.lbl_icon.setFixedHeight(200)
+            self.lbl_icon.setStyleSheet("font-size: 160px;")
+
 
 class _ImagenArticuloPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setSpacing(30)
+        self.main_window = parent
+        self._art_sel = None          # artículo seleccionado (dict)
+        self._img_pendiente = None    # ruta de imagen elegida y pendiente de guardar
+
+        # Todo el contenido va dentro de un QScrollArea para poder desplazarse cuando la vista previa
+        # y los botones no caben (pantallas pequeñas / ventana reducida).
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setStyleSheet("background: transparent; border: none;")
+        cont = QWidget()
+        cont.setStyleSheet("background: transparent;")
+        self._scroll.setWidget(cont)
+        root.addWidget(self._scroll)
+
+        layout = QVBoxLayout(cont)
+        layout.setSpacing(24)
 
         layout.addStretch(1)
         self.lbl_icon = QLabel("📸")  # Icono de cámara de fotos
         self.lbl_icon.setStyleSheet("font-size: 160px;")
         self.lbl_icon.setFixedHeight(200)  # Aumentado para evitar recorte
+        self.lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addSpacing(20)  # Espacio adicional entre icono y siguiente elemento
         layout.addWidget(self.lbl_icon, alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -457,25 +697,213 @@ class _ImagenArticuloPage(QWidget):
         self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.search_bar.setCompleter(self.completer)
+        if estilizar_completer:
+            estilizar_completer(self.completer)
+        self.completer_model.setStringList(_get_completer_data())   # precarga: sugerencias inmediatas
         self.search_bar.textChanged.connect(self._update_suggestions)
 
         self._btn = btn = QPushButton(tr("info.select_item", default="SELECCIONAR ARTÍCULO"))
         btn.setStyleSheet(_BTN_CIAN_SS)
         btn.setFixedSize(250, 55)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(self._seleccionar_articulo)
         _sombra_cian(btn)
         layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Vista previa de la imagen asociada (oculta hasta que se selecciona una).
+        self.lbl_preview = QLabel()
+        self.lbl_preview.setFixedSize(220, 220)
+        self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_preview.setStyleSheet(
+            f"background-color: {_FONDO}; border: 2px solid {_BORDE}; border-radius: 15px;"
+        )
+        self.lbl_preview.setVisible(False)
+        layout.addWidget(self.lbl_preview, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Botones GUARDAR (verde) y BORRAR (rojo) — ocultos hasta seleccionar un artículo.
+        botones = QHBoxLayout()
+        botones.setSpacing(16)
+        botones.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._btn_guardar = QPushButton(tr("info.img_save_btn", default="GUARDAR IMAGEN"))
+        self._btn_guardar.setStyleSheet(_ss_boton(_VERDE))
+        self._btn_guardar.setFixedSize(220, 52)
+        self._btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_guardar.clicked.connect(self._guardar_imagen)
+        self._btn_borrar = QPushButton(tr("info.img_delete_btn", default="BORRAR IMAGEN"))
+        self._btn_borrar.setStyleSheet(_ss_boton(_ROJO))
+        self._btn_borrar.setFixedSize(220, 52)
+        self._btn_borrar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_borrar.clicked.connect(self._borrar_imagen)
+        botones.addWidget(self._btn_guardar)
+        botones.addWidget(self._btn_borrar)
+        self._cont_botones = QWidget()
+        self._cont_botones.setLayout(botones)
+        self._cont_botones.setVisible(False)
+        layout.addWidget(self._cont_botones, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Mensaje en línea (éxito/error): se usa feedback inline en lugar de QMessageBox porque en el
+        # proceso principal SOMA mantiene el audio activo y los modales pueden corromper el heap.
+        self.lbl_status = QLabel("")
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_status.setWordWrap(True)
+        self.lbl_status.setStyleSheet("color:#8B949E;font-size:13px;font-weight:bold;border:none;")
+        layout.addWidget(self.lbl_status, alignment=Qt.AlignmentFlag.AlignCenter)
+
         layout.addStretch(1)
+
+    def _status(self, texto, error=False, ok=False):
+        color = "#F85149" if error else (_VERDE if ok else _CIAN)
+        self.lbl_status.setStyleSheet(f"color:{color};font-size:13px;font-weight:bold;border:none;")
+        self.lbl_status.setText(texto)
+
+    def _resolver(self):
+        """Resuelve el artículo escrito en el buscador (código, nombre o 'CÓDIGO – NOMBRE')."""
+        q = self.search_bar.text().strip()
+        if q and "–" in q:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            q = q.split("–")[0].strip()
+        if not q:
+            self._status(tr("info.img_need_code", default="Introduce el código o nombre de un artículo."),
+                         error=True)
+            return None
+        try:
+            art = obtener_articulo(q)
+        except Exception as e:
+            self._status(tr("info.img_db_error", default="Error al buscar el artículo: {e}", e=e), error=True)
+            return None
+        if not art:
+            self._status(tr("info.img_not_found", default="No se encontró el artículo: {q}", q=q), error=True)
+            return None
+        return art
+
+    def _mostrar_preview(self, ruta):
+        pix = QPixmap(ruta) if ruta else QPixmap()
+        if ruta and not pix.isNull():
+            self.lbl_preview.setPixmap(pix.scaled(
+                210, 210, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            self.lbl_preview.setVisible(True)
+        else:
+            self.lbl_preview.setPixmap(QPixmap())
+            self.lbl_preview.setVisible(False)
+
+    def _seleccionar_articulo(self):
+        """Selecciona el artículo y abre el diálogo de Windows para elegir una imagen (no guarda aún):
+        la imagen queda en vista previa hasta pulsar GUARDAR IMAGEN."""
+        art = self._resolver()
+        if not art:
+            return
+        self._art_sel = art
+        codigo = art.get("codigo")
+        nombre = (art.get("nombre") or "").upper()
+        self._cont_botones.setVisible(True)
+
+        from PyQt6.QtWidgets import QFileDialog
+        ruta, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("info.img_dialog_title", default="Seleccionar imagen del artículo"),
+            "",
+            "Imágenes (*.png *.jpg *.jpeg *.bmp *.gif *.webp)",
+        )
+        if ruta:
+            self._img_pendiente = ruta
+            self._mostrar_preview(ruta)
+            self._status(tr("info.img_pending",
+                            default="Imagen lista. Pulsa GUARDAR IMAGEN para asociarla a {codigo} – {nombre}.",
+                            codigo=codigo, nombre=nombre))
+        else:
+            # Sin imagen nueva: mostrar la imagen ya asociada (si existe) para poder borrarla.
+            self._img_pendiente = None
+            actual = art.get("imagen")
+            self._mostrar_preview(actual if actual and os.path.exists(actual) else None)
+            self._status(tr("info.img_selected",
+                            default="Artículo {codigo} seleccionado. Elige una imagen o púlsa BORRAR IMAGEN.",
+                            codigo=codigo))
+
+    def _guardar_imagen(self):
+        """Guarda (persiste) la imagen pendiente en el artículo seleccionado."""
+        if not self._art_sel:
+            self._status(tr("info.img_no_sel", default="Selecciona primero un artículo."), error=True)
+            return
+        if not self._img_pendiente:
+            self._status(tr("info.img_no_pending",
+                            default="Elige una imagen con SELECCIONAR ARTÍCULO antes de guardar."), error=True)
+            return
+        codigo = self._art_sel.get("codigo")
+        nombre = (self._art_sel.get("nombre") or "").upper()
+        try:
+            import shutil
+            raiz = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            destino_dir = os.path.join(raiz, "documentos", "imagenes_articulos")
+            os.makedirs(destino_dir, exist_ok=True)
+            ext = os.path.splitext(self._img_pendiente)[1].lower() or ".png"
+            safe = "".join(c for c in str(codigo) if c.isalnum() or c in ("-", "_")) or "articulo"
+            destino = os.path.join(destino_dir, f"{safe}{ext}")
+            if os.path.abspath(self._img_pendiente) != os.path.abspath(destino):
+                shutil.copy2(self._img_pendiente, destino)
+            try:                                     # PK compuesta (migr 0181): filtra por empresa de la sesión
+                from src.db.empresa import empresa_actual_id as _eai
+                _emp = _eai()
+            except Exception:
+                _emp = None
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE articulos SET imagen=%s WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
+                                (destino, codigo, _emp, _emp))
+                conn.commit()
+        except Exception as e:
+            self._status(tr("info.img_save_error", default="No se pudo guardar la imagen: {e}", e=e), error=True)
+            return
+        self._art_sel["imagen"] = destino
+        self._img_pendiente = None
+        self._mostrar_preview(destino)
+        self._status(tr("info.img_saved", default="Imagen guardada en {codigo} – {nombre}.",
+                        codigo=codigo, nombre=nombre), ok=True)
+
+    def _borrar_imagen(self):
+        """Elimina la imagen asociada al artículo seleccionado (columna imagen a NULL + fichero)."""
+        if not self._art_sel:
+            self._status(tr("info.img_no_sel", default="Selecciona primero un artículo."), error=True)
+            return
+        codigo = self._art_sel.get("codigo")
+        try:
+            try:                                     # PK compuesta (migr 0181): filtra por empresa de la sesión
+                from src.db.empresa import empresa_actual_id as _eai
+                _emp = _eai()
+            except Exception:
+                _emp = None
+            with obtener_conexion() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT imagen FROM articulos WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
+                                (codigo, _emp, _emp))
+                    fila = cur.fetchone()
+                    ruta_actual = fila[0] if fila else None
+                    cur.execute("UPDATE articulos SET imagen=NULL WHERE codigo=%s AND (%s IS NULL OR "
+                                "id_empresa=%s)", (codigo, _emp, _emp))
+                conn.commit()
+            if ruta_actual and os.path.exists(ruta_actual):
+                try:
+                    os.remove(ruta_actual)
+                except OSError:
+                    pass
+        except Exception as e:
+            self._status(tr("info.img_del_error", default="No se pudo borrar la imagen: {e}", e=e), error=True)
+            return
+        self._art_sel["imagen"] = None
+        self._img_pendiente = None
+        self._mostrar_preview(None)
+        self._status(tr("info.img_deleted", default="Imagen eliminada del artículo {codigo}.", codigo=codigo),
+                     ok=True)
 
     def _retraducir(self):
         self.search_bar.setPlaceholderText(
             tr("info.image_search_ph", default="Introduce código o nombre para actualizar imagen...")
         )
         self._btn.setText(tr("info.select_item", default="SELECCIONAR ARTÍCULO"))
+        self._btn_guardar.setText(tr("info.img_save_btn", default="GUARDAR IMAGEN"))
+        self._btn_borrar.setText(tr("info.img_delete_btn", default="BORRAR IMAGEN"))
 
     def _update_suggestions(self):
-        if len(self.search_bar.text()) >= 2:
-            data = _get_completer_data()
-            self.completer_model.setStringList(data)
+        if len(self.search_bar.text()) >= 1 and not self.completer_model.stringList():
+            self.completer_model.setStringList(_get_completer_data())
 
 
 class _EditarArticuloPage(QWidget):
@@ -495,6 +923,19 @@ class _EditarArticuloPage(QWidget):
         self.search_bar.setPlaceholderText(tr("info.edit_search_ph", default="Introduce código o nombre para editar..."))
         self.search_bar.setStyleSheet(_NEON_INPUT_SS)
         self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
+
+        # Completer con sugerencias de artículos (igual que las otras pestañas).
+        self.completer = QCompleter()
+        self.completer_model = QStringListModel()
+        self.completer.setModel(self.completer_model)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.search_bar.setCompleter(self.completer)
+        if estilizar_completer:
+            estilizar_completer(self.completer)
+        self.completer_model.setStringList(_get_completer_data())
+        self.search_bar.textChanged.connect(self._update_suggestions)
+
         layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self._btn = btn = QPushButton(tr("info.search_for_edit", default="BUSCAR PARA EDITAR"))
@@ -504,9 +945,393 @@ class _EditarArticuloPage(QWidget):
         layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addStretch(1)
 
+    def _update_suggestions(self):
+        if len(self.search_bar.text()) >= 1 and not self.completer_model.stringList():
+            self.completer_model.setStringList(_get_completer_data())
+
     def _retraducir(self):
         self.search_bar.setPlaceholderText(tr("info.edit_search_ph", default="Introduce código o nombre para editar..."))
         self._btn.setText(tr("info.search_for_edit", default="BUSCAR PARA EDITAR"))
+
+
+# ---------------------------------------------------------------------------
+# FAMILIAS DE PRODUCTO — gestión (CRUD) + asignación de artículos
+# ---------------------------------------------------------------------------
+class _FamiliaDialog(QDialog):
+    """Alta/edición de una familia (frameless, estilo de la app)."""
+
+    def __init__(self, parent=None, familia=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(460)
+
+        main_lyt = QVBoxLayout(self)
+        cont = QFrame()
+        cont.setStyleSheet(f"""
+            QFrame {{ background-color: {_PANEL_BG}; border: 2px solid {_CIAN}; border-radius: 15px; }}
+            QLabel {{ color: white; border: none; font-family: 'Segoe UI'; font-weight: bold; }}
+        """)
+        main_lyt.addWidget(cont)
+        ly = QVBoxLayout(cont)
+        ly.setContentsMargins(30, 30, 30, 30)
+        ly.setSpacing(14)
+
+        titulo = (tr("info.fam_edit", default="EDITAR FAMILIA") if familia
+                  else tr("info.fam_new", default="NUEVA FAMILIA"))
+        lbl_t = QLabel(titulo)
+        lbl_t.setStyleSheet(f"color:{_CIAN};font-size:15px;font-weight:900;border:none;")
+        ly.addWidget(lbl_t)
+
+        ly.addWidget(QLabel(tr("info.fam_name", default="NOMBRE:")))
+        self.in_nombre = QLineEdit((familia or {}).get("nombre", ""))
+        self.in_nombre.setPlaceholderText(tr("info.fam_name_ph", default="Ej.: Bebidas, Lácteos, Limpieza..."))
+        self.in_nombre.setStyleSheet(_NEON_INPUT_SS)
+        ly.addWidget(self.in_nombre)
+
+        ly.addWidget(QLabel(tr("info.fam_desc", default="DESCRIPCIÓN (opcional):")))
+        self.in_desc = QLineEdit((familia or {}).get("descripcion") or "")
+        self.in_desc.setStyleSheet(_NEON_INPUT_SS)
+        ly.addWidget(self.in_desc)
+
+        # Venta restringida (verificación de edad): la FAMILIA es la fuente única de categorización; el
+        # autocobro usa este flag. El AUTOCOBRO es EXCLUSIVO de la edición Supermarket → el checkbox solo se
+        # muestra ahí (`verticales.visible("tpv.autocobro")`). En otras ediciones se conserva el valor previo.
+        self._restr_original = bool((familia or {}).get("restringida"))
+        self.chk_restr = None
+        try:
+            from src.services import verticales as _vert
+            _autocobro = _vert.visible("tpv.autocobro")
+        except Exception:
+            _autocobro = True
+        if _autocobro:
+            from PyQt6.QtWidgets import QCheckBox
+            self.chk_restr = QCheckBox(tr("info.fam_restr", default="Venta restringida (verificación de edad)"))
+            self.chk_restr.setChecked(self._restr_original)
+            self.chk_restr.setStyleSheet("color:white;font-weight:bold;border:none;")
+            ly.addWidget(self.chk_restr)
+
+        btn_lyt = QHBoxLayout()
+        btn_save = QPushButton(tr("info.save_changes", default="GUARDAR CAMBIOS"))
+        btn_save.setStyleSheet(_BTN_CIAN_SS)
+        btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_save.clicked.connect(self.accept)
+        btn_cancel = QPushButton(tr("info.cancel", default="CANCELAR"))
+        btn_cancel.setStyleSheet(
+            "background-color: #30363D; color: white; border-radius: 10px; padding: 10px; font-weight: bold;")
+        btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cancel.clicked.connect(self.reject)
+        btn_lyt.addWidget(btn_save)
+        btn_lyt.addWidget(btn_cancel)
+        ly.addLayout(btn_lyt)
+
+    def datos(self):
+        return {
+            "nombre": self.in_nombre.text().strip(),
+            "descripcion": self.in_desc.text().strip() or None,
+            # Si el checkbox no se muestra (ediciones sin autocobro), se conserva el valor previo.
+            "restringida": self.chk_restr.isChecked() if self.chk_restr is not None else self._restr_original,
+        }
+
+
+class _PrecioMasivoDialog(QDialog):
+    """Operación masiva de precio/IVA sobre todos los artículos de una familia."""
+
+    # (etiqueta, modo, sufijo)
+    _MODOS = [
+        ("info.pm_pct", "Ajustar precio (%)", "pct", "%"),
+        ("info.pm_fijo", "Fijar P.V.P.", "fijo", "€"),
+        ("info.pm_iva", "Fijar IVA (%)", "iva", "%"),
+    ]
+
+    def __init__(self, parent=None, familia_nombre=""):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(460)
+
+        main_lyt = QVBoxLayout(self)
+        cont = QFrame()
+        cont.setStyleSheet(f"""
+            QFrame {{ background-color: {_PANEL_BG}; border: 2px solid {_CIAN}; border-radius: 15px; }}
+            QLabel {{ color: white; border: none; font-family: 'Segoe UI'; font-weight: bold; }}
+        """)
+        main_lyt.addWidget(cont)
+        ly = QVBoxLayout(cont)
+        ly.setContentsMargins(30, 30, 30, 30)
+        ly.setSpacing(14)
+
+        lbl_t = QLabel(tr("info.pm_title", default="PRECIO / IVA MASIVO"))
+        lbl_t.setStyleSheet(f"color:{_CIAN};font-size:15px;font-weight:900;border:none;")
+        ly.addWidget(lbl_t)
+        lbl_f = QLabel(tr("info.pm_family", default="Familia: {f}", f=familia_nombre))
+        lbl_f.setStyleSheet("color:#8B949E;font-size:12px;border:none;")
+        lbl_f.setWordWrap(True)
+        ly.addWidget(lbl_f)
+
+        ly.addWidget(QLabel(tr("info.pm_op", default="OPERACIÓN:")))
+        self.cmb_modo = QComboBox()
+        self.cmb_modo.setStyleSheet(_NEON_COMBO_SS)
+        for ikey, txt, modo, _suf in self._MODOS:
+            self.cmb_modo.addItem(tr(ikey, default=txt), modo)
+        ly.addWidget(self.cmb_modo)
+
+        ly.addWidget(QLabel(tr("info.pm_value", default="VALOR (usa negativo para bajar el %):")))
+        self.in_valor = QLineEdit()
+        self.in_valor.setPlaceholderText("Ej.: 10  /  -5  /  9.99")
+        self.in_valor.setStyleSheet(_NEON_INPUT_SS)
+        ly.addWidget(self.in_valor)
+
+        btn_lyt = QHBoxLayout()
+        btn_ok = QPushButton(tr("info.pm_apply", default="APLICAR"))
+        btn_ok.setStyleSheet(_BTN_CIAN_SS); btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton(tr("info.cancel", default="CANCELAR"))
+        btn_cancel.setStyleSheet(
+            "background-color: #30363D; color: white; border-radius: 10px; padding: 10px; font-weight: bold;")
+        btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cancel.clicked.connect(self.reject)
+        btn_lyt.addWidget(btn_ok); btn_lyt.addWidget(btn_cancel)
+        ly.addLayout(btn_lyt)
+
+    def datos(self):
+        return self.cmb_modo.currentData(), self.in_valor.text().strip()
+
+
+class _FamiliasPage(QWidget):
+    """Gestión de familias: crear/editar/eliminar + asignar/quitar artículos de la familia."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.main_window = parent
+        self._cargado = False
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(30, 30, 30, 30)
+        root.setSpacing(24)
+
+        # ── Columna izquierda: lista de familias + acciones ──
+        col_izq = QVBoxLayout()
+        col_izq.setSpacing(12)
+        lbl_fam = QLabel(tr("info.fam_families", default="FAMILIAS"))
+        lbl_fam.setStyleSheet(f"color:{_CIAN};font-size:16px;font-weight:900;letter-spacing:2px;border:none;")
+        col_izq.addWidget(lbl_fam)
+
+        self.lista_fam = QListWidget()
+        self.lista_fam.setStyleSheet(_LISTA_SS)
+        self.lista_fam.setMinimumWidth(300)
+        self.lista_fam.currentItemChanged.connect(lambda *_: self._cargar_articulos())
+        col_izq.addWidget(self.lista_fam, 1)
+
+        acc = QHBoxLayout(); acc.setSpacing(8)
+        self.btn_nueva = _BotonMas(tr("info.fam_new", default="NUEVA"))
+        self.btn_editar = QPushButton("✏️ " + tr("info.fam_edit", default="EDITAR"))
+        self.btn_borrar = QPushButton("🗑 " + tr("info.fam_del", default="ELIMINAR"))
+        for b in (self.btn_nueva, self.btn_editar):
+            b.setStyleSheet(_BTN_CIAN_SS); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_borrar.setStyleSheet(_ss_boton("#F85149")); self.btn_borrar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_nueva.clicked.connect(self._nueva)
+        self.btn_editar.clicked.connect(self._editar)
+        self.btn_borrar.clicked.connect(self._eliminar)
+        acc.addWidget(self.btn_nueva); acc.addWidget(self.btn_editar); acc.addWidget(self.btn_borrar)
+        col_izq.addLayout(acc)
+        root.addLayout(col_izq, 1)
+
+        # ── Columna derecha: artículos de la familia seleccionada ──
+        col_der = QVBoxLayout()
+        col_der.setSpacing(12)
+        self.lbl_art = QLabel(tr("info.fam_articles", default="ARTÍCULOS DE LA FAMILIA"))
+        self.lbl_art.setStyleSheet("color:#FFFFFF;font-size:16px;font-weight:900;letter-spacing:1px;border:none;")
+        col_der.addWidget(self.lbl_art)
+
+        add_row = QHBoxLayout(); add_row.setSpacing(8)
+        self.in_add = QLineEdit()
+        self.in_add.setPlaceholderText(tr("info.fam_add_ph", default="Código o nombre del artículo a añadir..."))
+        self.in_add.setStyleSheet(_NEON_INPUT_SS)
+        completer = QCompleter(); model = QStringListModel(); completer.setModel(model)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        if estilizar_completer:
+            estilizar_completer(completer)
+        model.setStringList(_get_completer_data())
+        self.in_add.setCompleter(completer)
+        self.in_add.returnPressed.connect(self._anadir)
+        self.btn_add = _BotonMas(tr("info.fam_add", default="AÑADIR"))
+        self.btn_add.setStyleSheet(_BTN_CIAN_SS); self.btn_add.setFixedWidth(150)
+        self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_add.clicked.connect(self._anadir)
+        add_row.addWidget(self.in_add, 1); add_row.addWidget(self.btn_add)
+        col_der.addLayout(add_row)
+
+        self.lista_art = QListWidget()
+        self.lista_art.setStyleSheet(_LISTA_SS)
+        col_der.addWidget(self.lista_art, 1)
+
+        fila_der = QHBoxLayout(); fila_der.setSpacing(8)
+        self.btn_quitar = QPushButton("✕ " + tr("info.fam_remove", default="QUITAR DE LA FAMILIA"))
+        self.btn_quitar.setStyleSheet(_ss_boton("#F85149")); self.btn_quitar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_quitar.clicked.connect(self._quitar)
+        self.btn_masivo = QPushButton("💲 " + tr("info.pm_title", default="PRECIO / IVA MASIVO"))
+        self.btn_masivo.setStyleSheet(_BTN_CIAN_SS); self.btn_masivo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_masivo.clicked.connect(self._precio_masivo)
+        fila_der.addWidget(self.btn_quitar); fila_der.addWidget(self.btn_masivo)
+        col_der.addLayout(fila_der)
+        root.addLayout(col_der, 2)
+
+    # ── datos ──
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not self._cargado:
+            self._cargado = True
+            self._cargar_familias()
+
+    def _sel_familia_id(self):
+        it = self.lista_fam.currentItem()
+        return it.data(Qt.ItemDataRole.UserRole) if it else None
+
+    def _cargar_familias(self, sel_id=None):
+        from src.db.familias import contar_por_familia, listar_familias
+        self.lista_fam.blockSignals(True)
+        self.lista_fam.clear()
+        conteo = contar_por_familia()
+        objetivo = None
+        for f in listar_familias():
+            n = conteo.get(f["id"], 0)
+            it = QListWidgetItem(f"{f['nombre']}   ({n})")
+            it.setData(Qt.ItemDataRole.UserRole, f["id"])
+            self.lista_fam.addItem(it)
+            if f["id"] == sel_id:
+                objetivo = it
+        self.lista_fam.blockSignals(False)
+        if objetivo is not None:
+            self.lista_fam.setCurrentItem(objetivo)
+        elif self.lista_fam.count():
+            self.lista_fam.setCurrentRow(0)
+        else:
+            self._cargar_articulos()
+
+    def _cargar_articulos(self):
+        from src.db.familias import articulos_de_familia
+        self.lista_art.clear()
+        fid = self._sel_familia_id()
+        if fid is None:
+            return
+        for a in articulos_de_familia(fid):
+            it = QListWidgetItem(f"{a['codigo']}   —   {a.get('nombre') or ''}")
+            it.setData(Qt.ItemDataRole.UserRole, a["codigo"])
+            self.lista_art.addItem(it)
+
+    # ── CRUD familias ──
+    def _nueva(self):
+        from src.db.familias import crear_familia
+        dlg = _FamiliaDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            d = dlg.datos()
+            if not d["nombre"]:
+                return
+            fid = crear_familia(d["nombre"], descripcion=d["descripcion"],
+                                restringida=d.get("restringida", False))
+            self._cargar_familias(sel_id=fid)
+
+    def _editar(self):
+        from src.db.familias import actualizar_familia, obtener_familia
+        fid = self._sel_familia_id()
+        if fid is None:
+            return
+        dlg = _FamiliaDialog(self, familia=obtener_familia(fid))
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            d = dlg.datos()
+            if not d["nombre"]:
+                return
+            actualizar_familia(fid, nombre=d["nombre"], descripcion=d["descripcion"],
+                               restringida=1 if d.get("restringida") else 0)
+            self._cargar_familias(sel_id=fid)
+
+    def _eliminar(self):
+        from src.db.familias import eliminar_familia
+        fid = self._sel_familia_id()
+        if fid is None:
+            return
+        it = self.lista_fam.currentItem()
+        if mostrar_confirmacion:
+            ok = mostrar_confirmacion(
+                self, tr("info.fam_del", default="ELIMINAR"),
+                tr("info.fam_del_msg",
+                   default="¿Eliminar la familia «{f}»? Los artículos quedarán SIN familia (no se borran).",
+                   f=it.text() if it else ""))
+            if not ok:
+                return
+        eliminar_familia(fid)
+        self._cargar_familias()
+
+    # ── asignación de artículos ──
+    def _anadir(self):
+        from src.db.conexion import obtener_articulo
+        from src.db.familias import asignar_familia
+        fid = self._sel_familia_id()
+        if fid is None:
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("info.fam_families", default="FAMILIAS"),
+                                tr("info.fam_pick", default="Selecciona primero una familia."), nivel="warning")
+            return
+        q = self.in_add.text().strip()
+        if q and "–" in q:
+            q = q.split("–")[0].strip()
+        if not q:
+            return
+        art = obtener_articulo(q)
+        if not art:
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("info.not_found_title", default="No Encontrado"),
+                                tr("info.not_found_msg", default="No se encontró información para: {q}", q=q),
+                                nivel="warning")
+            return
+        asignar_familia(art.get("codigo"), fid)
+        self.in_add.clear()
+        self._cargar_familias(sel_id=fid)
+
+    def _quitar(self):
+        from src.db.familias import asignar_familia
+        fid = self._sel_familia_id()
+        it = self.lista_art.currentItem()
+        if fid is None or it is None:
+            return
+        if mostrar_confirmacion:
+            ok = mostrar_confirmacion(
+                self, tr("info.fam_remove", default="QUITAR DE LA FAMILIA"),
+                tr("info.fam_remove_msg",
+                   default="¿Quitar «{a}» de la familia? El artículo no se borra, solo deja de pertenecer a ella.",
+                   a=it.text()))
+            if not ok:
+                return
+        asignar_familia(it.data(Qt.ItemDataRole.UserRole), None)
+        self._cargar_familias(sel_id=fid)
+
+    def _precio_masivo(self):
+        from src.db.familias import cambiar_precio_masivo
+        fid = self._sel_familia_id()
+        if fid is None:
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("info.pm_title", default="PRECIO / IVA MASIVO"),
+                                tr("info.fam_pick", default="Selecciona primero una familia."), nivel="warning")
+            return
+        it = self.lista_fam.currentItem()
+        dlg = _PrecioMasivoDialog(self, familia_nombre=it.text() if it else "")
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        modo, valor = dlg.datos()
+        if not valor:
+            return
+        n = cambiar_precio_masivo(fid, modo, valor)
+        if mostrar_mensaje:
+            mostrar_mensaje(self, tr("info.pm_title", default="PRECIO / IVA MASIVO"),
+                            tr("info.pm_ok", default="Operación aplicada a {n} artículo(s).", n=n),
+                            nivel="success" if n else "warning")
+        self._cargar_articulos()
+
+    def _retraducir(self):
+        # Recarga de textos estáticos; el contenido dinámico se refresca al reentrar.
+        pass
 
 
 # ============================================================
@@ -743,80 +1568,6 @@ class BarcodeScanner(QDialog):
         event.accept()
 
 
-# ============================================================
-# BLOQUE VENTANA DE INFORMACIÓN DE ARTÍCULO
-# ============================================================
-
-
-class VideoThread(QThread):
-    change_pixmap_signal = pyqtSignal(QImage)
-    code_detected = pyqtSignal(str, object)
-
-    def __init__(self, camera_index=0, parent=None):
-        super().__init__(parent)
-        self._run_flag = True
-        self.camera_index = camera_index
-
-    def try_decode(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        codes = decode(gray)
-        if codes:
-            return codes[0].data.decode("utf-8"), codes[0].type
-        return None, None
-
-    def run(self):
-        cap = cv2.VideoCapture(
-            self.camera_index, cv2.CAP_DSHOW if os.name == "nt" else 0
-        )
-        while self._run_flag:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            text, tipo = self.try_decode(frame)
-            if text:
-                self.code_detected.emit(text, tipo)
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb.shape
-            qt_image = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
-            self.change_pixmap_signal.emit(qt_image)
-        cap.release()
-
-    def stop(self):
-        self._run_flag = False
-        self.wait(2000)
-
-
-class BarcodeScanner(QDialog):
-    def __init__(self, callback, parent=None):
-        super().__init__(parent)
-        self.callback = callback
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-        plantilla = construir_plantilla_camara(
-            self, titulo=tr("info.cam_title", default="VISIÓN - ARTÍCULO"), mostrar_boton_primario=False
-        )
-        self.lbl_video = plantilla["lbl_video"]
-        plantilla["btn_cancelar"].clicked.connect(self.close)
-
-        self.thread = VideoThread()
-        self.thread.change_pixmap_signal.connect(self._update_image)
-        self.thread.code_detected.connect(self.callback)
-        self.thread.start()
-
-    def _update_image(self, qt_image):
-        pix = QPixmap.fromImage(qt_image).scaled(
-            self.lbl_video.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.lbl_video.setPixmap(pix)
-
-    def closeEvent(self, event):
-        self.thread.stop()
-        event.accept()
-
-
 # ---------------------------------------------------------------------------
 # VENTANA PRINCIPAL
 # ---------------------------------------------------------------------------
@@ -867,8 +1618,8 @@ class InfoArticuloWindow(QWidget):
         )
         side_ly.addWidget(lbl_m)
 
-        self._tab_keys = ["info.tab_search", "info.tab_image", "info.tab_edit"]
-        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO"]
+        self._tab_keys = ["info.tab_search", "info.tab_image", "info.tab_edit", "info.tab_families"]
+        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS"]
 
         self._nav_btns = []
         for idx, key in enumerate(self._tab_keys):
@@ -909,21 +1660,23 @@ class InfoArticuloWindow(QWidget):
         self._page_buscar = _BuscarArticuloPage(self)
         self._page_imagen = _ImagenArticuloPage(self)
         self._page_editar = _EditarArticuloPage(self)
+        self._page_familias = _FamiliasPage(self)
 
         self._vistas.addWidget(self._page_buscar)
         self._vistas.addWidget(self._page_imagen)
         self._vistas.addWidget(self._page_editar)
+        self._vistas.addWidget(self._page_familias)
 
         root.addWidget(self._vistas)
         self._ir_a(0)
 
     def _retraducir(self):
         self.setWindowTitle(tr("info.window_title", default="Información de Artículo"))
-        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO"]
+        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS"]
         for i, btn in enumerate(self._nav_btns):
             btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
         self._btn_exit.setText(tr("info.exit", default="SALIR AL MENÚ"))
-        for page in (self._page_buscar, self._page_imagen, self._page_editar):
+        for page in (self._page_buscar, self._page_imagen, self._page_editar, self._page_familias):
             if hasattr(page, "_retraducir"):
                 page._retraducir()
 

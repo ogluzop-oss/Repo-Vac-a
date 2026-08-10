@@ -68,9 +68,26 @@
     "user_info": "👤 {nombre} | {perfil}",
     "smart_manager": "SMART MANAGER",
     "card_documentos": "Documents",
-    "card_catalogo": "Catàleg",
+    "card_catalogo": "Catàleg Web",
     "cambiar_tienda": "Canviar de botiga",
-    "sin_tienda": "Sense botiga activa"
+    "sin_tienda": "Sense botiga activa",
+    "card_compras": "Proveïdors",
+    "card_compras_avanzado": "Compres avançat",
+    "card_clientes_crm": "CRM",
+    "card_contabilidad": "Comptabilitat",
+    "card_tesoreria": "Tresoreria",
+    "card_rrhh": "RRHH",
+    "card_seguridad": "Rols / Permisos",
+    "card_notificaciones": "Notificacions",
+    "card_saas": "Subscripció",
+    "card_bi": "Dashboard",
+    "card_workflow": "Tasques",
+    "card_portal": "P. Empleat",
+    "card_kardex": "Kárdex",
+    "card_inventario_fisico": "Inventari físic",
+    "card_lotes": "Lots",
+    "card_stock_almacen": "Stock per almacén",
+    "card_almacenes": "Almacens"
   },
   "ticket": {
     "date": "Data",
@@ -202,7 +219,10 @@
     "recover_msg": "Ja hi ha articles a la cistella. Què vols fer amb la venda recuperada?",
     "recover_add": "SUMAR ARTICLES",
     "recover_replace": "REEMPLAÇAR",
-    "online": "Venda online"
+    "online": "Venda online",
+    "show_stock": "Mostrar estoc",
+    "cash_move": "Transferir efectiu",
+    "cashier_change": "Canvi caixera"
   },
   "albaran": {
     "doc_title": "ALBARÀ DE TRASPÀS",
@@ -570,7 +590,9 @@
     "inventory_desc": "Accedeix a la carpeta compartida d'inventari a Google Drive per veure i gestionar els documents d'inventari. S'obrirà el teu navegador predeterminat amb la carpeta de\nGoogle Drive configurada per a aquest negoci.",
     "inventory_btn": "OBRIR INVENTARI",
     "smart_stock": "Smart Stock",
-    "smart_stock_2": "SMART STOCK"
+    "smart_stock_2": "SMART STOCK",
+    "tab_kardex": "KARDEX",
+    "tab_lotes": "LOTS"
   },
   "repo": {
     "window_title": "Smart Manager - Informe de Reposició",
@@ -1025,10 +1047,11 @@
     "caja_current_state": "ESTAT ACTUAL:",
     "caja_fund": "Fons: {x}",
     "btn_apertura": "OBERTURA",
-    "btn_habilitar": "HABILITAR CAIXA",
-    "btn_cierre_reg": "TANCAMENT CAIXA REGISTRADORA",
-    "btn_cierre_fuerte": "TANCAMENT CAIXA FORTA",
-    "btn_movimiento": "MOVIMENTS D'EFECTIU",
+    "btn_apertura_fuerte": "OBRIR CAIXA FORTA",
+    "btn_habilitar": "OBRIR CAIXA REGISTRADORA",
+    "btn_cierre_reg": "TANCAR CAIXA REGISTRADORA",
+    "btn_cierre_fuerte": "TANCAR CAIXA FORTA",
+    "btn_movimiento": "TRANSFERIR EFECTIU",
     "id_apertura_fuerte": "Obertura de Caixa Forta",
     "id_apertura_caja": "Obertura de {id}",
     "id_cierre_reg": "Tancament de caixa registradora",
@@ -1414,7 +1437,10 @@
     "auth_cierre_fuerte": "tancar la caixa forta",
     "auth_movimiento": "registrar un moviment d'efectiu",
     "de_pais_fiscal": "País fiscal (determina l'IVA):",
-    "de_iva_auto": "IVA aplicat (automàtic):"
+    "de_iva_auto": "IVA aplicat (automàtic):",
+    "emp_color_tip": "Color de l'empleat",
+    "emp_color_title": "Color de l'empleat",
+    "emp_color_dup": "Esse color ja està assignat a un altre empleat."
   },
   "recep": {
     "escaner_inteligente_smart_ma": "Escàner Intel·ligent - Smart Manager",
@@ -1607,7 +1633,7 @@
     "col_alta": "ALTA",
     "sin_tienda": "— Empresa (sense botiga) —",
     "sin_tienda_corta": "(empresa)",
-    "resumen": "{n} bústia(es) en aquesta empresa.",
+    "resumen": "{n} correu(s) configurat(s).",
     "aviso": "Avís",
     "selecciona": "Selecciona un correu de la llista.",
     "nuevo_titulo": "NOU CORREU CORPORATIU",
@@ -1623,7 +1649,7 @@
     "oauth_no_conf_msg": "Col·loca 'google_oauth_client.json' a la carpeta documents/ (descarrega-la de Google Cloud Console) per connectar comptes de Google.",
     "oauth_titulo": "Connexió OAuth",
     "prueba_asunto": "Correu de prova — Smart Manager",
-    "prueba_cuerpo": "Aquest és un envío de prova de Smart Manager AI.",
+    "prueba_cuerpo": "Aquest és un envío de prova de Smart Manager.",
     "envio_titulo": "Envío",
     "eliminar_titulo": "Eliminar correu",
     "eliminar_msg": "¿Eliminar {dir}? Es revocaran els seus tokens.",
@@ -1633,7 +1659,7 @@
     "env_destinatario": "DESTINATARI",
     "env_asunto": "ASSUMPTE",
     "env_enviar": "ENVIAR",
-    "env_cuerpo": "Document adjunt generat per Smart Manager AI.",
+    "env_cuerpo": "Document adjunt generat per Smart Manager.",
     "env_sin_buzones": "No hi ha bústies corporatives actives. Crea una a la secció Correu.",
     "env_falta_dest": "Introdueix un destinatari vàlid."
   },

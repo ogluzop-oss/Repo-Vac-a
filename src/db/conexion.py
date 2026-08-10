@@ -292,12 +292,11 @@ def ensure_schema(force: bool = False):
                         fecha_actualizacion DATETIME
                     )
                 """)
-                # Columnas de referencia tienda/almacén
+                # Moneda de la empresa. (Las columnas ref_tienda/ref_almacen de «Asignar referencia» se
+                # RETIRARON — deprecación → Identidad Operativa/IOC — y las elimina la migración 0175.)
                 cur.execute("""
                     ALTER TABLE configuraciones
-                    ADD COLUMN IF NOT EXISTS ref_tienda  VARCHAR(100) NOT NULL DEFAULT '',
-                    ADD COLUMN IF NOT EXISTS ref_almacen VARCHAR(100) NOT NULL DEFAULT '',
-                    ADD COLUMN IF NOT EXISTS moneda      VARCHAR(3)   NOT NULL DEFAULT 'EUR'
+                    ADD COLUMN IF NOT EXISTS moneda VARCHAR(3) NOT NULL DEFAULT 'EUR'
                 """)
 
                 # ── Fundación MULTIEMPRESA (multi-tenant), aditiva y no disruptiva ──
@@ -514,6 +513,105 @@ def ensure_schema(force: bool = False):
                 except Exception as _e:
                     logger.warning("No se pudo añadir articulos.iva: %s", _e)
 
+                # Familias de producto (vocabulario gestionable por empresa) + vínculo GLOBAL en articulos.
+                try:
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS familias_producto (
+                            id          INT AUTO_INCREMENT PRIMARY KEY,
+                            id_empresa  VARCHAR(36)  DEFAULT NULL,
+                            nombre      VARCHAR(120) NOT NULL,
+                            descripcion VARCHAR(255)          DEFAULT NULL,
+                            color       VARCHAR(9)            DEFAULT NULL,
+                            orden       INT          NOT NULL DEFAULT 0,
+                            activo      TINYINT(1)   NOT NULL DEFAULT 1,
+                            creado      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            INDEX idx_fam_empresa (id_empresa)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+                    cur.execute("ALTER TABLE articulos ADD COLUMN IF NOT EXISTS id_familia INT DEFAULT NULL")
+                except Exception as _e:
+                    logger.warning("No se pudo crear familias_producto / articulos.id_familia: %s", _e)
+
+                # ESL / Etiquetas electrónicas de precio dinámico (config por empresa+tienda + mapeo
+                # etiqueta↔artículo con estado de sincronización). Push manual, degradable.
+                try:
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS esl_config (
+                            id                 INT AUTO_INCREMENT PRIMARY KEY,
+                            id_empresa         VARCHAR(36)  DEFAULT NULL,
+                            id_tienda          VARCHAR(36)  DEFAULT NULL,
+                            proveedor          VARCHAR(40)  NOT NULL DEFAULT 'simulado',
+                            endpoint           VARCHAR(255)          DEFAULT NULL,
+                            store_id           VARCHAR(120)          DEFAULT NULL,
+                            credencial_cifrada TEXT                  DEFAULT NULL,
+                            modo_simulado      TINYINT(1)   NOT NULL DEFAULT 1,
+                            activo             TINYINT(1)   NOT NULL DEFAULT 1,
+                            creado             DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE KEY uq_esl_config (id_empresa, id_tienda)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS esl_labels (
+                            id                  INT AUTO_INCREMENT PRIMARY KEY,
+                            id_empresa          VARCHAR(36)  DEFAULT NULL,
+                            id_tienda           VARCHAR(36)  DEFAULT NULL,
+                            codigo_articulo     VARCHAR(64)  NOT NULL,
+                            label_id            VARCHAR(120) NOT NULL,
+                            proveedor           VARCHAR(40)           DEFAULT NULL,
+                            plantilla           VARCHAR(60)           DEFAULT NULL,
+                            precio_sincronizado DECIMAL(12,4)         DEFAULT NULL,
+                            estado              VARCHAR(20)  NOT NULL DEFAULT 'PENDIENTE',
+                            ultimo_error        VARCHAR(255)          DEFAULT NULL,
+                            ultima_sync         DATETIME              DEFAULT NULL,
+                            creado              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE KEY uq_esl_label (id_empresa, id_tienda, label_id),
+                            INDEX idx_esl_art (id_empresa, id_tienda, codigo_articulo)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+                except Exception as _e:
+                    logger.warning("No se pudieron crear las tablas ESL: %s", _e)
+
+                # PRECIO DINÁMICO: reglas por horario/stock/caducidad + precio_base de referencia.
+                try:
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS precio_reglas (
+                            id           INT AUTO_INCREMENT PRIMARY KEY,
+                            id_empresa   VARCHAR(36)  DEFAULT NULL,
+                            id_tienda    VARCHAR(36)  DEFAULT NULL,
+                            nombre       VARCHAR(120) NOT NULL,
+                            tipo         VARCHAR(20)  NOT NULL,
+                            params       TEXT                  DEFAULT NULL,
+                            ajuste_tipo  VARCHAR(10)  NOT NULL DEFAULT 'pct',
+                            ajuste_valor DECIMAL(12,4) NOT NULL DEFAULT 0,
+                            prioridad    INT          NOT NULL DEFAULT 0,
+                            activo       TINYINT(1)   NOT NULL DEFAULT 1,
+                            creado       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            INDEX idx_preglas_emp (id_empresa)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+                    cur.execute("ALTER TABLE articulos ADD COLUMN IF NOT EXISTS precio_base DECIMAL(12,4) DEFAULT NULL")
+                except Exception as _e:
+                    logger.warning("No se pudo crear precio_reglas / articulos.precio_base: %s", _e)
+
+                # Recordatorios de cobro (dunning de clientes): registro de envíos por factura+nivel.
+                try:
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS cobros_recordatorios (
+                            id          INT AUTO_INCREMENT PRIMARY KEY,
+                            id_empresa  VARCHAR(36)  DEFAULT NULL,
+                            id_factura  INT          NOT NULL,
+                            nivel       INT          NOT NULL DEFAULT 0,
+                            etiqueta    VARCHAR(80)           DEFAULT NULL,
+                            canal       VARCHAR(20)           DEFAULT NULL,
+                            destino     VARCHAR(255)          DEFAULT NULL,
+                            estado      VARCHAR(20)  NOT NULL DEFAULT 'enviado',
+                            fecha       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            INDEX idx_cobros_rec (id_empresa, id_factura)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """)
+                except Exception as _e:
+                    logger.warning("No se pudo crear cobros_recordatorios: %s", _e)
+
                 # CLIENTES (captura en el flujo de venta del TPV; multiempresa).
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS clientes (
@@ -636,6 +734,9 @@ def ensure_schema(force: bool = False):
                         INDEX idx_poi_pedido (id_pedido)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                # Almacén de ORIGEN por línea (stock físico elegido al crear el pedido). Aditivo/idempotente.
+                cur.execute("ALTER TABLE pedidos_online_items "
+                            "ADD COLUMN IF NOT EXISTS id_almacen INT DEFAULT NULL")
                 # Configuración de e-commerce por empresa (plataforma + URL + creds)
                 # para el adaptador multiplataforma (Shopify/Woo/Presta/web propia).
                 cur.execute(f"""
@@ -1206,33 +1307,16 @@ def obtener_configuracion():
 
 
 def obtener_referencias() -> dict:
-    """Devuelve {'ref_tienda': str, 'ref_almacen': str} desde configuraciones."""
-    try:
-        ensure_schema()
-        with obtener_conexion() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT ref_tienda, ref_almacen FROM configuraciones ORDER BY id ASC LIMIT 1")
-                fila = cur.fetchone()
-                if fila:
-                    return {"ref_tienda": fila[0] or "", "ref_almacen": fila[1] or ""}
-    except Exception as e:
-        logger.error(f"Error en obtener_referencias: {e}")
+    """RETIRADA (feature «Asignar referencia» → Identidad Operativa/IOC). Las columnas
+    configuraciones.ref_tienda/ref_almacen se eliminaron (migración 0175). Se conserva la firma como stub
+    de compatibilidad: devuelve siempre vacío. Usa `services.identidad` para la identidad de la terminal."""
     return {"ref_tienda": "", "ref_almacen": ""}
 
 
 def guardar_referencia(tipo: str, valor: str) -> bool:
-    """Guarda la referencia de tienda ('tienda') o almacén ('almacen') en configuraciones."""
-    col = "ref_tienda" if tipo == "tienda" else "ref_almacen"
-    try:
-        ensure_schema()
-        with obtener_conexion() as conn:
-            with conn.cursor() as cur:
-                cur.execute(f"UPDATE configuraciones SET {col} = %s ORDER BY id ASC LIMIT 1", (valor.strip(),))
-                conn.commit()
-                return True
-    except Exception as e:
-        logger.error(f"Error en guardar_referencia: {e}")
-        return False
+    """RETIRADA (feature «Asignar referencia» → Identidad Operativa/IOC). Stub de compatibilidad: no-op
+    (devuelve False). La identidad de la terminal se gestiona en Centros de trabajo (IOC)."""
+    return False
 
 
 # ============================================================
@@ -1240,15 +1324,29 @@ def guardar_referencia(tipo: str, valor: str) -> bool:
 # ============================================================
 
 
-def obtener_articulo(codigo: str):
-    """Recupera un artículo completo por su código."""
+def _emp_sesion(id_empresa=None):
+    """Empresa de la sesión (tenant) para los helpers de stock legacy. Tras la PK compuesta de `articulos`
+    (migr 0181) estas operaciones filtran por empresa; con el patrón `%s IS NULL OR id_empresa=%s` se conserva
+    el comportamiento previo cuando no hay empresa resoluble (p. ej. sin sesión)."""
+    if id_empresa:
+        return id_empresa
+    try:
+        from src.db.empresa import empresa_actual_id
+        return empresa_actual_id()
+    except Exception:
+        return None
+
+
+def obtener_articulo(codigo: str, id_empresa=None):
+    """Recupera un artículo completo por su código (aislado por empresa de la sesión)."""
+    emp = _emp_sesion(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 # Fetch all columns to return a complete article dictionary
                 cur.execute(
-                    "SELECT * FROM articulos WHERE codigo = %s",
-                    (codigo,),
+                    "SELECT * FROM articulos WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)",
+                    (codigo, emp, emp),
                 )
 
                 return _fila_a_dict(cur, cur.fetchone())
@@ -1257,39 +1355,43 @@ def obtener_articulo(codigo: str):
         return None
 
 
-def listar_stock() -> list[dict]:
-    """Lista artículos con sus diferentes stocks de MariaDB."""
+def listar_stock(id_empresa=None) -> list[dict]:
+    """Lista artículos con sus diferentes stocks de MariaDB (aislado por empresa de la sesión)."""
+    emp = _emp_sesion(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT a.codigo, a.nombre, 
+                    SELECT a.codigo, a.nombre,
                            COALESCE(a.Stock_central, 0) AS Stock_central,
                            COALESCE(a.Stock_total, 0) AS Stock_total,
                            COALESCE(a.Stock_tienda, 0) AS Stock_tienda,
                            COALESCE(a.Stock_esperado, 0) AS Stock_esperado
                     FROM articulos a
-                """)
+                    WHERE (%s IS NULL OR a.id_empresa = %s)
+                """, (emp, emp))
                 return cur.fetchall()
     except Exception:
         logger.exception("Error en listar_stock")
         return []
 
 
-def articulos_bajo_stock() -> list[dict]:
-    """Devuelve artículos con stock tienda < esperado."""
+def articulos_bajo_stock(id_empresa=None) -> list[dict]:
+    """Devuelve artículos con stock tienda < esperado (aislado por empresa de la sesión)."""
+    emp = _emp_sesion(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT codigo, nombre, 
-                           COALESCE(Stock_total, 0) AS Stock_total, 
-                           COALESCE(Stock_tienda, 0) AS Stock_tienda, 
+                    SELECT codigo, nombre,
+                           COALESCE(Stock_total, 0) AS Stock_total,
+                           COALESCE(Stock_tienda, 0) AS Stock_tienda,
                            COALESCE(Stock_esperado, 0) AS Stock_esperado
                     FROM articulos
-                    WHERE COALESCE(Stock_tienda, 0) < COALESCE(Stock_esperado, 0)
+                    WHERE (%s IS NULL OR id_empresa = %s)
+                      AND COALESCE(Stock_tienda, 0) < COALESCE(Stock_esperado, 0)
                     ORDER BY nombre ASC
-                """)
+                """, (emp, emp))
                 return cur.fetchall()
     except Exception:
         logger.exception("Error en articulos_bajo_stock")
@@ -1297,15 +1399,17 @@ def articulos_bajo_stock() -> list[dict]:
 
 
 def modificar_stock_completo(
-    codigo: str, stock_central: int, stock_total: int, stock_tienda: int
+    codigo: str, stock_central: int, stock_total: int, stock_tienda: int, id_empresa=None
 ) -> bool:
-    """Actualiza los niveles de stock y notifica a la UI."""
+    """Actualiza los niveles de stock y notifica a la UI (aislado por empresa de la sesión)."""
+    emp = _emp_sesion(id_empresa)
     try:
         anterior = None
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COALESCE(Stock_total,0)+COALESCE(Stock_tienda,0) "
-                            "FROM articulos WHERE codigo=%s", (codigo,))
+                            "FROM articulos WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
+                            (codigo, emp, emp))
                 _r = cur.fetchone()
                 if _r:
                     anterior = (_r[0] if not isinstance(_r, dict) else list(_r.values())[0])
@@ -1313,9 +1417,9 @@ def modificar_stock_completo(
                     """
                     UPDATE articulos
                     SET Stock_central = %s, Stock_total = %s, Stock_tienda = %s
-                    WHERE codigo = %s
+                    WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)
                     """,
-                    (stock_central, stock_total, stock_tienda, codigo),
+                    (stock_central, stock_total, stock_tienda, codigo, emp, emp),
                 )
             conn.commit()
         stock_signals.stock_actualizado.emit(str(codigo))
@@ -1342,18 +1446,22 @@ def _salida_stock_clamp(cur, codigo, cantidad, contexto="venta", id_empresa=None
     cantidad = int(cantidad or 0)
     if not codigo or cantidad <= 0:
         return 0
-    cur.execute("SELECT COALESCE(Stock_tienda,0) FROM articulos WHERE codigo=%s", (codigo,))
+    # PK compuesta (migr 0181): la salida de stock filtra por EMPRESA (de la sesión si no se indica). Con
+    # `%s IS NULL OR ...` se conserva el comportamiento antiguo si no hay empresa resoluble.
+    try:
+        from src.db.empresa import empresa_actual_id
+        emp = id_empresa or empresa_actual_id()
+    except Exception:
+        emp = id_empresa
+    cur.execute("SELECT COALESCE(Stock_tienda,0) FROM articulos WHERE codigo=%s AND (%s IS NULL OR "
+                "id_empresa=%s)", (codigo, emp, emp))
     r = cur.fetchone()
     disp = int((r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0) if r else 0
     faltante = max(0, cantidad - disp)
     cur.execute("UPDATE articulos SET Stock_tienda = IF(COALESCE(Stock_tienda,0)-%s<0, 0, "
-                "COALESCE(Stock_tienda,0)-%s) WHERE codigo=%s", (cantidad, cantidad, codigo))
+                "COALESCE(Stock_tienda,0)-%s) WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
+                (cantidad, cantidad, codigo, emp, emp))
     if faltante > 0:
-        try:
-            from src.db.empresa import empresa_actual_id
-            emp = id_empresa or empresa_actual_id()
-        except Exception:
-            emp = id_empresa
         try:
             cur.execute("INSERT INTO ventas_errores (codigo, cantidad, fecha, motivo, id_empresa) "
                         "VALUES (%s,%s,NOW(),%s,%s)",
@@ -1363,11 +1471,12 @@ def _salida_stock_clamp(cur, codigo, cantidad, contexto="venta", id_empresa=None
     return faltante
 
 
-def descontar_stock(codigo: str, cantidad: int) -> tuple[bool, int, int]:
+def descontar_stock(codigo: str, cantidad: int, id_empresa=None) -> tuple[bool, int, int]:
     """
     Descuenta stock con bloqueo de fila (FOR UPDATE) para evitar condiciones de carrera.
-    Prioriza Stock_central/total y luego Tienda.
+    Prioriza Stock_central/total y luego Tienda. Aislado por empresa de la sesión.
     """
+    emp = _emp_sesion(id_empresa)
     for intento in range(3):  # Reintentos en caso de Deadlock
         try:
             # A2.2: dentro de una TRANSACCIÓN real → el FOR UPDATE mantiene el
@@ -1375,8 +1484,9 @@ def descontar_stock(codigo: str, cantidad: int) -> tuple[bool, int, int]:
             with transaccion() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT Stock_total, Stock_tienda FROM articulos WHERE codigo=%s FOR UPDATE",
-                        (codigo,),
+                        "SELECT Stock_total, Stock_tienda FROM articulos WHERE codigo=%s "
+                        "AND (%s IS NULL OR id_empresa=%s) FOR UPDATE",
+                        (codigo, emp, emp),
                     )
                     row = cur.fetchone()
                     if not row:
@@ -1395,8 +1505,9 @@ def descontar_stock(codigo: str, cantidad: int) -> tuple[bool, int, int]:
                     desc_tie = cantidad - desc_tot
 
                     cur.execute(
-                        "UPDATE articulos SET Stock_total = Stock_total - %s, Stock_tienda = Stock_tienda - %s WHERE codigo = %s",
-                        (desc_tot, desc_tie, codigo),
+                        "UPDATE articulos SET Stock_total = Stock_total - %s, Stock_tienda = Stock_tienda - %s "
+                        "WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)",
+                        (desc_tot, desc_tie, codigo, emp, emp),
                     )
             # commit/rollback gestionado por transaccion()
 
@@ -1412,14 +1523,16 @@ def descontar_stock(codigo: str, cantidad: int) -> tuple[bool, int, int]:
     return False, 0, 0
 
 
-def sumar_stock_recepcion(codigo: str, cantidad: int):
-    """Incrementa el stock total tras una recepción."""
+def sumar_stock_recepcion(codigo: str, cantidad: int, id_empresa=None):
+    """Incrementa el stock total tras una recepción (aislado por empresa de la sesión)."""
+    emp = _emp_sesion(id_empresa)
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE articulos SET Stock_total = Stock_total + %s, Stock_tienda = Stock_tienda + %s WHERE codigo = %s",
-                    (cantidad, cantidad, codigo),
+                    "UPDATE articulos SET Stock_total = Stock_total + %s, Stock_tienda = Stock_tienda + %s "
+                    "WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)",
+                    (cantidad, cantidad, codigo, emp, emp),
                 )
             conn.commit()
             try:
@@ -1515,6 +1628,15 @@ def set_ubicacion(codigo: str, pasillo: str, estanteria: str, balda: str):
                         balda = VALUES(balda)
                 """
                 cur.execute(sql, (codigo, pasillo, estanteria, balda))
+        # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("UBICACION_ASIGNADA", origen="ubicaciones",
+                         ref_entidad="ubicacion", ref_id=codigo,
+                         payload={"codigo": codigo, "pasillo": pasillo,
+                                  "estanteria": estanteria, "balda": balda})
+        except Exception:
+            pass
         return True
     except Exception:
         logger.exception("Error en set_ubicacion")
@@ -1556,6 +1678,10 @@ def registrar_venta_con_items(
         from src.db.empresa import empresa_actual_id, tienda_actual_id
         _eid = id_empresa or empresa_actual_id()
         _tid = id_tienda if id_tienda is not None else tienda_actual_id()
+        # La columna `ventas.id_tienda` es INT, pero el contexto de tienda puede ser un
+        # código alfanumérico (p. ej. 'ALMC'). Se coacciona a entero (0 si no es numérico)
+        # SOLO para la columna; `_tid` (código) se conserva para kárdex/stock/lotes.
+        _tid_col = int(_tid) if str(_tid).isdigit() else 0
         cli = cliente or {}
         cli_id = cli.get("id") if cli.get("id") is not None else cliente_id
         cli_nom = cli.get("nombre")
@@ -1567,7 +1693,7 @@ def registrar_venta_con_items(
                     "cliente_id, cliente_nombre, cliente_nif, id_empresa, id_tienda) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (fecha, 0.0, forma_pago, str(empleado_id) if empleado_id else None,
-                     numero_caja, cli_id, cli_nom, cli_nif, _eid, _tid),
+                     numero_caja, cli_id, cli_nom, cli_nif, _eid, _tid_col),
                 )
                 venta_id = cur.lastrowid
                 total_acumulado = 0.0
@@ -1600,24 +1726,12 @@ def registrar_venta_con_items(
                 stock_signals.stock_actualizado.emit(str(cod))
         except Exception:
             pass
-        # INV.1: kárdex SALIDA_VENTA por ítem (best-effort, tras commit; no afecta a la venta).
+        # Salida oficial de stock por ítem (POLÍTICA ÚNICA reutilizable, C0.P3): kárdex SALIDA_VENTA
+        # idempotente + consumo FEFO + reseed multialmacén, extraído a `db.salida_stock` y compartido
+        # con el cumplimiento del Comercio Digital. Mismo comportamiento que antes (best-effort tras
+        # commit; nunca afecta a la venta). Además persiste ventas.id_almacen + venta_items.id_almacen/id_lote.
         try:
-            from src.db import kardex
-            for it in items:
-                cod = it.get("codigo_articulo") or it.get("codigo") or ""
-                qty = int(it.get("cantidad") or 0)
-                if cod and qty:
-                    kardex.registrar_movimiento(
-                        cod, "SALIDA_VENTA", qty, id_documento=venta_id, origen="TIENDA",
-                        usuario=str(empleado_id) if empleado_id else None,
-                        id_empresa=_eid, id_tienda=_tid, idempotente=True,
-                        observaciones=f"Venta ticket #{venta_id}")
-        except Exception:
-            pass
-        # INV.3 + VTA.5: consumo FEFO de lotes (best-effort) y registro del almacén/lote
-        # de la venta (ventas.id_almacen + venta_items.id_almacen/id_lote).
-        try:
-            from src.db import lotes
+            from src.db import salida_stock as _SS
             from src.db import stock_almacen as _SA
             destino = _SA.almacen_de_tienda(_tid, _eid) if _tid else _SA.almacen_central(_eid)
             with obtener_conexion() as _c2, _c2.cursor() as _cur2:
@@ -1628,23 +1742,15 @@ def registrar_venta_con_items(
                     qty = int(it.get("cantidad") or 0)
                     if not (cod and qty):
                         continue
-                    r = lotes.consumir_fefo(cod, qty, tipo="SALIDA_VENTA", id_empresa=_eid,
-                                            id_tienda=_tid, id_documento=venta_id, idempotente=True,
-                                            usuario=str(empleado_id) if empleado_id else None)
-                    id_lote = (r.get("detalle") or [{}])[0].get("id_lote") if r else None
+                    r = _SS.salida_stock_ledger(
+                        cod, qty, id_documento=venta_id, id_empresa=_eid, id_tienda=_tid,
+                        tipo="SALIDA_VENTA", origen="TIENDA",
+                        usuario=str(empleado_id) if empleado_id else None,
+                        observaciones=f"Venta ticket #{venta_id}")
                     _cur2.execute("UPDATE venta_items SET id_almacen=%s, id_lote=%s "
                                   "WHERE venta_id=%s AND codigo_articulo=%s",
-                                  (destino, id_lote, venta_id, str(cod)))
+                                  (r.get("id_almacen") or destino, r.get("id_lote"), venta_id, str(cod)))
                 _c2.commit()
-        except Exception:
-            pass
-        # INV.4: sincroniza el ledger multialmacén si el artículo está gestionado.
-        try:
-            from src.db import stock_almacen as SA
-            for it in items:
-                cod = it.get("codigo_articulo") or it.get("codigo") or ""
-                if cod and SA.esta_gestionado(cod, _eid):
-                    SA.reseed_articulo(cod, _eid)
         except Exception:
             pass
         # C3.2: gancho fiscal (no-op si fiscal_config.activo=0). Best-effort: nunca
@@ -1655,11 +1761,27 @@ def registrar_venta_con_items(
                          id_empresa=_eid, id_tienda=_tid)
         except Exception:
             pass
+        # Fase 10 (omnicanalidad PCD): proyecta la venta en la Transacción Comercial (núcleo único
+        # de la omnicanalidad). Best-effort tras commit; nunca rompe la venta (Strangler/aditivo,
+        # idempotente). `ventas` sigue siendo el sistema de registro.
+        try:
+            from src.services.comercio_digital import transacciones as _cdtx
+            _cdtx.desde_venta(venta_id, origen="tpv", id_empresa=_eid)
+        except Exception:
+            pass
         # E6.4: encola el evento contable (no-op si la contabilidad está apagada).
         try:
             from src.services.contabilidad.posting import encolar_venta
             encolar_venta(venta_id, total_final, fecha, forma_pago=forma_pago,
                           subtipo="ticket", id_empresa=_eid)
+        except Exception:
+            pass
+        # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("VENTA_REGISTRADA", id_empresa=_eid, id_tienda=_tid, origen="tpv",
+                         ref_entidad="venta", ref_id=venta_id,
+                         payload={"total": total_final, "forma_pago": forma_pago})
         except Exception:
             pass
         return venta_id
@@ -2301,6 +2423,13 @@ def log_auditoria(
     """Registra una acción en la tabla de auditoría (bajo la empresa/tienda activas)."""
     try:
         _emp, _tnd = _tenant_actual_mov()
+        # auditoria_logs.id_tienda es INT; el contexto puede ser un código ('ALMC') →
+        # coaccionar a entero evita el DataError 1366 que tiraba todo el log de auditoría.
+        try:
+            from src.db.empresa import tienda_actual_id_int
+            _tnd = tienda_actual_id_int(_tnd)
+        except Exception:
+            _tnd = _tnd if isinstance(_tnd, int) else None
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(

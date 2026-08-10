@@ -22,10 +22,14 @@ TIPOS = (
     "SALIDA_VENTA", "DEVOLUCION", "AJUSTE", "DEVOLUCION_PROVEEDOR",
     # MRP / Fabricación (BLOQUE 3) — alta de producto terminado y consumo de componentes.
     "ENTRADA_PRODUCCION", "SALIDA_PRODUCCION",
+    # Transporte / Reparto (R8) — salida de mercancía al entregar una parada de ruta.
+    "SALIDA_REPARTO",
+    # Salud / Consultas (R8) — consumo de material sanitario al realizar una consulta.
+    "SALIDA_CONSULTA",
 )
 # Signo orientativo (+ entra, − sale) — informativo, no altera el dato almacenado.
 ENTRADAS = {"ENTRADA_COMPRA", "ENTRADA_PALE", "ENTRADA_TRASPASO", "DEVOLUCION", "ENTRADA_PRODUCCION"}
-SALIDAS = {"SALIDA_VENTA", "MERMA", "SALIDA_PRODUCCION"}
+SALIDAS = {"SALIDA_VENTA", "MERMA", "SALIDA_PRODUCCION", "SALIDA_REPARTO", "SALIDA_CONSULTA"}
 
 
 def _tenant():
@@ -34,6 +38,19 @@ def _tenant():
         return empresa_actual_id(), tienda_actual_id()
     except Exception:
         return EMPRESA_DEFAULT_ID, None
+
+
+def _tid_col(valor):
+    """Coacciona el id de tienda a entero para la columna `movimientos_stock.id_tienda` (INT).
+    El contexto puede ser un código alfanumérico ('ALMC'); 0 si no es numérico."""
+    try:
+        from src.db.empresa import tienda_actual_id_int
+        return tienda_actual_id_int(valor)
+    except Exception:
+        try:
+            return int(valor)
+        except (TypeError, ValueError):
+            return 0
 
 
 def existe_movimiento(codigo, tipo, id_documento, id_empresa=None) -> bool:
@@ -84,10 +101,18 @@ def registrar_movimiento(codigo, tipo, cantidad, *, id_documento=None, id_pale=N
                  str(id_documento) if id_documento is not None else None,
                  str(id_pale) if id_pale is not None else None,
                  origen, destino, str(usuario) if usuario is not None else None,
-                 observaciones, id_empresa, id_tienda, stock_anterior, stock_nuevo,
+                 observaciones, id_empresa, _tid_col(id_tienda), stock_anterior, stock_nuevo,
                  id_almacen_origen, id_almacen_destino),
             )
             conn.commit()
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("KARDEX_MOVIMIENTO", id_empresa=id_empresa, id_tienda=id_tienda,
+                         origen="kardex", ref_entidad="movimiento_stock", ref_id=id_documento,
+                         payload={"codigo": str(codigo), "tipo": tipo, "cantidad": int(cantidad or 0)})
+        except Exception:
+            pass
         return True
     except Exception as e:  # nunca debe afectar a la operación original
         logger.warning("kardex registrar_movimiento(%s,%s): %s", codigo, tipo, e)

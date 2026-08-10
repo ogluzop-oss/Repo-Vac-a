@@ -26,6 +26,23 @@ ES_MAC = SISTEMA == "Darwin"
 ES_LINUX = SISTEMA == "Linux"
 
 
+def kwargs_sin_consola() -> dict:
+    """kwargs para `subprocess.Popen/run` que EVITAN que un programa de consola (ffmpeg, mysqldump, mysql…)
+    abra una VENTANA NEGRA de consola cuando el proceso padre es una GUI sin terminal (pythonw / .exe
+    congelado). En Windows combina `CREATE_NO_WINDOW` + `STARTUPINFO(SW_HIDE)`; en otros SO no hace nada.
+    Fuente ÚNICA para todos los subprocess de herramientas externas."""
+    if not ES_WINDOWS:
+        return {}
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0  # SW_HIDE
+        return {"creationflags": flags, "startupinfo": si}
+    except Exception:
+        return {"creationflags": flags}
+
+
 def _abrir_con(args: list[str]) -> bool:
     try:
         subprocess.Popen(args)

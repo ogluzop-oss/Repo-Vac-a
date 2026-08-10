@@ -41,6 +41,8 @@ Desktop.ini
 # y estado local. NO debe versionarse (es datos generados).
 documentos/*
 !documentos/.gitkeep
+# Misma salida generada si aparece bajo src/ (p. ej. cierres Z lanzados desde src/).
+src/documentos/
 
 # Caché de traducción IA y ajustes locales (por si se generan fuera)
 ai_translate_cache.json

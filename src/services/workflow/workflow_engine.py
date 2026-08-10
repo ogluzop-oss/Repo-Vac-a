@@ -113,6 +113,14 @@ def iniciar_proceso(entidad, entidad_id, *, contexto=None, actor=None, id_empres
     _W.log(iid, "WF_INICIADO", usuario=(_norm(actor) or {}).get("id"),
            detalle=f"{entidad}:{entidad_id}", id_empresa=id_empresa)
     _audit("WF_INICIADO", usuario=(_norm(actor) or {}).get("id"), detalle=f"{entidad}:{entidad_id}")
+    # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
+    try:
+        from src.services import eventos as _EV
+        _EV.publicar("WORKFLOW_INICIADO", id_empresa=id_empresa, origen="workflow",
+                     ref_entidad=str(entidad), ref_id=entidad_id,
+                     payload={"instancia": iid, "entidad": str(entidad)})
+    except Exception:
+        pass
     pasos = _pasos_aplicables(defn["id"], contexto)
     if not pasos:
         # Sin pasos de aprobación aplicables (p.ej. importe bajo umbral) → aprobado directo.

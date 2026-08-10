@@ -4,6 +4,14 @@ Configuración de e-commerce por empresa (F2 — adaptador multiplataforma).
 Guarda la plataforma activa (web/woocommerce/shopify/prestashop), la URL base y
 las credenciales de API. El servicio de pedidos online usa esta config para
 elegir el adaptador y para el botón "Ir a la Web". Multiempresa (PK id_empresa).
+
+Frontera arquitectónica (Rearquitectura CD · Fase 4): esto es el ESCENARIO A —
+conexión a una plataforma de e-commerce EXTERNA. NO se confunde ni duplica con la
+WEB PROPIA (Escenario B · `web_config`/`web_tienda`, administrada ÚNICAMENTE desde
+Canal Web y servida por `backend/storefront.py`): son responsabilidades distintas.
+Este Escenario A sigue en uso (lo consumen `services/tpv/ecommerce/*` y
+`catalog_sync_service`); su consolidación futura es como conector oficial del
+Marketplace + `comercio_digital.conexiones` (Secret Manager), sin tocarlo ahora.
 """
 
 import logging
@@ -16,13 +24,18 @@ PLATAFORMAS = ("web", "woocommerce", "shopify", "prestashop")
 
 
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v3 (Bloque V): seam de identidad delegado en la fachada de datos (db -> db).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.db.identidad_contexto import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return EMPRESA_DEFAULT_ID
 
 
 def obtener_config(id_empresa=None) -> dict:

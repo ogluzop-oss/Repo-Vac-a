@@ -24,19 +24,42 @@ PALABRAS_RESTRINGIDAS = {
 }
 
 
+def _familia_restriccion(articulo: dict):
+    """(flag_restringida, nombre_familia) del artículo, resuelto por su FAMILIA (fuente ÚNICA de
+    categorización). El dict puede traerlo ya (`familia_restringida`/`familia_nombre`) o se resuelve por
+    `id_familia`. Best-effort: nunca lanza."""
+    if articulo.get("familia_restringida"):
+        return True, (articulo.get("familia_nombre") or "")
+    if articulo.get("familia_nombre"):
+        return False, articulo.get("familia_nombre")
+    idf = articulo.get("id_familia")
+    if not idf:
+        return False, ""
+    try:
+        from src.db import familias as _F
+        fam = _F.obtener_familia(idf, articulo.get("id_empresa"))
+        if fam:
+            return bool(fam.get("restringida")), (fam.get("nombre") or "")
+    except Exception as e:  # pragma: no cover
+        logger.debug("resolver familia restringida: %s", e)
+    return False, ""
+
+
 def es_producto_restringido(articulo: dict) -> bool:
     """
     True if the product needs attendant authorization (age check).
-    Inspects category, section and name.
+
+    Categorización por FAMILIA (fuente única `familias_producto`): la familia marcada como `restringida`, o
+    cuyo NOMBRE es una categoría restringida (alcohol/tabaco…). Los antiguos campos libres
+    `articulos.seccion`/`categoria` ya NO se usan (evita información desfasada). El NOMBRE del producto se
+    conserva como red de seguridad.
     """
     if not articulo:
         return False
-    cat = (articulo.get("categoria") or "").upper()
-    sec = (articulo.get("seccion") or "").upper()
-    nom = (articulo.get("nombre") or articulo.get("descripcion") or "").upper()
-
-    if cat in CATEGORIAS_RESTRINGIDAS or sec in CATEGORIAS_RESTRINGIDAS:
+    flag, fam_nombre = _familia_restriccion(articulo)
+    if flag or (fam_nombre or "").upper() in CATEGORIAS_RESTRINGIDAS:
         return True
+    nom = (articulo.get("nombre") or articulo.get("descripcion") or "").upper()
     return any(p in nom for p in PALABRAS_RESTRINGIDAS)
 
 
@@ -141,10 +164,11 @@ class BaggingAreaController:
     """
 
     def __init__(self, tolerancia_kg: float = TOLERANCIA_KG):
-        self._tolerancia = tolerancia_kg
-        self._peso_esperado = 0.0   # sum of expected weights of scanned items
+        self._tolerancia = tolerancia_kg   # suelo global de tolerancia (mínimo garantizado)
+        self._peso_esperado = 0.0          # suma de pesos esperados de los artículos escaneados
+        self._tolerancia_acum = 0.0        # suma de tolerancias por artículo de lo escaneado
         self._estado = ESTADO_LIBRE
-        self._pendiente_kg = 0.0    # weight the last scanned item should add
+        self._pendiente_kg = 0.0           # peso que el último escaneo debe aportar
 
     @property
     def estado(self) -> str:
@@ -154,9 +178,16 @@ class BaggingAreaController:
     def peso_esperado(self) -> float:
         return round(self._peso_esperado, 3)
 
+    @property
+    def tolerancia_efectiva(self) -> float:
+        """Tolerancia aplicada al total = SUMA de las tolerancias por artículo de lo escaneado. Con el
+        carrito vacío, cae al suelo global. Una tolerancia por artículo más ESTRICTA se respeta (no la
+        afloja el suelo global); un artículo sin dato aporta el suelo global como tolerancia por unidad."""
+        return round(self._tolerancia_acum if self._tolerancia_acum > 0 else self._tolerancia, 3)
+
     @staticmethod
     def peso_articulo(articulo: dict) -> float:
-        """Best-effort per-unit weight for an article (kg)."""
+        """Peso esperado por unidad (kg): `peso_unitario` de la ficha (Capa 1); si no, valor por defecto."""
         for k in ("peso_unitario", "peso", "peso_kg"):
             v = articulo.get(k) if articulo else None
             try:
@@ -166,30 +197,45 @@ class BaggingAreaController:
                 pass
         return PESO_POR_DEFECTO_KG
 
+    @staticmethod
+    def tolerancia_articulo(articulo: dict) -> float:
+        """Tolerancia por artículo (kg): `tolerancia_peso` de la ficha; si no, el suelo global por unidad
+        (mantiene el comportamiento anterior para artículos sin dato de seguridad)."""
+        v = articulo.get("tolerancia_peso") if articulo else None
+        try:
+            if v and float(v) > 0:
+                return float(v)
+        except (TypeError, ValueError):
+            pass
+        return TOLERANCIA_KG
+
     def al_escanear(self, articulo: dict):
         """Called right after a successful scan: expect the item on the scale."""
         self._pendiente_kg = self.peso_articulo(articulo)
         self._peso_esperado = round(self._peso_esperado + self._pendiente_kg, 3)
+        self._tolerancia_acum = round(self._tolerancia_acum + self.tolerancia_articulo(articulo), 3)
         self._estado = ESTADO_ESPERA_PESO
 
     def al_eliminar(self, articulo: dict):
         """Called when an item is removed: expect weight to DROP."""
         w = self.peso_articulo(articulo)
         self._peso_esperado = round(max(0.0, self._peso_esperado - w), 3)
+        self._tolerancia_acum = round(max(0.0, self._tolerancia_acum - self.tolerancia_articulo(articulo)), 3)
         self._pendiente_kg = -w
         self._estado = ESTADO_ESPERA_PESO
 
     def verificar(self, peso_medido: float) -> tuple[str, str]:
         """
-        Compare measured weight against expected. Returns (estado, mensaje).
-        If there is no hardware, the UI passes peso_medido == expected to pass.
+        Compare measured weight against expected using the effective (per-article) tolerance.
+        Returns (estado, mensaje). Sin hardware, la UI pasa peso_medido == esperado para aceptar.
         """
+        tol = self.tolerancia_efectiva
         diff = abs(peso_medido - self._peso_esperado)
-        if diff <= self._tolerancia:
+        if diff <= tol:
             self._estado = ESTADO_OK
             self._pendiente_kg = 0.0
             return ESTADO_OK, ""
-        if peso_medido < self._peso_esperado - self._tolerancia:
+        if peso_medido < self._peso_esperado - tol:
             self._estado = ESTADO_ESPERA_PESO
             return (ESTADO_ESPERA_PESO,
                     "Coloca el artículo en la zona de embolsado para continuar.")
@@ -205,5 +251,6 @@ class BaggingAreaController:
 
     def reset(self):
         self._peso_esperado = 0.0
+        self._tolerancia_acum = 0.0
         self._pendiente_kg = 0.0
         self._estado = ESTADO_LIBRE

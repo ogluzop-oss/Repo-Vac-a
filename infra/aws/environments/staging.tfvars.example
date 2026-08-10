@@ -1,0 +1,22 @@
+# Entorno STAGING. Sin secretos.
+aws_region  = "eu-west-1"   # [EXTERNO]
+environment = "staging"
+project     = "smart-manager"
+
+enable_network       = false
+enable_rds           = false
+enable_s3            = false
+enable_secrets       = false
+enable_observability = false
+enable_ecs           = false
+enable_ci_oidc       = false
+
+vpc_cidr                  = "10.30.0.0/16"
+az_count                  = 2
+rds_instance_class        = "db.t3.medium"
+rds_allocated_storage     = 20
+rds_multi_az              = false
+rds_backup_retention_days = 14
+
+github_org  = "<github-org>"
+github_repo = "<github-repo>"

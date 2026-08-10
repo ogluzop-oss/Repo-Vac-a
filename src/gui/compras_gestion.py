@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QFrame,
 
 from src.db import compras as C
 from src.db import proveedores as P
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _SIDEBAR, _btn, _combo,
+from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _SIDEBAR, _btn, _btn_salir_sidebar, _combo,
                                       _inp, _tabla)
 from src.utils.i18n import tr
 
@@ -45,6 +45,8 @@ class ComprasWindow(QWidget):
         ("rec", "📥", "Recepciones"),
         ("fac", "🧾", "Facturas"),
         ("inf", "📊", "Informes"),
+        ("avz", "🤝", "Avanzado"),
+        ("cal", "🔬", "Calidad"),
     ]
 
     def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None, **_kw):
@@ -65,6 +67,8 @@ class ComprasWindow(QWidget):
         self.stack.addWidget(self._page_recepciones())
         self.stack.addWidget(self._page_facturas())
         self.stack.addWidget(self._page_informes())
+        self.stack.addWidget(self._page_avanzado())
+        self.stack.addWidget(self._page_calidad())   # dominio calidad (dashboard embebido)
         rcol.addWidget(self.stack, 1)
         root.addWidget(right, 1)
 
@@ -84,44 +88,70 @@ class ComprasWindow(QWidget):
         t = QLabel("🛒  " + tr("compras.titulo", default="COMPRAS Y PROVEEDORES"))
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch(1)
-        if self._volver:
-            cab.addWidget(_btn(tr("compras.volver", default="VOLVER AL MENÚ"),
-                               self._volver_menu, primary=True))
         return cab
 
     def _build_sidebar(self):
-        wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(230); self.sidebar = wrap  # P3
+        wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(280); self.sidebar = wrap  # P3
         wrap.setStyleSheet(f"#sw{{background:{_SIDEBAR};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
-        cab = QLabel(tr("compras.secciones", default="GESTIÓN"))
-        cab.setStyleSheet(f"color:{_DIM};padding:0 0 8px 24px;font-size:11px;font-weight:bold;")
+        cab = QLabel(tr("compras.secciones", default="PROVEEDORES"))
+        cab.setStyleSheet("color:#FFFFFF;padding:0 0 24px 28px;font-size:16px;font-weight:900;"
+                          "letter-spacing:2px;background:transparent;")
         lay.addWidget(cab)
         self._sb_btns = []
         for i, (sid, icono, defecto) in enumerate(self._SECCIONES):
-            b = QPushButton(f"  {icono}   {tr('compras.sec_' + sid, default=defecto)}")
+            b = QPushButton(f"   {tr('compras.sec_' + sid, default=defecto)}")   # sin icono
+            b.setObjectName("btn_sidebar")   # estilo global (acento, hover swap, sin brillo)
+            b.setProperty("lg", "true")      # +2pt (14px) vía QSS global
             b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setCheckable(True); b.setFixedHeight(55)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.clicked.connect(lambda _=False, idx=i: self._ir(idx))
             self._sb_btns.append(b); lay.addWidget(b)
         lay.addStretch(1)
+        if self._volver:   # SALIR AL MENÚ (rojo) al fondo del sidebar
+            lay.addWidget(_btn_salir_sidebar(self._volver_menu))
         return wrap
 
-    _SS_OFF = (f"QPushButton{{background:transparent;color:{_DIM};text-align:left;"
-               f"padding:8px 8px 8px 24px;border:none;font-size:13px;}}"
+    _SS_OFF = (f"QPushButton{{background:transparent;color:#FFFFFF;text-align:left;"
+               f"padding:8px 8px 8px 24px;border:none;border-left:4px solid transparent;"
+               f"border-radius:0px;font-size:13px;font-weight:900;}}"
                f"QPushButton:hover{{background:#FFFFFF;color:{_SIDEBAR};}}")
-    _SS_ON = (f"QPushButton{{background:{_CIAN};color:{_BG};text-align:left;"
-              f"padding:8px 8px 8px 24px;border:none;font-size:13px;font-weight:bold;}}")
+    _SS_ON = (f"QPushButton{{background:#1A2230;color:{_CIAN};text-align:left;"
+              f"padding:8px 8px 8px 24px;border:none;border-left:4px solid {_CIAN};"
+              f"border-radius:0px;font-size:13px;font-weight:900;}}")
 
     def _ir(self, idx):
         self.stack.setCurrentIndex(idx)
         for i, b in enumerate(self._sb_btns):
-            b.setStyleSheet(self._SS_ON if i == idx else self._SS_OFF)
+            b.setChecked(i == idx)   # estilo via QSS global #btn_sidebar:checked
         # Recarga perezosa de la sección.
         [self._load_proveedores, self._load_pedidos, self._load_recepciones,
-         self._load_facturas, lambda: self._cargar_informe()][idx]()
+         self._load_facturas, lambda: self._cargar_informe(), lambda: None,
+         lambda: None][idx]()   # Avanzado y Calidad cargan sus propios datos
 
     def _volver_menu(self):
         if callable(self._volver):
             self._volver()
+
+    def _page_avanzado(self):
+        """Compras avanzado (homologación/devoluciones/incidencias/evaluación) embebido."""
+        try:
+            from src.gui.compras_avanzado_gui import ComprasAvanzadoWindow
+            return ComprasAvanzadoWindow(callback_vuelta=None, usuario=self.usuario, main=self)
+        except Exception as e:
+            logger.error("embed Compras avanzado: %s", e)
+            return QWidget()
+
+    def _page_calidad(self):
+        """Calidad (inspecciones/NC/CAPA/auditorías): dominio de calidad de suministro/recepción,
+        reutilizando el Dashboard de Calidad existente sin duplicarlo."""
+        try:
+            from src.gui.calidad_dashboard import CalidadDashboardWindow
+            return CalidadDashboardWindow(callback_vuelta=None, usuario=self.usuario, main=self)
+        except Exception as e:
+            logger.error("embed Calidad: %s", e)
+            return QWidget()
 
     # ── Sección Proveedores ──────────────────────────────────────────────────
     def _page_proveedores(self):

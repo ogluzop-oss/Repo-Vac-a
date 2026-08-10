@@ -77,7 +77,8 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
                   importe=None, id_empresa=None, limite=1000,
                   ticket=None, articulo=None, hora_desde=None, hora_hasta=None,
                   empleado=None, caja=None, forma_pago=None,
-                  precio_min=None, precio_max=None, id_tienda="auto") -> list[dict]:
+                  precio_min=None, precio_max=None, id_tienda="auto",
+                  excluir_ocultas=False) -> list[dict]:
     """Busca ventas por múltiples filtros (código escaneado/nº ticket, artículo,
     rango de fechas y horas, empleado, caja, forma de pago, rango de importes).
     Devuelve filas {id, fecha, total, forma_pago, empleado, numero_caja,
@@ -137,6 +138,9 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
                 filtros.append("v.id_empresa = %s"); params.append(id_empresa)
             if "id_tienda" in cols and id_tienda is not None:
                 filtros.append("v.id_tienda = %s"); params.append(id_tienda)
+            # Ocultar de la lista de Facturas las ventas marcadas (factura eliminada).
+            if excluir_ocultas and "oculta_facturas" in cols:
+                filtros.append("COALESCE(v.oculta_facturas,0)=0")
             where = (" WHERE " + " AND ".join(filtros)) if filtros else ""
             cur.execute(
                 "SELECT v.id, v.fecha, v.total, v.forma_pago, v.empleado, v.numero_caja, "
@@ -173,7 +177,8 @@ def obtener_venta_completa(venta_id) -> dict | None:
                 cols = [d[0] for d in cur.description]
                 v = dict(zip(cols, v))
             cur.execute(
-                "SELECT codigo_articulo, nombre, seccion, cantidad, precio_unitario, subtotal "
+                "SELECT codigo_articulo, nombre, seccion, cantidad, precio_unitario, subtotal, "
+                "peso_vendido, precio_kg, modo_venta "
                 "FROM venta_items WHERE venta_id=%s", (venta_id,))
             items = []
             for r in cur.fetchall():
@@ -181,9 +186,51 @@ def obtener_venta_completa(venta_id) -> dict | None:
                     items.append(r)
                 else:
                     items.append({"codigo_articulo": r[0], "nombre": r[1], "seccion": r[2],
-                                  "cantidad": r[3], "precio_unitario": r[4], "subtotal": r[5]})
+                                  "cantidad": r[3], "precio_unitario": r[4], "subtotal": r[5],
+                                  "peso_vendido": r[6], "precio_kg": r[7], "modo_venta": r[8]})
             v["items"] = items
             return v
     except Exception as e:
         logger.error("Error obtener_venta_completa(%s): %s", venta_id, e)
         return None
+
+
+def marcar_oculta_factura(venta_id, oculto=True) -> bool:
+    """Oculta (o muestra) una venta en la lista de Facturas. No borra la venta."""
+    from src.db.conexion import transaccion
+    try:
+        ensure_schema()
+        with transaccion() as conn, conn.cursor() as cur:
+            if "oculta_facturas" not in _cols(cur, "ventas"):
+                return False
+            cur.execute("UPDATE ventas SET oculta_facturas=%s WHERE id=%s",
+                        (1 if oculto else 0, venta_id))
+            return True
+    except Exception as e:
+        logger.error("marcar_oculta_factura(%s): %s", venta_id, e)
+        return False
+
+
+def asignar_cliente_venta(venta_id, id_cliente=None, nombre=None, nif=None) -> bool:
+    """Asigna (denormaliza) un cliente registrado a una venta. Escribe solo las
+    columnas que existan (cliente_nombre / cliente_nif / id_cliente). Best-effort."""
+    from src.db.conexion import transaccion
+    try:
+        ensure_schema()
+        with transaccion() as conn, conn.cursor() as cur:
+            cols = _cols(cur, "ventas")
+            sets, params = [], []
+            if "cliente_id" in cols:
+                sets.append("cliente_id=%s"); params.append(id_cliente)
+            if "cliente_nombre" in cols:
+                sets.append("cliente_nombre=%s"); params.append(nombre)
+            if "cliente_nif" in cols:
+                sets.append("cliente_nif=%s"); params.append(nif)
+            if not sets:
+                return False
+            params.append(venta_id)
+            cur.execute(f"UPDATE ventas SET {', '.join(sets)} WHERE id=%s", params)
+            return True
+    except Exception as e:
+        logger.error("asignar_cliente_venta(%s): %s", venta_id, e)
+        return False

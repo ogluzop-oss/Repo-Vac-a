@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (QHBoxLayout, QInputDialog, QLabel, QMessageBox,
                              QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import compras as C, proveedores as P
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _combo, _inp, _tabla)
+from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo, _inp, _tabla)
 
 logger = logging.getLogger("compras.avanzado.gui")
 
@@ -33,7 +33,7 @@ class ComprasAvanzadoWindow(QWidget):
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
         if callback_vuelta:
-            cab.addWidget(_btn("Volver", self._volver))
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
         tabs = QTabWidget()

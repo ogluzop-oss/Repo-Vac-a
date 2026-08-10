@@ -60,11 +60,54 @@ def _claims_base(usuario: dict) -> dict:
     }
 
 
-def emitir_access(usuario: dict, minutos: int = ACCESO_MINUTOS) -> str:
+ACCESO_MFA_PENDING_MINUTOS = 5
+
+
+def emitir_access(usuario: dict, minutos: int = ACCESO_MINUTOS, *, amr=None, auth_time=None,
+                  enrollment_required: bool = False) -> str:
+    """Access token. `amr` (Authentication Methods References, OIDC) documenta los factores usados:
+    `["pwd"]` solo credenciales; `["pwd","otp"]`/`["pwd","webauthn"]` credenciales + segundo factor.
+    Añade `mfa: true` cuando hay 2º factor. `auth_time` (unix, OIDC) = instante de la autenticación
+    (para la recencia de step-up en API). `enrollment_required` marca que la política obliga a activar
+    MFA y el usuario aún no lo tiene (los guards sensibles lo exigen)."""
     import jwt
     ahora = _ahora()
     payload = {**_claims_base(usuario), "type": "access", "iat": ahora,
                "exp": ahora + _dt.timedelta(minutes=minutos), "jti": str(uuid.uuid4())}
+    if amr:
+        amr = list(amr)
+        payload["amr"] = amr
+        payload["mfa"] = any(f in amr for f in ("otp", "webauthn"))
+    if auth_time is not None:
+        payload["auth_time"] = int(auth_time)
+    if enrollment_required:
+        payload["enrollment_required"] = True
+    return jwt.encode(payload, _secreto(), algorithm=_ALG)
+
+
+def mfa_reciente(claims: dict, max_edad_seg: int = 300) -> bool:
+    """True si el token refleja un MFA COMPLETADO y RECIENTE (para step-up en API). Deriva de la
+    autenticación real (claim `mfa` + `auth_time`), nunca de un booleano del cliente."""
+    if not claims or not claims.get("mfa"):
+        return False
+    at = claims.get("auth_time")
+    if at is None:
+        return False
+    try:
+        return (int(_ahora().timestamp()) - int(at)) <= int(max_edad_seg)
+    except Exception:
+        return False
+
+
+def emitir_mfa_pending(usuario: dict, minutos: int = ACCESO_MFA_PENDING_MINUTOS) -> str:
+    """Token TEMPORAL de autenticación PARCIAL (MFA_PENDING): credenciales validadas pero 2º factor
+    pendiente. NO es un access token (`type='mfa_pending'`), de modo que los endpoints protegidos —que
+    exigen `type='access'`— lo RECHAZAN: no permite acceso ni saltarse el MFA. TTL corto; solo sirve
+    para canjear el segundo factor en `/auth/mfa`."""
+    import jwt
+    ahora = _ahora()
+    payload = {**_claims_base(usuario), "type": "mfa_pending", "amr": ["pwd"], "mfa": False,
+               "iat": ahora, "exp": ahora + _dt.timedelta(minutes=minutos), "jti": str(uuid.uuid4())}
     return jwt.encode(payload, _secreto(), algorithm=_ALG)
 
 

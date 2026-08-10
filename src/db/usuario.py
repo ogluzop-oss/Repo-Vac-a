@@ -381,6 +381,47 @@ def listar_usuarios():
         return []
 
 
+def listar_usuarios_empresa(id_empresa=None):
+    """Lista los perfiles/empleados de UNA empresa, con AISLAMIENTO ESTRICTO por `id_empresa`
+    (privacidad entre empresas: NUNCA devuelve empleados de otra). Si la tabla no tiene columna
+    id_empresa (instalación mono-empresa), devuelve todos — al haber una sola empresa no hay cruce
+    posible. Solo activos si existe la columna `activo`. Usado por el selector de perfil del login.
+
+    Devuelve [{id, nombre, perfil, id_empresa}] ordenado por nombre."""
+    try:
+        if id_empresa is None:
+            try:
+                from src.db.empresa import empresa_actual_id
+                id_empresa = empresa_actual_id()
+            except Exception:
+                id_empresa = None
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            columnas = _columnas_usuarios(cur)
+            col_name = "nombre" if "nombre" in columnas else "usuario"
+            tiene_emp = "id_empresa" in columnas
+            tiene_act = "activo" in columnas
+            cols = ["id", col_name, "perfil"] + (["id_empresa"] if tiene_emp else [])
+            cond, params = [], []
+            if tiene_emp and id_empresa:
+                cond.append("id_empresa = %s"); params.append(id_empresa)
+            if tiene_act:
+                cond.append("activo = 1")
+            where = (" WHERE " + " AND ".join(cond)) if cond else ""
+            cur.execute(
+                f"SELECT {', '.join(cols)} FROM usuarios{where} ORDER BY {col_name} ASC",
+                tuple(params))
+            salida = []
+            for f in cur.fetchall():
+                d = f if isinstance(f, dict) else dict(zip(cols, f))
+                salida.append({"id": d.get("id"), "nombre": d.get(col_name),
+                               "perfil": d.get("perfil"),
+                               "id_empresa": d.get("id_empresa") if tiene_emp else None})
+            return salida
+    except Exception as e:
+        logger.error("listar_usuarios_empresa: %s", e)
+        return []
+
+
 # ============================================================
 # BLOQUE CREACIÓN Y MODIFICACIÓN DE USUARIOS
 # ============================================================
@@ -654,3 +695,87 @@ def listar_fichajes() -> list:
     except Exception as e:
         logger.error(f"Error listando fichajes: {e}")
     return []
+
+
+def _tenant_filtros():
+    """(filtros, params) con id_empresa (+id_tienda si aplica) para las consultas de fichajes."""
+    from src.db.empresa import empresa_actual_id, tienda_actual_id
+    emp, tnd = empresa_actual_id(), tienda_actual_id()
+    filtros, params = ["id_empresa=%s"], [emp]
+    if tnd is not None:
+        filtros.append("id_tienda=%s"); params.append(tnd)
+    return filtros, params
+
+
+def meses_con_fichajes_empleado(usuario_id) -> list:
+    """Lista de (anio, mes) con fichajes de un empleado, más reciente primero. Aislado por empresa/tienda."""
+    try:
+        filtros, params = _tenant_filtros()
+        filtros.append("usuario_id=%s"); params.append(usuario_id)
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT YEAR(entrada) AS y, MONTH(entrada) AS m FROM fichajes "
+                "WHERE " + " AND ".join(filtros) + " ORDER BY y DESC, m DESC", tuple(params))
+            return [(int(f[0]), int(f[1])) for f in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"meses_con_fichajes_empleado: {e}")
+        return []
+
+
+def listar_fichajes_empleado(usuario_id, anio=None, mes=None) -> list:
+    """Fichajes de UN empleado en un mes (por defecto el actual), más recientes primero, con la duración
+    por fichaje (incluida la sesión abierta hasta ahora). Aislado por empresa/tienda."""
+    import datetime
+    hoy = datetime.date.today()
+    anio = anio or hoy.year
+    mes = mes or hoy.month
+    try:
+        filtros, params = _tenant_filtros()
+        filtros += ["usuario_id=%s", "YEAR(entrada)=%s", "MONTH(entrada)=%s"]
+        params += [usuario_id, anio, mes]
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, entrada, salida, "
+                "  COALESCE(duracion_segundos, TIMESTAMPDIFF(SECOND, entrada, NOW())) AS seg "
+                "FROM fichajes WHERE " + " AND ".join(filtros) + " ORDER BY entrada DESC, id DESC",
+                tuple(params))
+            return [{"id": f[0], "entrada": f[1], "salida": f[2], "segundos": int(f[3] or 0)}
+                    for f in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"listar_fichajes_empleado: {e}")
+        return []
+
+
+def horas_mes_por_empleado(anio=None, mes=None) -> list:
+    """Horas trabajadas por empleado en un mes (por defecto el mes EN CURSO), sumando la duración de
+    los fichajes cerrados + la sesión abierta hasta ahora. Aislado por empresa/tienda.
+    Devuelve [{usuario_id, nombre, segundos, horas, fichajes}] ordenado por nombre."""
+    import datetime
+    hoy = datetime.date.today()
+    anio = anio or hoy.year
+    mes = mes or hoy.month
+    try:
+        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        emp, tnd = empresa_actual_id(), tienda_actual_id()
+        filtros, params = ["id_empresa=%s"], [emp]
+        if tnd is not None:
+            filtros.append("id_tienda=%s"); params.append(tnd)
+        filtros += ["YEAR(entrada)=%s", "MONTH(entrada)=%s"]
+        params += [anio, mes]
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT usuario_id, nombre_empleado, "
+                "  SUM(COALESCE(duracion_segundos, TIMESTAMPDIFF(SECOND, entrada, NOW()))) AS seg, "
+                "  COUNT(*) AS n "
+                "FROM fichajes WHERE " + " AND ".join(filtros) +
+                " GROUP BY usuario_id, nombre_empleado ORDER BY nombre_empleado ASC",
+                tuple(params))
+            out = []
+            for f in cur.fetchall():
+                seg = int(f[2] or 0)
+                out.append({"usuario_id": f[0], "nombre": f[1], "segundos": seg,
+                            "horas": round(seg / 3600.0, 2), "fichajes": int(f[3] or 0)})
+            return out
+    except Exception as e:
+        logger.error(f"Error horas_mes_por_empleado: {e}")
+        return []

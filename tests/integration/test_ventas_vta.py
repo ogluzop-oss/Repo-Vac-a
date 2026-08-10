@@ -121,6 +121,22 @@ def test_vta4_cobro_mixto_parcial(db, fab):
     assert d.get("efectivo", 0) >= 60
 
 
+def test_vta4_cobrar_pendiente_express(db, fab):
+    """Cobro express de facturación: registra el saldo pendiente en 1 paso y es idempotente."""
+    from src.db.conexion import registrar_venta_con_items
+    cod = _art(fab, db, stock_tienda=20)
+    with contexto_tenant(E, None):
+        vid = registrar_venta_con_items([{"codigo_articulo": cod, "cantidad": 1, "precio_unitario": 100}])
+    fab.al_limpiar(lambda: _del(db, "ventas_cobros", "id_venta", vid))
+    CO.registrar_cobro(vid, "efectivo", 40, id_empresa=E)      # cobro parcial previo
+    r = CO.cobrar_pendiente(vid, 100, id_empresa=E)             # liquida el saldo (60)
+    assert r["ok"] and r["importe"] == 60.0
+    assert CO.saldo_pendiente(vid, 100, E) == 0.0
+    r2 = CO.cobrar_pendiente(vid, 100, id_empresa=E)           # ya saldada → no registra otra vez
+    assert r2["ok"] and r2.get("idempotente") is True
+    assert CO.total_cobrado(vid, E) == 100.0
+
+
 # ── VTA.5 venta multialmacén/lote ────────────────────────────────────────────
 def test_vta5_venta_registra_almacen_lote(db, fab):
     from src.db.conexion import registrar_venta_con_items

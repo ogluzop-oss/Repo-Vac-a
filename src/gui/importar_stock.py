@@ -1,6 +1,17 @@
 # src/gui/importar_stock.py
+#
+# @deprecated (Strangler) — SUSTITUIDO por el importador maestro `services.importacion` + la ventana Enterprise
+# `gui.migracion_gui.MigracionDatosWindow` (menú → "Migración de datos"). Aquel motor: upsert seguro por columnas
+# mapeadas con `id_empresa`, familias y stock por kárdex, dry-run e idempotencia. Este importador solo tocaba
+# `articulos` y hacía `ALTER TABLE` por cada cabecera desconocida (riesgo de esquema). No usar en desarrollo
+# nuevo; se conserva un ciclo y se eliminará cuando no queden referencias.
+import logging
 import os
+
 from src.utils.i18n import tr
+
+logging.getLogger("gui.importar_stock").warning(
+    "importar_stock.py está DEPRECADO; usa services.importacion / MigracionDatosWindow.")
 
 import pandas as pd
 from PyQt6.QtCore import Qt, QThread, pyqtSignal

@@ -1,0 +1,62 @@
+# Valores por defecto del chart. Reutiliza la imagen del Dockerfile (gunicorn wsgi:app en :8000).
+replicaCount: 2
+
+image:
+  repository: smart-manager/backend
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Puerto del contenedor (el que expone gunicorn en la imagen). No cambiar salvo que cambie la imagen.
+containerPort: 8000
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: api.smart-manager.local
+  tls: true
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+# Endpoints reales del backend para las probes de Kubernetes.
+probes:
+  livenessPath: /api/v1/live
+  readinessPath: /api/v1/ready
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "256Mi"
+  limits:
+    cpu: "1000m"
+    memory: "512Mi"
+
+# Configuración NO sensible (ConfigMap). Mismas variables que docker-compose.
+config:
+  DB_HOST: "smart-manager-db"
+  DB_PORT: "3306"
+  DB_NAME: "smart_manager_db"
+  DB_USER: "root"
+  API_CORS_ORIGINS: ""
+  SM_LOG_JSON: "1"
+  API_HSTS: "1"
+
+# Secretos: crea el Secret fuera de git y referencia su nombre. Si `create: true`, el chart genera un
+# Secret con `values` (SOLO para entornos de prueba; en producción usa un gestor de secretos externo).
+secrets:
+  existingSecret: ""      # nombre de un Secret ya existente (recomendado en producción)
+  create: false
+  values:
+    DB_PASSWORD: "CHANGEME"
+    SMART_MANAGER_JWT_SECRET: "CHANGEME"
+    API_MASTER_KEY: "CHANGEME"

@@ -11,7 +11,9 @@ logger = logging.getLogger("crm.analitica")
 
 
 def _emp(id_empresa=None):
-    return id_empresa or empresa_actual_id()
+    # IOC v2 (Bloque III.1): la resolución de empresa pasa por la capa de identidad (Strangler).
+    from src.services.crm.identidad_crm import empresa_id
+    return empresa_id(id_empresa)
 
 
 def _scalar(cur):

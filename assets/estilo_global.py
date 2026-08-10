@@ -149,6 +149,56 @@ COLOR_ROJO_ERROR = "#F85149"
 COLOR_ROJO_HOVER = "#FF6E67"
 COLOR_ROJO_PRESION = "#D63F38"
 COLOR_AMBAR = "#F1C40F"
+
+# Colores semánticos de acción (para theming; por defecto = aspecto actual).
+COLOR_ACCION_TEXTO = "#0E1117"
+COLOR_CANCELAR_TEXTO = "#FFFFFF"
+COLOR_CONFIRMAR_TEXTO = "#0E1117"
+COLOR_RETORNO = "#00FFC6"
+COLOR_RETORNO_TEXTO = "#0E1117"
+
+# ── TEMA PERSONALIZABLE (UX) ─────────────────────────────────────────────────
+# Se carga al ARRANQUE desde src/utils/tema.py (JSON app-wide). Los cambios de color requieren
+# reiniciar la app para verse (así lo espera el usuario). A prueba de fallos: si algo falla, se
+# mantienen los valores por defecto (turquesa + azul oscuro).
+def _tema_shade(hex_color, factor):
+    """Aclara (factor>1) u oscurece (factor<1) un color #RRGGBB. Best-effort."""
+    try:
+        s = hex_color.lstrip("#")
+        if len(s) == 3:
+            s = "".join(ch * 2 for ch in s)
+        r, g, b = (int(s[i:i + 2], 16) for i in (0, 2, 4))
+        r, g, b = (max(0, min(255, round(v * factor))) for v in (r, g, b))
+        return f"#{r:02X}{g:02X}{b:02X}"
+    except Exception:
+        return hex_color
+
+
+try:
+    from src.utils import tema as _tema_mod
+    _T = _tema_mod.cargar()
+    COLOR_FONDO_APP = _T.get("fondo_app", COLOR_FONDO_APP)
+    # Botones/tablas de acción = acento (COLOR_CIAN) + su texto.
+    COLOR_CIAN = _T.get("accion_bg", COLOR_CIAN)
+    COLOR_CIAN_HOVER = _tema_shade(COLOR_CIAN, 0.90)
+    COLOR_CIAN_PRESION = _tema_shade(COLOR_CIAN, 0.78)
+    COLOR_ACCION_TEXTO = _T.get("accion_texto", COLOR_ACCION_TEXTO)
+    # Cancelar (rojo) + texto.
+    COLOR_ROJO_ERROR = _T.get("cancelar_bg", COLOR_ROJO_ERROR)
+    COLOR_ROJO_HOVER = _tema_shade(COLOR_ROJO_ERROR, 1.12)
+    COLOR_ROJO_PRESION = _tema_shade(COLOR_ROJO_ERROR, 0.85)
+    COLOR_CANCELAR_TEXTO = _T.get("cancelar_texto", COLOR_CANCELAR_TEXTO)
+    # Confirmar / avanzar (verde) + texto.
+    COLOR_VERDE_OK = _T.get("confirmar_bg", COLOR_VERDE_OK)
+    COLOR_VERDE_OK_HOVER = _tema_shade(COLOR_VERDE_OK, 0.92)
+    COLOR_VERDE_OK_PRESION = _tema_shade(COLOR_VERDE_OK, 0.80)
+    COLOR_CONFIRMAR_TEXTO = _T.get("confirmar_texto", COLOR_CONFIRMAR_TEXTO)
+    # Retorno + texto.
+    COLOR_RETORNO = _T.get("retorno_bg", COLOR_RETORNO)
+    COLOR_RETORNO_TEXTO = _T.get("retorno_texto", COLOR_RETORNO_TEXTO)
+except Exception:
+    pass
+
 RADIO_XS = "8px"
 RADIO_SM = "10px"
 RADIO_MD = "12px"
@@ -410,6 +460,70 @@ def construir_tabla_estilizada(parent=None):
             QTimer.singleShot(0, _raise_cover)
 
     return contenedor, tabla
+
+
+def instalar_corner_cover(widget, radius=12, bg=None, border=None):
+    """Overlay anti-aliased que repinta las 4 esquinas con el fondo y redibuja el
+    contorno redondeado encima → oculta el sangrado de scrollbar/filas en las esquinas
+    (mismo mecanismo que las tablas del Centro Documental). Para CUALQUIER QTableWidget."""
+    try:
+        if None in (QPainter, QPen, QColor, QPainterPath, QRectF, QWidget):
+            return None
+        _bg = QColor(bg or COLOR_FONDO_APP)
+        _border = QColor(border or COLOR_CIAN)
+        _r = float(radius)
+
+        class _CornerCover(QWidget):
+            def __init__(self, parent):
+                super().__init__(parent)
+                self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+
+            def paintEvent(self, _ev):  # noqa: N802
+                p = QPainter(self)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                W, H = float(self.width()), float(self.height())
+                full = QPainterPath(); full.addRect(QRectF(0.0, 0.0, W, H))
+                inner = QPainterPath(); inner.addRoundedRect(QRectF(0.0, 0.0, W, H), _r, _r)
+                p.fillPath(full.subtracted(inner), _bg)
+                p.setPen(QPen(_border, 2.0)); p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawRoundedRect(QRectF(1.0, 1.0, W - 2.0, H - 2.0), _r - 1.0, _r - 1.0)
+                p.end()
+
+        cover = _CornerCover(widget)
+        cover.show()
+
+        def _raise():
+            cover.setGeometry(widget.rect()); cover.raise_(); cover.update()
+
+        class _F(QObject):
+            def eventFilter(self_, obj, ev):  # noqa: N805
+                if ev.type() in (QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.LayoutRequest):
+                    _raise()
+                    # Al mostrarse (cambio de pestaña en un QStackedWidget) la geometría y el
+                    # apilado se asientan un instante después → re-elevar diferido.
+                    if ev.type() == QEvent.Type.Show and QTimer is not None:
+                        QTimer.singleShot(0, _raise)
+                        QTimer.singleShot(120, _raise)
+                return False
+
+        f = _F(widget)
+        widget._cc_filter = f      # evita GC
+        widget._cc_cover = cover
+        widget.installEventFilter(f)
+        # El scroll re-apila la barra por encima → re-elevar la tapa tras desplazar.
+        try:
+            sb = widget.verticalScrollBar()
+            sb.valueChanged.connect(lambda *_a: _raise())
+            sb.rangeChanged.connect(lambda *_a: _raise())
+        except Exception:
+            pass
+        if QTimer is not None:
+            for _d in (0, 60, 250):   # re-elevar tras mostrar/maximizar
+                QTimer.singleShot(_d, _raise)
+        return cover
+    except Exception:
+        return None
 
 
 def _apply_font(widget):
@@ -898,6 +1012,37 @@ class _SmartGlobalFilter(QObject):
         return super().eventFilter(watched, event)
 
 
+class _CircleIcon(QLabel):
+    """Círculo de color con un símbolo (×, ✓, !, i, ?) PERFECTAMENTE centrado por la tinta real
+    del glifo (bounding box ajustado), no por la caja de línea de la fuente — así la 'X' de
+    'Acceso Denegado' (y el resto) quedan justo en el centro del círculo, sea cual sea la fuente."""
+
+    def __init__(self, simbolo, color_circulo, color_simbolo, diametro=46, parent=None):
+        super().__init__(parent)
+        self._sim = simbolo
+        self._bg = color_circulo
+        self._fg = color_simbolo
+        self.setFixedSize(diametro, diametro)
+
+    def paintEvent(self, _event):
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtGui import QFontMetricsF
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(QPen(Qt.PenStyle.NoPen))
+        p.setBrush(QColor(self._bg))
+        p.drawEllipse(0, 0, self.width(), self.height())
+        f = QFont(FUENTE_APP, int(self.height() * 0.42))
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(QColor(self._fg))
+        br = QFontMetricsF(f).tightBoundingRect(self._sim)
+        x = self.width() / 2 - br.center().x()
+        y = self.height() / 2 - br.center().y()
+        p.drawText(QPointF(x, y), self._sim)
+        p.end()
+
+
 class SmartMessageDialog(QDialog):
     ROLE_TO_RESULT = {
         "ok": 1,
@@ -958,10 +1103,10 @@ class SmartMessageDialog(QDialog):
         row = QHBoxLayout()
         row.setSpacing(14)
 
-        self.icon_label = QLabel(self.LEVEL_SYMBOLS.get(self.level, "i"))
+        self.icon_label = _CircleIcon(
+            self.LEVEL_SYMBOLS.get(self.level, "i"),
+            self.LEVEL_COLORS.get(self.level, COLOR_CIAN), COLOR_FONDO_APP, diametro=46)
         self.icon_label.setObjectName("smart_message_icon")
-        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.icon_label.setFixedSize(46, 46)
         row.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignTop)
 
         text_col = QVBoxLayout()
@@ -1099,7 +1244,9 @@ class SmartMessageDialog(QDialog):
             _apply_windows_dark_title_bar(self)
             parent = self.parentWidget()
             if parent is not None:
-                center = parent.frameGeometry().center()
+                # Centro GLOBAL del padre: frameGeometry() de un widget hijo está en
+                # coordenadas de su padre, no de pantalla → el diálogo salía descentrado.
+                center = parent.mapToGlobal(parent.rect().center())
                 frame = self.frameGeometry()
                 frame.moveCenter(center)
                 self.move(frame.topLeft())
@@ -1168,6 +1315,15 @@ def _apply_button_glow(widget):
         name = widget.objectName() if hasattr(widget, "objectName") else ""
         if name in {"btn_sidebar", "btn_sidebar_exit"}:
             return
+        # Opt-out por propiedad dinámica: los botones marcados con sin_glow=True no reciben el resplandor
+        # (p. ej. controles secundarios de un formulario que deben verse planos).
+        try:
+            if bool(widget.property("sin_glow")):
+                if widget.graphicsEffect() is not None:
+                    widget.setGraphicsEffect(None)
+                return
+        except Exception:
+            pass
         if widget.graphicsEffect() is not None:
             return
         from PyQt6.QtGui import QColor
@@ -1244,6 +1400,61 @@ def mostrar_mensaje(parent, titulo, mensaje, nivel="info", botones=None):
     aplicar_estilo_widget(dialogo)
     dialogo.exec()
     return dialogo.dialog_result
+
+
+_COMPLETER_POPUP_SS = (
+    "QListView{background:#161B22;color:#FFFFFF;border:2px solid #00FFC6;"
+    "border-radius:12px;padding:6px;outline:none;font-family:'Segoe UI';font-size:13px;}"
+    "QListView::item{padding:7px 10px;border-radius:7px;min-height:20px;}"
+    "QListView::item:selected{background:#00FFC6;color:#0E1117;}"
+    "QScrollBar:vertical{background:transparent;width:14px;margin:8px 3px 8px 3px;}"
+    "QScrollBar::handle:vertical{background:#00FFC6;border-radius:4px;min-height:24px;}"
+    "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;width:0;}"
+    "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent;}"
+)
+
+_ROUNDED_VIEW_CLS = None
+
+
+def _rounded_view_cls():
+    """QListView con máscara redondeada propia (showEvent/resizeEvent). Es fiable como
+    popup de QCompleter porque el border-radius del QSS no recorta un popup top-level."""
+    global _ROUNDED_VIEW_CLS
+    if _ROUNDED_VIEW_CLS is None:
+        from PyQt6.QtCore import QRect
+        from PyQt6.QtGui import QBitmap, QRegion
+        from PyQt6.QtWidgets import QListView
+
+        class _RoundedListView(QListView):
+            _r = 12
+
+            def _aplicar_mascara(self):
+                if self.width() > 0 and self.height() > 0:
+                    bmp = QBitmap(self.size()); bmp.fill(Qt.GlobalColor.color0)
+                    p = QPainter(bmp); p.setBrush(Qt.GlobalColor.color1); p.setPen(Qt.PenStyle.NoPen)
+                    p.drawRoundedRect(QRect(0, 0, self.width(), self.height()), self._r, self._r)
+                    p.end()
+                    self.setMask(QRegion(bmp))
+
+            def showEvent(self, e):
+                super().showEvent(e); self._aplicar_mascara()
+
+            def resizeEvent(self, e):
+                super().resizeEvent(e); self._aplicar_mascara()
+
+        _ROUNDED_VIEW_CLS = _RoundedListView
+    return _ROUNDED_VIEW_CLS
+
+
+def estilizar_completer(completer):
+    """Esquinas redondeadas reales + estilo neón + scrollbar turquesa redondeada en el
+    popup de sugerencias. Para TODAS las barras de búsqueda de artículos de la app."""
+    try:
+        view = _rounded_view_cls()()
+        view.setStyleSheet(_COMPLETER_POPUP_SS)
+        completer.setPopup(view)
+    except Exception:
+        pass
 
 
 def mostrar_confirmacion(parent, titulo, mensaje):
@@ -1409,8 +1620,9 @@ QLabel#etiqueta_secundaria,
 QLabel#campo_label,
 QLabel#login_section_title {{
     color: {COLOR_TEXTO_PRINCIPAL};
-    font-size: 11px;
-    font-weight: 900;
+    font-family: 'Segoe UI';
+    font-size: 13px;
+    font-weight: bold;
     letter-spacing: 1px;
     border: none;
     background: transparent;
@@ -1473,14 +1685,17 @@ QLabel#lbl_modulo_sidebar {{
 QPushButton#btn_sidebar {{
     text-align: left;
     padding: 6px 8px 6px 28px;
-    color: {COLOR_TEXTO_SECUNDARIO};
+    color: #FFFFFF;
     background-color: transparent;
     border: none;
+    border-left: 4px solid transparent;
     border-radius: 0px;
+    font-family: 'Segoe UI';
     font-size: 12px;
     font-weight: 900;
     letter-spacing: 0.5px;
     margin: 0px;
+    outline: none;
 }}
 
 QPushButton#btn_sidebar:hover {{
@@ -1489,9 +1704,16 @@ QPushButton#btn_sidebar:hover {{
 }}
 
 QPushButton#btn_sidebar:checked {{
-    background-color: {COLOR_CIAN};
-    color: {COLOR_FONDO_APP};
+    background-color: #1A2230;
+    color: {COLOR_CIAN};
     border: none;
+    border-left: 4px solid {COLOR_CIAN};
+}}
+
+/* Variante +2pt (propiedad dinámica lg=true): sidebars Catálogo/Compras/Contab./RRHH.
+   No rompe el hover/checked porque va en el QSS global, no inline en el widget. */
+QPushButton#btn_sidebar[lg="true"] {{
+    font-size: 14px;
 }}
 
 QPushButton#btn_sidebar_exit {{
@@ -1501,6 +1723,7 @@ QPushButton#btn_sidebar_exit {{
     background-color: transparent;
     border: none;
     border-radius: 0px;
+    font-family: 'Segoe UI';
     font-size: 12px;
     font-weight: 900;
     letter-spacing: 0.5px;

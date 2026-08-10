@@ -130,6 +130,43 @@ def test_inmutable_idempotente_y_cadena(db, fab):
     assert Z.cadena_z_valida(emp) is True
 
 
+# ── Nº de tickets / clientes del día + ticket medio ───────────────────────────
+def test_num_tickets_y_ticket_medio(db, fab):
+    from src.services.tpv import cierre_z as Z
+    caja = 7008; emp = _setup(db, fab, caja)
+    _venta(db, fab, 100.0, "efectivo", caja)
+    _venta(db, fab, 300.0, "tarjeta", caja)
+    r = Z.resumen_dia(_FECHA, id_empresa=emp, caja=caja)
+    assert r["num_tickets"] == 2 and r["num_clientes"] == 2      # 2 tickets de compra
+    assert abs(r["ticket_medio"] - 200.0) < 0.01                # 400 / 2
+
+
+# ── Cierre diario de tienda: agrega TODAS las cajas (caja=None → sentinela 0) ──
+def test_cierre_diario_agrega_todas_las_cajas(db, fab):
+    from src.services.tpv import cierre_z as Z
+    fecha = "2031-07-20"                     # fecha propia: la agregación es por fecha (todas las cajas)
+    emp = fab.empresa("CIERRE Z DIARIO")
+    c1, c2 = 7101, 7102
+
+    def _limpia():
+        with db.obtener_conexion() as conn, conn.cursor() as cur:
+            for c in (c1, c2):
+                cur.execute("DELETE FROM ventas WHERE numero_caja=%s", (c,))
+            cur.execute("DELETE FROM documentos_registro WHERE id_empresa=%s", (emp,))
+            cur.execute("DELETE FROM cierres_z WHERE id_empresa=%s", (emp,))
+            cur.execute("DELETE FROM empresas WHERE id_empresa=%s", (emp,))
+            conn.commit()
+    fab.al_limpiar(_limpia)
+
+    _venta(db, fab, 100.0, "efectivo", c1, fecha=fecha)
+    _venta(db, fab, 200.0, "efectivo", c2, fecha=fecha)
+    z = Z.generar_cierre_z(fecha, importe_declarado=300.0, id_empresa=emp, caja=None,
+                           fondo_inicial=0.0, generar_pdf=False)
+    assert z is not None and int(z["caja"]) == 0              # persistido como cierre diario de tienda
+    assert abs(float(z["total_cobrado"]) - 300.0) < 0.01     # agrega ambas cajas del día
+    assert z["estado"] == "CUADRADO"
+
+
 # ── No duplica contabilidad ───────────────────────────────────────────────────
 def test_no_genera_asientos(db, fab):
     from src.services.tpv import cierre_z as Z

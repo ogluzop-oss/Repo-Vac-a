@@ -139,7 +139,7 @@ def test_h6_cierre_z_procesa_cola(db, fab, monkeypatch):
     import src.services.tpv.cierre_z as CZ
     llamado = {"n": 0}
 
-    def _fake_procesar(id_empresa=None):
+    def _fake_procesar(id_empresa=None, incluir_nominas=True):
         llamado["n"] += 1; return {"asientos": 0, "eventos": 0}
     monkeypatch.setattr("src.services.contabilidad.posting.procesar_cola", _fake_procesar)
     # Fecha futura única → evita el early-return por cierre ya existente (existe_cierre).

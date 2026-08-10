@@ -23,6 +23,17 @@ def _conn():
     return obtener_conexion()
 
 
+def _emp():
+    """Empresa de la sesión (tenant). Tras la PK compuesta de `articulos` (migr 0181), las mutaciones de stock
+    por código deben filtrar por empresa; por defecto se usa la de la sesión."""
+    from src.db.conexion import EMPRESA_DEFAULT_ID
+    try:
+        from src.db.empresa import empresa_actual_id
+        return empresa_actual_id() or EMPRESA_DEFAULT_ID
+    except Exception:
+        return EMPRESA_DEFAULT_ID
+
+
 def _get_plazo_dias() -> int:
     """Read return window from configuraciones, fall back to DEFAULT."""
     try:
@@ -203,8 +214,8 @@ def procesar_devolucion(
                             cur.execute("""
                                 UPDATE articulos
                                 SET Stock_tienda = Stock_tienda + %s
-                                WHERE codigo = %s
-                            """, (qty, cod))
+                                WHERE codigo = %s AND id_empresa = %s
+                            """, (qty, cod, _emp()))
 
                 # Audit log
                 cur.execute("""

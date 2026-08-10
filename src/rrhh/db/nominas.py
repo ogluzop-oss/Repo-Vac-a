@@ -31,7 +31,16 @@ def crear_nomina(id_empleado, id_empresa=None, **campos) -> int | None:
             cur.execute(f"INSERT INTO rrhh_nominas ({', '.join(cols)}) VALUES ({ph})", vals)
             nid = cur.lastrowid
             conn.commit()
-            return nid
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("NOMINA_GENERADA", id_empresa=id_empresa, origen="rrhh",
+                         ref_entidad="nomina", ref_id=nid,
+                         payload={"id_empleado": id_empleado,
+                                  "anio": campos.get("anio"), "mes": campos.get("mes")})
+        except Exception:
+            pass
+        return nid
     except Exception as e:
         logger.error("crear_nomina(emp=%s): %s", id_empleado, e)
         return None

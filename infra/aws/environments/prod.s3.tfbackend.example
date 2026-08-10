@@ -1,0 +1,8 @@
+# Backend de estado remoto — PRODUCTION. Copiar a `prod.s3.tfbackend` y rellenar NOMBRES reales (no secretos).
+# key ÚNICA por entorno → aislamiento total del tfstate.
+# Uso: terraform init -reconfigure -backend-config=environments/prod.s3.tfbackend
+bucket         = "<bucket-estado-terraform>"      # [EXTERNO]
+key            = "smart-manager/prod/terraform.tfstate"
+region         = "<aws-region>"                   # [EXTERNO]
+dynamodb_table = "<tabla-lock-terraform>"         # [EXTERNO]
+encrypt        = true

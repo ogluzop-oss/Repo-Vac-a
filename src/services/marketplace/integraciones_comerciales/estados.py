@@ -1,0 +1,33 @@
+"""
+Integraciones Comerciales · Modelo UNIFICADO de estado (Fase WEB-03). Estado del ciclo de vida de una
+integración con una plataforma ecommerce. SIN llamadas reales: es sólo el modelo de estados preparado.
+"""
+
+NO_CONFIGURADA = "NO_CONFIGURADA"
+CONFIGURADA = "CONFIGURADA"
+VALIDADA = "VALIDADA"
+SINCRONIZANDO = "SINCRONIZANDO"
+SINCRONIZADA = "SINCRONIZADA"
+ERROR = "ERROR"
+DESHABILITADA = "DESHABILITADA"
+
+ESTADOS = (NO_CONFIGURADA, CONFIGURADA, VALIDADA, SINCRONIZANDO, SINCRONIZADA, ERROR, DESHABILITADA)
+
+# Transiciones válidas (conceptuales; sin ejecución real todavía).
+_TRANSICIONES = {
+    NO_CONFIGURADA: {CONFIGURADA, DESHABILITADA},
+    CONFIGURADA: {VALIDADA, NO_CONFIGURADA, ERROR, DESHABILITADA},
+    VALIDADA: {SINCRONIZANDO, CONFIGURADA, ERROR, DESHABILITADA},
+    SINCRONIZANDO: {SINCRONIZADA, ERROR, DESHABILITADA},
+    SINCRONIZADA: {SINCRONIZANDO, VALIDADA, ERROR, DESHABILITADA},
+    ERROR: {CONFIGURADA, VALIDADA, DESHABILITADA},
+    DESHABILITADA: {NO_CONFIGURADA, CONFIGURADA},
+}
+
+
+def es_valido(estado) -> bool:
+    return estado in ESTADOS
+
+
+def puede_transicionar(desde, hacia) -> bool:
+    return hacia in _TRANSICIONES.get(desde, set())

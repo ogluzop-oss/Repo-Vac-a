@@ -14,17 +14,22 @@ from src.db.conexion import (_filas_a_dicts, ensure_schema, obtener_conexion, tr
 
 logger = logging.getLogger("ventas.promociones")
 
-TIPOS = ("descuento_pct", "importe_fijo", "2x1", "pack", "regalo")
+TIPOS = ("descuento_pct", "importe_fijo", "2x1", "pack", "regalo", "nxm", "segunda_unidad")
 AMBITOS = ("articulo", "categoria", "familia", "cliente", "segmento", "tienda")
 
 
 def _emp(id_empresa=None):
+    # IOC v3 (Bloque V): seam de identidad delegado en la fachada de datos (db -> db).
     try:
-        from src.db.empresa import empresa_actual_id
-        return id_empresa or empresa_actual_id()
+        from src.db.identidad_contexto import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        from src.db.conexion import EMPRESA_DEFAULT_ID
-        return id_empresa or EMPRESA_DEFAULT_ID
+        try:
+            from src.db.empresa import empresa_actual_id
+            return id_empresa or empresa_actual_id()
+        except Exception:
+            from src.db.conexion import EMPRESA_DEFAULT_ID
+            return id_empresa or EMPRESA_DEFAULT_ID
 
 
 def crear_promocion(nombre, tipo="descuento_pct", valor=0, ambito="articulo", id_tienda=None,
@@ -137,6 +142,13 @@ def evaluar_articulo(codigo, precio, cantidad=1, categoria=None, cliente_id=None
                 desc = round(base * val / 100.0, 2)
             elif tipo == "regalo":
                 desc = 0.0
+            elif tipo == "nxm":
+                # Escalonada tipo 3x2/4x3: una unidad gratis por cada grupo de `valor` (lleva).
+                lleva = max(2, int(val))
+                desc = round((int(cantidad) // lleva) * float(precio), 2)
+            elif tipo == "segunda_unidad":
+                # 2ª unidad de cada par al `valor`% de descuento.
+                desc = round((int(cantidad) // 2) * float(precio) * val / 100.0, 2)
             if desc > mejor["descuento"]:
                 mejor = {"promo": p["id_promocion"], "tipo": tipo, "descuento": desc,
                          "precio_final": round(base - desc, 2)}

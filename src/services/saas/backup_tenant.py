@@ -89,11 +89,13 @@ def _audit(id_empresa, filas):
 
 
 # ── Restauración por tenant (FASE P1.2) ──────────────────────────────────────
-def importar_empresa(ruta, *, id_empresa=None, reemplazar=False) -> dict:
+def importar_empresa(ruta, *, id_empresa=None, reemplazar=False, tablas=None) -> dict:
     """Restaura los datos de una empresa desde un JSON de exportar_empresa. Transaccional con
     ROLLBACK ante error. Si `reemplazar`, borra antes los registros existentes de cada tabla
-    para esa empresa. Devuelve {ok, tablas, filas, error}. Auditado."""
+    para esa empresa. Si `tablas` (iterable) se indica, restaura SOLO ese subconjunto (restauración
+    parcial). Devuelve {ok, tablas, filas, error}. Auditado."""
     id_empresa = _emp(id_empresa)
+    filtro = set(tablas) if tablas else None
     try:
         with open(ruta, encoding="utf-8") as f:
             doc = json.load(f)
@@ -110,6 +112,8 @@ def importar_empresa(ruta, *, id_empresa=None, reemplazar=False) -> dict:
         ctx = transaccion() if transaccion else obtener_conexion()
         with ctx as conn, conn.cursor() as cur:
             for tabla, filas in datos.items():
+                if filtro is not None and tabla not in filtro:
+                    continue                                  # restauración parcial: solo el subconjunto
                 if not _tabla_tiene_columna(cur, tabla, "id_empresa"):
                     continue
                 if reemplazar:
@@ -139,6 +143,15 @@ def importar_empresa(ruta, *, id_empresa=None, reemplazar=False) -> dict:
 def restaurar_empresa(ruta, id_empresa=None) -> dict:
     """Restauración completa (reemplazando los datos existentes de la empresa)."""
     return importar_empresa(ruta, id_empresa=id_empresa, reemplazar=True)
+
+
+def restaurar_parcial(ruta, tablas, *, id_empresa=None, reemplazar=True) -> dict:
+    """Restauración PARCIAL: restaura solo el subconjunto de `tablas` indicado desde el export del
+    tenant. Reutiliza `importar_empresa` (transaccional, re-tenantiza al destino). No crea un mecanismo
+    nuevo. Devuelve {ok, tablas, filas}."""
+    if not tablas:
+        return {"ok": False, "error": "indica al menos una tabla"}
+    return importar_empresa(ruta, id_empresa=id_empresa, reemplazar=reemplazar, tablas=tablas)
 
 
 def _audit_restore(id_empresa, origen, filas):

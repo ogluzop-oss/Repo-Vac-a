@@ -38,7 +38,7 @@ class ResilienciaDashboardWindow(QWidget):
         t = QLabel("Resiliencia · Continuidad operativa")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
-        cab.addWidget(_btn("Actualizar", self._load, primary=True))
+        cab.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
         cab.addWidget(_btn("Sincronizar", self._sync))
         cab.addWidget(_btn("Watchdog", self._watchdog))
         if callback_vuelta:

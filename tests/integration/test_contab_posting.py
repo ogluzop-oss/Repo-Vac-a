@@ -84,6 +84,23 @@ def test_hook_venta_real_encola(db, fab):
     assert A.listar_diario(emp)[0]["origen"] == "venta"
 
 
+def test_incluir_nominas_false_deja_nominas_en_cola(db, fab):
+    """CIERRE DIARIO: procesar_cola(incluir_nominas=False) contabiliza ventas pero NO nóminas."""
+    from src.services.contabilidad import cuentas as K, posting as Pg
+    emp = fab.empresa("POST NOM")
+    fab.al_limpiar(lambda: _borra(db, emp)); K.activar(emp, 2026)
+    Pg.encolar_venta("vN", 121.0, "2026-05-12", "efectivo", id_empresa=emp)
+    Pg.encolar_nomina("nom1", "2026-05-12", 1000.0, 300.0, 60.0, 150.0, id_empresa=emp)
+    res = Pg.procesar_cola(emp, incluir_nominas=False)
+    assert res["ventas"] == 1 and res["nominas"] == 0       # venta sí, nómina no
+    # La nómina sigue pendiente en cola.
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT estado FROM contab_cola WHERE id_empresa=%s AND evento='nomina'", (emp,))
+        assert (cur.fetchone() or ["?"])[0] == "pendiente"
+    # La contabilidad general (por defecto) sí la procesa después.
+    assert Pg.procesar_cola(emp)["nominas"] == 1
+
+
 def test_mapeo_override(db, fab):
     from src.services.contabilidad import cuentas as K, mapeo as M, posting as Pg, asientos as A
     emp = fab.empresa("POST MAP")

@@ -1,0 +1,18 @@
+# Configuración NO sensible del backend (mismas variables que docker-compose; ver secret.yaml para los
+# secretos). Reutiliza el contrato de entorno de la imagen del Dockerfile (gunicorn wsgi:app en :8000).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smart-manager-config
+  namespace: smart-manager
+  labels:
+    app.kubernetes.io/name: smart-manager
+    app.kubernetes.io/component: backend
+data:
+  DB_HOST: "smart-manager-db"
+  DB_PORT: "3306"
+  DB_NAME: "smart_manager_db"
+  DB_USER: "root"
+  API_CORS_ORIGINS: ""
+  SM_LOG_JSON: "1"
+  API_HSTS: "1"

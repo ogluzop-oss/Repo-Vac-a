@@ -1,0 +1,23 @@
+# Entorno DEV. Sin secretos. Activa capas gradualmente (empezando por network/secrets).
+aws_region  = "eu-west-1"   # [EXTERNO]
+environment = "dev"
+project     = "smart-manager"
+
+# Todo apagado por defecto (0 coste). Cambia a true según provisiones.
+enable_network       = false
+enable_rds           = false
+enable_s3            = false
+enable_secrets       = false
+enable_observability = false
+enable_ecs           = false
+enable_ci_oidc       = false
+
+vpc_cidr                  = "10.20.0.0/16"
+az_count                  = 2
+rds_instance_class        = "db.t3.medium"
+rds_allocated_storage     = 20
+rds_multi_az              = false
+rds_backup_retention_days = 7
+
+github_org  = "<github-org>"
+github_repo = "<github-repo>"

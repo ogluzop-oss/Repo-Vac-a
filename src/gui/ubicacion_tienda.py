@@ -835,13 +835,16 @@ class UbicacionTiendaWindow(QMainWindow):
         try:
             with obtener_conexion() as conn:
                 with conn.cursor() as cursor:
+                    # pasillo/estantería (tienda y almacén) viven en `ubicaciones`, no en `articulos`
+                    # (ver migr 0105): se obtienen con un LEFT JOIN por código de artículo.
                     cursor.execute(
                         """
-                        SELECT codigo, nombre, ubicacion_tienda, pasillo, estanteria,
-                               ubicacion_almacen, pasillo_almacen, estanteria_almacen
-                        FROM articulos
-                        WHERE codigo = %s OR nombre LIKE %s
-                        ORDER BY CASE WHEN codigo = %s THEN 0 ELSE 1 END, nombre ASC
+                        SELECT a.codigo, a.nombre, a.ubicacion_tienda, u.pasillo, u.estanteria,
+                               a.ubicacion_almacen, u.pasillo_almacen, u.estanteria_almacen
+                        FROM articulos a
+                        LEFT JOIN ubicaciones u ON u.codigo_articulo = a.codigo
+                        WHERE a.codigo = %s OR a.nombre LIKE %s
+                        ORDER BY CASE WHEN a.codigo = %s THEN 0 ELSE 1 END, a.nombre ASC
                         LIMIT 1
                         """,
                         (termino, f"%{termino}%", termino),
@@ -1484,6 +1487,14 @@ class UbicacionTiendaWindow(QMainWindow):
         for visor in visores_activos:
             if visor is None:
                 continue
+            # El visor puede haberse destruido (al salir del módulo mientras un timer aún dispara el
+            # reencuadre): si el objeto C++ ya no existe, se omite sin ruido.
+            try:
+                from PyQt6 import sip
+                if sip.isdeleted(visor):
+                    continue
+            except Exception:
+                pass
             if hasattr(visor, "reencuadrar_plano"):
                 try:
                     visor.reencuadrar_plano(force=force)
@@ -1632,7 +1643,21 @@ class UbicacionTiendaWindow(QMainWindow):
         self.stack.addWidget(self.crear_vista_gestion_estructura())  # Index 4
 
         self.main_layout.addWidget(self.sidebar)
-        self.main_layout.addWidget(self.stack)
+        # Responsive P2: el área de vistas se envuelve en un scroll para que la ventana quepa en
+        # pantallas pequeñas (p.ej. 1366px) sin cortar información; el contenido hace scroll en lugar
+        # de forzar un ancho mínimo grande. No altera proporciones ni el diseño Enterprise.
+        from PyQt6.QtWidgets import QScrollArea as _QScrollArea
+        try:
+            from src.gui.foundation import tokens as _T
+            _sb = _T.qss_scrollbar()
+        except Exception:
+            _sb = ""
+        self._scroll_vistas = _QScrollArea()
+        self._scroll_vistas.setWidgetResizable(True)
+        self._scroll_vistas.setFrameShape(_QScrollArea.Shape.NoFrame)
+        self._scroll_vistas.setStyleSheet("QScrollArea{background:transparent;border:none;}" + _sb)
+        self._scroll_vistas.setWidget(self.stack)
+        self.main_layout.addWidget(self._scroll_vistas)
 
         # Estado inicial
         self.btn_nav_lineal.setChecked(True)
@@ -4004,26 +4029,31 @@ class UbicacionTiendaWindow(QMainWindow):
                 ubicacion_legible = f"{pasillo}-{estanteria}-{nivel}"
                 es_lineal = bool(contexto and "LINEAL" in contexto.upper())
 
+                try:                                 # PK compuesta (migr 0181): filtra por empresa de la sesión
+                    from src.db.empresa import empresa_actual_id as _eai
+                    _emp = _eai()
+                except Exception:
+                    _emp = None
                 # 2. Actualizacion principal de ubicacion comercial
                 if es_lineal:
                     sql = """
-                        UPDATE articulos 
+                        UPDATE articulos
                         SET pasillo = %s, estanteria = %s, nivel = %s,
                             ubicacion_tienda = %s,
                             incidencia_ubicacion = 0, ultima_actualizacion = NOW()
-                        WHERE codigo = %s
+                        WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)
                     """
                 else:
                     sql = """
-                        UPDATE articulos 
+                        UPDATE articulos
                         SET pasillo_almacen = %s, estanteria_almacen = %s, nivel_almacen = %s,
                             ubicacion_almacen = %s,
                             incidencia_ubicacion = 0, ultima_actualizacion = NOW()
-                        WHERE codigo = %s
+                        WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)
                     """
 
                 cursor.execute(
-                    sql, (pasillo, estanteria, nivel, ubicacion_legible, codigo_art)
+                    sql, (pasillo, estanteria, nivel, ubicacion_legible, codigo_art, _emp, _emp)
                 )
 
                 # 3. Buscar coordenadas de la estanteria en infraestructura
@@ -4073,9 +4103,9 @@ class UbicacionTiendaWindow(QMainWindow):
                         """
                         UPDATE articulos
                         SET mapa_x = %s, mapa_y = %s
-                        WHERE codigo = %s
+                        WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)
                         """,
-                        (mapa_x, mapa_y, codigo_art),
+                        (mapa_x, mapa_y, codigo_art, _emp, _emp),
                     )
 
                 conn.commit()
@@ -4186,7 +4216,13 @@ class UbicacionTiendaWindow(QMainWindow):
                         ultima_actualizacion = NOW() 
                     WHERE codigo = %s
                 """
-                cursor.execute(sql, (codigo_art,))
+                try:                                 # PK compuesta (migr 0181): filtra por empresa de la sesión
+                    from src.db.empresa import empresa_actual_id as _eai
+                    _emp = _eai()
+                except Exception:
+                    _emp = None
+                sql += " AND (%s IS NULL OR id_empresa = %s)"
+                cursor.execute(sql, (codigo_art, _emp, _emp))
                 conn.commit()
 
             # 3. Feedback Visual e Interfaz
@@ -5139,6 +5175,8 @@ class UbicacionTiendaWindow(QMainWindow):
         Sincroniza el panel de resultados y prepara las coordenadas para el motor GPS.
         """
         termino = self.input_search.text().strip()
+        if "–" in termino:   # viene del autocompletado "CÓDIGO – NOMBRE"
+            termino = termino.split("–")[0].strip()
         if not termino:
             return
         self._opciones_destino_busqueda = []
@@ -5147,19 +5185,21 @@ class UbicacionTiendaWindow(QMainWindow):
         try:
             with obtener_conexion() as conn:
                 cursor = conn.cursor()
-                # Búsqueda optimizada por nombre (parcial) o código (exacto)
-                # He añadido 'stock' a la consulta para alimentar la tercera tarjeta KPI
+                # Búsqueda por nombre (parcial) o código (exacto). NOTA: mapa_x/mapa_y NO están en
+                # `articulos` (viven en la tabla `ubicaciones`); las coordenadas GPS se obtienen
+                # aparte con _obtener_opciones_destino_gps. Seleccionarlas aquí rompía TODA búsqueda
+                # con error 1054 ("Unknown column 'mapa_x'"). Se piden solo columnas existentes.
                 sql = """
-                    SELECT codigo, nombre, mapa_x, mapa_y, 
-                           ubicacion_tienda, ubicacion_almacen, stock_total
-                    FROM articulos 
+                    SELECT codigo, nombre,
+                           ubicacion_tienda, ubicacion_almacen, COALESCE(Stock_total, 0)
+                    FROM articulos
                     WHERE nombre LIKE %s OR codigo = %s
                 """
                 cursor.execute(sql, (f"%{termino}%", termino))
                 producto = cursor.fetchone()
 
             if producto:
-                codigo, nombre, m_x, m_y, u_lin, u_alm, stock = producto
+                codigo, nombre, u_lin, u_alm, stock = producto
                 self._articulo_busqueda_actual = {
                     "codigo": str(codigo).upper() if codigo else "",
                     "nombre": str(nombre).upper() if nombre else "",
@@ -5349,6 +5389,33 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         self.input_scan.setFixedHeight(50)
 
+        # Sugerencias de artículos (autocompletado) para asignar ubicación.
+        try:
+            from PyQt6.QtCore import QStringListModel
+            from assets.estilo_global import estilizar_completer
+
+            def _cargar_arts():
+                try:
+                    from src.db.conexion import _get_todos_articulos_para_completer
+                    return [f"{c} – {n}" for c, n in _get_todos_articulos_para_completer()]
+                except Exception:
+                    return []
+
+            _model = QStringListModel(_cargar_arts())
+            _comp = QCompleter(_model, self.input_scan)
+            _comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            _comp.setFilterMode(Qt.MatchFlag.MatchContains)
+            self.input_scan.setCompleter(_comp)
+            estilizar_completer(_comp)
+            # Relleno perezoso: si la consulta inicial vino vacía (contexto no listo en la
+            # primera construcción de la página), se recarga al empezar a escribir.
+            def _lazy(_t="", _m=_model):
+                if _t and not _m.stringList():
+                    _m.setStringList(_cargar_arts())
+            self.input_scan.textChanged.connect(_lazy)
+        except Exception:
+            pass
+
         # Botón de Cámara (Visión Artificial)
         btn_cam = QPushButton("📷")  # Restaurado icono visual
         btn_cam.setFixedSize(60, 50)
@@ -5515,6 +5582,8 @@ class UbicacionTiendaWindow(QMainWindow):
         """
 
         busqueda = self.input_scan.text().strip()
+        if "–" in busqueda:   # viene del autocompletado "CÓDIGO – NOMBRE"
+            busqueda = busqueda.split("–")[0].strip()
         if not busqueda:
             return
 
@@ -5603,7 +5672,13 @@ class UbicacionTiendaWindow(QMainWindow):
                         ultima_incidencia = NOW() 
                     WHERE codigo = %s
                 """
-                cursor.execute(sql, (self.articulo_seleccionado,))
+                try:                                 # PK compuesta (migr 0181): filtra por empresa de la sesión
+                    from src.db.empresa import empresa_actual_id as _eai
+                    _emp = _eai()
+                except Exception:
+                    _emp = None
+                sql += " AND (%s IS NULL OR id_empresa = %s)"
+                cursor.execute(sql, (self.articulo_seleccionado, _emp, _emp))
                 conn.commit()
 
             # Feedback Visual: Alerta Naranja (Precaución)
@@ -6276,6 +6351,21 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         self.input_search.returnPressed.connect(self.ejecutar_busqueda)
 
+        # Sugerencias de artículos (autocompletado), igual que el resto de buscadores.
+        try:
+            from PyQt6.QtCore import QStringListModel
+            from assets.estilo_global import estilizar_completer
+            from src.db.conexion import _get_todos_articulos_para_completer
+            self._bp_completer_model = QStringListModel(
+                [f"{c} – {n}" for c, n in _get_todos_articulos_para_completer()])
+            _comp = QCompleter(self._bp_completer_model, self.input_search)
+            _comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            _comp.setFilterMode(Qt.MatchFlag.MatchContains)
+            self.input_search.setCompleter(_comp)
+            estilizar_completer(_comp)
+        except Exception:
+            pass
+
         search_layout.addWidget(lbl_icon)
         search_layout.addWidget(self.input_search)
 
@@ -6326,10 +6416,40 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         btn_go.clicked.connect(self.ejecutar_busqueda)
 
+        # Botón Rastreo por proximidad RFID — SIEMPRE visible (no depende de haber buscado antes).
+        # Detecta la alarma del artículo (etiqueta adhesiva RFID o tag duro EAS) y emite un pitido
+        # que se acelera al acercarse y se vuelve constante justo al lado. Si no hay artículo
+        # localizado, primero busca el texto del cuadro.
+        self.btn_rastreo_rfid = QPushButton("📡 " + tr("ubic.rfid_track", default="RFID"))
+        self.btn_rastreo_rfid.setFixedSize(120, 52)
+        self.btn_rastreo_rfid.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_rastreo_rfid.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #0D1117;
+                color: #FFA657;
+                border-radius: 12px;
+                font-family: 'Segoe UI';
+                font-weight: 900;
+                font-size: 13px;
+                letter-spacing: 1px;
+                border: 2px solid #FFA657;
+            }
+            QPushButton:hover { background-color: #FFA657; color: #0D1117; border: 2px solid #FFA657; }
+        """
+        )
+        self.btn_rastreo_rfid.clicked.connect(self.iniciar_rastreo_rfid)
+
         search_row.addWidget(search_box)
         search_row.addWidget(btn_cam)
         search_row.addWidget(btn_go)
+        search_row.addWidget(self.btn_rastreo_rfid)
         layout.addLayout(search_row)
+
+        # Panel INLINE de rastreo RFID (sin ventanas modales: crear diálogos top-level mientras el
+        # stack de audio de SOMA corre en 2º plano puede aflorar corrupción de heap y cerrar la app).
+        self._rfid_panel = self._crear_panel_rastreo_rfid()
+        layout.addWidget(self._rfid_panel)
 
         # 3. PANEL DE RESULTADOS DINÁMICO
         self.result_panel = QFrame()
@@ -6425,6 +6545,206 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.addStretch()
 
         return vista
+
+    # ============================================================
+    # BLOQUE RASTREO POR PROXIMIDAD RFID
+    # ============================================================
+
+    def _crear_panel_rastreo_rfid(self):
+        """Panel INLINE (no modal) de rastreo por proximidad RFID, embebido en la propia pestaña
+        Buscar producto. Se evita cualquier ventana top-level (QDialog/QMessageBox): crear ventanas
+        modales mientras el stack de audio de SOMA corre en 2º plano puede aflorar corrupción de
+        heap (0xC0000374). Aquí solo se añaden widgets a la vista existente."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QProgressBar,
+                                     QPushButton, QVBoxLayout)
+
+        panel = QFrame()
+        panel.setObjectName("rfid_panel")
+        panel.setStyleSheet(
+            """
+            QFrame#rfid_panel {
+                background-color: #0D1117;
+                border: 2px solid #FFA657;
+                border-radius: 18px;
+            }
+            QLabel { background: transparent; border: none; }
+        """
+        )
+        panel.setVisible(False)
+        ly = QVBoxLayout(panel)
+        ly.setContentsMargins(28, 22, 28, 22)
+        ly.setSpacing(14)
+
+        fila_top = QHBoxLayout()
+        t = QLabel("📡 " + tr("ubic.rfid_track_title", default="RASTREO RFID POR PROXIMIDAD"))
+        t.setStyleSheet("color:#FFA657;font-family:'Segoe UI';font-size:18px;font-weight:900;"
+                        "letter-spacing:2px;")
+        fila_top.addWidget(t)
+        fila_top.addStretch()
+        self._rastreo_art = QLabel("")
+        self._rastreo_art.setStyleSheet("color:white;font-family:'Segoe UI';font-size:15px;"
+                                        "font-weight:900;")
+        fila_top.addWidget(self._rastreo_art)
+        ly.addLayout(fila_top)
+
+        self._rastreo_barra = QProgressBar()
+        self._rastreo_barra.setRange(0, 100)
+        self._rastreo_barra.setValue(0)
+        self._rastreo_barra.setTextVisible(False)
+        self._rastreo_barra.setFixedHeight(26)
+        ly.addWidget(self._rastreo_barra)
+
+        fila_bot = QHBoxLayout()
+        self._rastreo_estado = QLabel(tr("ubic.rfid_searching", default="BUSCANDO SEÑAL…"))
+        self._rastreo_estado.setStyleSheet("color:#8B949E;font-family:'Segoe UI';"
+                                           "font-size:22px;font-weight:900;")
+        fila_bot.addWidget(self._rastreo_estado)
+        fila_bot.addStretch()
+
+        btn_stop = QPushButton(tr("ubic.rfid_stop", default="DETENER"))
+        btn_stop.setFixedSize(150, 46)
+        btn_stop.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_stop.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #0D1117; color: #F85149;
+                border: 2px solid #F85149; border-radius: 12px;
+                font-family: 'Segoe UI'; font-weight: 900; font-size: 13px;
+            }
+            QPushButton:hover { background-color: #F85149; color: #0D1117; }
+        """
+        )
+        btn_stop.clicked.connect(self._cerrar_rastreo_rfid)
+        fila_bot.addWidget(btn_stop)
+        ly.addLayout(fila_bot)
+        return panel
+
+    def iniciar_rastreo_rfid(self):
+        """Inicia el rastreo de proximidad RFID del artículo. El lector detecta la alarma del
+        artículo (etiqueta adhesiva RFID o tag duro EAS) y, según la intensidad de señal, emite un
+        pitido intermitente que se ACELERA al acercarse y se vuelve CONSTANTE justo al lado del
+        artículo. Degradable: señal real del lector o simulación de aproximación. UI 100 % inline."""
+        from PyQt6.QtCore import QTimer
+
+        art = getattr(self, "_articulo_busqueda_actual", {}) or {}
+        codigo = art.get("codigo")
+        # Si no hay artículo localizado, intenta localizarlo con el texto del buscador.
+        if not codigo and getattr(self, "input_search", None) and self.input_search.text().strip():
+            try:
+                self.ejecutar_busqueda()
+            except Exception:
+                pass
+            art = getattr(self, "_articulo_busqueda_actual", {}) or {}
+            codigo = art.get("codigo")
+        if not codigo:
+            sb = self.window().statusBar() if self.window() else None
+            if sb:
+                sb.setStyleSheet("color: #FFA657; font-family: 'Segoe UI'; font-weight: 900;")
+                sb.showMessage("⚠️ " + tr("ubic.rfid_need_search",
+                               default="ESCRIBE O BUSCA UN ARTÍCULO PARA RASTREARLO POR RFID"), 5000)
+            return
+
+        nombre = art.get("nombre") or codigo
+        try:
+            from src.services.rfid import RastreoRFID
+            gw = getattr(self, "lector_rfid", None)
+            self._rastreo_sesion = RastreoRFID(codigo, nombre=nombre, gateway=gw)
+        except Exception as e:
+            print(f"[RFID] No se pudo iniciar el rastreo: {e}")
+            return
+
+        # Mostrar el panel INLINE y arrancar el sondeo.
+        self._rastreo_art.setText(str(nombre).upper())
+        self._rastreo_barra.setValue(0)
+        self._rastreo_estado.setText(tr("ubic.rfid_searching", default="BUSCANDO SEÑAL…"))
+        self._rastreo_estado.setStyleSheet("color:#8B949E;font-family:'Segoe UI';"
+                                           "font-size:22px;font-weight:900;")
+        if getattr(self, "_rfid_panel", None) is not None:
+            self._rfid_panel.setVisible(True)
+
+        self._ultimo_beep_rfid = 0
+        if getattr(self, "_rastreo_timer", None) is None:
+            self._rastreo_timer = QTimer(self)
+            self._rastreo_timer.timeout.connect(self._tick_rastreo_rfid)
+        self._rastreo_timer.start(180)
+
+    def _tick_rastreo_rfid(self):
+        """Sondea la proximidad y actualiza barra/estado + pitido."""
+        sesion = getattr(self, "_rastreo_sesion", None)
+        if sesion is None:
+            return
+        prox = sesion.leer_proximidad()
+        nivel = sesion.nivel(prox)
+
+        if getattr(self, "_rastreo_barra", None) is not None:
+            self._rastreo_barra.setValue(int(prox))
+            # Color de la barra según nivel (rojo → naranja → cian).
+            if nivel == "AQUI":
+                color = "#00FFC6"
+            elif nivel == "CERCA":
+                color = "#FFD24A"
+            elif nivel == "MEDIO":
+                color = "#FFA657"
+            else:
+                color = "#F85149"
+            self._rastreo_barra.setStyleSheet(
+                "QProgressBar { background-color:#161B22; border:1px solid #30363D; "
+                "border-radius:12px; } "
+                f"QProgressBar::chunk {{ background-color:{color}; border-radius:12px; }}")
+
+        if getattr(self, "_rastreo_estado", None) is not None:
+            if nivel == "AQUI":
+                txt, col = tr("ubic.rfid_here", default="¡AQUÍ! ARTÍCULO LOCALIZADO"), "#00FFC6"
+            elif nivel == "CERCA":
+                txt, col = tr("ubic.rfid_near", default="MUY CERCA"), "#FFD24A"
+            elif nivel == "MEDIO":
+                txt, col = tr("ubic.rfid_mid", default="TE ACERCAS"), "#FFA657"
+            else:
+                txt, col = tr("ubic.rfid_far", default="BUSCANDO SEÑAL…"), "#8B949E"
+            self._rastreo_estado.setText(txt)
+            self._rastreo_estado.setStyleSheet(f"color:{col};font-family:'Segoe UI';"
+                                               "font-size:22px;font-weight:900;")
+
+        self._beep_proximidad_rfid(prox)
+
+    def _beep_proximidad_rfid(self, prox):
+        """Pitido cuya frecuencia de repetición aumenta con la proximidad; constante al lado
+        del artículo (nivel AQUÍ). Reutiliza el patrón sonoro del radar GPS (winsound en hilo)."""
+        import time
+        from threading import Thread
+        try:
+            import winsound
+        except Exception:
+            return  # sin audio de sistema (no-Windows): el feedback visual sigue activo
+
+        # Mapeo proximidad → (frecuencia Hz, intervalo entre pitidos ms, duración ms).
+        if prox >= 95:          # AQUÍ: pitido prácticamente constante
+            frecuencia, intervalo, duracion = 2800, 60, 220
+        elif prox >= 70:        # CERCA: muy rápido
+            frecuencia, intervalo, duracion = 2500, 110, 90
+        elif prox >= 40:        # MEDIO
+            frecuencia, intervalo, duracion = 1600, 320, 90
+        else:                   # LEJOS: lento
+            frecuencia, intervalo, duracion = 900, 750, 90
+
+        ahora = time.time() * 1000
+        if ahora - getattr(self, "_ultimo_beep_rfid", 0) > intervalo:
+            Thread(target=lambda: winsound.Beep(frecuencia, duracion), daemon=True).start()
+            self._ultimo_beep_rfid = ahora
+
+    def _cerrar_rastreo_rfid(self, *_):
+        """Detiene el temporizador, oculta el panel inline y libera la sesión de rastreo."""
+        t = getattr(self, "_rastreo_timer", None)
+        if t is not None:
+            try:
+                t.stop()
+            except Exception:
+                pass
+        self._rastreo_sesion = None
+        self._ultimo_beep_rfid = 0
+        if getattr(self, "_rfid_panel", None) is not None:
+            self._rfid_panel.setVisible(False)
 
     # ============================================================
     # BLOQUE ESCÁNER DE CÁMARA
@@ -7781,6 +8101,8 @@ class UbicacionTiendaWindow(QMainWindow):
                     completer = QCompleter(lista_sugerencias)
                     completer.setFilterMode(Qt.MatchFlag.MatchContains)
                     search_input.setCompleter(completer)
+                    from assets.estilo_global import estilizar_completer
+                    estilizar_completer(completer)
         except:
             pass
 
@@ -8195,6 +8517,8 @@ class UbicacionTiendaWindow(QMainWindow):
                 completer = QCompleter(sorted(set(sugerencias)))
                 completer.setFilterMode(Qt.MatchFlag.MatchContains)
                 search_input.setCompleter(completer)
+                from assets.estilo_global import estilizar_completer
+                estilizar_completer(completer)
         except Exception:
             pass
 

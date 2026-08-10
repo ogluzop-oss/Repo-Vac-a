@@ -49,6 +49,7 @@ TIPOS = {
     "certificado": "doc.tipo_certificado",
     "rrhh":       "doc.tipo_rrhh",
     "auditoria":  "doc.tipo_auditoria",
+    "grabacion":  "doc.tipo_grabacion",
     "otros":      "doc.tipo_otros",
 }
 
@@ -61,6 +62,7 @@ _CARPETA_TIPO = {
     "informes de reposición": "informe", "reposicion": "informe",
     "certificados": "certificado", "rrhh": "rrhh", "nominas": "rrhh",
     "nóminas": "rrhh", "exportaciones": "exportacion", "excel": "exportacion",
+    "grabaciones": "grabacion",
     "etiquetas": "otros", "stocks": "informe", "qr ubicaciones": "otros",
     "historial": "otros",
 }
@@ -132,6 +134,12 @@ def registrar_documento(ruta: str, tipo: str = "otros", nombre: str | None = Non
     nombre = nombre or os.path.basename(ruta)
     if hash_documental is None and os.path.exists(ruta):
         hash_documental = _hash_fichero(ruta)
+    # documentos_registro.id_tienda es INT; el contexto puede ser un código ('ALMC').
+    try:
+        from src.db.empresa import tienda_actual_id_int
+        id_tienda = tienda_actual_id_int(id_tienda)
+    except Exception:
+        id_tienda = id_tienda if isinstance(id_tienda, int) else 0
     nuevo_id = str(uuid.uuid4())
     try:
         ensure_schema()
@@ -150,6 +158,27 @@ def registrar_documento(ruta: str, tipo: str = "otros", nombre: str | None = Non
                 (nuevo_id, id_empresa, id_tienda, id_usuario, tipo, nombre, referencia,
                  ruta, hash_documental, cliente, trabajador, importe, estado))
             conn.commit()
+        # Fase 11/12 (H1): write-through a StorageProvider en el ÚNICO chokepoint de persistencia documental.
+        # Hace durable el documento (S3 en AWS; copia tenant-aware en local) sin tocar los ~17 generadores y
+        # GUARDA la storage_key en el registro (Fase 12) para lectura/borrado posteriores vía StorageProvider.
+        # Aditivo y bulletproof: nunca rompe el registro (el índice sigue siendo la verdad).
+        try:
+            from src.services.storage import documentos as _SD
+            r = _SD.persistir_fichero(id_empresa, tipo, ruta, nombre=nombre)
+            if r.get("ok") and r.get("clave"):
+                # Conexión propia (el `with` anterior ya cerró): guarda la storage_key en el registro.
+                _SD._guardar_storage_meta(nuevo_id, r["clave"], r.get("backend"), r.get("size"),
+                                          r.get("mime"), "MIGRATED")
+        except Exception:
+            pass
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("DOCUMENTO_PUBLICADO", id_empresa=id_empresa, id_tienda=id_tienda,
+                         origen="documentos", ref_entidad="documento", ref_id=nuevo_id,
+                         payload={"tipo": tipo, "nombre": nombre, "referencia": referencia})
+        except Exception:
+            pass
         return nuevo_id
     except Exception as e:
         logger.error("Error registrar_documento(%s): %s", ruta, e)

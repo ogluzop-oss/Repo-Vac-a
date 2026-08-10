@@ -14,7 +14,12 @@ DEFAULTS = {"estandar": (24, 72), "premium": (8, 24), "enterprise": (2, 8)}
 
 
 def _emp(id_empresa=None):
-    return id_empresa or empresa_actual_id()
+    # IOC v2 (Bloque III): resolución de empresa vía capa de identidad (Strangler).
+    try:
+        from src.services.sat.identidad_sat import empresa_id
+        return empresa_id(id_empresa)
+    except Exception:
+        return id_empresa or empresa_actual_id()
 
 
 def _fila(cur, r):

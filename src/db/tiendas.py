@@ -82,8 +82,8 @@ def puede_acceder(id_tienda) -> bool:
 
 def etiqueta_tienda_actual() -> str:
     """Texto de la tienda activa para la UI (chip del menú, contexto de Documentos):
-    1) la tienda del TenantContext si está fijada (selector F1), 2) si no, la
-    referencia configurada en ASIGNAR REFERENCIA. Cadena vacía si no hay ninguna."""
+    1) la tienda del TenantContext si está fijada (selector F1), 2) si no, la referencia legada
+    (ASIGNAR REFERENCIA, DEPRECADA) leída a través de la fachada de Identidad Operativa. Cadena vacía si nada."""
     from src.db import empresa as emp_db
     tid = emp_db.tienda_actual_id()
     if tid is not None:
@@ -91,8 +91,10 @@ def etiqueta_tienda_actual() -> str:
         if t:
             return f"{t.get('codigo_tienda', '')} · {t.get('nombre', '')}".strip(" ·")
     try:
-        from src.db.conexion import obtener_referencias
-        refs = obtener_referencias() or {}
+        # Deprecación «Asignar referencia»: el fallback pasa por la fachada IOC (Strangler), no por el
+        # acceso directo a configuraciones.ref_tienda.
+        from src.services.identidad import identidad as _ident
+        refs = _ident.referencia_legada() or {}
         if refs.get("ref_tienda"):
             return f"T-{refs['ref_tienda']}"
     except Exception:

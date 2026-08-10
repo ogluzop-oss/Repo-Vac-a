@@ -52,61 +52,20 @@ def _ctx():
 
 
 # ── Disponibilidad multi-origen ──────────────────────────────────────────────
+# PCD Fase 3 (RFC-CD-005): DELEGAN en el Availability Engine (motor 100 % de lectura). Se conservan
+# las firmas y la forma del resultado (fachada Strangler; el motor porta la lógica byte-idéntica).
 def consultar_disponibilidad(codigo: str) -> dict:
-    """Disponibilidad de un artículo: stock en la tienda activa, en el almacén
-    central, en otras tiendas y online. Permite decidir si se genera el pedido."""
-    out = {"codigo": codigo, "nombre": "", "precio": 0.0, "tienda": 0, "central": 0,
-           "otras_tiendas": [], "online": 0}
-    try:
-        _emp, _tnd, _u, _n = _ctx()
-        with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT nombre, COALESCE(precio,0), COALESCE(Stock_tienda,0), COALESCE(Stock_central,0) "
-                "FROM articulos WHERE codigo=%s AND id_empresa=%s", (codigo, _emp))
-            r = cur.fetchone()
-            if r:
-                if isinstance(r, dict):
-                    vals = list(r.values())
-                    out["nombre"] = vals[0] or ""
-                    out["precio"] = float(vals[1] or 0)
-                    out["tienda"] = int(vals[2] or 0)
-                    out["central"] = int(vals[3] or 0)
-                else:
-                    out["nombre"] = r[0] or ""
-                    out["precio"] = float(r[1] or 0)
-                    out["tienda"] = int(r[2] or 0)
-                    out["central"] = int(r[3] or 0)
-            # Stock en OTRAS tiendas (tabla stock_tienda, excluyendo la activa).
-            cur.execute(
-                "SELECT st.id_tienda, COALESCE(t.nombre, CONCAT('TND-', st.id_tienda)), st.stock "
-                "FROM stock_tienda st LEFT JOIN tiendas t ON t.id=st.id_tienda "
-                "WHERE st.codigo_articulo=%s AND st.id_empresa=%s "
-                + ("AND st.id_tienda<>%s " if _tnd is not None else "")
-                + "AND st.stock>0 ORDER BY st.id_tienda",
-                ((codigo, _emp, _tnd) if _tnd is not None else (codigo, _emp)))
-            for f in cur.fetchall():
-                tid = f[0] if not isinstance(f, dict) else f["id_tienda"]
-                nom = f[1] if not isinstance(f, dict) else list(f.values())[1]
-                stk = f[2] if not isinstance(f, dict) else list(f.values())[2]
-                out["otras_tiendas"].append({"id_tienda": tid, "nombre": nom, "stock": int(stk or 0)})
-    except Exception as e:
-        logger.error("consultar_disponibilidad(%s): %s", codigo, e)
-    return out
+    """Disponibilidad de un artículo (tienda activa/central/otras tiendas/online). Delega en el
+    Availability Engine (lectura pura); forma de salida inalterada."""
+    from src.services.comercio_digital.inventario import availability
+    return availability.consultar_disponibilidad(codigo)
 
 
 def localizar_articulo(codigo: str) -> dict:
-    """Localiza un artículo no disponible en la tienda activa: indica si hay stock
-    en otras tiendas, en el almacén central o si se puede pedir online. Usado por el
-    TPV para resolver una venta sin afectar al flujo normal."""
-    disp = consultar_disponibilidad(codigo)
-    disp["disponible_tienda"] = disp.get("tienda", 0) > 0
-    disp["disponible_central"] = disp.get("central", 0) > 0
-    disp["disponible_otras"] = bool(disp.get("otras_tiendas"))
-    disp["sugerencia"] = ("tienda" if disp["disponible_tienda"]
-                          else "central" if disp["disponible_central"]
-                          else "otra_tienda" if disp["disponible_otras"]
-                          else "online")
-    return disp
+    """Localiza un artículo indicando dónde hay stock. Delega en el Availability Engine
+    (lectura pura); forma de salida inalterada."""
+    from src.services.comercio_digital.inventario import availability
+    return availability.localizar_articulo(codigo)
 
 
 # ── Reservas y solicitudes a otra tienda (TPV online) ────────────────────────
@@ -178,7 +137,7 @@ def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str 
         sub = float(l.get("subtotal") if l.get("subtotal") is not None else cant * precio)
         total += sub
         norm.append((l.get("codigo"), l.get("nombre"), int(cant), precio, sub,
-                     l.get("origen_stock") or "central"))
+                     l.get("origen_stock") or "central", l.get("id_almacen")))
     id_pedido = str(uuid.uuid4())
     try:
         with transaccion() as conn, conn.cursor() as cur:   # A2.2: pedido + ítems atómicos
@@ -192,12 +151,13 @@ def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str 
                  cliente.get("id"), cliente.get("nombre"), cliente.get("telefono"),
                  cliente.get("email"), direccion_envio, round(total, 2), estado,
                  plataforma, referencia_externa, observaciones))
-            for codigo, nombre, cant, precio, sub, origen in norm:
+            for codigo, nombre, cant, precio, sub, origen, id_almacen in norm:
                 cur.execute(
                     "INSERT INTO pedidos_online_items "
-                    "(id_pedido, codigo_articulo, nombre, cantidad, precio_unitario, subtotal, origen_stock) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                    (id_pedido, codigo, nombre, cant, precio, sub, origen))
+                    "(id_pedido, codigo_articulo, nombre, cantidad, precio_unitario, subtotal, "
+                    " origen_stock, id_almacen) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (id_pedido, codigo, nombre, cant, precio, sub, origen, id_almacen))
             # commit gestionado por transaccion()
     except Exception as e:
         logger.error("crear_pedido_online: %s", e)
@@ -218,6 +178,14 @@ def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str 
     # Si el pedido nace ya PAGADO, emite el justificante de pago.
     if estado == "PAGADO":
         _on_pagado(id_pedido)
+    # PCD Fase 2 (RFC-CD-006) — WRITE-THROUGH a la Transacción Comercial (espejo NO destructivo).
+    # No bloquea ni altera este flujo: `pedidos_online` sigue siendo el sistema de registro durante
+    # el Strangler; la Transacción se puebla en paralelo. Degradable.
+    try:
+        from src.services.comercio_digital import transacciones as _tx
+        _tx.desde_pedido_online(id_pedido)
+    except Exception as e:
+        logger.debug("write-through Transacción Comercial (%s): %s", id_pedido, e)
     return id_pedido
 
 
@@ -616,6 +584,7 @@ def _reponer_stock_pedido(id_pedido: str) -> None:
     if not pedido or not int(pedido.get("stock_descontado") or 0):
         return
     detalle = []
+    emp = pedido.get("id_empresa")          # PK compuesta (migr 0181): la reposición filtra por empresa
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             for it in pedido.get("items", []):
@@ -625,7 +594,7 @@ def _reponer_stock_pedido(id_pedido: str) -> None:
                     continue
                 cur.execute(
                     "UPDATE articulos SET Stock_total = COALESCE(Stock_total,0) + %s "
-                    "WHERE codigo = %s", (cant, codigo))
+                    "WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)", (cant, codigo, emp, emp))
                 detalle.append(f"{codigo}x{cant}")
             conn.commit()
     except Exception as e:

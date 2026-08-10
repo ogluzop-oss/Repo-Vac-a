@@ -13,7 +13,7 @@ import os
 from PyQt6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QMessageBox, QTableWidgetItem,
                              QVBoxLayout, QWidget)
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _combo, _inp, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_x, _combo, _inp, _tabla
 from src.services.aeat import base as _B
 from src.services.aeat import exportacion as _X
 from src.services.aeat import modelo_303 as _M303
@@ -53,7 +53,7 @@ class AEATWindow(QWidget):
         t.setStyleSheet(f"color:{_CIAN};font-size:18px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
         if callback_vuelta:
-            cab.addWidget(_btn("Volver", self._volver))
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
         bar = QHBoxLayout()

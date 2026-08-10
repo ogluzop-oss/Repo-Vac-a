@@ -154,10 +154,15 @@ class _PinDialog(QDialog):
         ly.addLayout(br)
         self.setFixedSize(520, 300)
 
+    def _err(self, msg, titulo=None):
+        """Muestra el error inline Y un mensaje emergente (para que 'salte' de forma visible)."""
+        self._lbl_err.setText(msg)
+        mostrar_mensaje(self, titulo or tr("cfg.pin_wrong_title", default="PIN incorrecto"), msg, "error")
+
     def _verificar(self):
         pin = self._pin_inp.text().strip()
         if len(pin) != 4 or not pin.isdigit():
-            self._lbl_err.setText(tr("cfg.pin_len_err", default="El PIN debe tener exactamente 4 dígitos.")); return
+            self._err(tr("cfg.pin_len_err", default="El PIN debe tener exactamente 4 dígitos.")); return
         roles = self._roles_permitidos()
         try:
             # Verificación canónica: Argon2id (con soporte dual SHA-256 legado + rehash).
@@ -169,10 +174,10 @@ class _PinDialog(QDialog):
                 self._usuario_id = resp.get("id")
                 self._usuario_nombre = resp.get("nombre")
                 self.accept(); return
-            self._lbl_err.setText(tr("cfg.pin_wrong_auth", default="PIN incorrecto o usuario no autorizado."))
             self._pin_inp.clear(); self._pin_inp.setFocus()
+            self._err(tr("cfg.pin_wrong_auth", default="PIN incorrecto o usuario no autorizado."))
         except Exception:
-            self._lbl_err.setText(tr("cfg.pin_conn_err", default="Error de conexión con la base de datos."))
+            self._err(tr("cfg.pin_conn_err", default="Error de conexión con la base de datos."))
 
     def verificado(self) -> bool:
         return self._ok
@@ -426,13 +431,19 @@ class _IdentificacionEmpleadoDialog(QDialog):
         ly.addLayout(br)
         self.setFixedSize(520, 380)
 
+    def _err(self, msg, titulo=None):
+        """Muestra el error inline Y un mensaje emergente (para que 'salte' de forma visible)."""
+        self._lbl_err.setText(msg)
+        mostrar_mensaje(self, titulo or tr("cfg.pin_wrong_title", default="PIN incorrecto"), msg, "error")
+
     def _verificar(self):
         uid = self._combo_emp.currentData()
         if uid is None:
-            self._lbl_err.setText(tr("cfg.select_emp_err", default="Selecciona un empleado.")); return
+            self._err(tr("cfg.select_emp_err", default="Selecciona un empleado."),
+                      tr("cfg.pin_required_title", default="Falta el empleado")); return
         pin = self._pin_inp.text().strip()
         if len(pin) != 4 or not pin.isdigit():
-            self._lbl_err.setText(tr("cfg.pin_len_err", default="El PIN debe tener exactamente 4 dígitos.")); return
+            self._err(tr("cfg.pin_len_err", default="El PIN debe tener exactamente 4 dígitos.")); return
         try:
             # Verificación canónica Argon2id (dual SHA-256 legado + rehash); sin igualdad en SQL.
             from src.db import usuario as _usuario
@@ -441,10 +452,10 @@ class _IdentificacionEmpleadoDialog(QDialog):
                 self._empleado_id = resp.get("id")
                 self._empleado_nombre = resp.get("nombre")
                 self.accept(); return
-            self._lbl_err.setText(tr("cfg.pin_wrong_emp", default="PIN incorrecto para el empleado seleccionado."))
             self._pin_inp.clear(); self._pin_inp.setFocus()
+            self._err(tr("cfg.pin_wrong_emp", default="PIN incorrecto para el empleado seleccionado."))
         except Exception:
-            self._lbl_err.setText(tr("cfg.pin_conn_err", default="Error de conexión con la base de datos."))
+            self._err(tr("cfg.pin_conn_err", default="Error de conexión con la base de datos."))
 
     def get_empleado_id(self) -> int | None:
         return self._empleado_id

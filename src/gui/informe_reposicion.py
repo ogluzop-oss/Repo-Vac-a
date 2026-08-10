@@ -3,10 +3,11 @@ import os
 from datetime import datetime
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QStringListModel, QTimer
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QApplication,
+    QCompleter,
     QDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -26,6 +27,9 @@ from PyQt6.QtWidgets import (
 
 from assets.estilo_global import (
     construir_tabla_estilizada,
+    estilizar_completer,
+    mostrar_confirmacion,
+    mostrar_mensaje,
     repolish_widget,
 )
 from src.db.conexion import (
@@ -46,6 +50,7 @@ class InformeReposicionWindow(QWidget):
 
         self.callback_vuelta = callback_vuelta
         self.usuario_actual = usuario
+        self.main = kwargs.get("main")   # menú principal (para navegar a Documentos)
 
         if isinstance(usuario, dict):
             self.perfil = usuario.get("perfil", "OPERARIO")
@@ -199,9 +204,11 @@ class InformeReposicionWindow(QWidget):
             repolish_widget(self)
 
     def _sombra_cian(self, widget):
+        # Se invoca a veces pasando una PÁGINA (sin atributo _CIAN) como primer arg;
+        # usamos la constante de clase para no depender de `self`.
         fx = QGraphicsDropShadowEffect()
         fx.setBlurRadius(22)
-        fx.setColor(QColor(self._CIAN))
+        fx.setColor(QColor(InformeReposicionWindow._CIAN))
         fx.setOffset(0)
         widget.setGraphicsEffect(fx)
 
@@ -221,6 +228,12 @@ class InformeReposicionWindow(QWidget):
                 f"color: {InformeReposicionWindow._CIAN}; font-size: 24px; font-weight: bold;"
             )
             layout.addWidget(title)
+
+            # Fase 7 (IA predictiva VISIBLE): tarjeta de previsión de demanda reutilizable
+            # (gui/prediccion_card → consulta.resumen_ui → forecasting REAL). Degradable: si no hay datos
+            # suficientes o el motor no está disponible, la tarjeta no se muestra (nunca inventa cifras).
+            self._card_prevision = None
+            self._cargar_prevision(layout)
 
             # Placeholder para la tabla
             self.container_tabla, self.tabla = construir_tabla_estilizada(self)
@@ -256,7 +269,7 @@ class InformeReposicionWindow(QWidget):
             self.tabla.horizontalHeader().setSectionResizeMode(
                 QHeaderView.ResizeMode.Stretch
             )
-            layout.addWidget(self.container_tabla)
+            layout.addWidget(self.container_tabla, 1)   # la tabla ocupa el alto disponible
 
             self.btn_refresh = QPushButton("🔄 " + tr("repo.refresh", default="ACTUALIZAR TABLA"))
             self.btn_refresh.setStyleSheet(InformeReposicionWindow._BTN_CIAN_SS)
@@ -265,7 +278,20 @@ class InformeReposicionWindow(QWidget):
             InformeReposicionWindow._sombra_cian(parent, self.btn_refresh)
             layout.addWidget(self.btn_refresh, alignment=Qt.AlignmentFlag.AlignRight)
 
-            layout.addStretch(1)
+        def _cargar_prevision(self, layout):
+            """Pinta la tarjeta de previsión (motor real, tenant actual). Silenciosa/degradable."""
+            try:
+                from src.db.empresa import empresa_actual_id
+                from src.services.prediccion import consulta
+                from src.gui.prediccion_card import tarjeta_prevision
+                id_emp = empresa_actual_id()
+                r = consulta.responder("previsión de ventas", id_emp, horizonte=30)
+                if not r.get("aplicable") or not r.get("suficiente"):
+                    return                                   # sin datos suficientes → no se pinta (honesto)
+                self._card_prevision = tarjeta_prevision(consulta.resumen_ui(r["detalle"]))
+                layout.addWidget(self._card_prevision)
+            except Exception:
+                pass                                         # nunca rompe la pantalla por la IA
 
         @staticmethod
         def _cols():
@@ -307,13 +333,16 @@ class InformeReposicionWindow(QWidget):
                     for row in cur.fetchall():
                         codigo, nombre, s_alm, s_lin, s_esp = row
 
-                        # Asegurarse de que s_esp sea un número para el cálculo
+                        # Asegurarse de que sean números para el cálculo
                         s_esp = int(s_esp) if s_esp is not None else 0
                         s_lin = int(s_lin) if s_lin is not None else 0
+                        s_alm = int(s_alm) if s_alm is not None else 0
 
-                        # Lógica de umbral: < 70% del stock esperado
+                        # Aparece SOLO si: lineal por debajo del umbral mínimo (70% del
+                        # esperado) Y hay stock en el ALMACÉN DE LA TIENDA (Stock_total,
+                        # no el central). Ambas condiciones son obligatorias.
                         umbral = s_esp * 0.7
-                        if s_lin < umbral:
+                        if s_lin < umbral and s_alm > 0:
                             r = self.tabla.rowCount()
                             self.tabla.insertRow(r)
                             items = [
@@ -426,7 +455,16 @@ class InformeReposicionWindow(QWidget):
             self.search_bar.setStyleSheet(InformeReposicionWindow._NEON_INPUT_SS)
             self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
             self.search_bar.returnPressed.connect(self._buscar)
+            # Sugerencias de artículos al escribir (igual que en "Registrar merma").
+            self._completer_model = QStringListModel()
+            completer = QCompleter(self._completer_model, self.search_bar)
+            completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            completer.setFilterMode(Qt.MatchFlag.MatchContains)
+            self.search_bar.setCompleter(completer)
+            estilizar_completer(completer)
+            self.search_bar.textChanged.connect(self._on_search_text_changed)
             layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
+            self._cargar_completer()
 
             self._btn_buscar = btn_buscar = QPushButton(tr("repo.search_btn", default="BUSCAR ARTÍCULO"))
             btn_buscar.setStyleSheet(InformeReposicionWindow._BTN_CIAN_SS)
@@ -444,8 +482,28 @@ class InformeReposicionWindow(QWidget):
             )
             self._btn_buscar.setText(tr("repo.search_btn", default="BUSCAR ARTÍCULO"))
 
+        def _cargar_completer(self):
+            try:
+                from src.db.conexion import _get_todos_articulos_para_completer
+                articulos = _get_todos_articulos_para_completer()
+                self._completer_model.setStringList(
+                    [f"{c} – {n}" for c, n in articulos])
+            except Exception:
+                pass
+
+        def _on_search_text_changed(self, text):
+            if len(text) >= 2 and not self._completer_model.stringList():
+                self._cargar_completer()
+
+        def cargar_datos(self):
+            """Refresca el autocompletado al entrar en la pestaña."""
+            self._cargar_completer()
+
         def _buscar(self):
             termino = self.search_bar.text().strip()
+            # Extrae el código del formato "CÓDIGO – NOMBRE" del autocompletado.
+            if "–" in termino:
+                termino = termino.split("–")[0].strip()
             if not termino:
                 QMessageBox.warning(
                     self,
@@ -549,11 +607,48 @@ class InformeReposicionWindow(QWidget):
             InformeReposicionWindow._sombra_cian(parent, btn_export)
             layout.addWidget(btn_export, alignment=Qt.AlignmentFlag.AlignHCenter)
 
+            # Mensaje de éxito + "Ver archivo" (oculto hasta exportar).
+            self.lbl_msg = QLabel()
+            self.lbl_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.lbl_msg.setWordWrap(True)
+            self.lbl_msg.setStyleSheet(
+                f"color: {InformeReposicionWindow._CIAN}; font-size: 14px; font-weight: bold;")
+            self.lbl_msg.setVisible(False)
+            layout.addWidget(self.lbl_msg, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+            self.btn_ver = QPushButton(tr("repo.view_file_btn", default="📂 VER ARCHIVO"))
+            self.btn_ver.setStyleSheet(InformeReposicionWindow._BTN_CIAN_SS)
+            self.btn_ver.setMinimumSize(160, 48); self.btn_ver.setMaximumWidth(300)
+            self.btn_ver.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_ver.clicked.connect(self._abrir_documentos_exportaciones)
+            self.btn_ver.setVisible(False)
+            layout.addWidget(self.btn_ver, alignment=Qt.AlignmentFlag.AlignHCenter)
+
             layout.addStretch(1)
 
         def _retraducir(self):
             self._lbl_text.setText(tr("repo.export_page_title", default="EXPORTAR INFORME DE REPOSICIÓN"))
             self._btn_export.setText(tr("repo.export_btn", default="EXPORTAR Y MARCAR COMO REPUESTO"))
+            self.btn_ver.setText(tr("repo.view_file_btn", default="📂 VER ARCHIVO"))
+
+        def _abrir_documentos_exportaciones(self):
+            from src.gui.centro_documental import CentroDocumentalWindow
+            main = getattr(self.main_window, "main", None)
+            try:
+                if main is not None and hasattr(main, "manejar_apertura"):
+                    main.manejar_apertura(
+                        "documentos", CentroDocumentalWindow,
+                        callback_vuelta=getattr(main, "mostrar_menu_principal", None),
+                        usuario=getattr(self.main_window, "usuario_actual", None),
+                        categoria_inicial="exportacion")
+                else:
+                    self._doc_win = CentroDocumentalWindow(
+                        usuario=getattr(self.main_window, "usuario_actual", None),
+                        categoria_inicial="exportacion")
+                    self._doc_win.showMaximized()
+            except Exception as e:
+                QMessageBox.critical(self, tr("repo.error_title", default="Error"),
+                                     tr("repo.nav_err", default="No se pudo abrir Documentos: {e}", e=e))
 
         def _exportar_flujo(self):
             # 1. Obtener artículos bajo el umbral
@@ -566,45 +661,54 @@ class InformeReposicionWindow(QWidget):
                     )
                     for row in cur.fetchall():
                         codigo, nombre, s_alm, s_lin, s_esp = row
-                        if s_lin < (s_esp * 0.7):
-                            uds_reponer = s_esp - s_lin
-                            if uds_reponer > 0:
+                        s_alm = int(s_alm or 0); s_lin = int(s_lin or 0); s_esp = int(s_esp or 0)
+                        # Mismas dos premisas que la tabla: lineal bajo mínimo Y stock en
+                        # el almacén de la tienda. Se repone con lo DISPONIBLE en almacén:
+                        #   - si hay suficiente → lineal hasta el máximo (esperado),
+                        #   - si no → se suma al lineal solo lo que haya en almacén.
+                        if s_lin < (s_esp * 0.7) and s_alm > 0:
+                            falta = s_esp - s_lin
+                            mover = min(falta, s_alm)
+                            if mover > 0:
                                 articulos_a_reponer.append(
                                     {
                                         "Código": codigo,
                                         "Nombre": nombre,
-                                        "Unidades a reponer": uds_reponer,
+                                        "Unidades a reponer": mover,
                                         "s_esp": s_esp,
                                         "s_lin": s_lin,
                                         "s_alm": s_alm,
+                                        "nuevo_lineal": s_lin + mover,
+                                        "nuevo_almacen": s_alm - mover,
                                     }
                                 )
             except Exception as e:
-                QMessageBox.critical(
+                mostrar_mensaje(
                     self,
                     tr("repo.error_title", default="Error"),
                     tr("repo.db_query_err", default="Error al consultar base de datos: {e}", e=e),
+                    nivel="error",
                 )
                 return
 
             if not articulos_a_reponer:
-                QMessageBox.information(
+                mostrar_mensaje(
                     self,
                     tr("repo.nodata_title", default="Sin datos"),
                     tr("repo.nodata_msg", default="No hay artículos que necesiten reposición en este momento."),
+                    nivel="info",
                 )
                 return
 
-            # 2. Confirmación
-            res = QMessageBox.question(
+            # 2. Confirmación (diálogo propio de la app, centrado; el QMessageBox nativo
+            #    se mostraba fuera de pantalla en ventana frameless y «congelaba» la app).
+            if not mostrar_confirmacion(
                 self,
                 tr("repo.confirm_title", default="Confirmar Exportación"),
                 tr("repo.confirm_msg",
                    default="Se va a generar un informe con {n} artículos.\n¿Desea continuar y actualizar el stock en el sistema?",
                    n=len(articulos_a_reponer)),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if res != QMessageBox.StandardButton.Yes:
+            ):
                 return
 
             # 3. Generar Excel
@@ -661,16 +765,21 @@ class InformeReposicionWindow(QWidget):
                 # 4. Actualizar Base de Datos (Marcar como repuesto)
                 with obtener_conexion() as conn:
                     cur = conn.cursor()
+                    try:                             # PK compuesta (migr 0181): filtra por empresa de la sesión
+                        from src.db.empresa import empresa_actual_id as _eai
+                        _emp = _eai()
+                    except Exception:
+                        _emp = None
                     for art in articulos_a_reponer:
                         codigo = art["Código"]
-                        reponer = art["Unidades a reponer"]
-                        nuevo_lineal = art["s_esp"]
-                        # Restar del almacén lo que se mueve al lineal
-                        nuevo_almacen = max(0, art["s_alm"] - reponer)
+                        # Valores ya calculados de forma inteligente (mover = min(falta, almacén)):
+                        nuevo_lineal = art["nuevo_lineal"]
+                        nuevo_almacen = art["nuevo_almacen"]
 
                         cur.execute(
-                            "UPDATE articulos SET Stock_tienda = %s, Stock_total = %s WHERE codigo = %s",
-                            (nuevo_lineal, nuevo_almacen, codigo),
+                            "UPDATE articulos SET Stock_tienda = %s, Stock_total = %s WHERE codigo = %s "
+                            "AND (%s IS NULL OR id_empresa = %s)",
+                            (nuevo_lineal, nuevo_almacen, codigo, _emp, _emp),
                         )
                         # Emitir señal global para otros módulos
                         self.main_window.signals.stock_actualizado.emit(str(codigo))
@@ -696,22 +805,29 @@ class InformeReposicionWindow(QWidget):
                 if hasattr(self.main_window, "_page_estado"):
                     self.main_window._page_estado.cargar_datos()
 
-                QMessageBox.information(
-                    self,
-                    tr("repo.success_title", default="Éxito"),
-                    tr("repo.export_ok_msg",
-                       default="Informe exportado correctamente en:\n{ruta}\n\nStock actualizado en el sistema.",
-                       ruta=ruta_excel),
-                )
-                # Abrir la carpeta
-                from src.utils import plataforma
-                plataforma.abrir_carpeta(folder)
+                # 6. Registrar en Documentos → categoría "Exportaciones Excel".
+                try:
+                    from src.db.documentos import registrar_documento
+                    registrar_documento(ruta_excel, tipo="exportacion",
+                                        nombre=filename, referencia="REPOSICION")
+                except Exception:
+                    pass
+
+                # 7. Mensaje + botón "Ver archivo" (hacia Exportaciones Excel).
+                self.lbl_msg.setText(tr(
+                    "repo.export_done_msg",
+                    default=("Informe exportado y stock actualizado correctamente.\n"
+                             "Puedes encontrar el archivo en la pestaña «Exportaciones Excel» "
+                             "de la función Documentos, donde podrás compartirlo o enviarlo.")))
+                self.lbl_msg.setVisible(True)
+                self.btn_ver.setVisible(True)
 
             except Exception as e:
-                QMessageBox.critical(
+                mostrar_mensaje(
                     self,
                     tr("repo.error_title", default="Error"),
                     tr("repo.export_fail_msg", default="No se pudo completar la operación: {e}", e=e),
+                    nivel="error",
                 )
 
     # ---------------------------------------------------------------------------

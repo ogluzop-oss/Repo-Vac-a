@@ -96,7 +96,7 @@ def registrar_entrada(codigo, lote, cantidad, fecha_caducidad=None, id_empresa=N
 # ── Consumo FEFO ──────────────────────────────────────────────────────────────
 def consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA", id_empresa=None, id_tienda=None,
                   id_documento=None, usuario=None, observaciones=None, id_almacen=None,
-                  idempotente=False) -> dict:
+                  idempotente=False, orden=None) -> dict:
     """Consume `cantidad` del artículo aplicando FEFO sobre los lotes con existencias.
     No-op si el artículo no tiene lotes. Devuelve {consumido, faltante, detalle:[...]}.
     No bloquea: si los lotes no cubren la cantidad, consume lo disponible y deja `faltante`.
@@ -125,10 +125,13 @@ def consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA", id_empresa=None, id_tie
             params = [id_empresa, id_tienda, codigo, ACTIVO]
             if id_almacen is not None:
                 params.append(id_almacen)
+            # Política de consumo: por defecto FEFO (caducidad). `orden` permite FIFO/LIFO reutilizando
+            # exactamente esta misma lógica (solo cambia el criterio de selección de lotes).
+            _orden = orden or "(fecha_caducidad IS NULL), fecha_caducidad, fecha_entrada, id"
             cur.execute(
                 "SELECT id, lote, cantidad FROM lotes WHERE id_empresa=%s AND id_tienda=%s "
                 "AND codigo_articulo=%s AND estado=%s AND cantidad>0" + cond_alm +
-                " ORDER BY (fecha_caducidad IS NULL), fecha_caducidad, fecha_entrada, id FOR UPDATE",
+                f" ORDER BY {_orden} FOR UPDATE",
                 params)
             lotes = _filas_a_dicts(cur, cur.fetchall())
             restante = cantidad
@@ -260,3 +263,25 @@ def trazabilidad_articulo(codigo, id_empresa=None) -> list:
             return _filas_a_dicts(cur, cur.fetchall())
     except Exception as e:
         logger.error("trazabilidad_articulo: %s", e); return []
+
+
+def consumir_fifo(codigo, cantidad, **kw) -> dict:
+    """Consume por FIFO (primero en entrar, primero en salir). Reutiliza consumir_fefo cambiando
+    solo el criterio de selección de lotes (fecha de entrada ascendente)."""
+    return consumir_fefo(codigo, cantidad, orden="fecha_entrada, id", **kw)
+
+
+def consumir_lifo(codigo, cantidad, **kw) -> dict:
+    """Consume por LIFO (último en entrar, primero en salir). Reutiliza consumir_fefo con el criterio
+    de fecha de entrada descendente."""
+    return consumir_fefo(codigo, cantidad, orden="fecha_entrada DESC, id DESC", **kw)
+
+
+def consumir_por_politica(codigo, cantidad, politica="FEFO", **kw) -> dict:
+    """Punto único: aplica la política de consumo indicada (FEFO/FIFO/LIFO). No duplica lógica."""
+    p = str(politica or "FEFO").upper()
+    if p == "FIFO":
+        return consumir_fifo(codigo, cantidad, **kw)
+    if p == "LIFO":
+        return consumir_lifo(codigo, cantidad, **kw)
+    return consumir_fefo(codigo, cantidad, **kw)

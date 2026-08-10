@@ -314,6 +314,14 @@ def guardar_recibido(id_correo, remitente, asunto, cuerpo=None, *, message_id=No
             log_auditoria("sistema", "CORREO_RECIBIDO", "correos_recibidos", f"id={rid} de {remitente}")
         except Exception:
             pass
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("CORREO_RECIBIDO", id_empresa=id_empresa, origen="correo",
+                         ref_entidad="correo_recibido", ref_id=rid,
+                         payload={"remitente": remitente, "asunto": asunto})
+        except Exception:
+            pass
         return rid
     except Exception as e:
         logger.error("guardar_recibido: %s", e)

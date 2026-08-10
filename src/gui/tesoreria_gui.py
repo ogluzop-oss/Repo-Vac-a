@@ -10,13 +10,14 @@ servicios de las FASES 1-11. Las consultas son best-effort: un fallo de datos no
 import datetime as _dt
 import logging
 
-from PyQt6.QtWidgets import (QHBoxLayout, QInputDialog, QLabel, QMessageBox, QTableWidgetItem,
+from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QTableWidgetItem,
                              QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import tesoreria as _T
 from src.db import vencimientos as _V
 from src.db import sepa as _S
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _combo, _inp, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_x, _combo, _inp, _tabla
+from src.gui.foundation import tokens as T
 from src.services.tesoreria import cashflow as _CF
 from src.services.tesoreria import conciliacion as _CC
 from src.services.tesoreria import posicion as _POS
@@ -51,30 +52,78 @@ class TesoreriaWindow(QWidget):
         t = QLabel("Tesorería · Bancos · SEPA")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
-        cab.addWidget(_btn("Actualizar", self.refrescar))
+        # (El botón Actualizar de la cabecera se retira: cada pestaña tiene su propio Actualizar
+        #  en la esquina superior derecha de su tabla.)
         if callback_vuelta:
-            cab.addWidget(_btn("Volver", self._volver))
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet(f"QTabBar::tab{{background:{_BG};color:{_DIM};padding:8px 16px;}}"
-                                f"QTabBar::tab:selected{{color:{_CIAN};}}")
+        self.tabs.setStyleSheet(T.qss_tabs())   # mismo diseño de pestañas que el Centro de Inteligencia
         root.addWidget(self.tabs)
 
         self._tab_posicion()
         self._tab_cuentas()
         self._tab_movimientos()
         self._tab_vencimientos()
+        self._tab_recordatorios()
         self._tab_conciliacion()
+        self._tab_banca()
         self._tab_remesas()
         self._tab_cashflow()
         self._tab_prevision()
+        self._tab_finanzas_avanzadas()   # dominio financiero: Finanzas Avanzadas (dashboard embebido)
+
+    def _tab_finanzas_avanzadas(self):
+        """Integra el Dashboard de Finanzas Avanzadas (ratios/financiación/crédito/IA) como pestaña
+        del dominio financiero, reutilizando la ventana existente sin duplicarla."""
+        try:
+            from src.gui.finanzas_dashboard import FinanzasDashboardWindow
+            w = FinanzasDashboardWindow(callback_vuelta=None, usuario=self.usuario)
+            self.tabs.addTab(w, "Finanzas Avanzadas")
+        except Exception as e:
+            logger.debug("tab finanzas avanzadas: %s", e)
+
+    def showEvent(self, e):
+        # Garantiza que la ventana se abre maximizada (a pantalla completa) en el primer mostrado.
+        # Se reintenta con varios retardos para vencer una posible carrera con el gestor de ventanas
+        # (mismo patrón que otras rutinas diferidas de la app).
+        super().showEvent(e)
+        if not getattr(self, "_max_once", False):
+            self._max_once = True
+            from PyQt6.QtCore import QTimer
+            for _d in (0, 80, 250, 500):
+                QTimer.singleShot(_d, self._forzar_maximizar)
+
+    def _forzar_maximizar(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
+        try:
+            self.setWindowState(Qt.WindowState.WindowMaximized)
+            self.showMaximized()
+            # El flag isMaximized() puede DESINCRONIZARSE del gestor de ventanas (Qt cree que está
+            # maximizada pero se ve como ventana normal). Por eso comprobamos el TAMAÑO REAL: si no
+            # cubre casi toda la pantalla, forzamos la geometría a la pantalla completa disponible.
+            scr = self.screen() or QApplication.primaryScreen()
+            if scr is not None:
+                avail = scr.availableGeometry()
+                if self.width() < avail.width() - 40 or self.height() < avail.height() - 40:
+                    self.setGeometry(avail)
+        except Exception:
+            pass
+
+    def _btn_actualizar(self, loader):
+        """Botón Actualizar (emoji) para la esquina superior derecha de la tabla de una pestaña."""
+        return _btn("🔄 Actualizar", loader)
 
     # ── Posición ──────────────────────────────────────────────────────────────
     def _tab_posicion(self):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
+        top = QHBoxLayout()
         self.lbl_pos = QLabel(""); self.lbl_pos.setStyleSheet(f"color:{_CIAN};font-size:15px;")
-        lay.addWidget(self.lbl_pos)
+        top.addWidget(self.lbl_pos); top.addStretch(1)
+        top.addWidget(self._btn_actualizar(self._load_posicion))
+        lay.addLayout(top)
         self.tbl_pos = _tabla(["Cuenta", "Tienda", "Moneda", "Saldo"])
         lay.addWidget(self.tbl_pos)
         self.tabs.addTab(w, "Posición")
@@ -101,7 +150,7 @@ class TesoreriaWindow(QWidget):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         bar = QHBoxLayout()
         bar.addWidget(_btn("Nueva cuenta", self._nueva_cuenta, primary=True))
-        bar.addStretch(); lay.addLayout(bar)
+        bar.addStretch(); bar.addWidget(self._btn_actualizar(self._load_cuentas)); lay.addLayout(bar)
         self.tbl_cuentas = _tabla(["ID", "Cuenta", "Titular", "IBAN", "BIC", "Entidad", "Moneda", "Saldo"])
         lay.addWidget(self.tbl_cuentas)
         self.tabs.addTab(w, "Cuentas")
@@ -136,6 +185,8 @@ class TesoreriaWindow(QWidget):
     # ── Movimientos ───────────────────────────────────────────────────────────
     def _tab_movimientos(self):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
+        top = QHBoxLayout(); top.addStretch(1); top.addWidget(self._btn_actualizar(self._load_movimientos))
+        lay.addLayout(top)
         self.tbl_mov = _tabla(["Fecha", "Tipo", "Concepto", "Importe", "Saldo", "Origen", "Doc."])
         lay.addWidget(self.tbl_mov)
         self.tabs.addTab(w, "Movimientos")
@@ -159,7 +210,7 @@ class TesoreriaWindow(QWidget):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         bar = QHBoxLayout()
         bar.addWidget(_btn("Marcar vencidos", self._marcar_vencidos))
-        bar.addStretch(); lay.addLayout(bar)
+        bar.addStretch(); bar.addWidget(self._btn_actualizar(self._load_vencimientos)); lay.addLayout(bar)
         self.tbl_venc = _tabla(["ID", "Tipo", "Vence", "Importe", "Pendiente", "Estado", "Tercero", "Origen"])
         lay.addWidget(self.tbl_venc)
         self.tabs.addTab(w, "Vencimientos")
@@ -185,6 +236,144 @@ class TesoreriaWindow(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
 
+    # ── Recordatorios de cobro (dunning) ──────────────────────────────────────
+    def _tab_recordatorios(self):
+        w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
+        bar = QHBoxLayout()
+        bar.addWidget(_btn("👁 Previsualizar", self._prev_recordatorios))
+        bar.addWidget(_btn("✉ Enviar recordatorios ahora", self._enviar_recordatorios, primary=True))
+        bar.addStretch(); bar.addWidget(self._btn_actualizar(self._load_recordatorios)); lay.addLayout(bar)
+        self.tbl_rec = _tabla(["Factura", "Cliente", "Vence", "Pendiente", "Días", "Nivel a enviar",
+                               "Últ. nivel"])
+        lay.addWidget(self.tbl_rec)
+        self.tabs.addTab(w, "Recordatorios de cobro")
+        self._load_recordatorios()
+
+    def _load_recordatorios(self):
+        try:
+            from src.services.facturacion import recordatorios as REC
+            filas = REC.resumen(_empresa())
+            self.tbl_rec.setRowCount(len(filas))
+            for i, f in enumerate(filas):
+                nivel = f["nivel_actual"] if f["pendiente_envio"] else "—"
+                ult = f["ultimo_nivel"] if f["ultimo_nivel"] >= 0 else "—"
+                vals = [f["ref"], f["cliente"], f["vence"], f"{f['pendiente']:.2f}", f["dias"], nivel, ult]
+                for j, v in enumerate(vals):
+                    self.tbl_rec.setItem(i, j, _it(v))
+        except Exception as e:
+            logger.error("recordatorios: %s", e)
+
+    def _prev_recordatorios(self):
+        try:
+            from src.services.facturacion import recordatorios as REC
+            r = REC.procesar(_empresa(), enviar=False)
+            QMessageBox.information(self, "Previsualización de recordatorios",
+                                    f"Se enviarían {r['enviados']} recordatorio(s) de {r['evaluadas']} "
+                                    f"factura(s) pendientes de cobro.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
+    def _enviar_recordatorios(self):
+        try:
+            from src.services.facturacion import recordatorios as REC
+            r = REC.procesar(_empresa())
+            QMessageBox.information(self, "Recordatorios de cobro",
+                                    f"Enviados: {r['enviados']}   ·   Evaluadas: {r['evaluadas']}   ·   "
+                                    f"Errores: {r['errores']}")
+            self._load_recordatorios()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
+    # ── Banca online (open banking / PSD2) ────────────────────────────────────
+    def _tab_banca(self):
+        w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
+        bar = QHBoxLayout()
+        self.cmb_banca = _combo([]); self.cmb_banca.setMinimumWidth(240)
+        self.cmb_banca.currentIndexChanged.connect(self._banca_estado)
+        bar.addWidget(QLabel("Cuenta:")); bar.addWidget(self.cmb_banca)
+        bar.addWidget(_btn("⚙ Configurar conexión", self._banca_config))
+        bar.addWidget(_btn("🔄 Sincronizar banco", self._banca_sync, primary=True))
+        bar.addStretch(); lay.addLayout(bar)
+        self.lbl_banca = QLabel(""); self.lbl_banca.setStyleSheet(f"color:{_DIM};font-weight:bold;")
+        lay.addWidget(self.lbl_banca)
+        ayuda = QLabel("La conexión descarga los movimientos reales del banco y los concilia "
+                       "automáticamente con las facturas/movimientos. Sin credenciales de un agregador "
+                       "PSD2 opera en modo simulado (no descarga nada).")
+        ayuda.setWordWrap(True); ayuda.setStyleSheet(f"color:{_DIM};")
+        lay.addWidget(ayuda); lay.addStretch()
+        self.tabs.addTab(w, "Banca online")
+        self._banca_cargar_cuentas()
+
+    def _banca_cargar_cuentas(self):
+        self.cmb_banca.blockSignals(True); self.cmb_banca.clear()
+        for c in _T.listar_cuentas(id_empresa=_empresa()):
+            et = c.get("nombre") or c.get("alias") or c.get("iban") or f"Cuenta {c['id']}"
+            self.cmb_banca.addItem(str(et), c["id"])
+        self.cmb_banca.blockSignals(False)
+        self._banca_estado()
+
+    def _banca_cuenta(self):
+        return self.cmb_banca.currentData()
+
+    def _banca_estado(self):
+        cta = self._banca_cuenta()
+        if not cta:
+            self.lbl_banca.setText("No hay cuentas bancarias. Crea una en la pestaña «Cuentas».")
+            return
+        from src.services.banca_online import config as CFG
+        cfg = CFG.obtener_config(cta, id_empresa=_empresa())
+        if not cfg:
+            self.lbl_banca.setText("● Sin conexión configurada (modo simulado)")
+        else:
+            modo = "simulado" if cfg.get("modo_simulado", 1) else f"REAL · {cfg.get('proveedor')}"
+            self.lbl_banca.setText(f"● Conexión: {modo}   ·   Última sincronización: "
+                                   f"{cfg.get('ultima_sync') or 'nunca'}")
+
+    def _banca_config(self):
+        cta = self._banca_cuenta()
+        if not cta:
+            return
+        from src.gui.proyectos_gui import _FormDialog
+        from src.services.banca_online import config as CFG
+        cfg = CFG.obtener_config(cta, id_empresa=_empresa()) or {}
+        d = _FormDialog(self, "Conexión bancaria (open banking / PSD2)", [
+            {"key": "proveedor", "label": "Proveedor:", "tipo": "combo",
+             "opciones": [("Simulado", "simulado"), ("PSD2 genérico", "psd2_generico")],
+             "default": cfg.get("proveedor", "simulado")},
+            {"key": "endpoint", "label": "Endpoint (API del agregador):", "default": cfg.get("endpoint")},
+            {"key": "account_id", "label": "ID de cuenta en el proveedor:", "default": cfg.get("account_id")},
+            {"key": "credencial", "label": "Token / API key (vacío = conservar la actual):"},
+            {"key": "modo_simulado", "label": "Modo:", "tipo": "combo",
+             "opciones": [("Simulado", "1"), ("Real", "0")],
+             "default": "1" if cfg.get("modo_simulado", 1) else "0"},
+        ])
+        if d.exec() != QDialog.DialogCode.Accepted:
+            return
+        v = d.datos()
+        CFG.guardar_conexion(cta, proveedor=v["proveedor"], endpoint=v["endpoint"] or None,
+                             account_id=v["account_id"] or None, credencial=v["credencial"] or None,
+                             modo_simulado=(v["modo_simulado"] == "1"), id_empresa=_empresa())
+        self._banca_estado()
+
+    def _banca_sync(self):
+        cta = self._banca_cuenta()
+        if not cta:
+            return
+        try:
+            from src.services.banca_online import sync as SYNC
+            r = SYNC.sincronizar(cta, id_empresa=_empresa())
+            if r.get("ok"):
+                extra = ("\n\n(Modo simulado: sin conexión real no se descargan movimientos.)"
+                         if r["importados"] == 0 else "")
+                QMessageBox.information(self, "Sincronización bancaria",
+                                        f"Movimientos importados: {r['importados']}   ·   "
+                                        f"Conciliados: {r.get('conciliados', 0)}" + extra)
+            else:
+                QMessageBox.warning(self, "Error", r.get("error", ""))
+            self._banca_estado()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
     # ── Conciliación ──────────────────────────────────────────────────────────
     def _tab_conciliacion(self):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
@@ -192,7 +381,7 @@ class TesoreriaWindow(QWidget):
         self.in_extracto = _inp("ID extracto"); self.in_extracto.setFixedWidth(120)
         bar.addWidget(QLabel("Extracto:")); bar.addWidget(self.in_extracto)
         bar.addWidget(_btn("Conciliar automático", self._conciliar_auto, primary=True))
-        bar.addStretch(); lay.addLayout(bar)
+        bar.addStretch(); bar.addWidget(self._btn_actualizar(self._conciliar_auto)); lay.addLayout(bar)
         self.lbl_conc = QLabel(""); self.lbl_conc.setStyleSheet(f"color:{_DIM};")
         lay.addWidget(self.lbl_conc)
         self.tbl_conc = _tabla(["Línea", "Fecha", "Importe", "Concepto", "Conciliado"])
@@ -224,7 +413,7 @@ class TesoreriaWindow(QWidget):
         self.in_remesa = _inp("ID remesa"); self.in_remesa.setFixedWidth(120)
         bar.addWidget(QLabel("Remesa:")); bar.addWidget(self.in_remesa)
         bar.addWidget(_btn("Generar XML", self._generar_remesa, primary=True))
-        bar.addStretch(); lay.addLayout(bar)
+        bar.addStretch(); bar.addWidget(self._btn_actualizar(self._load_remesas)); lay.addLayout(bar)
         self.tbl_rem = _tabla(["ID", "Tipo", "Estado", "Operaciones", "Importe", "Mensaje"])
         lay.addWidget(self.tbl_rem)
         self.tabs.addTab(w, "Remesas SEPA")
@@ -248,9 +437,12 @@ class TesoreriaWindow(QWidget):
             logger.error("remesas: %s", e)
 
     def _generar_remesa(self):
+        from src.gui.mfa_gui import step_up_sesion
         try:
             rid = int(self.in_remesa.text() or 0)
         except ValueError:
+            return
+        if not step_up_sesion("finanzas.critica", self):
             return
         try:
             res = _SEPA.generar_xml(rid, id_empresa=_empresa())
@@ -269,11 +461,13 @@ class TesoreriaWindow(QWidget):
         bar = QHBoxLayout()
         self.cmb_gran = _combo([("Mensual", "mensual"), ("Semanal", "semanal"),
                                 ("Diario", "diario"), ("Anual", "anual")])
+        self.cmb_gran.setMinimumWidth(150)   # evita texto cortado en el desplegable
         self.cmb_esc = _combo([("Real", "real"), ("Previsto", "previsto")])
+        self.cmb_esc.setMinimumWidth(150)
         bar.addWidget(QLabel("Granularidad:")); bar.addWidget(self.cmb_gran)
         bar.addWidget(QLabel("Escenario:")); bar.addWidget(self.cmb_esc)
         bar.addWidget(_btn("Calcular", self._load_cashflow, primary=True))
-        bar.addStretch(); lay.addLayout(bar)
+        bar.addStretch(); bar.addWidget(self._btn_actualizar(self._load_cashflow)); lay.addLayout(bar)
         self.tbl_cf = _tabla(["Periodo", "Entradas", "Salidas", "Neto", "Acumulado"])
         lay.addWidget(self.tbl_cf)
         self.tabs.addTab(w, "Cash Flow")
@@ -297,6 +491,8 @@ class TesoreriaWindow(QWidget):
     # ── Previsión ─────────────────────────────────────────────────────────────
     def _tab_prevision(self):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
+        top = QHBoxLayout(); top.addStretch(1); top.addWidget(self._btn_actualizar(self._load_prevision))
+        lay.addLayout(top)
         self.tbl_prev = _tabla(["Horizonte", "Fecha", "Por cobrar", "Comprometido",
                                 "Operativo est.", "Liquidez est.", "Tensión"])
         lay.addWidget(self.tbl_prev)
