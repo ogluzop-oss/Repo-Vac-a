@@ -48,10 +48,12 @@ class RecetasWindow(QWidget):
         col = T.CRITICO if rojo else T.INFO
         if primary:
             b.setStyleSheet(f"QPushButton{{background:{col};color:{T.BG};border:none;border-radius:8px;"
-                            "font-weight:800;padding:6px 14px;}")
+                            "font-weight:800;padding:6px 14px;}"
+                            f"QPushButton:hover{{background:{T.BG};color:{col};border:1px solid {col};}}")
         else:
             b.setStyleSheet(f"QPushButton{{background:transparent;color:{col};border:1px solid {col};"
-                            "border-radius:8px;padding:6px 14px;}")
+                            "border-radius:8px;padding:6px 14px;}"
+                            f"QPushButton:hover{{background:{col};color:{T.BG};}}")
         b.clicked.connect(cb)
         return b
 
@@ -112,11 +114,15 @@ class RecetasWindow(QWidget):
         root.addLayout(cuerpo, 1)
 
     def _add_linea(self, cod=None, cant=None, pos=None):
-        cod = (self.in_cod.text() if cod is None or cod is False else cod).strip()
-        if not cod:
+        # `clicked` pasa un bool (checked); si cod es None/bool → invocación desde el botón "＋".
+        manual = cod is None or isinstance(cod, bool)
+        cod = (self.in_cod.text() if manual else cod).strip()
+        pos = (self.in_pos.text() if pos is None else pos).strip()
+        if manual and (not cod or not pos):
+            faltan = ([] if cod else ["el código del medicamento"]) + ([] if pos else ["la posología"])
+            self._aviso("Indica " + " y ".join(faltan) + " antes de añadir la línea.")
             return
         cant = self.in_cant.value() if cant is None else int(cant)
-        pos = self.in_pos.text() if pos is None else pos
         r = self.tabla.rowCount(); self.tabla.insertRow(r)
         self.tabla.setItem(r, 0, QTableWidgetItem(cod))
         self.tabla.setItem(r, 1, QTableWidgetItem(str(cant)))
