@@ -1537,10 +1537,16 @@ class SmartManagerApp(QStackedWidget):
             QApplication.quit()
 
     def _maximizar_a_area_trabajo(self):
-        """Maximiza la ventana RESPETANDO la barra de tareas. `showMaximized()` respeta por sí solo el área
-        de trabajo del monitor (barra de tareas incluida), incluso en una ventana SIN marco: es la vía
-        correcta. NO usar `setGeometry(availableGeometry)`, porque deja la ventana en estado NORMAL y el
-        alto mínimo (`setMinimumSize`) puede reexpandirla por debajo del área útil y tapar la barra."""
+        """Maximiza la ventana RESPETANDO la barra de tareas (`showMaximized()` respeta el área de trabajo,
+        incluso sin marco). Antes de la PRIMERA aparición fija la geometría al área de trabajo para que la
+        ventana SIN marco no DESTELLE un instante a tamaño pequeño mientras se crea y se maximiza."""
+        try:
+            if not self.isVisible():
+                scr = self.screen() or QApplication.primaryScreen()
+                if scr is not None:
+                    self.setGeometry(scr.availableGeometry())
+        except Exception:
+            pass
         self.showMaximized()
 
     def _forzar_maximizacion_final(self):
