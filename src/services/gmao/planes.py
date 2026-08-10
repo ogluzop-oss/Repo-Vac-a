@@ -14,7 +14,12 @@ FRECUENCIAS = {"diario": 1, "semanal": 7, "mensual": 30, "trimestral": 90, "anua
 
 
 def _emp(id_empresa=None):
-    return id_empresa or empresa_actual_id()
+    # IOC v2 (Bloque III): resolución de empresa vía capa de identidad (Strangler).
+    try:
+        from src.services.gmao.identidad_gmao import empresa_id
+        return empresa_id(id_empresa)
+    except Exception:
+        return id_empresa or empresa_actual_id()
 
 
 def _fila(cur, r):

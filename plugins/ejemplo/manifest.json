@@ -1,0 +1,11 @@
+{
+  "clave": "ejemplo",
+  "nombre": "Plugin de Ejemplo",
+  "version": "1.0.0",
+  "autor": "Smart Manager AI",
+  "min_host": "3.0",
+  "dependencias": [],
+  "permisos": ["ejemplo.ver"],
+  "eventos": ["CommunicationSent"],
+  "menus": [{"clave": "ejemplo", "titulo": "Ejemplo", "icono": "🧩"}]
+}

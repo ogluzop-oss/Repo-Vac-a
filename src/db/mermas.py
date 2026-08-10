@@ -5,10 +5,12 @@ from src.db.conexion import EMPRESA_DEFAULT_ID, obtener_conexion, transaccion
 
 
 def _tenant_actual():
-    """(id_empresa, id_tienda) ACTIVOS para aislar mermas por tienda (3b.3)."""
+    """(id_empresa, id_tienda) ACTIVOS para aislar mermas por tienda (3b.3).
+    id_tienda se coacciona a ENTERO porque `mermas.id_tienda` es INT (el contexto
+    puede ser un código alfanumérico como 'ALMC' → provocaría DataError 1366)."""
     try:
-        from src.db.empresa import empresa_actual_id, tienda_actual_id
-        return empresa_actual_id(), tienda_actual_id()
+        from src.db.empresa import empresa_actual_id, tienda_actual_id_int
+        return empresa_actual_id(), tienda_actual_id_int()
     except Exception:
         return EMPRESA_DEFAULT_ID, None
 
@@ -37,6 +39,47 @@ def obtener_mermas(mes=None):
     except Exception as e:
         logging.error(f"Error al obtener mermas: {e}")
         return []
+
+
+def obtener_mermas_pendientes():
+    """Mermas de la tienda activa AÚN NO exportadas a Excel (exportada=0), con el
+    nombre del artículo (JOIN articulos). Devuelve dicts: id, codigo, nombre, fecha."""
+    try:
+        emp, tnd = _tenant_actual()
+        filtros, params = ["m.id_empresa=%s", "COALESCE(m.exportada,0)=0"], [emp]
+        if tnd is not None:
+            filtros.append("m.id_tienda=%s"); params.append(tnd)
+        with obtener_conexion() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT m.id, m.codigo, COALESCE(a.nombre, m.codigo) AS nombre, m.fecha "
+                "FROM mermas m LEFT JOIN articulos a ON a.codigo = m.codigo "
+                "WHERE " + " AND ".join(filtros) + " ORDER BY m.fecha DESC",
+                tuple(params))
+            return [
+                {"id": r[0], "codigo": r[1], "nombre": r[2], "fecha": r[3]}
+                for r in cur.fetchall()
+            ]
+    except Exception as e:
+        logging.error(f"Error al obtener mermas pendientes: {e}")
+        return []
+
+
+def marcar_mermas_exportadas(ids):
+    """Marca como exportadas (exportada=1) las mermas indicadas. Idempotente."""
+    ids = [int(i) for i in (ids or []) if i is not None]
+    if not ids:
+        return 0
+    try:
+        with transaccion() as conn:
+            cur = conn.cursor()
+            marcadores = ",".join(["%s"] * len(ids))
+            cur.execute(
+                f"UPDATE mermas SET exportada=1 WHERE id IN ({marcadores})", tuple(ids))
+            return cur.rowcount
+    except Exception as e:
+        logging.error(f"Error al marcar mermas exportadas: {e}")
+        return 0
 
 
 # ============================================================
@@ -87,6 +130,14 @@ def registrar_merma(codigo, cantidad, motivo, columna_stock=None):
                     SA.reseed_articulo(codigo, emp)
             except Exception:
                 pass
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("MERMA_REGISTRADA", id_empresa=emp, id_tienda=tnd, origen="mermas",
+                         ref_entidad="merma", ref_id=codigo,
+                         payload={"codigo": codigo, "cantidad": cantidad, "motivo": motivo})
+        except Exception:
+            pass
         return True
     except Exception as e:
         logging.error(f"Error al registrar merma: {e}")

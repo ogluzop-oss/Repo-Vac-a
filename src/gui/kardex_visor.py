@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QTableWidgetItem, QVBoxLayout,
                              QWidget)
 
 from src.db import kardex
-from src.gui.catalogo_gestion import (_BG, _BORDE, _CIAN, _DIM, _TEXT, _btn,
+from src.gui.catalogo_gestion import (_BG, _BORDE, _CIAN, _DIM, _TEXT, _btn, _btn_x,
                                       _combo, _inp, _tabla)
 
 logger = logging.getLogger("inventario.kardex.gui")
@@ -39,28 +39,36 @@ class KardexVisorWindow(QWidget):
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
         if callback_vuelta:
-            cab.addWidget(_btn("Volver", self._volver))
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
-        # ── filtros ──
-        f = QHBoxLayout()
-        self.f_codigo = _inp("Artículo (código)"); self.f_codigo.setFixedWidth(150)
-        self.f_ref = _inp("Referencia / documento"); self.f_ref.setFixedWidth(160)
+        # ── filtros (en DOS filas para que no se solapen) ──
+        self.f_codigo = _inp("Artículo (código)"); self.f_codigo.setFixedWidth(180)
+        self.f_ref = _inp("Referencia / documento"); self.f_ref.setFixedWidth(180)
         self.f_tipo = _combo([("(todos)", None)] + [(t, t) for t in kardex.TIPOS])
-        self.f_desde = _inp("Desde AAAA-MM-DD"); self.f_desde.setFixedWidth(130)
-        self.f_hasta = _inp("Hasta AAAA-MM-DD"); self.f_hasta.setFixedWidth(130)
-        self.f_tienda = _combo(self._tiendas())
-        self.f_almacen = _combo(self._almacenes())
-        for w in (QLabel("Artículo:"), self.f_codigo, QLabel("Ref:"), self.f_ref,
-                  QLabel("Tipo:"), self.f_tipo, QLabel("Tienda:"), self.f_tienda,
-                  QLabel("Almacén:"), self.f_almacen,
-                  self.f_desde, self.f_hasta):
-            if isinstance(w, QLabel):
-                w.setStyleSheet(f"color:{_DIM};")
-            f.addWidget(w)
-        f.addWidget(_btn("Buscar", self._buscar, primary=True))
-        f.addStretch()
-        root.addLayout(f)
+        self.f_tipo.setMinimumWidth(150)
+        self.f_desde = _inp("Desde AAAA-MM-DD"); self.f_desde.setFixedWidth(150)
+        self.f_hasta = _inp("Hasta AAAA-MM-DD"); self.f_hasta.setFixedWidth(150)
+        self.f_tienda = _combo(self._tiendas()); self.f_tienda.setMinimumWidth(150)
+        self.f_almacen = _combo(self._almacenes()); self.f_almacen.setMinimumWidth(150)
+
+        def _lbl(txt):
+            l = QLabel(txt); l.setStyleSheet(f"color:{_DIM};"); return l
+
+        f1 = QHBoxLayout(); f1.setSpacing(8)
+        for w in (_lbl("Artículo:"), self.f_codigo, _lbl("Ref:"), self.f_ref,
+                  _lbl("Tipo:"), self.f_tipo):
+            f1.addWidget(w)
+        f1.addWidget(_btn("Buscar", self._buscar, primary=True))
+        f1.addStretch()
+        root.addLayout(f1)
+
+        f2 = QHBoxLayout(); f2.setSpacing(8)
+        for w in (_lbl("Tienda:"), self.f_tienda, _lbl("Almacén:"), self.f_almacen,
+                  _lbl("Desde:"), self.f_desde, _lbl("Hasta:"), self.f_hasta):
+            f2.addWidget(w)
+        f2.addStretch()
+        root.addLayout(f2)
 
         self.lbl_total = QLabel(""); self.lbl_total.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl_total)

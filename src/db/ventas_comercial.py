@@ -14,12 +14,17 @@ logger = logging.getLogger("ventas.comercial")
 
 
 def _emp(id_empresa=None):
+    # IOC v3 (Bloque V): seam de identidad delegado en la fachada de datos (db -> db).
     try:
-        from src.db.empresa import empresa_actual_id
-        return id_empresa or empresa_actual_id()
+        from src.db.identidad_contexto import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        from src.db.conexion import EMPRESA_DEFAULT_ID
-        return id_empresa or EMPRESA_DEFAULT_ID
+        try:
+            from src.db.empresa import empresa_actual_id
+            return id_empresa or empresa_actual_id()
+        except Exception:
+            from src.db.conexion import EMPRESA_DEFAULT_ID
+            return id_empresa or EMPRESA_DEFAULT_ID
 
 
 def _tienda():

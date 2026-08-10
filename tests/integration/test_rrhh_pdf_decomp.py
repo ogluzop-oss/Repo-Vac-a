@@ -11,17 +11,21 @@ import hashlib
 
 import pytest
 
-# Firma congelada (n_flowables, hash12) capturada del comportamiento PRE-descomposición.
+# Firma congelada (n_flowables, hash12). El test fija TODAS sus entradas variables para ser
+# DETERMINISTA y PORTABLE (ver `_firma`): (1) la fecha (`_FechaFija`), (2) los datos corporativos
+# (`_dc_fijo`) y (3) la divisa (EUR). Antes la firma dependía de la empresa/moneda residentes en la BD
+# (no portable) → fallaba fuera del equipo donde se capturó. Regenerar tras un cambio intencionado de
+# plantilla: capturar con estas MISMAS entradas fijas y pegar aquí (n, hash).
 GOLDEN = {
-    "CONTRATO":      (55, "c656267ae3bc"),
-    "NÓMINA":        (41, "fb12b461013d"),   # F4.8: recibo oficial de salarios
-    "ALTA":          (21, "c2319c1bf6ac"),
-    "BAJA":          (21, "49a44900c37e"),
-    "CERTIFICADO":   (19, "d01ec62e0fa4"),
-    "CERT LABORAL":  (21, "b8ab63bc99bc"),   # F4.2: plantilla dedicada (ya no genérica)
-    "CARTA DESPIDO": (31, "5f71cc061819"),
-    "FINIQUITO":     (24, "c972cd0dd66f"),
-    "VACACIONES":    (22, "e8134faacd65"),   # F4.2: plantilla dedicada (ya no genérica)
+    "CONTRATO":      (58, "1f41a22f5504"),
+    "NÓMINA":        (41, "824ce33930e8"),   # F4.8: recibo oficial de salarios
+    "ALTA":          (21, "9b0cab304bcc"),
+    "BAJA":          (21, "afe4eeedc295"),
+    "CERTIFICADO":   (19, "1d196be15fdd"),
+    "CERT LABORAL":  (21, "ff008823f4a0"),   # F4.2: plantilla dedicada (ya no genérica)
+    "CARTA DESPIDO": (31, "b723520e0c8f"),
+    "FINIQUITO":     (24, "2b11f3a5f0ff"),
+    "VACACIONES":    (22, "5fcf69e44010"),   # F4.2: plantilla dedicada (ya no genérica)
 }
 
 _DATOS = dict(trabajador="JUAN PEREZ", nif="12345678Z", ss="281234567840",
@@ -29,6 +33,31 @@ _DATOS = dict(trabajador="JUAN PEREZ", nif="12345678Z", ss="281234567840",
               num_pagas="14", irpf_pct="15", ss_pct="6.35", convenio="Comercio",
               observaciones="obs test", funciones="varias", grupo_prof="II",
               articulo_et="52", plus_convenio="30", horas_semanales="40")
+
+# Datos corporativos FIJOS (empresa/representante/centro) para que la firma NO dependa de la empresa
+# que haya en la BD. Cubren todos los campos que lee `_generar_pdf` (los ausentes caen a "" de forma
+# determinista igualmente).
+_EMPRESA_FIJA = {
+    "razon_social": "EMPRESA DEMO S.L.", "nombre_empresa": "EMPRESA DEMO S.L.",
+    "nombre_comercial": "Demo", "cif_nif": "B00000000", "direccion_fiscal": "Calle Falsa 123",
+    "telefono": "900000000", "email_principal": "info@demo.example", "ccc": "28/0000000/00",
+    "municipio": "Madrid", "cod_municipio": "28079", "cp": "28001", "provincia": "Madrid",
+    "cod_provincia": "28", "pais": "ESPAÑA", "cod_pais": "ES", "regimen_ss": "0111",
+    "cnae": "4711", "cod_actividad": "4711", "actividad_economica": "Comercio al por menor",
+    "convenio_colectivo": "Comercio",
+}
+_REP_FIJO = {"nombre": "ANA", "apellidos": "GARCIA LOPEZ", "dni_nie": "00000000T", "cargo": "Administradora"}
+_CENTRO_FIJO = {
+    "nombre_centro": "Centro Demo", "codigo_centro_trabajo": "0001",
+    "codigo_cuenta_cotizacion": "28/0000000/00", "direccion": "Calle Falsa 123",
+    "municipio": "Madrid", "cod_municipio": "28079", "codigo_postal": "28001",
+    "provincia": "Madrid", "pais": "ESPAÑA", "cod_pais": "ES",
+    "actividad_economica": "Comercio al por menor", "cod_actividad": "4711",
+}
+
+
+def _dc_fijo(*a, **k):
+    return {"empresa": dict(_EMPRESA_FIJA), "representante": dict(_REP_FIJO), "centro": dict(_CENTRO_FIJO)}
 
 
 def _app():
@@ -64,6 +93,10 @@ def _firma(tipo, monkeypatch):
 
     monkeypatch.setattr(P.SimpleDocTemplate, "build", _fake_build, raising=True)
     monkeypatch.setattr("src.gui.gestion_usuarios.datetime", _FechaFija, raising=True)
+    # Empresa/representante/centro FIJOS → firma independiente de la BD (determinista y portable).
+    monkeypatch.setattr("src.db.empresa.datos_corporativos", _dc_fijo, raising=True)
+    # Divisa FIJA (EUR) → el importe del salario (CONTRATO) no depende de la moneda activa en BD/caché.
+    monkeypatch.setattr("src.utils.divisas.divisa_actual", lambda: "EUR", raising=True)
     w = gu._WizardDocumentoFiscal()
     w._tipo = tipo
     w._datos = dict(_DATOS)

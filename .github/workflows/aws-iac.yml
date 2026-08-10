@@ -1,0 +1,57 @@
+# CI de la IaC AWS — SOLO validación y `plan` (NUNCA `apply`). El apply queda como paso MANUAL del propietario.
+# Autenticación por OIDC (sin claves estáticas). Este workflow NO despliega infraestructura.
+name: AWS IaC (plan-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Entorno (dev|staging|production)"
+        required: true
+        default: "dev"
+  pull_request:
+    paths:
+      - "infra/aws/**"
+      - ".github/workflows/aws-iac.yml"
+
+# Permiso mínimo para OIDC.
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/aws
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - name: Terraform fmt (check)
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (sin backend remoto en CI)
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      # ── PLAN real: requiere OIDC + backend remoto. Se ejecuta SÓLO en workflow_dispatch y si hay rol OIDC.
+      # Descomentar cuando el propietario provisione el rol (module iam_oidc) y configure el secreto/variable
+      # AWS_DEPLOY_ROLE_ARN (ARN del rol, NO una credencial). Nunca se hace `apply` aquí.
+      #
+      # - name: Configure AWS credentials (OIDC)
+      #   if: github.event_name == 'workflow_dispatch'
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}   # [EXTERNO] ARN, no secreto
+      #     aws-region: ${{ vars.AWS_REGION }}
+      #
+      # - name: Terraform plan
+      #   if: github.event_name == 'workflow_dispatch'
+      #   run: terraform plan -var-file=environments/${{ github.event.inputs.environment }}.tfvars -no-color

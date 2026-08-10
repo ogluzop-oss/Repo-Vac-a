@@ -26,13 +26,18 @@ _EPS = 0.01
 
 
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v2 (Bloque III): resolución de empresa vía capa de identidad (Strangler).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.services.tpv.identidad_tpv import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return EMPRESA_DEFAULT_ID
 
 
 def _bucket(forma):
@@ -57,6 +62,7 @@ def resumen_dia(fecha, id_empresa=None, caja=None) -> dict:
     cobros = {"efectivo": 0.0, "tarjeta": 0.0, "transferencia": 0.0, "otros": 0.0}
     reembolsos = dict(cobros)
     ventas_brutas = devoluciones = 0.0
+    num_tickets = 0
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -68,6 +74,11 @@ def resumen_dia(fecha, id_empresa=None, caja=None) -> dict:
             for r in _filas_a_dicts(cur, cur.fetchall()):
                 imp = round(float(r["tot"] or 0), 2)
                 cobros[_bucket(r["forma_pago"])] += imp; ventas_brutas += imp
+            # Nº de tickets de compra del día (= clientes atendidos en caja; `ventas` no tiene
+            # cliente, cada fila es un ticket). Reemplaza el concepto de nóminas en el cierre diario.
+            cur.execute("SELECT COUNT(*) FROM ventas WHERE " + " AND ".join(fv), tuple(pv))
+            rc = cur.fetchone()
+            num_tickets = int((rc[0] if not isinstance(rc, dict) else list(rc.values())[0]) or 0) if rc else 0
             fd, pd = ["DATE(fecha)=%s"], [fecha]
             if caja is not None:
                 fd.append("numero_caja=%s"); pd.append(int(caja))
@@ -93,11 +104,13 @@ def resumen_dia(fecha, id_empresa=None, caja=None) -> dict:
             desglose_iva = [{"tipo": d["tipo"], "base": base, "cuota": cuota}]
     except Exception as e:
         logger.error("resumen_dia desglose IVA: %s", e)
+    ticket_medio = round(neto / num_tickets, 2) if num_tickets else 0.0
     return {
         "fecha": fecha, "caja": caja, "ventas_brutas": ventas_brutas,
         "devoluciones": devoluciones, "descuentos": 0.0,   # no disponible en `ventas`
         "total_cobrado": neto, "base": base, "iva": cuota,
         "cobros": cobros_netos, "desglose_iva": desglose_iva,
+        "num_tickets": num_tickets, "num_clientes": num_tickets, "ticket_medio": ticket_medio,
     }
 
 
@@ -128,9 +141,26 @@ def generar_cierre_z(fecha, importe_declarado, usuario=None, id_empresa=None,
     id_empresa = _empresa(id_empresa)
     id_tienda = id_tienda or ""
     fecha = _fecha_str(fecha)
-    prev = existe_cierre(fecha, id_empresa, id_tienda, caja)
+    # caja=None → CIERRE DIARIO de tienda (agrega TODAS las cajas del día); se persiste con caja 0.
+    caja_alm = int(caja) if caja is not None else 0
+    prev = existe_cierre(fecha, id_empresa, id_tienda, caja_alm)
     if prev:
+        # REIMPRESIÓN: el cierre ya existe (inmutable). No se duplica la fila ni se recontabiliza;
+        # se REGENERA su mismo ticket (mismo nº y hash) por si hubo un error humano al imprimir.
         prev["duplicado"] = True
+        prev["posting"] = {}
+        if generar_pdf:
+            try:
+                res_prev = resumen_dia(fecha, id_empresa=id_empresa, caja=caja)
+                ruta = _generar_pdf(prev.get("id"), prev.get("numero"), fecha, res_prev,
+                                    prev.get("importe_esperado"), prev.get("importe_declarado"),
+                                    prev.get("diferencia"), prev.get("estado", ""),
+                                    prev.get("usuario"), id_tienda,
+                                    caja if caja is not None else "TODAS", posting=None)
+                if ruta:
+                    prev["ruta_pdf"] = ruta
+            except Exception as e:
+                logger.error("reimpresión cierre diario: %s", e)
         return prev
 
     res = resumen_dia(fecha, id_empresa=id_empresa, caja=caja)
@@ -155,7 +185,7 @@ def generar_cierre_z(fecha, importe_declarado, usuario=None, id_empresa=None,
                 "ventas_brutas, devoluciones, descuentos, base, iva, total_cobrado, "
                 "desglose_cobros, desglose_iva, importe_esperado, importe_declarado, diferencia, "
                 "estado, hash_audit) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (id_empresa, id_tienda, numero, fecha, int(caja), usuario,
+                (id_empresa, id_tienda, numero, fecha, caja_alm, usuario,
                  res["ventas_brutas"], res["devoluciones"], res["descuentos"], res["base"],
                  res["iva"], res["total_cobrado"], json.dumps(res["cobros"], ensure_ascii=False),
                  json.dumps(res["desglose_iva"], ensure_ascii=False), esperado, declarado,
@@ -165,11 +195,21 @@ def generar_cierre_z(fecha, importe_declarado, usuario=None, id_empresa=None,
         logger.error("generar_cierre_z: %s", e)
         return None
 
+    # CIERRE DIARIO: recopila y CONTABILIZA los hechos económicos del día encolados EXCEPTO las
+    # nóminas (no son un hecho de caja; las procesa la contabilidad general). Best-effort.
+    posting = {}
+    try:
+        from src.services.contabilidad.posting import procesar_cola
+        posting = procesar_cola(id_empresa, incluir_nominas=False)
+    except Exception as e:
+        logger.debug("cierre_z procesar_cola: %s", e)
+
     ruta_pdf = None
     if generar_pdf:
         try:
             ruta_pdf = _generar_pdf(cid, numero, fecha, res, esperado, declarado, diferencia,
-                                    estado, usuario, id_tienda, caja)
+                                    estado, usuario, id_tienda,
+                                    caja if caja is not None else "TODAS", posting)
             if ruta_pdf:
                 with obtener_conexion() as conn, conn.cursor() as cur:
                     cur.execute("UPDATE cierres_z SET ruta_pdf=%s WHERE id=%s", (ruta_pdf, cid))
@@ -179,14 +219,10 @@ def generar_cierre_z(fecha, importe_declarado, usuario=None, id_empresa=None,
         except Exception as e:
             logger.error("generar_cierre_z PDF/indexado: %s", e)
 
-    # H6: procesa la cola contable al cerrar el día (contabilización automática; best-effort).
-    try:
-        from src.services.contabilidad.posting import procesar_cola
-        procesar_cola(id_empresa)
-    except Exception as e:
-        logger.debug("cierre_z procesar_cola: %s", e)
-
-    return obtener_cierre_z(cid, id_empresa)
+    resultado = obtener_cierre_z(cid, id_empresa)
+    if resultado is not None:
+        resultado["posting"] = posting
+    return resultado
 
 
 def obtener_cierre_z(cid, id_empresa=None) -> dict | None:
@@ -240,42 +276,65 @@ def _ruta_documentos():
     return base
 
 
-def _generar_pdf(cid, numero, fecha, res, esperado, declarado, diferencia, estado,
-                 usuario, id_tienda, caja) -> str | None:
+def _e(v) -> str:
     try:
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.units import mm
-        from reportlab.pdfgen import canvas
+        return f"{float(v):.2f} €"
+    except Exception:
+        return str(v)
+
+
+def _generar_pdf(cid, numero, fecha, res, esperado, declarado, diferencia, estado,
+                 usuario, id_tienda, caja, posting=None) -> str | None:
+    """Ticket de CIERRE DIARIO en el MISMO formato recibo que el ticket de compra (documento interno
+    de empresa: logo, cabecera fiscal, tienda, nº ticket único, empleado, fecha/hora, sin QR/barras,
+    margen izquierdo ampliado). Reutiliza el generador único `utils.impresion`."""
+    try:
+        from src.utils.impresion import generar_ticket_operacion_pdf
+        from src.utils.ticket_data import construir_datos_operacion
     except Exception as e:
-        logger.warning("reportlab no disponible para PDF de cierre Z: %s", e)
+        logger.warning("Ticket de cierre diario no disponible: %s", e)
         return None
-    ruta = os.path.join(_ruta_documentos(), f"cierre_z_{numero:05d}_{fecha}.pdf")
-    c = canvas.Canvas(ruta, pagesize=A4)
-    w, h = A4
-    y = h - 25 * mm
-    c.setFont("Helvetica-Bold", 15); c.drawString(20 * mm, y, f"CIERRE Z Nº {numero:05d}")
-    c.setFont("Helvetica", 9); y -= 8 * mm
-    for et, val in (("Fecha", fecha), ("Tienda", id_tienda or "-"), ("Caja", caja),
-                    ("Responsable", usuario or "-")):
-        c.drawString(20 * mm, y, f"{et}: {val}"); y -= 5 * mm
-    y -= 4 * mm; c.setFont("Helvetica-Bold", 11); c.drawString(20 * mm, y, "RESUMEN DEL DÍA")
-    c.setFont("Helvetica", 9); y -= 6 * mm
-    for et, val in (("Ventas brutas", res["ventas_brutas"]), ("Devoluciones", res["devoluciones"]),
-                    ("Descuentos", res["descuentos"]), ("Base imponible", res["base"]),
-                    ("IVA", res["iva"]), ("Total cobrado", res["total_cobrado"])):
-        c.drawString(24 * mm, y, f"{et}: {val:.2f} €"); y -= 5 * mm
-    y -= 4 * mm; c.setFont("Helvetica-Bold", 11); c.drawString(20 * mm, y, "DESGLOSE DE COBROS")
-    c.setFont("Helvetica", 9); y -= 6 * mm
-    for medio, imp in res["cobros"].items():
-        c.drawString(24 * mm, y, f"{medio.capitalize()}: {imp:.2f} €"); y -= 5 * mm
-    y -= 4 * mm; c.setFont("Helvetica-Bold", 11); c.drawString(20 * mm, y, "ARQUEO")
-    c.setFont("Helvetica", 9); y -= 6 * mm
-    for et, val in (("Esperado", esperado), ("Declarado", declarado), ("Diferencia", diferencia)):
-        c.drawString(24 * mm, y, f"{et}: {val:.2f} €"); y -= 5 * mm
-    c.setFont("Helvetica-Bold", 10); c.drawString(24 * mm, y, f"Estado: {estado}"); y -= 8 * mm
-    c.setFont("Helvetica-Oblique", 7)
-    c.drawString(20 * mm, 15 * mm, f"Documento auditable · ID {cid} · generado {_dt.datetime.now():%Y-%m-%d %H:%M}")
-    c.showPage(); c.save()
+
+    es_todas = caja is None or str(caja) == "TODAS"
+    secciones = [
+        ("RESUMEN DEL DÍA", [
+            ("Fecha contable", _fecha_str(fecha)),
+            ("Ventas brutas", _e(res["ventas_brutas"])),
+            ("Devoluciones", _e(res["devoluciones"])),
+            ("Base imponible", _e(res["base"])),
+            ("IVA", _e(res["iva"])),
+            ("Facturación (total cobrado)", _e(res["total_cobrado"])),
+            ("Nº de tickets (clientes)", res.get("num_tickets", 0)),
+            ("Ticket medio", _e(res.get("ticket_medio", 0.0))),
+        ]),
+        ("DESGLOSE DE COBROS", [(str(k).capitalize(), _e(v)) for k, v in (res.get("cobros") or {}).items()]),
+        ("ARQUEO", [
+            ("Esperado", _e(esperado)), ("Declarado", _e(declarado)),
+            ("Diferencia", _e(diferencia)), ("Estado", estado),
+        ]),
+    ]
+    if posting:
+        secciones.append(("ASIENTOS CONTABILIZADOS (excl. nóminas)", [
+            ("Ventas", posting.get("ventas", 0)),
+            ("Compras", posting.get("compras", 0)),
+            ("Devoluciones", posting.get("devoluciones", 0)),
+            ("Total asientos", posting.get("asientos", 0)),
+        ]))
+
+    ticket_num = f"CD-{_fecha_str(fecha).replace('-', '')}-{int(numero or 0):05d}"
+    datos = construir_datos_operacion(
+        "CIERRE DIARIO", usuario, prefijo="CD", ticket_num=ticket_num,
+        subtitulo=("Todas las cajas" if es_todas else f"Caja {caja}"),
+        caja=(None if es_todas else str(caja)), secciones=secciones,
+        total=("FACTURACIÓN DEL DÍA", res.get("total_cobrado", 0)),
+        pie=f"Documento auditable · ID {cid} · conservar para archivo")
+
+    ruta = os.path.join(_ruta_documentos(), f"cierre_z_{int(numero or 0):05d}_{_fecha_str(fecha)}.pdf")
+    try:
+        generar_ticket_operacion_pdf(datos, ruta)
+    except Exception as e:
+        logger.warning("PDF cierre diario: %s", e)
+        return None
     return ruta
 
 

@@ -1,0 +1,24 @@
+# Ingress: publica el backend en un host. Ajusta `host` y la clase de ingress a tu clúster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smart-manager-backend
+  namespace: smart-manager
+  labels:
+    app.kubernetes.io/name: smart-manager
+    app.kubernetes.io/component: backend
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.smart-manager.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: smart-manager-backend
+                port:
+                  name: http

@@ -13,7 +13,9 @@ ESTADOS = ("abierta", "ganada", "perdida")
 
 
 def _emp(id_empresa=None):
-    return id_empresa or empresa_actual_id()
+    # IOC v2 (Bloque III.1): la resolución de empresa pasa por la capa de identidad (Strangler).
+    from src.services.crm.identidad_crm import empresa_id
+    return empresa_id(id_empresa)
 
 
 def _fila(cur, r):
@@ -103,3 +105,41 @@ def valor_pipeline(*, id_empresa=None) -> dict:
     except Exception as e:
         logger.error("valor_pipeline: %s", e)
         return {"valor_total": 0, "valor_ponderado": 0, "abiertas": 0}
+
+
+def vincular_venta(id_oportunidad, id_venta, *, id_empresa=None) -> dict:
+    """Vincula una oportunidad con la VENTA/pedido generado (pedidos vinculados, Módulo 1). Reutiliza
+    la venta existente (no la crea); marca la oportunidad como ganada si aún estaba abierta. Auditado."""
+    eid = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE crm_oportunidades SET id_venta=%s, "
+                        "estado=CASE WHEN estado='abierta' THEN 'ganada' ELSE estado END, "
+                        "fecha_cierre=CASE WHEN estado='abierta' THEN NOW() ELSE fecha_cierre END "
+                        "WHERE id=%s AND id_empresa<=>%s", (id_venta, id_oportunidad, eid))
+            conn.commit()
+        log_auditoria("crm", "OPORTUNIDAD_VINCULADA_VENTA", "crm_oportunidades",
+                      f"op={id_oportunidad}->venta={id_venta}")
+        try:
+            from src.services import eventos
+            eventos.publicar("crm.oportunidad_vinculada", ref_entidad="crm_oportunidades",
+                             ref_id=id_oportunidad, id_empresa=eid,
+                             payload={"id_oportunidad": id_oportunidad, "id_venta": id_venta})
+        except Exception:
+            pass
+        return {"ok": True, "id_oportunidad": id_oportunidad, "id_venta": id_venta}
+    except Exception as e:
+        logger.error("vincular_venta: %s", e)
+        return {"ok": False, "motivo": str(e)}
+
+
+def ventas_de_oportunidad(id_oportunidad):
+    """Devuelve la venta vinculada a una oportunidad (o None)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id_venta FROM crm_oportunidades WHERE id=%s", (id_oportunidad,))
+            r = cur.fetchone()
+            v = (r[0] if not isinstance(r, dict) else list(r.values())[0]) if r else None
+            return v
+    except Exception:
+        return None

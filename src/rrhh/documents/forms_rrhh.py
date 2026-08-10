@@ -444,6 +444,12 @@ class WizardFormsRRHHMixin:
         scroll, inner, il = self._p2_scroll()
         il.addWidget(self._lbl_s("Tipo de despido:"))
         self._combo_sub = self._mk_combo(subtypes)
+        # Preselección (p. ej. desde la pestaña "Periodo prueba" de RRHH).
+        if getattr(self, "_subtipo_inicial", None):
+            try:
+                self._combo_sub.setCurrentText(self._subtipo_inicial)
+            except Exception:
+                pass
         il.addWidget(self._combo_sub)
         row1 = QHBoxLayout(); row1.setSpacing(8)
         c1 = QVBoxLayout(); c1.addWidget(self._lbl_s("Fecha de comunicación:"))

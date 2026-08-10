@@ -69,8 +69,10 @@ def _mysqldump(ruta_sql: str, db: str) -> bool:
     if DB_CONFIG.get("password"):
         entorno["MYSQL_PWD"] = str(DB_CONFIG["password"])   # nunca en la línea de comandos
     try:
+        from src.utils.plataforma import kwargs_sin_consola
         with open(ruta_sql, "wb") as fh:
-            r = subprocess.run(cmd, stdout=fh, stderr=subprocess.PIPE, env=entorno, timeout=600)
+            r = subprocess.run(cmd, stdout=fh, stderr=subprocess.PIPE, env=entorno, timeout=600,
+                               **kwargs_sin_consola())
         if r.returncode == 0:
             return True
         logger.warning("mysqldump falló (%s): %s", r.returncode, r.stderr[:200])
@@ -185,8 +187,10 @@ def _mysql_cli(ruta_sql: str, db: str) -> bool:
     if DB_CONFIG.get("password"):
         entorno["MYSQL_PWD"] = str(DB_CONFIG["password"])
     try:
+        from src.utils.plataforma import kwargs_sin_consola
         with open(ruta_sql, "rb") as fh:
-            r = subprocess.run(cmd, stdin=fh, stderr=subprocess.PIPE, env=entorno, timeout=600)
+            r = subprocess.run(cmd, stdin=fh, stderr=subprocess.PIPE, env=entorno, timeout=600,
+                               **kwargs_sin_consola())
         if r.returncode == 0:
             return True
         logger.warning("restore mysql CLI falló (%s): %s", r.returncode, r.stderr[:200])

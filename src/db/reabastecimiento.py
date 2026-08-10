@@ -7,14 +7,19 @@ logger = logging.getLogger("reabastecimiento_db")
 
 def _emp(id_empresa=None):
     """Empresa activa (INV.5.2: aislamiento multiempresa de reabastecimiento)."""
-    if id_empresa:
-        return id_empresa
+    # IOC v3 (Bloque V): seam de identidad delegado en la fachada de datos (db -> db).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.db.identidad_contexto import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        from src.db.conexion import EMPRESA_DEFAULT_ID
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            from src.db.conexion import EMPRESA_DEFAULT_ID
+            return EMPRESA_DEFAULT_ID
 
 
 # ── CONFIG ──────────────────────────────────────────────────────────────────
@@ -167,6 +172,14 @@ def crear_propuesta(codigo: str, nombre: str, cantidad: int,
                       id_almacen, id_almacen_origen, id_almacen_destino, prevision_usada))
                 pid = cur.lastrowid
             conn.commit()
+            # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+            try:
+                from src.services import eventos as _EV
+                _EV.publicar("REPOSICION_GENERADA", id_empresa=id_empresa, origen="reabastecimiento",
+                             ref_entidad="reab_propuesta", ref_id=pid,
+                             payload={"codigo": codigo, "cantidad": cantidad, "origen": origen})
+            except Exception:
+                pass
             return pid
     except Exception as e:
         logger.error(f"Error creando propuesta: {e}")

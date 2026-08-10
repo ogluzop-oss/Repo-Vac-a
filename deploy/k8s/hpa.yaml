@@ -1,0 +1,29 @@
+# Autoscaling horizontal por CPU (y memoria). Escala el Deployment del backend entre 2 y 10 réplicas.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: smart-manager-backend
+  namespace: smart-manager
+  labels:
+    app.kubernetes.io/name: smart-manager
+    app.kubernetes.io/component: backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: smart-manager-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

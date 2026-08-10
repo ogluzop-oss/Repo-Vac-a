@@ -1,0 +1,20 @@
+Smart Manager AI — backend desplegado ({{ include "smart-manager.fullname" . }}).
+
+1. Comprueba el estado:
+   kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+2. Health / readiness / liveness (endpoints reales del backend):
+   /api/v1/live · /api/v1/ready · /api/v1/health · /api/v1/metrics
+
+{{- if .Values.ingress.enabled }}
+3. Acceso: https://{{ .Values.ingress.host }}/
+{{- else }}
+3. Port-forward local:
+   kubectl port-forward svc/{{ include "smart-manager.fullname" . }} 8000:{{ .Values.service.port }}
+{{- end }}
+
+{{- if and .Values.secrets.create (not .Values.secrets.existingSecret) }}
+
+AVISO: se ha generado un Secret con valores del chart (secrets.create=true). Úsalo SOLO en pruebas;
+en producción define secrets.existingSecret con un Secret gestionado fuera de git.
+{{- end }}

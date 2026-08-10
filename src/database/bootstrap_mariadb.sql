@@ -469,7 +469,8 @@ CREATE TABLE IF NOT EXISTS productos_granel (
     nombre               VARCHAR(255)   NOT NULL,
     precio_kg            DECIMAL(10,3)  NOT NULL DEFAULT 0.000,
     emoji                VARCHAR(10)    DEFAULT '🛒',
-    categoria            VARCHAR(100)   DEFAULT 'GENERAL',
+    categoria            VARCHAR(100)   DEFAULT 'OTROS',
+    subfamilia           VARCHAR(100)   DEFAULT NULL,
     codigo_interno       VARCHAR(50),
     activo               TINYINT(1)     NOT NULL DEFAULT 1,
     ultima_actualizacion DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -552,26 +553,41 @@ INSERT INTO usuarios (nombre, password, perfil, tienda_id)
 VALUES ('ADMIN', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'ADMINISTRADOR', 'ALMC')
 ON DUPLICATE KEY UPDATE perfil = VALUES(perfil), tienda_id = VALUES(tienda_id);
 
--- Productos granel por defecto
-INSERT IGNORE INTO productos_granel (nombre, precio_kg, emoji, categoria) VALUES
-    ('Manzana Golden',    2.49, '🍎', 'FRUTA'),
-    ('Plátano',           1.89, '🍌', 'FRUTA'),
-    ('Naranja',           1.29, '🍊', 'FRUTA'),
-    ('Pera Conference',   2.09, '🍐', 'FRUTA'),
-    ('Uva Blanca',        3.49, '🍇', 'FRUTA'),
-    ('Tomate Rama',       2.19, '🍅', 'VERDURA'),
-    ('Patata',            0.89, '🥔', 'VERDURA'),
-    ('Cebolla',           0.99, '🧅', 'VERDURA'),
-    ('Zanahoria',         0.79, '🥕', 'VERDURA'),
-    ('Pimiento Rojo',     2.49, '🫑', 'VERDURA'),
-    ('Almendra Cruda',   12.99, '🌰', 'FRUTOS SECOS'),
-    ('Nuez',             14.99, '🥜', 'FRUTOS SECOS'),
-    ('Pistacho',         18.99, '🫘', 'FRUTOS SECOS'),
-    ('Gominola Surtida',  8.99, '🍬', 'DULCES'),
-    ('Chocolate Granel',  9.99, '🍫', 'DULCES'),
-    ('Palomitas Caramel', 6.99, '🍿', 'DULCES'),
-    ('Queso Manchego',   16.50, '🧀', 'FRESCOS'),
-    ('Jamón Serrano',    22.90, '🥩', 'FRESCOS');
+-- Productos granel por defecto — familias canonicas, con subfamilia en Panes y Bolleria
+INSERT IGNORE INTO productos_granel (nombre, precio_kg, emoji, categoria, subfamilia) VALUES
+    ('Manzana Golden',    2.49, '🍎', 'FRUTA', NULL),
+    ('Plátano',           1.89, '🍌', 'FRUTA', NULL),
+    ('Naranja',           1.29, '🍊', 'FRUTA', NULL),
+    ('Pera Conference',   2.09, '🍐', 'FRUTA', NULL),
+    ('Uva Blanca',        3.49, '🍇', 'FRUTA', NULL),
+    ('Tomate Rama',       2.19, '🍅', 'VERDURA', NULL),
+    ('Patata',            0.89, '🥔', 'VERDURA', NULL),
+    ('Cebolla',           0.99, '🧅', 'VERDURA', NULL),
+    ('Zanahoria',         0.79, '🥕', 'VERDURA', NULL),
+    ('Pimiento Rojo',     2.49, '🌶️', 'VERDURA', NULL),
+    ('Almendra Cruda',   12.99, '🌰', 'FRUTOS_SECOS', NULL),
+    ('Nuez',             14.99, '🥜', 'FRUTOS_SECOS', NULL),
+    ('Pistacho',         18.99, '🥜', 'FRUTOS_SECOS', NULL),
+    ('Gominola Surtida',  8.99, '🍬', 'DULCES', NULL),
+    ('Chocolate Granel',  9.99, '🍫', 'DULCES', NULL),
+    ('Palomitas Caramel', 6.99, '🍿', 'DULCES', NULL),
+    ('Queso Manchego',   16.50, '🧀', 'LACTEOS', NULL),
+    ('Jamón Serrano',    22.90, '🥩', 'CARNICERIA', NULL),
+    -- Carnicería / Pescadería (a granel)
+    ('Filete de Ternera',14.90, '🥩', 'CARNICERIA', NULL),
+    ('Pechuga de Pollo',  6.90, '🍗', 'CARNICERIA', NULL),
+    ('Merluza Fresca',    9.90, '🐟', 'PESCADERIA', NULL),
+    ('Gambas',           15.90, '🦐', 'PESCADERIA', NULL),
+    -- Panes (subfamilias: barras / hogazas / panecillos)
+    ('Barra Rústica',     1.20, '🥖', 'PANES', 'BARRAS'),
+    ('Baguette',          1.30, '🥖', 'PANES', 'BARRAS'),
+    ('Hogaza de Centeno', 3.50, '🍞', 'PANES', 'HOGAZAS'),
+    ('Panecillo de Leche',0.60, '🍞', 'PANES', 'PANECILLOS'),
+    -- Bollería (subfamilias: dulce / salada)
+    ('Croissant',         1.40, '🥐', 'BOLLERIA', 'DULCE'),
+    ('Donut',             1.20, '🍩', 'BOLLERIA', 'DULCE'),
+    ('Empanadilla',       1.60, '🥟', 'BOLLERIA', 'SALADA'),
+    ('Pizza Individual',  3.20, '🍕', 'BOLLERIA', 'SALADA');
 
 -- ============================================================
 -- MIGRACIONES — añade columnas faltantes en tablas pre-existentes
@@ -584,6 +600,9 @@ ALTER TABLE articulos ADD COLUMN IF NOT EXISTS seccion             VARCHAR(100);
 ALTER TABLE articulos ADD COLUMN IF NOT EXISTS ubicacion_tienda    VARCHAR(255);
 ALTER TABLE articulos ADD COLUMN IF NOT EXISTS ubicacion_almacen   VARCHAR(255);
 ALTER TABLE articulos ADD COLUMN IF NOT EXISTS promo_activa        TINYINT(1)     DEFAULT 0;
+-- Física de seguridad del autocobro (Capa 1): peso esperado por unidad + tolerancia por artículo.
+ALTER TABLE articulos ADD COLUMN IF NOT EXISTS peso_unitario       DECIMAL(10,3)  DEFAULT NULL;
+ALTER TABLE articulos ADD COLUMN IF NOT EXISTS tolerancia_peso     DECIMAL(10,3)  DEFAULT NULL;
 ALTER TABLE articulos ADD COLUMN IF NOT EXISTS precio_promo        DECIMAL(10,2)  DEFAULT 0.00;
 ALTER TABLE articulos ADD COLUMN IF NOT EXISTS promo_fin           VARCHAR(50);
 ALTER TABLE articulos ADD COLUMN IF NOT EXISTS imagen              VARCHAR(500);
@@ -602,6 +621,13 @@ ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS real_y               DOUBLE    
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS epc                  VARCHAR(100) DEFAULT NULL;
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS pasillo              VARCHAR(50)  DEFAULT NULL;
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS estanteria           VARCHAR(50)  DEFAULT NULL;
+-- Ubicacion de almacen en BD antiguas que no las tenian (sin ellas falla resolver destinos GPS)
+ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS ubicacion_tienda     VARCHAR(255) DEFAULT NULL;
+ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS ubicacion_almacen    VARCHAR(255) DEFAULT NULL;
+ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS pasillo_almacen      VARCHAR(50)  DEFAULT NULL;
+ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS estanteria_almacen   VARCHAR(50)  DEFAULT NULL;
+ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS nivel_almacen        VARCHAR(20)  DEFAULT NULL;
+ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS incidencia_ubicacion TINYINT(1)   DEFAULT 0;
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS verificado           TINYINT(1)   DEFAULT 0;
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS fecha_actualizacion  DATETIME     NULL;
 -- Ensure all nullable columns have explicit DEFAULT NULL (fixes strict-mode INSERT errors)

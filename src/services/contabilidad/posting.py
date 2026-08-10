@@ -21,13 +21,18 @@ logger = logging.getLogger("contab.posting")
 
 
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v2 (Bloque III): resolución de empresa vía capa de identidad (Strangler).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.services.contabilidad.identidad_contabilidad import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return EMPRESA_DEFAULT_ID
 
 
 def _fecha(f):
@@ -128,11 +133,16 @@ def _marcar(cur, ids, id_asiento):
                 (id_asiento, *ids))
 
 
-def procesar_cola(id_empresa=None) -> dict:
+def procesar_cola(id_empresa=None, incluir_nominas=True) -> dict:
     """Genera asientos de los eventos pendientes. Tickets → 1 asiento/día; facturas
-    (venta/compra) → 1 por documento. Devuelve {asientos, eventos}."""
+    (venta/compra) → 1 por documento. Devuelve {asientos, eventos, ventas, compras,
+    devoluciones, nominas} (contadores de asientos por tipo).
+
+    `incluir_nominas=False` deja las nóminas EN COLA (las procesa la contabilidad general):
+    lo usa el CIERRE DIARIO de caja, que recopila los hechos económicos del día EXCEPTO
+    las nóminas (no son un hecho de caja)."""
     id_empresa = _empresa(id_empresa)
-    res = {"asientos": 0, "eventos": 0}
+    res = {"asientos": 0, "eventos": 0, "ventas": 0, "compras": 0, "devoluciones": 0, "nominas": 0}
     if not K.contabilidad_activa(id_empresa):
         return res
     try:
@@ -140,7 +150,7 @@ def procesar_cola(id_empresa=None) -> dict:
             ventas = _pendientes(cur, id_empresa, "venta")
             compras = _pendientes(cur, id_empresa, "compra")
             devoluciones = _pendientes(cur, id_empresa, "devolucion")
-            nominas = _pendientes(cur, id_empresa, "nomina")
+            nominas = _pendientes(cur, id_empresa, "nomina") if incluir_nominas else []
     except Exception as e:
         logger.error("procesar_cola/listar: %s", e)
         return res
@@ -152,35 +162,39 @@ def procesar_cola(id_empresa=None) -> dict:
         if ev.get("subtipo") == "factura":
             aid = _asiento_venta_factura(ev, p, id_empresa)
             if aid:
-                _cerrar(id_empresa, [ev["id"]], aid); res["asientos"] += 1; res["eventos"] += 1
+                _cerrar(id_empresa, [ev["id"]], aid)
+                res["asientos"] += 1; res["eventos"] += 1; res["ventas"] += 1
         else:
             tickets_por_fecha.setdefault(ev["fecha_evento"], []).append(ev)
     for fecha, evs in tickets_por_fecha.items():
         aid = _asiento_tickets_dia(fecha, evs, id_empresa)
         if aid:
             _cerrar(id_empresa, [e["id"] for e in evs], aid)
-            res["asientos"] += 1; res["eventos"] += len(evs)
+            res["asientos"] += 1; res["eventos"] += len(evs); res["ventas"] += 1
 
     # ── Compras ── (1 asiento por factura) — E6.5
     for ev in compras:
         p = _payload(ev)
         aid = _asiento_compra(ev, p, id_empresa)
         if aid:
-            _cerrar(id_empresa, [ev["id"]], aid); res["asientos"] += 1; res["eventos"] += 1
+            _cerrar(id_empresa, [ev["id"]], aid)
+            res["asientos"] += 1; res["eventos"] += 1; res["compras"] += 1
 
     # ── Devoluciones ── (1 asiento por devolución) — E6.5
     for ev in devoluciones:
         p = _payload(ev)
         aid = _asiento_devolucion(ev, p, id_empresa)
         if aid:
-            _cerrar(id_empresa, [ev["id"]], aid); res["asientos"] += 1; res["eventos"] += 1
+            _cerrar(id_empresa, [ev["id"]], aid)
+            res["asientos"] += 1; res["eventos"] += 1; res["devoluciones"] += 1
 
-    # ── Nóminas ── (1 asiento por nómina) — F4.5
+    # ── Nóminas ── (1 asiento por nómina) — F4.5. Se omiten si incluir_nominas=False.
     for ev in nominas:
         p = _payload(ev)
         aid = _asiento_nomina(ev, p, id_empresa)
         if aid:
-            _cerrar(id_empresa, [ev["id"]], aid); res["asientos"] += 1; res["eventos"] += 1
+            _cerrar(id_empresa, [ev["id"]], aid)
+            res["asientos"] += 1; res["eventos"] += 1; res["nominas"] += 1
     return res
 
 
@@ -326,3 +340,116 @@ def _asiento_nomina(ev, p, id_empresa):
     r = A.crear_asiento(ev["fecha_evento"], lineas, concepto=f"Nómina {ev['ref']}",
                         origen="nomina", ref_origen=f"nomina:{ev['ref']}", id_empresa=id_empresa, idempotente=True)
     return r["id"] if r else None
+
+
+# ── Gastos directos (suministros, servicios, dietas…) — entrada de un clic ────────
+def _asegurar_cuenta_gasto(codigo, id_empresa):
+    """Crea la cuenta de gasto 62x si la empresa se activó antes de existir esta función.
+    Idempotente: solo crea si falta."""
+    try:
+        if not K.obtener_cuenta(codigo, id_empresa):
+            nombre = M.CUENTAS_GASTO.get(codigo, f"Gasto {codigo}")
+            K.crear_cuenta(codigo, nombre, tipo="gasto", naturaleza="deudora", id_empresa=id_empresa)
+    except Exception as e:
+        logger.warning("_asegurar_cuenta_gasto(%s): %s", codigo, e)
+
+
+def registrar_gasto(tipo, total, fecha=None, forma_pago="banco", concepto=None,
+                    con_iva=True, tipo_iva=None, id_empresa=None) -> dict | None:
+    """Registra un GASTO directo (luz, agua, gas, internet, dietas, transporte…) generando
+    su asiento de partida doble contra la cuenta de gasto (62x) correspondiente al tipo.
+
+        Debe   62X gasto        base
+        Debe   472 IVA soportado cuota            (si con_iva)
+        Haber  572/570/400       total            (banco / efectivo / a crédito)
+
+    Instantáneo (aparece ya en Diario/Mayor/Balances/IVA). Devuelve el dict del asiento o None.
+    """
+    id_empresa = _empresa(id_empresa)
+    if not K.contabilidad_activa(id_empresa):
+        return None
+    total = round(float(total or 0), 2)
+    if total <= 0:
+        return None
+    fecha = _fecha(fecha or _dt.date.today())
+    cta_gasto = M.cuenta("gasto", str(tipo), id_empresa=id_empresa) or "629"
+    _asegurar_cuenta_gasto(cta_gasto, id_empresa)
+
+    # IVA (importe total IVA-incluido). tipo_iva forzado → desglose exacto; None → fiscalidad empresa.
+    if not con_iva:
+        base, cuota, tv = total, 0.0, 0.0
+    elif tipo_iva is not None:
+        tv = round(float(tipo_iva), 2)
+        base = round(total / (1 + tv / 100.0), 2) if tv else total
+        cuota = round(total - base, 2)
+    else:
+        base, cuota, tv = _desglose(total, id_empresa)
+
+    # Contrapartida según forma de pago.
+    fp = (forma_pago or "banco").strip().lower()
+    if fp in ("credito", "crédito", "proveedor"):
+        cta_contra = M.cuenta("proveedor", id_empresa=id_empresa)      # 400 (pendiente de pago)
+    elif fp in ("efectivo", "caja"):
+        cta_contra = M.cuenta_forma_pago("efectivo", id_empresa)       # 570
+    else:                                                              # banco / tarjeta / transferencia
+        cta_contra = M.cuenta_forma_pago("tarjeta", id_empresa)        # 572
+
+    desc = (concepto or "").strip() or M.cuenta("gasto", str(tipo)) or "Gasto"
+    lineas = [{"codigo_cuenta": cta_gasto, "debe": base, "descripcion": f"Gasto {tipo}"}]
+    if cuota:
+        lineas.append({"codigo_cuenta": M.cuenta("iva_sop", id_empresa=id_empresa), "debe": cuota,
+                       "tipo_iva": tv, "descripcion": "IVA soportado"})
+    lineas.append({"codigo_cuenta": cta_contra, "haber": total, "descripcion": "Pago del gasto"})
+
+    ref = f"gasto:{tipo}:{fecha}:{total}:{_dt.datetime.now().strftime('%H%M%S%f')}"
+    concepto_final = (concepto or "").strip() or f"Gasto {tipo} ({cta_gasto})"
+    return A.crear_asiento(fecha, lineas, concepto=concepto_final, origen="gasto",
+                           ref_origen=ref, id_empresa=id_empresa)
+
+
+def _asegurar_cuenta(codigo, nombre, tipo, naturaleza, id_empresa):
+    """Crea una cuenta PGC si falta (idempotente)."""
+    try:
+        if not K.obtener_cuenta(codigo, id_empresa):
+            K.crear_cuenta(codigo, nombre, tipo=tipo, naturaleza=naturaleza, id_empresa=id_empresa)
+    except Exception as e:
+        logger.warning("_asegurar_cuenta(%s): %s", codigo, e)
+
+
+def registrar_consumo_materia_prima(ref, coste, fecha=None, concepto=None, id_empresa=None) -> dict | None:
+    """Contabiliza el CONSUMO de materia prima (p. ej. obrador / producción) como GASTO de materias primas:
+
+        Debe   601 Compras/consumo de materias primas   coste
+        Haber  300 Existencias                            coste
+
+    Sin IVA (movimiento interno de existencias → gasto). Idempotente por `ref`. Best-effort: devuelve el
+    dict del asiento o None (nunca rompe la producción)."""
+    id_empresa = _empresa(id_empresa)
+    if not K.contabilidad_activa(id_empresa):
+        return None
+    coste = round(float(coste or 0), 2)
+    if coste <= 0:
+        return None
+    fecha = _fecha(fecha or _dt.date.today())
+    cta_gasto = M.cuenta("consumo_mp", id_empresa=id_empresa) or "601"
+    cta_exist = M.cuenta("existencias", id_empresa=id_empresa) or "300"
+    _asegurar_cuenta(cta_gasto, "Compras de materias primas", "gasto", "deudora", id_empresa)
+    _asegurar_cuenta(cta_exist, "Existencias", "activo", "deudora", id_empresa)
+    lineas = [{"codigo_cuenta": cta_gasto, "debe": coste, "descripcion": "Consumo de materia prima"},
+              {"codigo_cuenta": cta_exist, "haber": coste, "descripcion": "Salida de existencias"}]
+    return A.crear_asiento(fecha, lineas, concepto=(concepto or f"Consumo materia prima {ref}"),
+                           origen="consumo_mp", ref_origen=f"consumo_mp:{ref}", id_empresa=id_empresa,
+                           idempotente=True)
+
+
+def anular_gasto(id_asiento, usuario=None, id_empresa=None) -> dict | None:
+    """Anula un gasto por CONTRAASIENTO (no borra el original). Reutiliza asientos.anular."""
+    return A.anular(id_asiento, usuario=usuario, id_empresa=_empresa(id_empresa))
+
+
+def listar_gastos(anio=None, id_empresa=None) -> list:
+    """Asientos de gasto directo (origen='gasto') del ejercicio, más recientes primero."""
+    id_empresa = _empresa(id_empresa)
+    filas = [a for a in A.listar_diario(id_empresa=id_empresa, anio=anio) if a.get("origen") == "gasto"]
+    filas.sort(key=lambda a: (a.get("fecha") or "", a.get("numero") or 0), reverse=True)
+    return filas

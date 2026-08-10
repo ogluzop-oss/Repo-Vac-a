@@ -29,13 +29,18 @@ _TRANSICIONES = {
 
 
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v3 (Bloque V): seam de identidad delegado en la fachada de datos (db -> db).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.db.identidad_contexto import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return EMPRESA_DEFAULT_ID
 
 
 def _hoy():
@@ -78,6 +83,14 @@ def crear_pedido(id_proveedor=None, lineas=None, observaciones=None, usuario=Non
             bruto = _insertar_lineas(cur, pid, lineas)
             total = round(bruto * (1 - descuento / 100.0), 2)
             cur.execute("UPDATE compras_pedidos SET total=%s WHERE id_pedido=%s", (total, pid))
+        # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("PEDIDO_RECIBIDO", id_empresa=id_empresa, origen="compras",
+                         ref_entidad="compras_pedido", ref_id=pid,
+                         payload={"id_proveedor": id_proveedor, "total": total})
+        except Exception:
+            pass
         return pid
     except Exception as e:
         logger.error("crear_pedido: %s", e)

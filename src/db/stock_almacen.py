@@ -271,6 +271,15 @@ def ajustar_stock(codigo, id_almacen, nueva_cantidad, id_empresa=None) -> bool:
         with transaccion() as conn, conn.cursor() as cur:
             _upsert(cur, id_empresa, id_almacen, codigo, absoluto=int(nueva_cantidad))
             recalcular_cache_articulo(codigo, id_empresa, cur=cur)
+        # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("INVENTARIO_CORREGIDO", id_empresa=id_empresa, id_almacen=int(id_almacen or 0),
+                         origen="stock", ref_entidad="stock_almacen", ref_id=codigo,
+                         payload={"codigo": codigo, "id_almacen": id_almacen,
+                                  "nueva_cantidad": int(nueva_cantidad)})
+        except Exception:
+            pass
         return True
     except Exception as e:
         logger.error("ajustar_stock: %s", e); return False

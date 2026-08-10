@@ -1,0 +1,30 @@
+{
+  "name": "@smartmanager/sdk",
+  "version": "1.0.0",
+  "description": "SDK oficial de JavaScript para la Enterprise REST API de Smart Manager AI",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "smartmanager",
+    "erp",
+    "sdk",
+    "rest",
+    "api"
+  ],
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node --test"
+  }
+}

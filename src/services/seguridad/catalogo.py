@@ -81,6 +81,53 @@ CATALOGO = [
     # Resiliencia / continuidad operativa (BLOQUE 7)
     "resiliencia.ver", "resiliencia.sync", "resiliencia.offline", "resiliencia.breakers",
     "resiliencia.watchdog", "resiliencia.chaos", "resiliencia.admin",
+    # Identidad Operativa de Centros (IOC)
+    "identidad.ver", "identidad.crear", "identidad.modificar", "identidad.eliminar",
+    "identidad.configurar", "identidad.asignar_terminal", "identidad.asignar_impresora",
+    # Plataforma de Comercio Digital (Etapas A+B) — C0.P1
+    "comercio.ver", "comercio.admin", "comercio.transaccion", "comercio.checkout",
+    "comercio.catalogo", "comercio.publicaciones", "comercio.presencia",
+    "comercio.canales", "comercio.conexiones", "comercio.sync", "comercio.marketplaces",
+    "comercio.pagos", "comercio.logistica",
+    "comercio.campanas", "comercio.feeds", "comercio.automatizacion",
+    # Recogida en tienda / Click & Collect (modalidad de cumplimiento de Comercio Digital)
+    "pickup.preparar", "pickup.entregar", "pickup.cancelar",
+    # Canal Web (creación / publicación / administración de la tienda online)
+    "canal_web.ver", "canal_web.crear", "canal_web.administrar",
+    # Canal Web · Dominios (propio / subdominio / compra vía registradores)
+    "canal_web.dominios.ver", "canal_web.dominios.comprar", "canal_web.dominios.renovar",
+    "canal_web.dominios.transferir", "canal_web.dominios.administrar",
+    # Inteligencia empresarial (Etapa C) — Centro de Decisiones / IA transversal
+    "inteligencia.ver", "inteligencia.decidir", "inteligencia.admin",
+    # IA predictiva / ciclo de vida de modelos (Fase 6). ver=consultar previsiones; entrenar=recalcular;
+    # activar=activar un modelo validado; gestionar=administrar el registro/degradación.
+    "prediccion.ver", "prediccion.entrenar", "prediccion.activar", "prediccion.gestionar",
+    # MFA / Autenticación multifactor (Gobernanza — Fase 0). El factor es del usuario; la política es
+    # de la empresa (ver services/seguridad/mfa_politica.py). Reutiliza el motor TOTP existente (mfa.py).
+    "mfa.self.manage",     # configurar/activar/desactivar el MFA propio (según política)
+    "mfa.admin.enforce",   # imponer/cambiar la política MFA de la empresa
+    "mfa.admin.reset",     # resetear el MFA de otro usuario (recuperación)
+    "mfa.admin.disable",   # desactivar el MFA de otro usuario
+    "mfa.devices.manage",  # gestionar dispositivos/terminales de confianza (Fase 4)
+    "mfa.events.view",     # consultar los eventos de auditoría MFA
+    # ESL / Etiquetas electrónicas (precio dinámico en el lineal). Push MANUAL: el usuario ve las
+    # etiquetas pendientes y pulsa "sincronizar". Degradable (simulado sin gateway/credenciales).
+    "esl.ver",             # ver etiquetas electrónicas y su estado de sincronización
+    "esl.vincular",        # vincular/desvincular etiqueta ↔ artículo
+    "esl.sincronizar",     # empujar precios a las etiquetas (push manual) + localizar (parpadeo)
+    "esl.admin",           # configurar proveedor/credenciales del sistema ESL
+    # Precio dinámico (reglas por horario/stock/caducidad que recalculan el precio sobre precio_base).
+    "precio_dinamico.ver",        # ver reglas y previsualizar
+    "precio_dinamico.gestionar",  # crear/editar/eliminar reglas
+    "precio_dinamico.aplicar",    # ejecutar el recálculo de precios (aplicar reglas)
+    # Gestión de proyectos (Kanban/Gantt + rentabilidad por costes/horas).
+    "proyectos.ver",              # ver proyectos, tablero y rentabilidad
+    "proyectos.gestionar",        # crear/editar proyectos y tareas (mover en el tablero)
+    "proyectos.horas",            # imputar horas y costes al proyecto
+    # Banca online (open banking / PSD2): conexión bancaria en vivo → conciliación.
+    "banca.ver",                  # ver conexiones bancarias
+    "banca.conectar",             # configurar la conexión (proveedor/credenciales)
+    "banca.sincronizar",          # descargar movimientos e importarlos a conciliación
 ]
 
 # Roles del sistema (codigo → conjunto de permisos). SUPERADMIN es comodín (todo).
@@ -124,6 +171,31 @@ ROLES_SISTEMA = {
         "bi_corp.alertas", "bi_corp.export", "bi_corp.ia", "bi_corp.admin",
         "resiliencia.ver", "resiliencia.sync", "resiliencia.offline", "resiliencia.breakers",
         "resiliencia.watchdog", "resiliencia.chaos", "resiliencia.admin",
+        # Comercio Digital (C0.P1): el Gerente gobierna todo el dominio comercial.
+        "comercio.ver", "comercio.admin", "comercio.transaccion", "comercio.checkout",
+        "comercio.catalogo", "comercio.publicaciones", "comercio.presencia",
+        "comercio.canales", "comercio.conexiones", "comercio.sync", "comercio.marketplaces",
+        "comercio.pagos", "comercio.logistica",
+        "comercio.campanas", "comercio.feeds", "comercio.automatizacion",
+        "pickup.preparar", "pickup.entregar", "pickup.cancelar",
+        "canal_web.ver", "canal_web.crear", "canal_web.administrar",
+        "canal_web.dominios.ver", "canal_web.dominios.comprar", "canal_web.dominios.renovar",
+        "canal_web.dominios.transferir", "canal_web.dominios.administrar",
+        # Inteligencia (Etapa C): el Gerente ve y decide sobre las recomendaciones.
+        "inteligencia.ver", "inteligencia.decidir", "inteligencia.admin",
+        # IA predictiva (Fase 6): ver/entrenar/activar/gestionar modelos.
+        "prediccion.ver", "prediccion.entrenar", "prediccion.activar", "prediccion.gestionar",
+        # MFA: el Gerente gestiona su propio factor, ayuda a resetear a su personal, gestiona los
+        # dispositivos de confianza de sus terminales y consulta la auditoría MFA (no impone política).
+        "mfa.self.manage", "mfa.admin.reset", "mfa.devices.manage", "mfa.events.view",
+        # ESL / Etiquetas electrónicas: el Gerente gobierna todo (ver/vincular/sincronizar/configurar).
+        "esl.ver", "esl.vincular", "esl.sincronizar", "esl.admin",
+        # Precio dinámico: el Gerente define reglas y las aplica.
+        "precio_dinamico.ver", "precio_dinamico.gestionar", "precio_dinamico.aplicar",
+        # Proyectos: el Gerente gobierna proyectos, tablero, horas y costes.
+        "proyectos.ver", "proyectos.gestionar", "proyectos.horas",
+        # Banca online: el Gerente configura y sincroniza la conexión bancaria.
+        "banca.ver", "banca.conectar", "banca.sincronizar",
     ]},
     "OPERARIO": {"nombre": "Operario", "permisos": [
         "inventario.ver", "stock.consultar_desde_tpv",
@@ -131,6 +203,22 @@ ROLES_SISTEMA = {
         "clientes.ver", "compras.ver", "documentos.ver",
         "notificaciones.ver", "mensajeria.usar", "calendario.gestionar", "tareas.gestionar",
         "crm.ver", "crm.leads", "crm.actividades",
+        # Comercio Digital (C0.P1): operativa de venta (ver catálogo + checkout), sin administración.
+        "comercio.ver", "comercio.checkout",
+        # Recogida en tienda: el personal de tienda prepara y entrega (no cancela).
+        "pickup.preparar", "pickup.entregar",
+        # Canal Web: el operario VE el estado del canal y los dominios (no crea/compra/administra).
+        "canal_web.ver", "canal_web.dominios.ver",
+        # Inteligencia (Etapa C): el Operario puede VER recomendaciones (no decidir).
+        "inteligencia.ver",
+        # MFA: el Operario puede configurar/gestionar SU PROPIO segundo factor (según política).
+        "mfa.self.manage",
+        # ESL: el operario de tienda VE las etiquetas y puede SINCRONIZAR desde el lineal (no configura).
+        "esl.ver", "esl.sincronizar",
+        # Precio dinámico: el operario VE y puede EJECUTAR el recálculo (no define reglas).
+        "precio_dinamico.ver", "precio_dinamico.aplicar",
+        # Proyectos: el operario VE el tablero e imputa sus horas (no crea/edita proyectos).
+        "proyectos.ver", "proyectos.horas",
     ]},
 }
 

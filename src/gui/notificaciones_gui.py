@@ -9,7 +9,7 @@ import logging
 
 from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _combo, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_x, _combo, _tabla
 from src.services import notificaciones as _N
 
 logger = logging.getLogger("notificaciones.gui")
@@ -49,12 +49,13 @@ class NotificacionesWindow(QWidget):
         cab.addWidget(t); cab.addStretch()
         cab.addWidget(_btn("Actualizar", self._load))
         if callback_vuelta:
-            cab.addWidget(_btn("Volver", self._volver))
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
         bar = QHBoxLayout()
         self.cmb_prio = _combo([("(todas)", None), ("crítica", "critica"), ("alta", "alta"),
                                 ("normal", "normal"), ("baja", "baja")])
+        self.cmb_prio.setMinimumWidth(170)   # evita texto cortado en el desplegable
         self.cmb_prio.currentIndexChanged.connect(self._load)
         bar.addWidget(QLabel("Prioridad:")); bar.addWidget(self.cmb_prio)
         bar.addWidget(_btn("Marcar leída", self._leer))

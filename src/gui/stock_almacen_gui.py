@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QTableWidgetItem,
                              QVBoxLayout, QWidget)
 
 from src.db import stock_almacen as SA
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _combo, _inp, _tabla)
+from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo, _inp, _tabla)
 
 logger = logging.getLogger("inventario.stock_almacen.gui")
 
@@ -31,11 +31,11 @@ class StockAlmacenWindow(QWidget):
         root = QVBoxLayout(self)
 
         cab = QHBoxLayout()
-        t = QLabel("Stock por almacén")
+        t = QLabel("Stock almacén")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
         if callback_vuelta:
-            cab.addWidget(_btn("Volver", self._volver))
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
         f = QHBoxLayout()

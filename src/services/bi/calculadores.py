@@ -72,9 +72,10 @@ def compras(id_empresa, desde, hasta) -> dict:
 
 def inventario(id_empresa, desde, hasta) -> dict:
     out = {}
-    # Valor del inventario (Stock_total * precio) — aproximación desde articulos.
+    # Valor del inventario (Stock_total * precio) — aproximación desde articulos, aislado por empresa.
     out["inventario.valor"] = round(_scalar(
-        "SELECT COALESCE(SUM(Stock_total*COALESCE(precio,0)),0) FROM articulos", ()), 2)
+        "SELECT COALESCE(SUM(Stock_total*COALESCE(precio,0)),0) FROM articulos WHERE id_empresa=%s",
+        (id_empresa,)), 2)
     # Salidas por venta del periodo (rotación base) desde el kárdex.
     out["inventario.salidas"] = round(_scalar(
         "SELECT COALESCE(SUM(cantidad),0) FROM movimientos_stock WHERE id_empresa=%s "

@@ -70,6 +70,40 @@ class LectorZebraGateway:
         return True
 
     # ============================================================
+    # BLOQUE INVENTARIO / LOCALIZACIÓN (barrido y proximidad)
+    # ============================================================
+
+    def inventario_conteo(self):
+        """Barrido RFID: devuelve {codigo_articulo: unidades_detectadas} agregando todos los
+        tags leídos por las antenas. En modo simulado devuelve None (el servicio simula el
+        barrido); con hardware real se implementaría el Inventory + mapeo EPC→código."""
+        if self.modo_simulado:
+            return None
+        try:
+            resp = requests.get(f"http://{self.ip}/api/rfid/inventory", timeout=5)
+            if resp.status_code == 200:
+                # El firmware Zebra devuelve la lista de tags leídos; el mapeo EPC→código lo
+                # resuelve la integración concreta. Sin mapeo disponible → None (degradable).
+                return None
+        except Exception:
+            pass
+        return None
+
+    def leer_rssi(self, epc):
+        """Intensidad de señal (dBm) del tag `epc` para el rastreo por proximidad. None si no
+        hay hardware/lectura (el servicio simula la aproximación)."""
+        if self.modo_simulado:
+            return None
+        try:
+            resp = requests.get(f"http://{self.ip}/api/rfid/rssi",
+                                params={"epc": epc}, timeout=2)
+            if resp.status_code == 200:
+                return float(resp.json().get("rssi"))
+        except Exception:
+            pass
+        return None
+
+    # ============================================================
     # BLOQUE GENERACIÓN DE IDENTIFICADORES EPC
     # ============================================================
 

@@ -17,6 +17,7 @@ DEFAULTS = {
     "compra": "600", "iva_sop": "472", "proveedor": "400",
     "devolucion_venta": "708", "devolucion_compra": "608",
     "merma": "659", "existencias": "300",
+    "consumo_mp": "601",   # consumo de materia prima (obrador/producción) → Compras de materias primas
     "forma_pago:efectivo": "570", "forma_pago:tarjeta": "572",
     "forma_pago:transferencia": "572", "forma_pago:factura": "430",
     # Nómina (F4.5)
@@ -24,15 +25,52 @@ DEFAULTS = {
     "nomina_irpf": "4751", "nomina_liquido": "465",
 }
 
+# ── Gastos directos (suministros, servicios, dietas…) → cuenta de gasto PGC (grupo 62).
+# Entrada de gasto de un clic: cada tipo ya sabe a qué cuenta va y si por defecto lleva IVA.
+# (codigo, etiqueta, cuenta, lleva_iva_por_defecto)
+TIPOS_GASTO = [
+    ("luz",           "Luz / Electricidad",               "628", True),
+    ("agua",          "Agua",                             "628", True),
+    ("gas",           "Gas",                              "628", True),
+    ("internet",      "Internet / Teléfono",              "629", True),
+    ("alquiler",      "Alquiler / Arrendamiento",         "621", True),
+    ("reparaciones",  "Reparaciones / Mantenimiento",     "622", True),
+    ("transporte",    "Transporte / Mensajería",          "624", True),
+    ("dietas",        "Dietas / Viajes",                  "629", True),
+    ("profesionales", "Servicios profesionales",          "623", True),
+    ("seguros",       "Seguros",                          "625", False),
+    ("bancarios",     "Servicios / comisiones bancarias", "626", False),
+    ("publicidad",    "Publicidad / Marketing",           "627", True),
+    ("material",      "Material de oficina",              "629", True),
+    ("otros",         "Otros gastos",                     "629", True),
+]
+
+# Nombres PGC de las cuentas de gasto (para autocrearlas si la empresa se activó antes).
+CUENTAS_GASTO = {
+    "621": "Arrendamientos y cánones", "622": "Reparaciones y conservación",
+    "623": "Servicios de profesionales independientes", "624": "Transportes",
+    "625": "Primas de seguros", "626": "Servicios bancarios y similares",
+    "627": "Publicidad, propaganda y relaciones públicas", "628": "Suministros",
+    "629": "Otros servicios",
+}
+
+# Registra el mapeo por defecto de cada tipo de gasto (clave "gasto:<codigo>").
+DEFAULTS.update({f"gasto:{cod}": cta for cod, _et, cta, _iva in TIPOS_GASTO})
+
 
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v2 (Bloque III): resolución de empresa vía capa de identidad (Strangler).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.services.contabilidad.identidad_contabilidad import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return EMPRESA_DEFAULT_ID
 
 
 def cuenta(ambito, clave="", id_empresa=None) -> str | None:

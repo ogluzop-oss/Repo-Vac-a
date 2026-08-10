@@ -212,6 +212,12 @@ def crear_blueprint_api():
             metricas.actualizar_negocio()
         except Exception:
             pass
+        try:
+            # F1: publica gauges operacionales (Scheduler/Event Bus/Marketplace/SDK) en el mismo motor.
+            from src.services.observabilidad import operacional
+            operacional.recolectar()
+        except Exception:
+            pass
         return Response(metricas.render(), mimetype="text/plain; version=0.0.4")
 
     # ── Autenticación ─────────────────────────────────────────────────────────
@@ -310,25 +316,38 @@ def crear_blueprint_api():
         return jsonify({"categorias": C.listar_categorias(arbol=True, solo_visibles=False)})
 
     # ── Pedidos online (solo lectura) — A1.2 ──────────────────────────────────
+    # @deprecated (Fase 10 · PCD omnicanal): la superficie canónica es la Transacción Comercial
+    # (`/api/v1/commerce`). Estas rutas legacy se MANTIENEN por compatibilidad (Strangler) y se
+    # retirarán en un ciclo posterior, cuando no queden consumidores. No eliminar aún.
+    def _marcar_deprecado(resp):
+        resp.headers["Deprecation"] = "true"
+        resp.headers["Link"] = '</api/v1/commerce>; rel="successor-version"'
+        resp.headers["Warning"] = '299 - "Deprecated: usar /commerce (Transaccion Comercial)"'
+        return resp
+
     @bp.get("/pedidos")
     @token_requerido
     @requiere_permiso("ventas.ver")
     def api_pedidos():
+        """@deprecated (Fase 10): reemplazado por la superficie omnicanal /commerce. Se conserva por
+        compatibilidad hacia atrás (Strangler)."""
         from src.services.tpv import online_orders_service as OS
         estado = request.args.get("estado")
         peds = OS.listar_pedidos_online(estado=estado)   # filtrado por tenant activo
         datos = [_sanea_pedido(p) for p in peds]         # lista blanca de campos
-        return jsonify(_sin_secretos({"pedidos": datos, "total": len(datos)}))
+        return _marcar_deprecado(jsonify(_sin_secretos({"pedidos": datos, "total": len(datos)})))
 
     @bp.get("/pedidos/<pid>")
     @token_requerido
     @requiere_permiso("ventas.ver")
     def api_pedido(pid):
+        """@deprecated (Fase 10): reemplazado por /commerce (Transacción Comercial). Se conserva por
+        compatibilidad (Strangler)."""
         from src.services.tpv import online_orders_service as OS
         p = OS.obtener_pedido(pid)
         # Guard de tenant: solo se devuelve si pertenece al tenant del token.
         if not _pertenece_tenant(p):
             return _err("pedido no encontrado", 404)
-        return jsonify(_sin_secretos(_sanea_pedido(p)))
+        return _marcar_deprecado(jsonify(_sin_secretos(_sanea_pedido(p))))
 
     return bp

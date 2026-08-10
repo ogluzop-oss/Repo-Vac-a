@@ -111,6 +111,67 @@ def construir_datos_ticket(venta_id, fecha, id_caja, empleado, lineas, pago,
     }
 
 
+def ref_operacion(prefijo: str, id_empresa="", id_tienda="") -> str:
+    """Referencia ÚNICA de un ticket de operación de caja (trazabilidad). Formato
+    `PREF-AAAAMMDD-HHMMSS-mmm` (único a la milésima). No requiere tabla nueva."""
+    import datetime as _dt
+    ts = _dt.datetime.now()
+    return f"{(prefijo or 'OP').upper()}-{ts.strftime('%Y%m%d-%H%M%S')}-{ts.microsecond // 1000:03d}"
+
+
+def construir_datos_operacion(titulo, empleado, *, prefijo="OP", ticket_num=None,
+                              subtitulo=None, caja=None, fecha=None, secciones=None,
+                              denominaciones=None, total=None, firmas=None, pie=None) -> dict:
+    """Construye el dict del ticket de OPERACIÓN de caja (cierre diario, apertura/cierre de caja
+    fuerte y registradoras, movimiento, cambio de cajero) desde la fuente única corporativa
+    (empresa/tienda/logo). Lo consume ``impresion.generar_ticket_operacion_pdf``.
+
+    - `secciones`: [(titulo, [(clave, valor), …]), …] con los hechos económicos/detalles.
+    - `denominaciones`: [{denominacion, cantidad, subtotal}, …] del recuento de efectivo.
+    - `total`: (etiqueta, valor) para el bloque destacado, o None.
+    - `firmas`: [(etiqueta, valor|None), …] (p. ej. cajero saliente encima, responsable debajo).
+    """
+    import datetime as _dt
+
+    from src.utils import divisas
+
+    fecha = fecha or _dt.datetime.now()
+    empresa, tienda, id_empresa = {}, {}, ""
+    try:
+        from src.db.empresa import empresa_actual_id, info_documento
+        _i = info_documento()
+        empresa = {
+            "nombre": _i.get("nombre"), "nombre_comercial": _i.get("nombre_comercial"),
+            "cif": _i.get("cif"), "direccion_completa": _i.get("direccion_completa"),
+            "pais": _i.get("pais"), "telefono": _i.get("telefono"), "email": _i.get("email"),
+        }
+        tienda = {"nombre": _i.get("centro_nombre"), "codigo": _i.get("centro_codigo")}
+        id_empresa = empresa_actual_id() or ""
+    except Exception:
+        pass
+
+    if not ticket_num:
+        ticket_num = ref_operacion(prefijo, id_empresa, tienda.get("codigo") or "")
+
+    return {
+        "logo": _LOGO_CORP_PATH if os.path.exists(_LOGO_CORP_PATH) else None,
+        "empresa": empresa,
+        "tienda": tienda,
+        "titulo": titulo,
+        "subtitulo": subtitulo,
+        "operacion": {
+            "ticket_num": ticket_num, "empleado": empleado or "—", "caja": caja,
+            "fecha": fecha.strftime("%d/%m/%Y  %H:%M:%S"),
+        },
+        "secciones": secciones or [],
+        "denominaciones": denominaciones or [],
+        "total": total,
+        "firmas": firmas or [],
+        "pie": pie,
+        "moneda": divisas.divisa_actual(),
+    }
+
+
 def reimprimir_ticket(venta_id, regalo: bool = False) -> str | None:
     """Reconstruye y regenera el PDF de un ticket existente (marcado COPIA, o
     TICKET REGALO sin precios si regalo=True). Devuelve la ruta del PDF o None."""

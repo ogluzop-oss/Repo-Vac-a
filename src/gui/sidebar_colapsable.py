@@ -16,13 +16,16 @@ Uso:
 
 import logging
 
-from PyQt6.QtCore import QEvent, QObject, Qt
+from PyQt6.QtCore import QEasingCurve, QEvent, QObject, QPropertyAnimation, Qt
 from PyQt6.QtWidgets import QToolButton, QWidget
 
 logger = logging.getLogger("gui.sidebar_colapsable")
 
 _CIAN = "#22F4E6"
 _ANCHO_RAIL = 46
+# Ensanche universal: deja sitio al botón de colapso para que no tape el título
+# de la sidebar (se aplica a TODAS las sidebars que usan este helper).
+_EXTRA_ANCHO = 28
 
 
 class _Reposicionador(QObject):
@@ -65,13 +68,14 @@ def instalar_sidebar_colapsable(ventana, sidebar, *, usuario=None, clave=None, m
         ancho_orig = sidebar.maximumWidth()
         if ancho_orig <= 0 or ancho_orig > 2000:
             ancho_orig = sidebar.width() or sidebar.minimumWidth() or 260
+        # Ensanche universal para que el botón de colapso no tape el título.
+        ancho_orig += _EXTRA_ANCHO
 
         btn = QToolButton(sidebar)            # ¡hijo de la SIDEBAR, no de la ventana!
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn.setCheckable(True)
         btn.setFixedSize(34, 34)
-        btn.setToolTip("Ocultar / mostrar panel lateral")
         btn.setText("⮜")
         btn.setStyleSheet(
             "QToolButton{background:rgba(13,17,23,0.85);color:%s;border:2px solid %s;"
@@ -87,21 +91,37 @@ def instalar_sidebar_colapsable(ventana, sidebar, *, usuario=None, clave=None, m
             return [c for c in sidebar.findChildren(
                 QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly) if c is not btn]
 
-        def _aplicar(colapsado, persistir=True):
+        anim_holder = {"obj": None}
+
+        def _aplicar(colapsado, persistir=True, animar=True):
             estado["colapsado"] = bool(colapsado)
+            destino = _ANCHO_RAIL if colapsado else ancho_orig
+            btn.setChecked(colapsado)
+            btn.setText("☰" if colapsado else "⮜")
             try:
                 for c in _hijos_contenido():
                     c.setVisible(not colapsado)
-                sidebar.setFixedWidth(_ANCHO_RAIL if colapsado else ancho_orig)
+                if not animar:
+                    sidebar.setMinimumWidth(destino); sidebar.setMaximumWidth(destino)
+                    repos.reposicionar()
+                else:
+                    inicio = sidebar.width()
+                    anim = QPropertyAnimation(sidebar, b"maximumWidth")
+                    anim.setDuration(190)
+                    anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+                    anim.setStartValue(inicio); anim.setEndValue(destino)
+                    anim.valueChanged.connect(
+                        lambda v: (sidebar.setMinimumWidth(int(v)), repos.reposicionar()))
+                    anim.finished.connect(
+                        lambda: (sidebar.setMinimumWidth(destino),
+                                 sidebar.setMaximumWidth(destino), repos.reposicionar()))
+                    anim_holder["obj"] = anim  # evita el GC durante la animación
+                    anim.start()
             except Exception:
-                return
-            btn.setChecked(colapsado)
-            btn.setText("☰" if colapsado else "⮜")
-            btn.setToolTip("Mostrar panel lateral" if colapsado else "Ocultar panel lateral")
-            try:
-                repos.reposicionar()
-            except Exception:
-                pass
+                try:
+                    sidebar.setFixedWidth(destino)
+                except Exception:
+                    pass
             if persistir and id_usuario:
                 try:
                     from src.db import preferencias
@@ -121,7 +141,7 @@ def instalar_sidebar_colapsable(ventana, sidebar, *, usuario=None, clave=None, m
                 colapsado_ini = preferencias.obtener_bool(id_usuario, clave_pref, False)
             except Exception:
                 colapsado_ini = False
-        _aplicar(colapsado_ini, persistir=False)
+        _aplicar(colapsado_ini, persistir=False, animar=False)
 
         ventana._sidebar_toggle_btn = btn
         ventana._sidebar_toggle_repos = repos

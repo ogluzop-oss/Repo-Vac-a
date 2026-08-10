@@ -13,14 +13,19 @@ logger = logging.getLogger("fiscal.facturae.envios")
 
 
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v2 (Bloque III): resolución de empresa vía capa de identidad (Strangler).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.services.fiscal.identidad_fiscal import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        from src.db.conexion import EMPRESA_DEFAULT_ID
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            from src.db.conexion import EMPRESA_DEFAULT_ID
+            return EMPRESA_DEFAULT_ID
 
 
 def crear(venta_id, numero_factura, canal="face", version="3.2.2", id_empresa=None) -> int | None:

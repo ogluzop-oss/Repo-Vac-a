@@ -94,6 +94,20 @@ def tienda_actual_id():
     return _ctx.tienda_id
 
 
+def tienda_actual_id_int(valor=None) -> int:
+    """Id de tienda coaccionado a ENTERO para columnas `id_tienda INT`.
+
+    El contexto puede ser un código alfanumérico (p. ej. 'ALMC'); las columnas INT no lo
+    admiten. Devuelve el entero si es numérico, o 0 en caso contrario. No es conversión de
+    negocio: solo evita el DataError en columnas enteras (consistente en todo el sistema)."""
+    if valor is None:
+        valor = tienda_actual_id()
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return 0
+
+
 def set_empresa_actual(id_empresa: str):
     _ctx.empresa_id = id_empresa or EMPRESA_DEFAULT_ID
 

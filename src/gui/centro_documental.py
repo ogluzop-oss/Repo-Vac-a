@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
@@ -71,6 +72,7 @@ _CATEGORIAS = [
     ("certificado", "📜", "doc.tipo_certificado", "Certificados"),
     ("rrhh",        "👥", "doc.tipo_rrhh",        "RRHH"),
     ("auditoria",   "🔍", "doc.tipo_auditoria",   "Auditoría"),
+    ("grabacion",   "📹", "doc.tipo_grabacion",   "Grabaciones"),
     ("otros",       "🗃", "doc.tipo_otros",       "Otros"),
 ]
 
@@ -207,12 +209,13 @@ class _AccionesDelegate(QStyledItemDelegate):
 class CentroDocumentalWindow(QWidget):
     """Centro documental unificado de la empresa activa (todas si SUPERADMIN)."""
 
-    def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None, **_kw):
+    def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None,
+                 categoria_inicial="", **_kw):
         super().__init__(parent)
         self._volver = callback_vuelta
         self._main = main
         self.usuario = usuario
-        self._tipo_sel = ""              # categoría activa ("" = todos)
+        self._tipo_sel = categoria_inicial or ""   # categoría activa ("" = todos)
         self._cat_btns = {}
         self._docs = []                  # filas mostradas (para resolver acciones)
         self._emp_map = {}
@@ -254,50 +257,62 @@ class CentroDocumentalWindow(QWidget):
                                    f"font-size:14px;background:transparent;")
         cab.addWidget(self.lbl_ctx)
         cab.addStretch()
-        if self._volver:
-            bvol = QPushButton(tr("doc.volver", default="VOLVER AL MENÚ"))
-            bvol.setCursor(Qt.CursorShape.PointingHandCursor); bvol.setFixedHeight(38)
-            bvol.setStyleSheet(
-                f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};"
-                f"border-radius:9px;font-weight:900;padding:0 18px;}}"
-                f"QPushButton:hover{{background:{_CIAN};color:{_BG};}}")
-            bvol.clicked.connect(self._volver_menu)
-            cab.addWidget(bvol)
         return cab
 
     def _build_sidebar(self) -> QWidget:
         # Sidebar al estilo del resto de la app: riel oscuro + border-right, sin
         # tarjeta redondeada; botones gris→blanco al pasar; activo en cian.
-        wrap = QFrame(); wrap.setObjectName("sideWrap"); wrap.setFixedWidth(250); self.sidebar = wrap  # P3
+        wrap = QFrame(); wrap.setObjectName("sideWrap"); wrap.setFixedWidth(280); self.sidebar = wrap  # P3
         wrap.setStyleSheet(f"QFrame#sideWrap{{background:{_SIDEBAR};border:none;"
                            f"border-right:1px solid {_BORDE};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
-        cab = QLabel(tr("doc.categorias", default="CATEGORÍAS"))
+        cab = QLabel(tr("doc.categorias", default="SMART DOCUMENTS"))
         cab.setStyleSheet("color:#FFFFFF;font-family:'Segoe UI';font-weight:900;"
-                          "font-size:13px;letter-spacing:1.5px;background:transparent;"
-                          "border:none;padding:0 0 16px 28px;")
+                          "font-size:16px;letter-spacing:2px;background:transparent;"
+                          "border:none;padding:0 0 24px 28px;")
         lay.addWidget(cab)
+        # Lista de categorías con scroll (scrollbar con el estilo global de la app).
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background:transparent;border:none;")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        cont = QWidget(); cont.setStyleSheet("background:transparent;")
+        clay = QVBoxLayout(cont); clay.setContentsMargins(0, 0, 0, 0); clay.setSpacing(2)
         for tipo, icono, clave, defecto in _CATEGORIAS:
-            b = QPushButton(f"  {icono}   {tr(clave, default=defecto)}")
+            b = QPushButton(f"   {tr(clave, default=defecto)}")   # sin icono
             b.setObjectName("btn_sidebar")
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setCheckable(True); b.setFixedHeight(42)
+            b.setCheckable(True); b.setFixedHeight(52)
             b.clicked.connect(lambda _c, t=tipo: self._seleccionar_categoria(t))
             self._cat_btns[tipo] = b
-            lay.addWidget(b)
-        lay.addStretch()
+            clay.addWidget(b)
+        clay.addStretch()
+        scroll.setWidget(cont)
+        lay.addWidget(scroll, 1)
+        # Botón SALIR AL MENÚ (rojo) al fondo, como el resto de sidebars de la app.
+        if self._volver:
+            self._btn_salir = bsalir = QPushButton(tr("doc.volver", default="SALIR AL MENÚ"))
+            bsalir.setObjectName("btn_sidebar_exit")
+            bsalir.setCursor(Qt.CursorShape.PointingHandCursor)
+            bsalir.setFixedHeight(52)   # misma altura que las categorías
+            bsalir.setStyleSheet(
+                "QPushButton{background:transparent;color:#F85149;border:none;"
+                "border-left:4px solid transparent;border-radius:0px;font-size:12px;"
+                "font-family:'Segoe UI';font-weight:900;text-align:left;padding-left:28px;}"
+                "QPushButton:hover{background:#F85149;color:#0E1117;}")
+            bsalir.clicked.connect(self._volver_menu)
+            lay.addWidget(bsalir)
         self._estilar_categorias()
         return wrap
 
     _SS_CAT = (
-        "QPushButton{{background:transparent;color:#8B949E;text-align:left;"
-        "padding:6px 8px 6px 24px;border:none;border-radius:0px;font-family:'Segoe UI';"
-        "font-weight:900;font-size:14px;letter-spacing:0.5px;}}"
+        "QPushButton{{background:transparent;color:#FFFFFF;text-align:left;"
+        "padding:6px 8px 6px 24px;border:none;border-left:4px solid transparent;border-radius:0px;"
+        "font-family:'Segoe UI';font-weight:900;font-size:14px;letter-spacing:0.5px;}}"
         "QPushButton:hover{{background:#FFFFFF;color:{sb};}}")
     _SS_CAT_ACT = (
-        "QPushButton{{background:{ci};color:{bg};text-align:left;"
-        "padding:6px 8px 6px 24px;border:none;border-radius:0px;font-family:'Segoe UI';"
-        "font-weight:900;font-size:14px;letter-spacing:0.5px;}}")
+        "QPushButton{{background:#1A2230;color:{ci};text-align:left;"
+        "padding:6px 8px 6px 24px;border:none;border-left:4px solid {ci};border-radius:0px;"
+        "font-family:'Segoe UI';font-weight:900;font-size:14px;letter-spacing:0.5px;}}")
 
     def _estilar_categorias(self):
         inact = self._SS_CAT.format(sb=_SIDEBAR)
@@ -317,8 +332,8 @@ class CentroDocumentalWindow(QWidget):
                                        default="Buscar: referencia, hash, cliente, trabajador, importe…"))
         self.inp_buscar.returnPressed.connect(self._refrescar)
         f1.addWidget(self.inp_buscar, 1)
-        b_buscar = self._btn(tr("doc.buscar", default="BUSCAR"), self._refrescar, primary=True)
-        b_limpiar = self._btn(tr("doc.limpiar", default="LIMPIAR"), self._limpiar)
+        b_buscar = self._btn("🔍", self._refrescar, primary=True)
+        b_limpiar = self._btn(tr("doc.vaciar_pestana", default="VACIAR PESTAÑA"), self._limpiar, danger=True)
         f1.addWidget(b_buscar); f1.addWidget(b_limpiar)
         col.addLayout(f1)
 
@@ -445,6 +460,7 @@ class CentroDocumentalWindow(QWidget):
         self._emp_map = _mapa_empresas()
         self._tienda_map = _mapa_tiendas()
         self._actualizar_ctx_label()
+        self._estilar_categorias()   # refleja la categoría inicial (si se abrió en una concreta)
         self._refrescar()
         # 2) Reconciliar la carpeta después del primer pintado (en lote, rápido) y
         #    refrescar solo si aparecen documentos nuevos.
@@ -485,15 +501,44 @@ class CentroDocumentalWindow(QWidget):
         self._refrescar()
 
     def _limpiar(self):
-        for w in (self.inp_buscar, self.inp_cliente, self.inp_trab, self.inp_ref):
-            w.clear()
-        from PyQt6.QtCore import QDate
-        hoy = QDate.currentDate()
-        self.f_desde.setDate(hoy.addYears(-3))
-        self.f_hasta.setDate(hoy)
-        self._tipo_sel = ""
-        self._estilar_categorias()
+        """BORRA todos los documentos de la categoría (pestaña) seleccionada, con confirmación explícita.
+        Solo administradores (como la eliminación individual). Acción destructiva e irreversible."""
+        if not sesion_global.es_admin():
+            self._aviso(tr("doc.limpiar", default="LIMPIAR"),
+                        tr("doc.solo_admin", default="Solo un administrador puede borrar documentos."),
+                        nivel="warning")
+            return
+        cat = next((defecto for tipo, _i, _c, defecto in _CATEGORIAS if tipo == self._tipo_sel), "Todos")
+        docs = doc_db.listar_documentos(
+            tipo=self._tipo_sel or None, id_empresa=self._empresa_filtro(), limite=100000) or []
+        n = len(docs)
+        if n == 0:
+            self._aviso(tr("doc.limpiar", default="LIMPIAR"),
+                        tr("doc.nada_borrar", default="No hay documentos que borrar en «{c}».", c=cat),
+                        nivel="info")
+            return
+        ok = True
+        if mostrar_confirmacion is not None:
+            ok = mostrar_confirmacion(
+                self, tr("doc.borrar_cat_t", default="Borrar documentos"),
+                tr("doc.borrar_cat_msg",
+                   default="¿Seguro que quieres BORRAR los {n} documento(s) de «{c}»?\n"
+                           "Esta acción NO se puede deshacer.", n=n, c=cat))
+        if not ok:
+            return
+        borrados = 0
+        for d in docs:
+            try:
+                # borrar_fichero=True → borra también el fichero del disco; si no, la reconciliación de la
+                # carpeta (`reconciliar_carpeta`) los volvería a registrar al reentrar en Documentos.
+                if doc_db.eliminar_documento(d.get("id_documento"), borrar_fichero=True):
+                    borrados += 1
+            except Exception:
+                pass
         self._refrescar()
+        self._aviso(tr("doc.borrar_cat_t", default="Borrar documentos"),
+                    tr("doc.borrar_cat_ok", default="Borrados {b} de {n} documento(s) de «{c}».",
+                       b=borrados, n=n, c=cat), nivel="success")
 
     @staticmethod
     def _fmt_fecha(val):
@@ -590,12 +635,40 @@ class CentroDocumentalWindow(QWidget):
 
     def _ruta_existente(self, d):
         ruta = d.get("ruta") or ""
-        if not ruta or not os.path.exists(ruta):
-            self._aviso(tr("doc.no_encontrado_t", default="Documento no encontrado"),
-                        tr("doc.no_encontrado", default="El fichero ya no existe en disco."),
-                        nivel="error")
+        if ruta and os.path.exists(ruta):
+            return ruta                        # DEV/local: fichero presente → sin cambios
+        # Fase 12 (H1): en filesystem efímero (Fargate/S3) el fichero local puede no existir → se materializa
+        # desde el StorageProvider (tenant + RBAC), a un temporal, para abrir/imprimir/compartir a nivel de SO.
+        mat = self._materializar_desde_storage(d)
+        if mat:
+            return mat
+        self._aviso(tr("doc.no_encontrado_t", default="Documento no encontrado"),
+                    tr("doc.no_encontrado", default="El fichero ya no existe en disco."),
+                    nivel="error")
+        return None
+
+    def _materializar_desde_storage(self, d):
+        """Descarga el documento desde el StorageProvider a un temporal seguro (tenant-aware). None si no
+        procede/falla. Reutiliza la capa segura `storage.documentos.abrir_documento` (no accede a S3 aquí)."""
+        try:
+            import tempfile
+
+            from src.db.empresa import empresa_actual_id
+            from src.services.storage.documentos import abrir_documento
+            id_doc = d.get("id_documento")
+            if not id_doc:
+                return None
+            r = abrir_documento(id_doc, id_empresa=empresa_actual_id(),
+                                usuario=getattr(self, "usuario", None))
+            if not r.get("ok") or not r.get("datos"):
+                return None
+            ext = os.path.splitext(d.get("nombre") or "doc.pdf")[1] or ".pdf"
+            fd, tmp = tempfile.mkstemp(prefix="smdoc_", suffix=ext)
+            with os.fdopen(fd, "wb") as f:
+                f.write(r["datos"])
+            return tmp
+        except Exception:
             return None
-        return ruta
 
     def _ver(self, d):
         ruta = self._ruta_existente(d)

@@ -1,0 +1,17 @@
+# Copia a un fichero por entorno (environments/<env>.tfvars) y ajusta. NUNCA pongas secretos aquí.
+# Todos los enable_* en false → `apply` no crea nada. Activa por capas cuando el propietario lo decida.
+
+aws_region  = "eu-west-1"   # [EXTERNO]
+environment = "dev"
+project     = "smart-manager"
+
+enable_network       = false
+enable_rds           = false
+enable_s3            = false
+enable_secrets       = false
+enable_observability = false
+enable_ecs           = false
+enable_ci_oidc       = false
+
+github_org  = "<github-org>"   # [EXTERNO] para OIDC
+github_repo = "<github-repo>"  # [EXTERNO]

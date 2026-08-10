@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from assets.estilo_global import mostrar_mensaje
+from assets.estilo_global import instalar_corner_cover, mostrar_mensaje
 from src.db.conexion import obtener_conexion
 from src.utils import divisas, i18n
 from src.utils.i18n import tr
@@ -76,16 +76,18 @@ QLabel  {{ color: {TEXTO}; background: transparent; }}
 _SS_SIDEBAR_BTN = f"""
 QPushButton {{
     background: transparent;
-    color: #8B949E;
+    color: #FFFFFF;
     text-align: left;
-    padding: 6px 8px 6px 28px;
+    padding: 6px 8px 6px 24px;
     border: none;
+    border-left: 4px solid transparent;
     border-radius: 0px;
     font-family: 'Segoe UI';
     font-size: 12px;
     font-weight: 900;
     letter-spacing: 0.5px;
     margin: 0px;
+    outline: none;
 }}
 QPushButton:hover {{
     background: #FFFFFF;
@@ -95,17 +97,19 @@ QPushButton:hover {{
 
 _SS_SIDEBAR_BTN_ACTIVE = f"""
 QPushButton {{
-    background: {CIAN};
-    color: {BG};
+    background: #1A2230;
+    color: {CIAN};
     text-align: left;
-    padding: 6px 8px 6px 28px;
+    padding: 6px 8px 6px 24px;
     border: none;
+    border-left: 4px solid {CIAN};
     border-radius: 0px;
     font-family: 'Segoe UI';
     font-size: 12px;
     font-weight: 900;
     letter-spacing: 0.5px;
     margin: 0px;
+    outline: none;
 }}
 """
 
@@ -304,16 +308,28 @@ QHeaderView::section {{
     text-align: center;
 }}
 QHeaderView::section:first {{
-    border-top-left-radius: 7px;
+    border-top-left-radius: 8px;
 }}
 QHeaderView::section:last {{
-    border-top-right-radius: 7px;
+    border-top-right-radius: 8px;
 }}
 QHeaderView::section:hover {{
     background: {CIAN};
     color: {BG};
 }}
 QTableWidget::item {{ padding: 6px; }}
+QScrollBar:vertical {{
+    background: transparent;
+    width: 16px;
+    margin: 16px 3px 16px 3px;
+}}
+QScrollBar::handle:vertical {{
+    background: {CIAN};
+    border-radius: 5px;
+    min-height: 30px;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; width: 0; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
 """
 
 
@@ -725,6 +741,22 @@ class _VentasCalendarWidget(QCalendarWidget):
                 pass
             setattr(self, attr_name, None)
 
+    def _posicionar_popup_en_pantalla(self, popup, btn):
+        """Coloca el popup bajo el botón, pero CLAMP a la pantalla: si se saldría por la
+        derecha se desplaza a la izquierda; si no cabe abajo, se abre hacia arriba."""
+        pos = btn.mapToGlobal(btn.rect().bottomLeft())
+        x, y = pos.x(), pos.y()
+        try:
+            from PyQt6.QtWidgets import QApplication
+            scr = QApplication.screenAt(pos) or QApplication.primaryScreen()
+            av = scr.availableGeometry()
+            x = max(av.left() + 6, min(x, av.right() - popup.width() - 6))
+            if y + popup.height() > av.bottom():
+                y = btn.mapToGlobal(btn.rect().topLeft()).y() - popup.height()
+        except Exception:
+            pass
+        popup.move(x, y)
+
     def _open_month_popup(self):
         self._close_popup("_year_popup")
         self._close_popup("_month_popup")
@@ -792,7 +824,7 @@ class _VentasCalendarWidget(QCalendarWidget):
         outer.setSpacing(0)
         outer.addWidget(inner)
         popup.setFixedSize(inner.sizeHint().width(), inner.sizeHint().height())
-        popup.move(self._month_btn.mapToGlobal(self._month_btn.rect().bottomLeft()))
+        self._posicionar_popup_en_pantalla(popup, self._month_btn)
         popup.show()
         popup.raise_()
         self._month_popup = popup
@@ -885,7 +917,7 @@ class _VentasCalendarWidget(QCalendarWidget):
         outer_ly.setSpacing(0)
         outer_ly.addWidget(inner)
         popup.setFixedSize(inner.sizeHint().width(), inner.sizeHint().height())
-        popup.move(self._year_btn.mapToGlobal(self._year_btn.rect().bottomLeft()))
+        self._posicionar_popup_en_pantalla(popup, self._year_btn)
         popup.show()
         popup.raise_()
         self._year_popup = popup
@@ -989,17 +1021,25 @@ class _RoundTableCorners(QObject):
     def __init__(self, table, radius=8):
         super().__init__(table)
         self._r = radius
+        self._table = table
         table.installEventFilter(self)
+        # También la cabecera: el QSS no redondea de forma fiable sus esquinas
+        # superiores → sin esto se ve un pequeño corte arriba a izquierda/derecha.
+        table.horizontalHeader().installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show) and obj.width() > 0:
             from PyQt6.QtCore import QRect
+            if obj is self._table:
+                rect = QRect(0, 0, obj.width(), obj.height())
+            else:  # cabecera: redondea solo arriba (extiende el rect por abajo)
+                rect = QRect(0, 0, obj.width(), obj.height() + self._r)
             bmp = QBitmap(obj.size())
             bmp.fill(Qt.GlobalColor.color0)
             p = QPainter(bmp)
             p.setBrush(Qt.GlobalColor.color1)
             p.setPen(Qt.PenStyle.NoPen)
-            p.drawRoundedRect(QRect(0, 0, obj.width(), obj.height()), self._r, self._r)
+            p.drawRoundedRect(rect, self._r, self._r)
             p.end()
             obj.setMask(QRegion(bmp))
         return False
@@ -1341,6 +1381,7 @@ def _date_neon(val: QDate = None):
     de.setDisplayFormat("dd/MM/yyyy")
     de.setStyleSheet(_SS_NEON_INPUT)
     de.setFixedHeight(34)
+    de.setMinimumWidth(135)   # el triángulo no se solapa con la fecha
     return de
 
 
@@ -2283,7 +2324,7 @@ class VentasAnaliticaWindow(QWidget):
         row_d = QHBoxLayout(); row_d.setSpacing(6)
         self.res_fecha_desde = _date_neon(hoy.addDays(-30))
         self.res_fecha_hasta = _date_neon(hoy)
-        for txt, w in ((tr("vta.lbl_date_from", default="Fecha desde"), self.res_fecha_desde), (tr("vta.lbl_date_to", default="Fecha hasta"), self.res_fecha_hasta)):
+        for txt, w in ((tr("vta.lbl_date_from", default="Fecha Inicio"), self.res_fecha_desde), (tr("vta.lbl_date_to", default="Fecha Fin"), self.res_fecha_hasta)):
             lbl = _filter_lbl(txt)
             lbl.setFixedWidth(85)
             lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -2790,7 +2831,11 @@ class VentasAnaliticaWindow(QWidget):
         _hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)   # resto equitativo
         _hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # "Día" a la mitad
         t.setColumnWidth(0, 55)
-        _RoundTableCorners(t)   # redondea las 4 esquinas (contorno neón continuo)
+        # Esquinas limpias (como Documentos): overlay que repinta esquinas + contorno.
+        if instalar_corner_cover is not None:
+            instalar_corner_cover(t, 8, bg=BG)
+        else:
+            _RoundTableCorners(t)
         self.tbl_rend = t
         root.addLayout(self._rend_acciones_row())   # imprimir / compartir
         root.addWidget(t, 1)

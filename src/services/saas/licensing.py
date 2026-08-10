@@ -120,10 +120,14 @@ def limite_disponible(recurso, id_empresa=None) -> dict:
     return {"limite": limite, "usado": usado, "disponible": max(0, limite - usado), "ok": usado < limite}
 
 
-def validar_operacion(*, modulo=None, recurso=None, id_empresa=None) -> bool:
-    """Valida módulo y/o límite antes de una operación restringida. Lanza LicenciaError si no
-    procede. Sin licencia (legacy) → siempre permite."""
+def validar_operacion(*, modulo=None, recurso=None, capability=None, id_empresa=None) -> bool:
+    """Valida módulo, límite y/o CAPABILITY (Fase 16) antes de una operación restringida. Lanza LicenciaError
+    si no procede. Sin licencia (legacy) → siempre permite. La `capability` delega en el resolver central de
+    entitlements (fuente única de capacidades/cuotas)."""
     id_empresa = _emp(id_empresa)
+    if capability:
+        from src.services.saas import entitlements
+        entitlements.require(capability, id_empresa=id_empresa)     # LicenciaError si no procede
     if licencia_activa(id_empresa) is None:
         return True
     if modulo and not modulo_habilitado(modulo, id_empresa):
@@ -133,6 +137,19 @@ def validar_operacion(*, modulo=None, recurso=None, id_empresa=None) -> bool:
         if not info["ok"]:
             raise LicenciaError(f"Límite del plan alcanzado: {recurso} ({info['usado']}/{info['limite']})")
     return True
+
+
+# ── Fase 16: fachada de capacidades/cuotas (delega en el resolver central de entitlements) ──
+def capability_habilitada(capability, id_empresa=None) -> bool:
+    """¿Está la capacidad disponible para el tenant según su plan? (booleana o cuota con hueco)."""
+    from src.services.saas import entitlements
+    return entitlements.has(capability, id_empresa=id_empresa)
+
+
+def estado_cuota(capability, id_empresa=None) -> dict:
+    """Estado de una cuota (OK/AT_LIMIT/OVER_LIMIT) sin destruir datos. Ver entitlements.estado_cuota."""
+    from src.services.saas import entitlements
+    return entitlements.estado_cuota(capability, id_empresa=id_empresa)
 
 
 def _evento(id_empresa, evento, detalle):

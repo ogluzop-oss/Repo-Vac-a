@@ -40,10 +40,14 @@ ESTADO_ERROR      = "error"
 # La wake word "Ey SOMA" es UNIVERSAL, pero cada idioma activo cambia el locale de
 # Google STT, que transcribe el "Ey" con su fonética: ES "ey/el/e", PL "ej/hej",
 # DE/EN "hey/hi", etc. Incluimos esas variantes para que la wake funcione en los 20.
+#   NOTA (anti-falsos-positivos): se retiraron los prefijos de UNA sola letra ("A", "E") porque,
+#   combinados con un nombre-laxo, disparaban a SOMA en habla normal ("a solas", "e sopa"...). El
+#   "Ey SOMA" mal transcrito como "E SOMA"/"EL SOMA" sigue detectándose por la Forma 2 (SOMA a secas),
+#   así que no se pierde cobertura real.
 _PREFIJOS = ("EY", "HEY", "OYE", "EI", "OK", "HOLA", "VALE", "OYES", "EH",
-             "EL", "E", "EX",
+             "EL", "EX",
              "EJ", "HEJ", "AJ", "HAJ", "OJ", "AY", "HI", "HE", "AH", "HA",
-             "HALO", "HALLO", "OLA", "ECO", "A",
+             "HALO", "HALLO", "OLA", "ECO",
              "ARE", "ARRE", "HII", "HEE", "AE", "AI", "EE")
 
 # STRICT name set: a bare token equal to one of these counts as the wake word
@@ -55,23 +59,32 @@ _NOMBRE_ESTRICTO = frozenset((
 # LOOSE name set: common mis-transcriptions of "SOMA". Only accepted when
 # immediately preceded by a greeting prefix (so "Ey zona" wakes, but a bare
 # "toma"/"suma"/"coma"/"zona" said during normal work does NOT).
+#   NOTA (anti-falsos-positivos): se retiraron las palabras españolas COMUNES que además son homófonas
+#   de "SOMA" (toma, coma, goma, roma, sola, sopa, suma, sonia, sumo) y los fragmentos de DOS letras
+#   (so, zo, sa, za). Eran la causa de que "oye toma esto", "ok roma" o "hola sonia" activaran a SOMA en
+#   una conversación normal. Se conservan las variantes que NO son palabras cotidianas pero sí
+#   mal-transcripciones plausibles de "SOMA" (somo, sona, esoma, samo, zoma...) y las fonéticas de otros
+#   idiomas de 3+ letras. La wake real "Ey SOMA" se sigue detectando por la Forma 2 (SOMA a secas) y por
+#   estas variantes; se prioriza NO molestar durante el habla frente a captar una wake dudosa.
 _NOMBRE_LAXO = frozenset((
-    "ZONA", "GOMA", "TOMA", "COMA", "SUMA", "SOPA", "SOMO",
-    "SONA", "SONIA", "ROMA", "SOLA", "ESOMA", "SOBA",
+    "ZONA", "SOMO", "SONA", "ESOMA", "SOBA",
     # Fragmentos reales en los que Google parte "SOMA" al transcribir "Ey SOMA":
-    # "EL SO", "HEY SO", "E HIZO", "E ISO"... Solo cuentan precedidos de prefijo,
-    # así que un "so"/"hizo" sueltos en una frase normal NO activan a SOMA.
-    "SO", "HIZO", "ISO", "HISO", "SOMABA", "SOMI",
-    # Fonéticas de "SOMA" en otros idiomas (p. ej. polaco: "ej SAMA", "hej ZO").
-    "SAMA", "ZAMA", "ZOMA", "ZOMO", "ZO", "SA", "ZA", "SOM", "ZOM",
-    "SAM", "ZAM", "SAMO", "ZAMO", "SUMO",
+    # "E HIZO", "E ISO"... Solo cuentan precedidos de prefijo, así que un "hizo"/"iso"
+    # suelto en una frase normal NO activa a SOMA.
+    "HIZO", "ISO", "HISO", "SOMABA", "SOMI",
+    # Fonéticas de "SOMA" en otros idiomas (p. ej. polaco: "ej SAMA"); solo formas de 3+ letras.
+    "SAMA", "ZAMA", "ZOMA", "ZOMO", "SOM", "ZOM",
+    "SAM", "ZAM", "SAMO", "ZAMO",
 ))
 # Formas-objetivo de "SOMA" para el fuzzy multiidioma.
 _NOMBRE_OBJETIVOS = ("SOMA", "SOMMA", "SAMA", "ZOMA", "ZAMA", "SOMO", "ZOMO")
 # Strict fuzzy threshold vs "SOMA"/"SOMMA" only (SOMMA=0.80, SUMA=0.75<thr).
 _FUZZY_ESTRICTO = 0.80
-# Umbral más laxo (solo válido tras un prefijo) para fonéticas de otros idiomas.
-_FUZZY_LAXO = 0.60
+# Umbral laxo (solo válido tras un prefijo) para fonéticas de otros idiomas. Ajustado a 0.70: lo bastante
+# permisivo para captar más mal-oídos reales de "SOMA" (sensibilidad pedida por el usuario) pero, junto a
+# la GUARDA DE ONSET /s/ (S/Z), sigue descartando los homófonos comunes que empiezan por otra consonante
+# (toma/coma/roma/goma → T/C/R/G, imposibles de casar). El compromiso prioriza oír la wake.
+_FUZZY_LAXO = 0.70
 
 
 # Seconds to wait, after a bare wake word, for SOMA's greeting to finish
@@ -109,7 +122,9 @@ def _skel(tok: str) -> str:
     return "".join(c for c in tok if c.isalpha() and c not in _VOCALES and c != "H")
 
 
-_SKEL_SOMA = {"SM", "ZM", "SMM", "ZMM", "XM", "CM"}
+# Esqueletos aceptados: SOLO onset /s/ (S/Z). Se retiraron "XM"/"CM" (onset dura c/x) porque casaban
+# "coma"/"cima" con SOMA. Un mal-oído real de "SOMA" empieza siempre por sonido /s/.
+_SKEL_SOMA = {"SM", "ZM", "SMM", "ZMM"}
 
 # Fonética de "SOMA" tras romanizar CUALQUIER alfabeto (universal). Exige:
 # onset S/Z, una "H" opcional (pinyin chino "sh"), un grupo vocálico con AL MENOS
@@ -139,7 +154,12 @@ def _es_soma_laxo(tok: str) -> bool:
         return False
     if _es_soma_estricto(tok) or tok in _NOMBRE_LAXO:
         return True
-    if tok[:1] in ("S", "Z", "X", "C") and _skel(tok) in _SKEL_SOMA:
+    # GUARDA DE ONSET: solo consideramos parecidos que empiecen por sonido /s/ (S/Z), el ataque real de
+    # "SOMA"/"ZOMA". Así el difuso ya NO casa "toma/coma/roma/goma" (T/C/R/G comparten "OMA" y daban
+    # ratio 0.75), que eran los que activaban a SOMA en conversación normal. Mantiene sona/somo/sama.
+    if tok[:1] not in ("S", "Z"):
+        return False
+    if _skel(tok) in _SKEL_SOMA:
         return True
     best = max(difflib.SequenceMatcher(None, tok, v).ratio() for v in _NOMBRE_OBJETIVOS)
     return best >= _FUZZY_LAXO
@@ -185,9 +205,12 @@ class SomaWorker(QObject):
     # Banda algo más sensible que antes: el síntoma "no responde a Ey SOMA" suele
     # deberse a un umbral demasiado alto que no captura voz normal. Bajamos el mínimo
     # y la base (siguen MUY por encima del valor 49 que provocaba disparos por ruido).
-    _ENERGY_MIN  = 130
-    _ENERGY_MAX  = 600
-    _ENERGY_BASE = 230
+    # Banda MÁS SENSIBLE (petición de usuario: SOMA no oía la wake). Bajamos el mínimo y la base para
+    # capturar voz normal/baja, y bajamos el máximo para que el umbral dinámico no trepe tanto en salas
+    # con algo de ruido y deje de oír la voz. Sigue muy por encima del valor 49 que disparaba por ruido.
+    _ENERGY_MIN  = 80
+    _ENERGY_MAX  = 500
+    _ENERGY_BASE = 140
 
     def _clamp_threshold(self, rec):
         try:

@@ -26,9 +26,11 @@ class InventarioError(Exception):
 
 def _tenant(id_empresa=None, id_tienda=None):
     try:
-        from src.db.empresa import empresa_actual_id, tienda_actual_id
+        # `id_tienda` es una columna INT: se coacciona con tienda_actual_id_int (el contexto puede
+        # ser un código alfanumérico como 'ALMC', que rompería el INSERT con error 1366).
+        from src.db.empresa import empresa_actual_id, tienda_actual_id_int
         return (id_empresa or empresa_actual_id(),
-                id_tienda if id_tienda is not None else tienda_actual_id())
+                id_tienda if id_tienda is not None else tienda_actual_id_int())
     except Exception:
         from src.db.conexion import EMPRESA_DEFAULT_ID
         return (id_empresa or EMPRESA_DEFAULT_ID), id_tienda
@@ -138,6 +140,52 @@ def registrar_recuento(id_inv, codigo, contado, observaciones=None, id_empresa=N
     except Exception as e:
         logger.error("registrar_recuento(%s,%s): %s", id_inv, codigo, e)
         return False
+
+
+def registrar_recuentos_masivo(id_inv, items, id_empresa=None) -> int:
+    """Registra en UNA sola transacción el recuento de varios artículos (p. ej. un barrido RFID).
+    `items` = iterable de (codigo, contado, observaciones). Mismos criterios que
+    `registrar_recuento` (esperado por almacén o agregado, diferencia = contado − esperado).
+    Los artículos inexistentes en la empresa (tags ajenos) se ignoran. Devuelve nº registrados."""
+    id_empresa, _ = _tenant(id_empresa)
+    registrados = 0
+    try:
+        with transaccion() as conn, conn.cursor() as cur:
+            cab = _cabecera(cur, id_inv, id_empresa)
+            if not cab:
+                raise InventarioError("Inventario no encontrado.")
+            if cab["estado"] not in _EDITABLES:
+                raise InventarioError(f"Inventario '{cab['estado']}' no editable.")
+            id_almacen = cab.get("id_almacen")
+            for codigo, contado, obs in items:
+                st = _stock_actual(cur, codigo, id_empresa)
+                if st is None:
+                    continue  # tag ajeno / artículo inexistente → se ignora
+                if id_almacen:
+                    cur.execute("SELECT COALESCE(cantidad,0) FROM stock_almacen WHERE id_empresa=%s "
+                                "AND id_almacen=%s AND codigo_articulo=%s",
+                                (id_empresa, id_almacen, codigo))
+                    rr = cur.fetchone()
+                    esperado = int((rr[0] if not isinstance(rr, dict) else list(rr.values())[0]) or 0) if rr else 0
+                else:
+                    esperado = st[0]
+                contado = int(contado)
+                diferencia = contado - esperado
+                cur.execute(
+                    "INSERT INTO inventario_lineas (id_inventario, id_empresa, codigo_articulo, "
+                    "stock_esperado, stock_contado, diferencia, observaciones) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                    "ON DUPLICATE KEY UPDATE stock_esperado=VALUES(stock_esperado), "
+                    "stock_contado=VALUES(stock_contado), diferencia=VALUES(diferencia), "
+                    "observaciones=VALUES(observaciones)",
+                    (id_inv, id_empresa, codigo, esperado, contado, diferencia, obs))
+                registrados += 1
+        return registrados
+    except InventarioError:
+        raise
+    except Exception as e:
+        logger.error("registrar_recuentos_masivo(%s): %s", id_inv, e)
+        return registrados
 
 
 def recalcular_diferencias(id_inv, id_empresa=None) -> int:

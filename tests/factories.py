@@ -31,12 +31,16 @@ class Fabrica:
         self._deshacer.append(fn)
 
     def limpiar(self):
-        for fn in reversed(self._deshacer):
+        # Drena en LIFO. Tolera callbacks que a su vez REGISTRAN más limpiezas: p. ej. el patrón
+        # `al_limpiar(lambda: fab._borrar(tabla, col, val))`, donde `_borrar` no borra sino que ENCOLA
+        # el DELETE. Con un simple `for … reversed(...)` + `clear()` ese DELETE encolado nunca se ejecutaba
+        # (limpieza silenciosamente perdida). Con el bucle `while pop()` el nuevo lambda encolado se drena.
+        while self._deshacer:
+            fn = self._deshacer.pop()
             try:
                 fn()
             except Exception:
                 pass
-        self._deshacer.clear()
 
     # ── entidades ────────────────────────────────────────────────────────────
     def empresa(self, nombre="EMPRESA TEST"):

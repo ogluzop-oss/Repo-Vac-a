@@ -14,7 +14,12 @@ logger = logging.getLogger("mrp.planificador")
 
 
 def _emp(id_empresa=None):
-    return id_empresa or empresa_actual_id()
+    # IOC v2 (Bloque III.4): la resolución de empresa pasa por la capa de identidad (Strangler).
+    try:
+        from src.services.produccion.identidad_produccion import empresa_id
+        return empresa_id(id_empresa)
+    except Exception:
+        return id_empresa or empresa_actual_id()
 
 
 def _stock(codigo, eid):

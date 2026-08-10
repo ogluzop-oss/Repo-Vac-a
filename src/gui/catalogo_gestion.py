@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
-                             QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+from PyQt6.QtCore import QEvent, QObject, QRect, QStringListModel, Qt, QTimer
+from PyQt6.QtGui import QBitmap, QPainter, QRegion
+from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QCompleter,
+                             QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                              QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget,
                              QTableWidget, QTableWidgetItem, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
@@ -24,9 +25,12 @@ from src.db import catalogo as cat
 from src.utils.i18n import tr
 
 try:
-    from assets.estilo_global import mostrar_confirmacion, mostrar_mensaje
+    from assets.estilo_global import (estilizar_completer, instalar_corner_cover,
+                                      mostrar_confirmacion, mostrar_mensaje)
 except Exception:  # pragma: no cover
     mostrar_mensaje = mostrar_confirmacion = None
+    estilizar_completer = None
+    instalar_corner_cover = None
 
 logger = logging.getLogger("gui.catalogo")
 
@@ -74,6 +78,56 @@ def _btn(txt, slot=None, primary=False, danger=False) -> QPushButton:
     return b
 
 
+def _btn_x(slot=None) -> QPushButton:
+    """Botón rojo 'X' para cerrar/volver (mismo estilo que la X de 'Devolución de ticket')."""
+    b = QPushButton("✕"); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFixedSize(50, 44)
+    b.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
+                    f"border-radius:9px;font-weight:900;font-size:18px;}}"
+                    f"QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
+    if slot:
+        b.clicked.connect(slot)
+    return b
+
+
+def _dialogo_frameless(dialog, titulo="", ancho=None):
+    """Convierte un QDialog en 'frameless' (sin la barra de título nativa de Windows) con esquinas
+    redondeadas y fondo translúcido, de modo que el contenido no sobresalga por fuera del contorno.
+    Devuelve el QVBoxLayout del CUERPO (dentro del marco redondeado) donde añadir el contenido; si se
+    pasa `titulo`, incluye una cabecera con el título + botón rojo ✕ para cerrar."""
+    dialog.setModal(True)
+    dialog.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+    dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    outer = QVBoxLayout(dialog); outer.setContentsMargins(0, 0, 0, 0)
+    cuerpo = QFrame(); cuerpo.setObjectName("dlg")
+    cuerpo.setStyleSheet(f"QFrame#dlg{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
+    if ancho:
+        cuerpo.setMinimumWidth(ancho)
+    outer.addWidget(cuerpo)
+    v = QVBoxLayout(cuerpo); v.setContentsMargins(22, 18, 22, 18); v.setSpacing(10)
+    if titulo:
+        hdr = QHBoxLayout()
+        t = QLabel(titulo)
+        t.setStyleSheet(f"color:{_CIAN};background:transparent;font-weight:900;font-size:15px;")
+        hdr.addWidget(t); hdr.addStretch()
+        hdr.addWidget(_btn_x(dialog.reject))
+        v.addLayout(hdr)
+    return v
+
+
+def _btn_salir_sidebar(slot=None) -> QPushButton:
+    """Botón 'SALIR AL MENÚ' rojo para el FONDO de los sidebars (estilo unificado en toda la app)."""
+    b = QPushButton(tr("cat.salir", default="SALIR AL MENÚ"))
+    b.setObjectName("btn_sidebar_exit"); b.setCursor(Qt.CursorShape.PointingHandCursor)
+    b.setFixedHeight(55)   # misma altura que el resto de botones de sidebar
+    b.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:none;"
+                    f"border-left:4px solid transparent;border-radius:0px;font-size:12px;"
+                    f"font-family:'{_FONT}';font-weight:900;text-align:left;padding-left:28px;}}"
+                    f"QPushButton:hover{{background:{_ROJO};color:#0E1117;}}")
+    if slot:
+        b.clicked.connect(slot)
+    return b
+
+
 def _lbl(txt, dim=True, size=12, bold=True):
     l = QLabel(txt)
     l.setStyleSheet(f"color:{_DIM if dim else _TEXT};font-family:'{_FONT}';"
@@ -106,6 +160,35 @@ def _chk(txt, val=False) -> QCheckBox:
     return c
 
 
+class _RoundTableCorners(QObject):
+    """Redondea con máscara las esquinas exteriores de la tabla y las superiores de la
+    cabecera (el QSS por sí solo no redondea la cabecera de forma fiable → se ve un
+    pequeño corte en las esquinas superiores)."""
+
+    def __init__(self, table, radius=12):
+        super().__init__(table)
+        self._r = radius
+        self._table = table
+        table.installEventFilter(self)
+        table.horizontalHeader().installEventFilter(self)
+
+    def eventFilter(self, obj, event):  # noqa: N802 (API Qt)
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show) and obj.width() > 0:
+            if obj is self._table:
+                rect = QRect(0, 0, obj.width(), obj.height())
+            else:  # cabecera: redondea solo arriba (extiende el rect por abajo)
+                rect = QRect(0, 0, obj.width(), obj.height() + self._r)
+            bmp = QBitmap(obj.size())
+            bmp.fill(Qt.GlobalColor.color0)
+            p = QPainter(bmp)
+            p.setBrush(Qt.GlobalColor.color1)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(rect, self._r, self._r)
+            p.end()
+            obj.setMask(QRegion(bmp))
+        return False
+
+
 def _tabla(cols) -> QTableWidget:
     t = QTableWidget(0, len(cols))
     t.setHorizontalHeaderLabels(cols)
@@ -115,21 +198,39 @@ def _tabla(cols) -> QTableWidget:
     t.verticalHeader().setVisible(False)
     t.verticalHeader().setDefaultSectionSize(40)
     t.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    # Diseño estándar de la app: anchura equitativa (ocupa todo el ancho), contorno neón,
+    # esquinas redondeadas y hover swap en las cabeceras.
+    hh = t.horizontalHeader()
+    for c in range(len(cols)):
+        hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
+    hh.setHighlightSections(False)
     t.setStyleSheet(f"""
-        QTableWidget{{background:transparent;color:{_TEXT};border:none;gridline-color:{_BORDE};
-                      font-family:'{_FONT}';font-size:13px;outline:none;}}
+        QTableWidget{{background:{_BG};color:{_TEXT};border:2px solid {_CIAN};border-radius:12px;
+                      gridline-color:{_BORDE};font-family:'{_FONT}';font-size:13px;outline:none;}}
         QHeaderView::section{{background:{_BG};color:{_CIAN};border:none;
                               border-bottom:2px solid {_BORDE};padding:8px;font-weight:900;font-size:11px;}}
+        QHeaderView::section:hover{{background:{_CIAN};color:{_BG};}}
+        QHeaderView::section:first{{border-top-left-radius:12px;}}
+        QHeaderView::section:last{{border-top-right-radius:12px;}}
         QTableWidget::item{{padding:6px;}}
-        QTableWidget::item:selected{{background:#00FFC622;color:white;}}""")
+        QTableWidget::item:selected{{background:#00FFC622;color:white;}}
+        QScrollBar:vertical{{background:transparent;width:16px;margin:0;}}
+        QScrollBar::handle:vertical{{background:{_CIAN};min-height:36px;border-radius:5px;margin:3px;}}
+        QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;width:0;}}
+        QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{{background:transparent;}}""")
+    # Esquinas limpias (como Documentos): overlay que repinta esquinas + contorno encima
+    # del sangrado de la scrollbar. Fallback a la máscara si el helper no está.
+    if instalar_corner_cover is not None:
+        instalar_corner_cover(t, 12, bg=_BG)
+    else:
+        _RoundTableCorners(t, radius=12)
     return t
 
 
-def _wrap_tabla(t) -> QFrame:
-    w = QFrame(); w.setObjectName("tw")
-    w.setStyleSheet(f"QFrame#tw{{background:{_BG2};border:2px solid {_CIAN};border-radius:14px;}}")
-    ly = QVBoxLayout(w); ly.setContentsMargins(5, 5, 5, 5); ly.addWidget(t)
-    return w
+def _wrap_tabla(t):
+    # La tabla (_tabla) ya tiene su propio contorno neón + esquinas redondeadas; no añadimos
+    # otro marco (antes se veía doble contorno). Se devuelve la tabla tal cual.
+    return t
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -367,7 +468,7 @@ class CatalogoWindow(QWidget):
     """Gestión del catálogo online de la empresa activa (panel operativo interno)."""
 
     _SECCIONES = [("productos", "📦", "Productos"), ("categorias", "🗂", "Categorías"),
-                  ("marcas", "🏷", "Marcas"), ("etiquetas", "🔖", "Etiquetas"),
+                  ("marcas", "🏷", "Marcas"), ("etiquetas", "🔖", "Tags Artículos"),
                   ("web", "🌐", "Web propia")]
 
     def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None, **_kw):
@@ -377,7 +478,9 @@ class CatalogoWindow(QWidget):
         self.usuario = usuario
         self._sec_btns = {}
         self.setWindowTitle("Smart Manager — " + tr("cat.titulo", default="CATÁLOGO"))
-        self.setStyleSheet(f"background:{_BG};")
+        # OJO: no fijar un stylesheet de fondo en la VENTANA — se propaga a los botones
+        # del sidebar (fondo ≠ color del sidebar) y rompe el estilo. El fondo lo da el
+        # QSS global + el panel derecho/wrap (igual que Contabilidad).
         self._build()
         QTimer.singleShot(0, self._recargar_todo)
 
@@ -412,36 +515,44 @@ class CatalogoWindow(QWidget):
         cab.addWidget(t); cab.addSpacing(16)
         self.lbl_ctx = _lbl("", size=14); cab.addWidget(self.lbl_ctx)
         cab.addStretch()
-        if self._volver:
-            cab.addWidget(_btn(tr("cat.volver", default="VOLVER AL MENÚ"), self._volver_menu, primary=True))
         return cab
 
     def _build_sidebar(self):
         wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(230); self.sidebar = wrap  # P3
         wrap.setStyleSheet(f"QFrame#sw{{background:{_SIDEBAR};border:none;border-right:1px solid {_BORDE};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
-        cab = QLabel(tr("cat.secciones", default="GESTIÓN"))
-        cab.setStyleSheet(f"color:#FFFFFF;font-family:'{_FONT}';font-weight:900;font-size:13px;"
-                          f"letter-spacing:1.5px;background:transparent;border:none;padding:0 0 16px 28px;")
+        cab = QLabel(tr("cat.secciones", default="Smart Catalog"))
+        cab.setStyleSheet(f"color:#FFFFFF;font-family:'{_FONT}';font-weight:900;font-size:16px;"
+                          f"letter-spacing:2px;background:transparent;border:none;padding:0 0 24px 28px;")
         lay.addWidget(cab)
         for i, (sid, icono, defecto) in enumerate(self._SECCIONES):
-            b = QPushButton(f"  {icono}   {tr('cat.sec_' + sid, default=defecto)}")
-            b.setCursor(Qt.CursorShape.PointingHandCursor); b.setCheckable(True); b.setFixedHeight(42)
+            b = QPushButton(f"   {tr('cat.sec_' + sid, default=defecto)}")   # sin icono
+            # Mismo estilo global que las sidebars que NO brillan (contab./rrhh) + 2pt.
+            b.setObjectName("btn_sidebar")   # estilo global (acento, hover swap, sin brillo)
+            b.setProperty("lg", "true")      # +2pt (14px) vía QSS global, sin romper hover
+            b.setCursor(Qt.CursorShape.PointingHandCursor); b.setCheckable(True); b.setFixedHeight(55)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.clicked.connect(lambda _c, idx=i: self._seleccionar(idx))
             self._sec_btns[i] = b; lay.addWidget(b)
         lay.addStretch()
+        if self._volver:   # SALIR AL MENÚ (rojo) al fondo del sidebar
+            lay.addWidget(_btn_salir_sidebar(self._volver_menu))
         return wrap
 
-    _SS_OFF = (f"QPushButton{{background:transparent;color:{_DIM};text-align:left;padding:6px 8px 6px 24px;"
-               f"border:none;font-family:'{_FONT}';font-weight:900;font-size:14px;}}"
-               f"QPushButton:hover{{background:#FFFFFF;color:{_SIDEBAR};}}")
-    _SS_ON = (f"QPushButton{{background:{_CIAN};color:{_BG};text-align:left;padding:6px 8px 6px 24px;"
-              f"border:none;font-family:'{_FONT}';font-weight:900;font-size:14px;}}")
+    # Fondo SIEMPRE transparente (= color del sidebar), incluido el seleccionado.
+    # La pestaña activa se marca solo con el acento izquierdo turquesa + texto turquesa.
+    _SS_OFF = (f"QPushButton{{background:transparent;color:#FFFFFF;text-align:left;padding:6px 8px 6px 24px;"
+               f"border:none;border-left:4px solid transparent;border-radius:0px;font-family:'{_FONT}';"
+               f"font-weight:900;font-size:14px;outline:none;}}"
+               f"QPushButton:hover{{background:#FFFFFF;color:{_SIDEBAR};border-radius:0px;}}")
+    _SS_ON = (f"QPushButton{{background:transparent;color:{_CIAN};text-align:left;padding:6px 8px 6px 24px;"
+              f"border:none;border-left:4px solid {_CIAN};border-radius:0px;font-family:'{_FONT}';"
+              f"font-weight:900;font-size:14px;outline:none;}}")
 
     def _seleccionar(self, idx):
         self.stack.setCurrentIndex(idx)
         for i, b in self._sec_btns.items():
-            b.setChecked(i == idx); b.setStyleSheet(self._SS_ON if i == idx else self._SS_OFF)
+            b.setChecked(i == idx)   # estilo via QSS global #btn_sidebar
 
     # ── Panel Productos ──────────────────────────────────────────────────────
     def _panel_productos(self):
@@ -449,6 +560,20 @@ class CatalogoWindow(QWidget):
         fila = QHBoxLayout()
         self.inp_busca_prod = _inp(tr("cat.buscar_prod", default="Buscar artículo por nombre o código…"))
         self.inp_busca_prod.returnPressed.connect(self._recargar_productos)
+        # Sugerencias de artículos al escribir (igual que el resto de buscadores).
+        self._prod_completer_model = QStringListModel()
+        _comp = QCompleter(self._prod_completer_model, self.inp_busca_prod)
+        _comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        _comp.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.inp_busca_prod.setCompleter(_comp)
+        if estilizar_completer:
+            estilizar_completer(_comp)
+        try:
+            from src.db.conexion import _get_todos_articulos_para_completer
+            self._prod_completer_model.setStringList(
+                [f"{c} – {n}" for c, n in _get_todos_articulos_para_completer()])
+        except Exception:
+            pass
         fila.addWidget(self.inp_busca_prod, 1)
         fila.addWidget(_btn(tr("cat.buscar", default="BUSCAR"), self._recargar_productos, primary=True))
         fila.addWidget(_btn(tr("cat.editar_ficha", default="EDITAR FICHA"), self._editar_producto, primary=True))
@@ -465,7 +590,10 @@ class CatalogoWindow(QWidget):
         return w
 
     def _recargar_productos(self):
-        arts = cat.articulos_para_catalogo(texto=self.inp_busca_prod.text().strip() or None)
+        _txt = self.inp_busca_prod.text().strip()
+        if "–" in _txt:   # viene del autocompletado "CÓDIGO – NOMBRE"
+            _txt = _txt.split("–")[0].strip()
+        arts = cat.articulos_para_catalogo(texto=_txt or None)
         self._arts = arts
         self.tbl_prod.setRowCount(0)
         for a in arts:
@@ -606,7 +734,7 @@ class CatalogoWindow(QWidget):
         fila.addWidget(_btn(tr("cat.crear", default="CREAR"), self._crear_etiqueta, primary=True))
         fila.addWidget(_btn(tr("cat.eliminar", default="ELIMINAR"), self._eliminar_etiqueta, danger=True))
         ly.addLayout(fila)
-        self.tbl_etq = _tabla([tr("cat.col_etq", default="Etiqueta")])
+        self.tbl_etq = _tabla([tr("cat.col_etq", default="Tags")])
         self.tbl_etq.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         ly.addWidget(_wrap_tabla(self.tbl_etq), 1)
         return w
@@ -632,61 +760,64 @@ class CatalogoWindow(QWidget):
 
     # ── Panel Web propia (Escenario B) ───────────────────────────────────────
     def _panel_web(self):
-        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(8); ly.setContentsMargins(0, 0, 0, 0)
-        ly.addWidget(_lbl(tr("cat.web_intro",
-                             default="Genera la tienda online propia a partir de este catálogo "
-                                     "(se mantiene sincronizada en vivo)."), dim=False, size=13))
-        self.ck_web = _chk(tr("cat.web_activa", default="Tienda online activa"))
-        ly.addWidget(self.ck_web)
-        ly.addWidget(_lbl(tr("cat.web_nombre", default="Nombre de la tienda")))
-        self.inp_web_nombre = _inp(); ly.addWidget(self.inp_web_nombre)
-        ly.addWidget(_lbl(tr("cat.web_desc", default="Descripción / eslogan")))
-        self.inp_web_desc = _inp(); ly.addWidget(self.inp_web_desc)
-        fila = QHBoxLayout()
-        colc = QVBoxLayout(); colc.addWidget(_lbl(tr("cat.web_color", default="Color de marca (#hex)")))
-        self.inp_web_color = _inp("#00FFC6", 140); colc.addWidget(self.inp_web_color); fila.addLayout(colc)
-        colm = QVBoxLayout(); colm.addWidget(_lbl(tr("cat.web_moneda", default="Moneda")))
-        self.inp_web_moneda = _inp("EUR", 100); colm.addWidget(self.inp_web_moneda); fila.addLayout(colm)
-        fila.addStretch(); ly.addLayout(fila)
-        ly.addWidget(_lbl(tr("cat.web_logo", default="URL del logo (opcional)")))
-        self.inp_web_logo = _inp(); ly.addWidget(self.inp_web_logo)
-        ly.addWidget(_lbl(tr("cat.web_dominio", default="Dominio propio (opcional)")))
-        self.inp_web_dominio = _inp(); ly.addWidget(self.inp_web_dominio)
-        ly.addSpacing(6)
-        self.lbl_web_url = _lbl("", size=12); self.lbl_web_url.setWordWrap(True)
-        self.lbl_web_url.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        ly.addWidget(self.lbl_web_url)
-        fb = QHBoxLayout(); fb.addStretch()
-        fb.addWidget(_btn(tr("cat.guardar", default="GUARDAR"), self._guardar_web, primary=True))
+        # Rearquitectura Comercio Digital · Fase 2: la configuración de la WEB PROPIA (marca/logo/color/
+        # moneda/dominio, publicación y sincronización) se administra AHORA ÚNICAMENTE en CANAL WEB. El
+        # Catálogo es un PIM (solo producto): esta pestaña queda como PUNTO DE REDIRECCIÓN, sin edición,
+        # eliminando la duplicidad de responsabilidades. Fuente/servicio únicos: canal_web + web_config.
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(14); ly.setContentsMargins(0, 0, 0, 0)
+        ly.addWidget(_lbl(tr("cat.web_moved_title",
+                             default="La web de la empresa se administra en Canal Web"),
+                          dim=False, size=15))
+        info = _lbl(tr("cat.web_moved",
+                       default="La configuración de la tienda online propia (marca, logo, color, "
+                               "moneda, dominio, publicación y sincronización) se gestiona ahora desde "
+                               "Canal Web (Comercio Digital). El Catálogo se centra exclusivamente en la "
+                               "información del producto."), size=12)
+        info.setWordWrap(True)
+        ly.addWidget(info)
+        fb = QHBoxLayout()
+        fb.addWidget(_btn(tr("cat.web_open_canal", default="ABRIR CANAL WEB"),
+                          self._abrir_canal_web, primary=True))
+        # Administración del canal YA creado/vinculado (marca/dominio/publicación/sincronización). Es un
+        # flujo DISTINTO al de creación/vinculación: se abre en su propia ventana, no dentro de la pregunta.
+        fb.addWidget(_btn(tr("cat.web_admin_canal", default="ADMINISTRAR CANAL WEB"),
+                          self._administrar_canal_web))
+        fb.addStretch()
         ly.addLayout(fb); ly.addStretch()
         return w
 
+    def _abrir_canal_web(self):
+        """Redirección a Canal Web: al ENTRAR se muestra ÚNICAMENTE la pregunta inicial (WEB-12: ¿la empresa
+        ya tiene web? Sí/No). Reutiliza el punto único `canal_web_gui.abrir_canal_web` (no abre la
+        configuración directamente, para no saltarse la pregunta)."""
+        try:
+            from src.gui.canal_web_gui import abrir_canal_web
+            self._canal_web_win = abrir_canal_web(parent=self, usuario=getattr(self, "usuario", None))
+        except Exception as e:
+            _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
+                   tr("cat.web_open_err", default="No se pudo abrir Canal Web: {e}", e=e), "warning")
+
+    def _administrar_canal_web(self):
+        """Administración del canal YA creado/vinculado, en su propia ventana (flujo distinto al de creación/
+        vinculación). Se construye SIEMPRE de nuevo, cargando el estado del canal ACTUAL (empresa/tienda del
+        contexto): nunca muestra configuraciones antiguas de otros canales."""
+        try:
+            from src.gui.canal_web_config import CanalWebConfigDialog
+            CanalWebConfigDialog(parent=self).exec()
+        except Exception as e:
+            _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
+                   tr("cat.web_admin_err", default="No se pudo abrir la administración del canal: {e}", e=e),
+                   "warning")
+
     def _recargar_web(self):
-        from src.db import web_tienda
-        from src.db.empresa import empresa_actual_id
-        cfg = web_tienda.obtener_config()
-        self.ck_web.setChecked(bool(cfg.get("activa")))
-        self.inp_web_nombre.setText(cfg.get("nombre") or "")
-        self.inp_web_desc.setText(cfg.get("descripcion") or "")
-        self.inp_web_color.setText(cfg.get("color") or "#00FFC6")
-        self.inp_web_moneda.setText(cfg.get("moneda") or "EUR")
-        self.inp_web_logo.setText(cfg.get("logo_url") or "")
-        self.inp_web_dominio.setText(cfg.get("dominio") or "")
-        eid = empresa_actual_id()
-        self.lbl_web_url.setText(tr("cat.web_url",
-                                    default="URL pública de la tienda:  /tienda/{eid}  "
-                                            "(servida por el backend de Smart Manager AI)", eid=eid))
+        # @deprecated (Fase 2): la pestaña Web es ahora solo un punto de redirección; no hay campos que
+        # recargar. Se conserva el método (lo invoca `_recargar_todo`) como no-op por compatibilidad.
+        return
 
     def _guardar_web(self):
-        from src.db import web_tienda
-        web_tienda.guardar_config(
-            activa=1 if self.ck_web.isChecked() else 0,
-            nombre=self.inp_web_nombre.text().strip(), descripcion=self.inp_web_desc.text().strip(),
-            color=self.inp_web_color.text().strip() or "#00FFC6",
-            moneda=(self.inp_web_moneda.text().strip() or "EUR").upper(),
-            logo_url=self.inp_web_logo.text().strip(), dominio=self.inp_web_dominio.text().strip())
-        _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
-               tr("cat.web_guardada", default="Configuración de la web guardada."), "info")
+        # @deprecated (Fase 2): la edición de la web se realiza ÚNICAMENTE en Canal Web
+        # (canal_web.guardar_presencia). Método conservado como no-op por compatibilidad.
+        return
 
     # ── Carga / navegación ───────────────────────────────────────────────────
     def _recargar_todo(self):

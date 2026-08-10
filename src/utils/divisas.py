@@ -153,6 +153,24 @@ def formatear(monto, code=None, con_simbolo=True):
     return f"{txt} {inf['simbolo']}" if inf["simbolo_pos"] == "despues" else f"{inf['simbolo']}{txt}"
 
 
+def decimales(code=None) -> int:
+    """Nº de decimales propios de la divisa (JPY/KRW/CLP/COP = 0; EUR/USD = 2)."""
+    try:
+        return int(info(code).get("decimales", 2))
+    except Exception:
+        return 2
+
+
+def redondear(monto, code=None) -> float:
+    """Redondea un importe a la PRECISIÓN de la divisa activa (no es una conversión:
+    solo respeta los decimales de la moneda, p. ej. el Won no admite céntimos).
+    Garantiza que lo mostrado == lo cobrado."""
+    try:
+        return round(float(monto or 0), decimales(code))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # ── Denominaciones e imágenes ────────────────────────────────────────────────────
 def _slug(valor):
     """Nombre de archivo de una denominación (valor → '0.01', '0.5', '2', '100')."""

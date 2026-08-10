@@ -4,7 +4,8 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QRectF, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import (QByteArray, QEvent, QObject, QPoint, QRect, QRectF, QSize, Qt, QTimer,
+                          pyqtSignal)
 from PyQt6.QtGui import (
     QBitmap,
     QColor,
@@ -17,6 +18,7 @@ from PyQt6.QtGui import (
     QPixmap,
     QRegion,
 )
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -34,6 +36,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QProgressBar,
     QProxyStyle,
     QPushButton,
     QScrollArea,
@@ -56,13 +59,13 @@ from assets.estilo_global import (
     mostrar_confirmacion,
     mostrar_mensaje,
 )
-from src.db.conexion import guardar_referencia, obtener_referencias
 from src.db.usuario import (
     cambiar_password_usuario,
     crear_perfil,
     eliminar_usuario,
-    listar_fichajes,
+    listar_fichajes_empleado,
     listar_usuarios,
+    meses_con_fichajes_empleado,
     obtener_fichaje_abierto,
     registrar_entrada,
     registrar_salida,
@@ -109,6 +112,58 @@ _ESTADO_TXT_KEY = {
     "CIERRE_CAJAS":         ("cfg.estado_cierre_cajas",      "CIERRE DE CAJAS EN CURSO"),
     "CIERRE_COMPLETADO":    ("cfg.estado_cierre_completado", "LISTO PARA CIERRE FUERTE"),
 }
+
+# Icono de CAJA FUERTE (caja de caudales con dial de combinación) para el botón "APERTURA CAJA
+# FUERTE". SVG propio → QIcon (mismo patrón que menu_principal.crear_icono), sin dependencias.
+_SVG_CAJA_FUERTE = """
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <rect x="16" y="18" width="96" height="92" rx="9" fill="#C3C7CB" stroke="#23262B" stroke-width="5"/>
+  <rect x="27" y="28" width="74" height="72" rx="5" fill="none" stroke="#23262B" stroke-width="3"/>
+  <rect x="11" y="34" width="8" height="16" rx="2" fill="#9AA0A6" stroke="#23262B" stroke-width="2"/>
+  <rect x="11" y="78" width="8" height="16" rx="2" fill="#9AA0A6" stroke="#23262B" stroke-width="2"/>
+  <path d="M74 40 h18 a4 4 0 0 1 4 4 v18" fill="none" stroke="#23262B" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="55" cy="66" r="20" fill="#EDEFF1" stroke="#23262B" stroke-width="3"/>
+  <circle cx="55" cy="66" r="7" fill="#15181C"/>
+  <g stroke="#D23B3B" stroke-width="2">
+    <line x1="55" y1="48" x2="55" y2="53"/><line x1="55" y1="79" x2="55" y2="84"/>
+    <line x1="37" y1="66" x2="42" y2="66"/><line x1="68" y1="66" x2="73" y2="66"/>
+  </g>
+  <g fill="#8A9096">
+    <circle cx="26" cy="28" r="2.6"/><circle cx="102" cy="28" r="2.6"/>
+    <circle cx="26" cy="100" r="2.6"/><circle cx="102" cy="100" r="2.6"/>
+  </g>
+  <rect x="26" y="110" width="12" height="8" rx="2" fill="#9AA0A6" stroke="#23262B" stroke-width="2"/>
+  <rect x="90" y="110" width="12" height="8" rx="2" fill="#9AA0A6" stroke="#23262B" stroke-width="2"/>
+</svg>
+"""
+
+
+def _icono_svg(svg: str, size: int = 128) -> QIcon:
+    """Renderiza un SVG a QIcon (transparente). Reutilizable para iconos de imagen en botones."""
+    try:
+        renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        return QIcon(pixmap)
+    except Exception:
+        return QIcon()
+
+
+def _icono_caja_fuerte() -> QIcon:
+    """Icono del botón APERTURA CAJA FUERTE: usa el PNG del repo (assets/caja_fuerte.png) y,
+    si no está disponible, cae al icono SVG propio."""
+    try:
+        from src.utils import recursos
+        ruta = recursos.ruta_recurso("assets", "caja_fuerte.png")
+        pm = QPixmap(ruta)
+        if not pm.isNull():
+            return QIcon(pm)
+    except Exception:
+        pass
+    return _icono_svg(_SVG_CAJA_FUERTE)
 
 
 # ─── Horario Empleados ────────────────────────────────────────────────────────
@@ -2218,7 +2273,9 @@ class _MovimientoDialog(QDialog):
             from src.db import usuario as _usuario
             _resp = _usuario.validar_pin_de_usuario(uid, pin)
             if not _resp:
-                self._lbl_error.setText(tr("cfg.pin_wrong_emp", default="PIN incorrecto para el empleado seleccionado."))
+                _msg = tr("cfg.pin_wrong_emp", default="PIN incorrecto para el empleado seleccionado.")
+                self._lbl_error.setText(_msg)
+                mostrar_mensaje(self, tr("cfg.pin_wrong_title", default="PIN incorrecto"), _msg, "error")
                 self._pin_mov.clear(); self._pin_mov.setFocus(); return
             _empleado_nombre = _resp.get("nombre")
         except Exception:
@@ -2287,7 +2344,7 @@ class _WizardDocumentoFiscal(WizardFormsRRHHMixin, QDialog):
         "BAJA":           ("❌  BAJA LABORAL",         ["VOLUNTARIA", "FIN CONTRATO", "DESPIDO", "JUBILACIÓN", "INCAPACIDAD", "FALLECIMIENTO"]),
         "CERTIFICADO":    ("🏢  CERTIFICADO EMPRESA",  ["VIDA LABORAL", "COTIZACIÓN", "EMPRESA"]),
         "CERT LABORAL":   ("📃  CERTIFICADO LABORAL",  ["GENERAL", "INGRESOS", "ANTIGÜEDAD", "FUNCIONES", "JORNADA", "VACACIONES"]),
-        "CARTA DESPIDO":  ("📮  CARTA DE DESPIDO",     ["DISCIPLINARIO", "OBJETIVO", "IMPROCEDENTE", "FIN CONTRATO", "BAJA VOLUNTARIA", "COLECTIVO"]),
+        "CARTA DESPIDO":  ("📮  CARTA DE DESPIDO",     ["DISCIPLINARIO", "OBJETIVO", "IMPROCEDENTE", "FIN CONTRATO", "BAJA VOLUNTARIA", "COLECTIVO", "PERÍODO DE PRUEBA"]),
         "FINIQUITO":      ("💼  FINIQUITO",             []),
         "VACACIONES":     ("🌴  VACACIONES",            ["SOLICITUD", "APROBACIÓN", "DENEGACIÓN"]),
         # ── FISCAL ────────────────────────────────────────────────────────────
@@ -2299,11 +2356,12 @@ class _WizardDocumentoFiscal(WizardFormsRRHHMixin, QDialog):
     # Types that do not involve a single worker — step 1 shows empresa/period data
     _FISCAL_TYPES = {"RESUMEN FISCAL", "LIBRO INGRESOS", "LIBRO GASTOS", "INFORME AUDIT"}
 
-    def __init__(self, tipo_inicial=None, parent=None):
+    def __init__(self, tipo_inicial=None, parent=None, subtipo_inicial=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._tipo = tipo_inicial
+        self._subtipo_inicial = subtipo_inicial   # preselección de subtipo (p. ej. periodo de prueba)
         self._paso = 0
         self._datos = {}
         self._build()
@@ -3774,12 +3832,15 @@ class ConfiguracionWindow(QWidget):
             "cfg.tab_caja", "cfg.tab_plazo", "cfg.tab_perfil", "cfg.tab_horario",
             "cfg.tab_fichajes", "cfg.tab_logo", "cfg.tab_citas", "cfg.tab_fiscalidad",
             "cfg.tab_referencia", "cfg.tab_datos_empresa", "cfg.tab_modo_tactil",
+            "cfg.tab_soma", "cfg.tab_colores", "cfg.tab_mfa", "cfg.tab_edicion",
+            "cfg.tab_estado_cuenta",
         ]
         _tab_def = [
             "GESTIÓN CAJA", "PLAZO DEVOLUCIÓN", "GENERAR PERFIL EMPLEADO",
             "HORARIO EMPLEADOS", "FICHAJES", "LOGO CORPORATIVO",
             "PLANIFICAR CITAS", "FISCALIDAD", "ASIGNAR REFERENCIA",
-            "DATOS DE EMPRESA", "MODO TÁCTIL",
+            "DATOS DE EMPRESA", "MODO TÁCTIL", "SOMA", "COLORES", "SEGURIDAD (MFA)", "VERSIÓN",
+            "ESTADO DE LA CUENTA",
         ]
 
         self.btns = []
@@ -3787,7 +3848,10 @@ class ConfiguracionWindow(QWidget):
             # P4.1: GESTIÓN CAJA (índice 0) ya NO es una pestaña de Configuración;
             # vive en su propia ventana (GestionCajaWindow). Mantenemos un placeholder
             # en self.btns para no re-indexar el resto de pestañas ni su lógica.
-            if i == 0:
+            if i in (0, 7, 8):
+                # 0 = GESTIÓN CAJA (ventana propia). 7 = FISCALIDAD (migrada a RRHH/Contabilidad).
+                # 8 = ASIGNAR REFERENCIA (RETIRADA — sustituida por Identidad Operativa/IOC).
+                # Placeholder para no re-indexar el resto de pestañas.
                 self.btns.append(None)
                 continue
             btn = _SidebarBtn(tr(key, default=_tab_def[i]))
@@ -3831,10 +3895,15 @@ class ConfiguracionWindow(QWidget):
             4: self._crear_page_fichajes,
             5: self._crear_page_logo,
             6: self._crear_page_citas,
-            7: self._crear_page_fiscalidad,
-            8: self._crear_page_referencia,
+            7: QWidget,  # FISCALIDAD migrada (LABORAL→RRHH, FISCAL→Contabilidad). Placeholder.
+            8: QWidget,  # ASIGNAR REFERENCIA RETIRADA (deprecada → Identidad Operativa/IOC). Placeholder.
             9: self._crear_page_datos_empresa,
             10: self._crear_page_modo_tactil,
+            11: self._crear_page_soma,
+            12: self._crear_page_colores,
+            13: self._crear_page_mfa,
+            14: self._crear_page_edicion,   # EDICIÓN (versión por tipo de comercio) — visor de segmentación
+            15: self._crear_page_estado_cuenta,  # ESTADO DE LA CUENTA — progreso de configuración (agregado)
         }
         self._loaded_pages = set()
         for i in range(len(self._page_builders)):
@@ -3859,6 +3928,172 @@ class ConfiguracionWindow(QWidget):
         except Exception:
             pass
 
+    def _crear_page_edicion(self):
+        """EDICIÓN — visor de la segmentación por tipo de comercio. Muestra la edición del build y qué funciones
+        están activas/ocultas/sustituidas (según `services.verticales`). Solo lectura: la edición se fija por
+        instalación (SMART_MANAGER_EDITION), no se cambia aquí."""
+        from PyQt6.QtWidgets import (QHeaderView, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+        from src.gui._neon_ui import _RoundTableCorners, _ss_tabla_neon
+        from src.services import verticales
+        w = QWidget(); ly = QVBoxLayout(w); ly.setContentsMargins(24, 20, 24, 20); ly.setSpacing(12)
+        titulo = QLabel(verticales.nombre_edicion().upper())
+        titulo.setStyleSheet("color:#00FFC6;font-size:18px;font-weight:900;")
+        ly.addWidget(titulo)
+        sub = QLabel(f"Versión: {verticales.edicion()}. Misma base y misma tarifa; cada versión muestra solo "
+                     "las funciones de su tipo de comercio (fijado por instalación).")
+        sub.setStyleSheet("color:#8B949E;"); sub.setWordWrap(True)
+        ly.addWidget(sub)
+
+        # ── EXPERIENCIA: modo pyme simple + asistente de primeros pasos (R1) ──
+        from src.services import onboarding as _onb
+        exp = QLabel("EXPERIENCIA")
+        exp.setStyleSheet("color:#00FFC6;font-weight:900;font-size:13px;margin-top:6px;")
+        ly.addWidget(exp)
+        chk_simple = QCheckBox(tr("cfg.modo_simple",
+                                  default="Modo pyme simple — muestra solo lo esencial en el menú"))
+        chk_simple.setChecked(_onb.modo_simple())
+        chk_simple.setStyleSheet("color:#E6EDF3;font-family:'Segoe UI';font-size:13px;")
+
+        def _toggle_simple(estado):
+            _onb.fijar_modo_simple(bool(estado))
+            mostrar_mensaje(self, tr("cfg.modo_simple_titulo", default="Modo pyme simple"),
+                            tr("cfg.modo_simple_aplicar",
+                               default="Se aplicará al volver al menú."), "info")
+        chk_simple.toggled.connect(_toggle_simple)
+        ly.addWidget(chk_simple)
+
+        btn_pp = QPushButton("🚀  " + tr("cfg.primeros_pasos", default="Primeros pasos (asistente)"))
+        btn_pp.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_pp.setFixedHeight(40)
+        btn_pp.setStyleSheet(
+            "QPushButton{background:#161B22;border:2px solid #00FFC6;color:#00FFC6;border-radius:10px;"
+            "font-family:'Segoe UI';font-weight:900;font-size:13px;padding:0 16px;}"
+            "QPushButton:hover{background:#00FFC6;color:#0D1117;}")
+        btn_pp.clicked.connect(self._abrir_asistente_primeros_pasos)
+        ly.addWidget(btn_pp, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        tabla = QTableWidget(0, 3)
+        tabla.setHorizontalHeaderLabels(["Función", "Estado", "Sustituida por"])
+        tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        tabla.horizontalHeader().setHighlightSections(False)
+        tabla.verticalHeader().setVisible(False)          # retira la columna de índices (1..6)
+        tabla.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tabla.setFrameShape(QTableWidget.Shape.NoFrame)
+        # Contorno de NEÓN turquesa + cabeceras redondeadas + hover-swap (estilo canónico compartido). La máscara
+        # de `_RoundTableCorners` redondea las 4 esquinas de la tabla y las superiores de la cabecera para que el
+        # contorno neón no se corte.
+        tabla.setStyleSheet(_ss_tabla_neon())
+        self._round_tabla_edicion = _RoundTableCorners(tabla, radius=10)
+        _EST = {"visible": "✅ Activa", "oculto": "— Oculta", "sustituida": "↷ Sustituida"}
+        for f in verticales.funciones():
+            r = tabla.rowCount(); tabla.insertRow(r)
+            tabla.setItem(r, 0, QTableWidgetItem(f["label"]))
+            tabla.setItem(r, 1, QTableWidgetItem(_EST.get(f["estado"], f["estado"])))
+            tabla.setItem(r, 2, QTableWidgetItem(f["sustituto"] or ""))
+        self._tabla_edicion = tabla
+        ly.addWidget(tabla, 1)
+        return w
+
+    def _crear_page_estado_cuenta(self):
+        """ESTADO DE LA CUENTA — progreso de configuración (agregado, solo lectura). Reutiliza
+        `services.cuenta.resumen` (que a su vez agrega onboarding/verticales/SaaS/activacion). Muestra el %
+        completado, el checklist de lo que falta y el estado de las integraciones de producción (opcionales)."""
+        from PyQt6.QtWidgets import (QHeaderView, QLabel, QScrollArea, QTableWidget, QTableWidgetItem,
+                                     QVBoxLayout, QWidget)
+        from src.gui._neon_ui import _RoundTableCorners, _ss_tabla_neon
+        cont = QWidget(); ly = QVBoxLayout(cont); ly.setContentsMargins(24, 20, 24, 20); ly.setSpacing(12)
+
+        try:
+            from src.services import cuenta
+            data = cuenta.resumen()
+        except Exception as e:
+            data = {"porcentaje": 0, "items": [], "pendientes": [], "integraciones": {"detalle": []},
+                    "edicion": None, "plan": None, "_err": str(e)}
+
+        pct = int(data.get("porcentaje") or 0)
+        titulo = QLabel(tr("cfg.estado_cuenta_titulo", default="ESTADO DE LA CUENTA"))
+        titulo.setStyleSheet("color:#00FFC6;font-size:18px;font-weight:900;")
+        ly.addWidget(titulo)
+
+        # Cabecera con % y barra de progreso.
+        cab = QLabel(tr("cfg.estado_cuenta_pct", default="Configuración completada: {p}%", p=pct))
+        cab.setStyleSheet("color:#E6EDF3;font-size:15px;font-weight:800;")
+        ly.addWidget(cab)
+        barra = QProgressBar(); barra.setRange(0, 100); barra.setValue(pct); barra.setTextVisible(False)
+        barra.setFixedHeight(14)
+        _col = "#00FFC6" if pct >= 100 else ("#F5A623" if pct >= 50 else "#F85149")
+        barra.setStyleSheet("QProgressBar{background:#161B22;border:1px solid #30363D;border-radius:7px;}"
+                            f"QProgressBar::chunk{{background:{_col};border-radius:6px;}}")
+        ly.addWidget(barra)
+
+        pend = data.get("pendientes") or []
+        resumen_txt = (tr("cfg.estado_cuenta_ok", default="¡Tu cuenta está configurada al 100%!")
+                       if not pend else
+                       tr("cfg.estado_cuenta_faltan", default="Te faltan {n} paso(s) para completar tu cuenta.",
+                          n=len(pend)))
+        sub = QLabel(resumen_txt); sub.setStyleSheet("color:#8B949E;font-size:12px;"); sub.setWordWrap(True)
+        ly.addWidget(sub)
+
+        # Checklist de configuración (ítems core).
+        t1 = QTableWidget(0, 3)
+        t1.setHorizontalHeaderLabels([tr("cfg.ec_col_item", default="Parámetro"),
+                                      tr("cfg.ec_col_estado", default="Estado"),
+                                      tr("cfg.ec_col_detalle", default="Detalle / dónde")])
+        t1.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        t1.verticalHeader().setVisible(False)
+        t1.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        t1.setFrameShape(QTableWidget.Shape.NoFrame)
+        t1.setStyleSheet(_ss_tabla_neon())
+        self._round_tabla_estado = _RoundTableCorners(t1, radius=10)
+        for it in data.get("items", []):
+            r = t1.rowCount(); t1.insertRow(r)
+            t1.setItem(r, 0, QTableWidgetItem(it.get("titulo") or ""))
+            t1.setItem(r, 1, QTableWidgetItem("✅ Hecho" if it.get("hecho") else "⚠️ Pendiente"))
+            det = it.get("detalle") or ""
+            if not it.get("hecho") and it.get("accion"):
+                det = f"{det}  ·  {it['accion']}"
+            t1.setItem(r, 2, QTableWidgetItem(det))
+        ly.addWidget(t1)
+
+        # Integraciones de producción (opcionales — no penalizan el %).
+        integ = (data.get("integraciones") or {}).get("detalle") or []
+        cab2 = QLabel(tr("cfg.ec_integraciones",
+                         default="INTEGRACIONES DE PRODUCCIÓN (opcionales — requieren credenciales)"))
+        cab2.setStyleSheet("color:#00FFC6;font-weight:900;font-size:13px;margin-top:6px;")
+        ly.addWidget(cab2)
+        t2 = QTableWidget(0, 3)
+        t2.setHorizontalHeaderLabels([tr("cfg.ec_col_integr", default="Integración"),
+                                      tr("cfg.ec_col_modo", default="Estado"),
+                                      tr("cfg.ec_col_falta", default="Qué falta para activar")])
+        t2.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        t2.verticalHeader().setVisible(False)
+        t2.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        t2.setFrameShape(QTableWidget.Shape.NoFrame)
+        t2.setStyleSheet(_ss_tabla_neon())
+        self._round_tabla_integr = _RoundTableCorners(t2, radius=10)
+        for it in integ:
+            r = t2.rowCount(); t2.insertRow(r)
+            t2.setItem(r, 0, QTableWidgetItem(f"[{it.get('requisito','')}] {it.get('nombre','')}"))
+            t2.setItem(r, 1, QTableWidgetItem("🟢 En producción" if it.get("listo") else "🟡 Preparada"))
+            t2.setItem(r, 2, QTableWidgetItem("" if it.get("listo") else " · ".join(it.get("requiere") or [])))
+        ly.addWidget(t2)
+
+        # Envolver en scroll (contenido puede crecer).
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background:transparent;border:none;")
+        scroll.setWidget(cont)
+        return scroll
+
+    def _abrir_asistente_primeros_pasos(self):
+        """Relanza el asistente de PRIMEROS PASOS (R1) a demanda desde Configuración."""
+        try:
+            from src.gui.onboarding_wizard import OnboardingWizard
+            OnboardingWizard(self).exec()
+        except Exception as e:
+            mostrar_mensaje(self, tr("cfg.primeros_pasos", default="Primeros pasos"),
+                            tr("cfg.primeros_pasos_err", default="No se pudo abrir el asistente: {e}", e=str(e)),
+                            "error")
+
     def _retraducir_cfg(self):
         """Re-traduce el chrome (título, pestañas, salir) al cambiar de idioma."""
         self.setWindowTitle(tr("cfg.window_title", default="CONFIGURACIÓN DEL SISTEMA"))
@@ -3866,7 +4101,8 @@ class ConfiguracionWindow(QWidget):
             "GESTIÓN CAJA", "PLAZO DEVOLUCIÓN", "GENERAR PERFIL EMPLEADO",
             "HORARIO EMPLEADOS", "FICHAJES", "LOGO CORPORATIVO",
             "PLANIFICAR CITAS", "FISCALIDAD", "ASIGNAR REFERENCIA",
-            "DATOS DE EMPRESA",
+            "DATOS DE EMPRESA", "MODO TÁCTIL", "SOMA", "COLORES", "SEGURIDAD (MFA)", "VERSIÓN",
+            "ESTADO DE LA CUENTA",
         ]
         for i, btn in enumerate(self.btns):
             if btn is None:  # P4.1: índice 0 (caja) no tiene pestaña en Configuración
@@ -4120,6 +4356,17 @@ class ConfiguracionWindow(QWidget):
         campos = {k: e.text().strip() for k, e in self._de_fields.items()}
         if hasattr(self, "_de_pais_fiscal"):
             campos["pais_fiscal"] = self._de_pais_fiscal.currentData() or "ES"
+        # Step-up MFA solo si cambia el correo corporativo (acción crítica `email.cambiar`).
+        if "email_principal" in campos:
+            try:
+                actual = (self._de_emp_mod.obtener_empresa(
+                    self._de_emp_mod.empresa_actual_id()) or {}).get("email_principal") or ""
+            except Exception:
+                actual = ""
+            if campos["email_principal"] != actual:
+                from src.gui.mfa_gui import step_up_sesion
+                if not step_up_sesion("email.cambiar", self):
+                    return
         self._de_emp_mod.actualizar_empresa(self._de_emp_mod.empresa_actual_id(), **campos)
         mostrar_mensaje(
             self, tr("cfg.de_ok_t", default="Datos guardados"),
@@ -4229,12 +4476,12 @@ class ConfiguracionWindow(QWidget):
         frame.setStyleSheet(f"QFrame#divisaBox{{background:#161B22;border:2px solid {_BORDE};border-radius:14px;}}")
         ly = QHBoxLayout(frame)
         ly.setContentsMargins(20, 0, 20, 0)
-        lbl = QLabel(tr("cfg.divisa_empresa", default="💱  DIVISA DE LA EMPRESA:"))
+        lbl = QLabel(tr("cfg.divisa_empresa", default="DIVISA DE LA EMPRESA:"))
         lbl.setStyleSheet("color:#6E7681;font-family:'Segoe UI';font-weight:900;font-size:12px;background:transparent;border:none;")
         # _NeonComboBox: flecha PNG + popup + hover los aporta el estilado global
         # de la app (igual que el resto de desplegables), y abre correctamente.
         combo = _NeonComboBox()
-        combo.setFixedHeight(38)
+        combo.setFixedHeight(46)   # más alto: el texto de la divisa no se corta por debajo
         combo.setMinimumWidth(200)  # responsive (P2): cabe en pantallas estrechas (antes 320)
         combo.setMaximumWidth(420)
         combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -4321,8 +4568,13 @@ class ConfiguracionWindow(QWidget):
         grid = QGridLayout(); grid.setSpacing(16)
         grid.setColumnStretch(0, 1); grid.setColumnStretch(1, 1)  # responsive: 2 col elásticas
 
-        def _mk_btn(txt, icono=""):
-            b = QPushButton(f"{icono}  {txt}" if icono else txt)
+        def _mk_btn(txt, icono="", icono_img=None):
+            # icono_img (QIcon) → icono de IMAGEN a la izquierda del texto (sin emoji); si no,
+            # se antepone el emoji `icono` al texto (comportamiento por defecto).
+            b = QPushButton(txt if icono_img else (f"{icono}  {txt}" if icono else txt))
+            if icono_img is not None:
+                b.setIcon(icono_img)
+                b.setIconSize(QSize(52, 52))
             # Responsive (P2): expansible en ancho, alto táctil; antes era fijo 310x88.
             b.setMinimumSize(200, 72)
             b.setMaximumHeight(96)
@@ -4336,12 +4588,13 @@ class ConfiguracionWindow(QWidget):
             """)
             return b
 
-        self.btn_apertura    = _mk_btn(tr("cfg.btn_apertura", default="APERTURA"),                "🔓")
-        self.btn_habilitar   = _mk_btn(tr("cfg.btn_habilitar", default="HABILITAR CAJA"),          "🖥️")
-        self.btn_cierre_reg  = _mk_btn(tr("cfg.btn_cierre_reg", default="CIERRE CAJA REGISTRADORA"),"🔒")
-        self.btn_cierre_fuerte = _mk_btn(tr("cfg.btn_cierre_fuerte", default="CIERRE CAJA FUERTE"),    "🏦")
-        self.btn_movimiento  = _mk_btn(tr("cfg.btn_movimiento", default="MOVIMIENTOS DE EFECTIVO"),  "💸")
+        self.btn_apertura    = _mk_btn(tr("cfg.btn_apertura_fuerte", default="ABRIR CAJA FUERTE"),    "🔑")
+        self.btn_habilitar   = _mk_btn(tr("cfg.btn_habilitar", default="ABRIR CAJA REGISTRADORA"),   "🔑")
+        self.btn_cierre_reg  = _mk_btn(tr("cfg.btn_cierre_reg", default="CERRAR CAJA REGISTRADORA"), "🔒")
+        self.btn_cierre_fuerte = _mk_btn(tr("cfg.btn_cierre_fuerte", default="CERRAR CAJA FUERTE"),   "🔒")
+        self.btn_movimiento  = _mk_btn(tr("cfg.btn_movimiento", default="TRANSFERIR EFECTIVO"),      "💸")
         self.btn_cambio_cajero = _mk_btn(tr("cfg.btn_cambio_cajero", default="CAMBIO DE CAJERO"),     "🔁")
+        self.btn_cierre_diario = _mk_btn(tr("cfg.btn_cierre_diario", default="CIERRE DIARIO"),         "🖨️")
 
         self.btn_apertura.clicked.connect(self._fn_apertura)
         self.btn_habilitar.clicked.connect(self._fn_habilitar_caja)
@@ -4349,6 +4602,7 @@ class ConfiguracionWindow(QWidget):
         self.btn_cierre_fuerte.clicked.connect(self._fn_cierre_fuerte)
         self.btn_movimiento.clicked.connect(self._fn_movimiento)
         self.btn_cambio_cajero.clicked.connect(self._fn_cambio_cajero)
+        self.btn_cierre_diario.clicked.connect(self._fn_cierre_diario)
 
         grid.addWidget(self.btn_apertura,    0, 0)
         grid.addWidget(self.btn_habilitar,   0, 1)
@@ -4356,6 +4610,7 @@ class ConfiguracionWindow(QWidget):
         grid.addWidget(self.btn_cierre_fuerte, 1, 1)
         grid.addWidget(self.btn_movimiento,  2, 0)
         grid.addWidget(self.btn_cambio_cajero, 2, 1)
+        grid.addWidget(self.btn_cierre_diario, 3, 0, 1, 2)   # cierre diario de tienda (todas las cajas)
         outer.addLayout(grid)
         outer.addStretch()
 
@@ -4430,6 +4685,10 @@ class ConfiguracionWindow(QWidget):
         self._set_btn_state(self.btn_cierre_fuerte,(e == "CIERRE_COMPLETADO") or (e == "CAJA_FUERTE_ABIERTA" and n_cajas == 0))
         self._set_btn_state(self.btn_movimiento,   e in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA"))
         self._set_btn_state(self.btn_cambio_cajero, e in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA") and n_cajas > 0)
+        # CIERRE DIARIO: inactivo SOLO mientras haya cajas registradoras activas; el resto del
+        # tiempo activo (independiente de si la caja fuerte está abierta), y reimprimible.
+        if hasattr(self, "btn_cierre_diario"):
+            self._set_btn_state(self.btn_cierre_diario, n_cajas == 0)
 
     def _usuario_actual(self) -> tuple:
         if not sesion_global or not sesion_global.usuario_actual:
@@ -4683,9 +4942,10 @@ class ConfiguracionWindow(QWidget):
         if not cajas:
             return
 
-        # 0. Autorización de GERENTE/ADMINISTRADOR
-        if not self._autorizar_ger_admin(
-                tr("cfg.auth_cambio_cajero", default="realizar un cambio de cajero"))[0]:
+        # 0. Autorización de GERENTE/ADMINISTRADOR (responsable de turno → firma del ticket)
+        ok_aut, responsable_turno = self._autorizar_ger_admin(
+            tr("cfg.auth_cambio_cajero", default="realizar un cambio de cajero"))
+        if not ok_aut:
             return
 
         # 1. Selección de la caja a traspasar
@@ -4771,8 +5031,22 @@ class ConfiguracionWindow(QWidget):
         est.setdefault("ultimos_cierres", {})  # (no se altera; la caja sigue abierta)
         self._set_caja_estado(est)
         self._refresh_caja_ui()
-        self._generar_ticket_pdf(f"CAMBIO CAJERO {id_caja}", total_contado,
-                                 f"{saliente} → {entrante}", detalle)
+        # Ticket de cambio de cajero: detalle + recuento + firmas (cajero saliente ENCIMA,
+        # responsable de turno DEBAJO).
+        self._generar_ticket_pdf(
+            f"CAMBIO CAJERO {id_caja}", total_contado, f"{saliente} → {entrante}", detalle,
+            subtitulo=tr("cfg.tk_caja_x", default="Caja {id}", id=id_caja),
+            campos_extra=[
+                (tr("cfg.tk_caja", default="Caja"), id_caja),
+                (tr("cfg.tk_cajero_saliente", default="Cajero saliente"), saliente),
+                (tr("cfg.tk_cajero_entrante", default="Cajero entrante"), entrante),
+                (tr("cfg.tk_esperado", default="Esperado"), divisas.formatear(fondo_esperado)),
+                (tr("cfg.tk_contado", default="Contado"), divisas.formatear(total_contado)),
+            ],
+            firmas=[
+                (tr("cfg.tk_firma_saliente", default="Firma cajero saliente"), saliente),
+                (tr("cfg.tk_firma_responsable", default="Firma responsable de turno"), responsable_turno),
+            ])
 
         # 7. Resumen
         if abs(diff) < 0.005:
@@ -4902,8 +5176,13 @@ class ConfiguracionWindow(QWidget):
         self._refresh_caja_ui()
         self._generar_ticket_pdf(
             f"MOVIMIENTO — {res['tipo']}", imp, empleado_mov,
-            [{"denominacion": res["tipo"], "valor": imp, "cantidad": 1, "subtotal": imp}]
-        )
+            subtitulo=res["tipo"],
+            campos_extra=[
+                (tr("cfg.tk_tipo", default="Tipo"), res["tipo"]),
+                (tr("cfg.tk_origen", default="Origen"), res["origen_txt"]),
+                (tr("cfg.tk_destino", default="Destino"), res["destino_txt"]),
+                (tr("cfg.tk_motivo", default="Motivo"), res.get("motivo") or "—"),
+            ])
 
         # Construir mensaje informativo con saldos actualizados
         lineas = [tr("cfg.mov_line1", default="{tipo} de {x} € registrado.", tipo=res['tipo'], x=divisas.formatear(imp)) + "\n"]
@@ -4914,50 +5193,167 @@ class ConfiguracionWindow(QWidget):
             lineas.append(f"{c['id']} → {divisas.formatear(c.get('fondo', 0.0))}")
         mostrar_mensaje(self, tr("cfg.mov_registrado_title", default="Movimiento registrado"), "\n".join(lineas), "success")
 
-    def _generar_ticket_pdf(self, tipo: str, importe: float, responsable: str, detalle: list = None):
+    def _generar_ticket_pdf(self, tipo: str, importe: float, responsable: str, detalle: list = None,
+                            *, firmas=None, campos_extra=None, subtitulo=None):
+        """Genera el ticket de OPERACIÓN de caja (documento interno de empresa) en el MISMO formato
+        recibo que el ticket de compra: logo, cabecera fiscal, tienda+referencia, nº de ticket ÚNICO,
+        empleado, fecha/hora exactas, recuento de billetes/monedas y, si procede, firmas. Sin códigos
+        de barras ni QR; margen izquierdo ampliado para archivar. Lo comparten apertura/cierre de caja
+        fuerte y registradoras, movimiento de efectivo y cambio de cajero. Devuelve la ruta o None."""
         try:
-            from reportlab.lib.pagesizes import A5
-            from reportlab.lib.units import cm
-            from reportlab.pdfgen import canvas as rl_canvas
-            safe = tipo.replace(" ", "_").replace("/", "-")
-            fname = f"TICKET_{safe}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            carpeta = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "documentos", "tickets"))
-            os.makedirs(carpeta, exist_ok=True)
-            ruta = os.path.join(carpeta, fname)
-            c = rl_canvas.Canvas(ruta, pagesize=A5)
-            w, h = A5
-            if os.path.exists(_LOGO_PATH):
-                c.drawImage(_LOGO_PATH, w - 4.5*cm, h - 3*cm, 3.5*cm, 2*cm, preserveAspectRatio=True)
-            c.setFont("Helvetica-Bold", 13); c.setFillColorRGB(0, 1, 0.78)
-            c.drawString(1*cm, h - 1.8*cm, tipo)
-            c.setFont("Helvetica", 8); c.setFillColorRGB(0.6, 0.6, 0.6)
-            c.drawString(1*cm, h - 2.5*cm, tr("cfg.tk_date_time", default="Fecha: {fecha}  Hora: {hora}", fecha=datetime.now().strftime('%d/%m/%Y'), hora=datetime.now().strftime('%H:%M:%S')))
-            c.drawString(1*cm, h - 3.0*cm, tr("cfg.tk_responsable", default="Responsable: {x}", x=responsable))
-            c.setStrokeColorRGB(0, 1, 0.78); c.line(1*cm, h - 3.4*cm, w - 1*cm, h - 3.4*cm)
-            y = h - 4.2*cm
-            if detalle:
-                c.setFont("Helvetica-Bold", 8); c.setFillColorRGB(0.4, 0.9, 0.6)
-                c.drawString(1*cm, y, tr("cfg.col_denom", default="DENOMINACIÓN")); c.drawRightString(w - 2.5*cm, y, tr("cfg.tk_cant", default="CANT.")); c.drawRightString(w - 1*cm, y, tr("cfg.col_subtotal", default="SUBTOTAL"))
-                y -= 0.45*cm
-                c.setFont("Helvetica", 8); c.setFillColorRGB(0.9, 0.9, 0.9)
-                for item in detalle:
-                    if y < 3*cm: c.showPage(); y = h - 2*cm
-                    c.drawString(1*cm, y, str(item.get("denominacion", "")))
-                    c.drawRightString(w - 2.5*cm, y, str(item.get("cantidad", "")))
-                    c.drawRightString(w - 1*cm, y, f"{divisas.formatear(item.get('subtotal', 0))}")
-                    y -= 0.42*cm
-            y -= 0.5*cm
-            c.setStrokeColorRGB(0, 1, 0.78); c.line(1*cm, y, w - 1*cm, y); y -= 0.55*cm
-            c.setFont("Helvetica-Bold", 11); c.setFillColorRGB(0, 1, 0.78)
-            c.drawString(1*cm, y, tr("cfg.tk_total", default="TOTAL:")); c.drawRightString(w - 1*cm, y, divisas.formatear(importe))
-            y -= 2*cm
-            c.setFont("Helvetica", 7); c.setFillColorRGB(0.5, 0.5, 0.5)
-            c.drawString(1*cm, y, tr("cfg.tk_firma", default="Firma responsable: _______________________________"))
-            c.setFont("Helvetica", 7); c.setFillColorRGB(0.4, 0.4, 0.4)
-            c.drawCentredString(w/2, 1.5*cm, tr("cfg.tk_footer", default="Documento generado por Smart Manager"))
-            c.save()
+            from src.utils.impresion import generar_ticket_operacion_pdf
+            from src.utils.ticket_data import construir_datos_operacion
         except Exception:
-            LOG_DOCUMENTOS.exception("Error generando ticket PDF (caja)")
+            LOG_DOCUMENTOS.exception("Ticket de operación no disponible")
+            return None
+
+        # Prefijo/título de trazabilidad según el tipo de operación.
+        t = str(tipo or "").upper()
+        if t.startswith("APERTURA CAJA FUERTE"):
+            pref, titulo, caja = "ACF", tr("cfg.tk_apertura_fuerte", default="APERTURA CAJA FUERTE"), None
+        elif t.startswith("APERTURA"):
+            pref, titulo, caja = "ACR", tr("cfg.tk_apertura_caja", default="APERTURA CAJA REGISTRADORA"), tipo.replace("APERTURA", "").strip()
+        elif t.startswith("CIERRE CAJA FUERTE"):
+            pref, titulo, caja = "CCF", tr("cfg.tk_cierre_fuerte", default="CIERRE CAJA FUERTE"), None
+        elif t.startswith("CIERRE"):
+            pref, titulo, caja = "CCR", tr("cfg.tk_cierre_caja", default="CIERRE CAJA REGISTRADORA"), tipo.replace("CIERRE", "").strip()
+        elif t.startswith("CAMBIO CAJERO"):
+            pref, titulo, caja = "CBC", tr("cfg.tk_cambio_cajero", default="CAMBIO DE CAJERO"), tipo.replace("CAMBIO CAJERO", "").strip()
+        elif t.startswith("MOVIMIENTO"):
+            pref, titulo, caja = "MOV", tr("cfg.tk_movimiento", default="MOVIMIENTO DE EFECTIVO"), None
+        else:
+            pref, titulo, caja = "OP", str(tipo), None
+
+        secciones = []
+        if campos_extra:
+            secciones.append((tr("cfg.tk_detalle_op", default="DETALLE"), list(campos_extra)))
+        total_label = (tr("cfg.tk_total_recuento", default="TOTAL RECUENTO") if detalle
+                       else tr("cfg.tk_importe", default="IMPORTE"))
+
+        datos = construir_datos_operacion(
+            titulo, responsable, prefijo=pref, subtitulo=subtitulo, caja=caja or None,
+            secciones=secciones, denominaciones=detalle or [],
+            total=(total_label, importe), firmas=firmas)
+
+        carpeta = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..",
+                                                 "documentos", "tickets_operaciones"))
+        os.makedirs(carpeta, exist_ok=True)
+        ref = (datos.get("operacion") or {}).get("ticket_num") or datetime.now().strftime("%Y%m%d_%H%M%S")
+        ruta = os.path.join(carpeta, f"{ref}.pdf")
+        try:
+            generar_ticket_operacion_pdf(datos, ruta)
+        except Exception:
+            LOG_DOCUMENTOS.exception("Error generando ticket de operación PDF (caja)")
+            return None
+        # Centro documental: registrar el ticket (trazabilidad por su referencia única). NO se abre el PDF
+        # automáticamente: el ticket queda disponible en Documentos (punto rojo de aviso) y es el usuario
+        # quien decide cuándo abrirlo. Vale para apertura/cierre de caja fuerte y registradoras, cambio de
+        # cajero y movimiento de efectivo (todos usan este generador único).
+        try:
+            from src.db import documentos as _docreg
+            _docreg.registrar_documento(ruta, tipo="ticket", nombre=f"{titulo} — {ref}",
+                                        referencia=ref, importe=importe, trabajador=responsable,
+                                        estado="generado")
+        except Exception:
+            pass
+        return ruta
+
+    def _fn_cierre_diario(self):
+        """CIERRE DIARIO — recopila los hechos económicos del día (todas las cajas), hace arqueo,
+        persiste un Cierre Z inmutable/auditable, procesa la contabilidad y genera el ticket-resumen
+        PDF con la facturación del día. Reutiliza el MOTOR ÚNICO `services.tpv.cierre_z` (N7)."""
+        try:
+            from src.services.tpv import cierre_z
+        except Exception as e:
+            mostrar_mensaje(self, tr("cfg.cierre_diario", default="Cierre diario"),
+                            tr("cfg.cierre_diario_no_disp", default="Módulo no disponible: {e}", e=str(e)), "error")
+            return
+
+        # Precondición: no puede haber cajas registradoras activas (el resto del tiempo está
+        # disponible, incluso con la caja fuerte abierta, y es reimprimible por si hubo un error).
+        est = self._get_caja_estado()
+        if est.get("cajas_activas"):
+            mostrar_mensaje(
+                self, tr("cfg.cierre_diario", default="Cierre diario"),
+                tr("cfg.cierre_diario_bloqueado",
+                   default="Antes del cierre diario debe cerrar todas las cajas registradoras."),
+                "warning")
+            return
+
+        hoy = datetime.now().strftime("%Y-%m-%d")
+        id_tienda = ""
+        try:
+            from src.db.empresa import tienda_actual_id
+            id_tienda = tienda_actual_id() or ""
+        except Exception:
+            pass
+        usuario = ""
+        try:
+            if sesion_global and sesion_global.usuario_actual:
+                usuario = sesion_global.obtener_nombre()
+        except Exception:
+            pass
+
+        # Reimprimible: si ya existe el cierre de hoy, se regenera su MISMO ticket (mismo nº y hash)
+        # por si hubo un error humano. No se crea un duplicado (lo gestiona generar_cierre_z).
+        # El arqueo YA se hizo al cerrar las registradoras y la caja fuerte: el CIERRE DIARIO NO
+        # vuelve a pedirlo. Solo confirma la impresión del ticket con los hechos económicos del día.
+        fondo_inicial = float(est.get("fondo_caja_fuerte", 0.0) or 0.0)
+        res = cierre_z.resumen_dia(hoy, caja=None)
+        esperado = round(fondo_inicial + res.get("cobros", {}).get("efectivo", 0.0), 2)
+
+        if not mostrar_confirmacion(
+                self, tr("cfg.cierre_diario", default="Cierre diario"),
+                tr("cfg.cierre_diario_confirm",
+                   default=("¿Generar e imprimir el ticket de CIERRE DIARIO con todos los hechos "
+                            "económicos de hoy?\n\nFacturación del día: {fact}\nNº de tickets: {tk}\n\n"
+                            "Se contabilizarán los asientos del día en cola."),
+                   fact=divisas.formatear(res.get("total_cobrado", 0)), tk=res.get("num_tickets", 0))):
+            return
+
+        # Sin nuevo arqueo: el efectivo declarado = esperado (ya conciliado en los cierres previos).
+        cierre = cierre_z.generar_cierre_z(hoy, esperado, usuario=usuario, id_tienda=id_tienda,
+                                           caja=None, fondo_inicial=fondo_inicial)
+        if not cierre:
+            mostrar_mensaje(self, tr("cfg.cierre_diario", default="Cierre diario"),
+                            tr("cfg.cierre_diario_err", default="No se pudo generar el cierre diario."), "error")
+            return
+
+        post = cierre.get("posting") or {}
+        if cierre.get("duplicado"):
+            # Reimpresión del cierre ya existente (mismo nº y hash).
+            msg = tr(
+                "cfg.cierre_diario_reimpreso",
+                default=("CIERRE DIARIO Nº {n} — {fecha}  (reimpresión)\n\n"
+                         "Facturación del día: {fact}\n"
+                         "Nº de tickets (clientes): {tk}\n\n"
+                         "Se ha regenerado el mismo ticket (sin duplicar el cierre)."),
+                n=f"{int(cierre.get('numero') or 0):05d}", fecha=hoy,
+                fact=divisas.formatear(cierre.get("total_cobrado", 0)),
+                tk=res.get("num_tickets", 0))
+        else:
+            msg = tr(
+                "cfg.cierre_diario_ok",
+                default=("CIERRE DIARIO Nº {n} — {fecha}\n\n"
+                         "Facturación del día: {fact}\n"
+                         "Nº de tickets (clientes): {tk}\n"
+                         "Ticket medio: {tm}\n"
+                         "Asientos contabilizados (excl. nóminas): {asi}\n\n"
+                         "Ticket generado y archivado en el Centro Documental."),
+                n=f"{int(cierre.get('numero') or 0):05d}", fecha=hoy,
+                fact=divisas.formatear(cierre.get("total_cobrado", 0)),
+                tk=res.get("num_tickets", 0), tm=divisas.formatear(res.get("ticket_medio", 0)),
+                asi=post.get("asientos", 0))
+        mostrar_mensaje(self, tr("cfg.cierre_diario_gen", default="Cierre diario generado"),
+                        msg, "success")
+
+        ruta = cierre.get("ruta_pdf")
+        if ruta and os.path.exists(ruta):
+            try:
+                os.startfile(ruta)  # noqa: S606 — abrir el ticket PDF del cierre (Windows)
+            except Exception:
+                pass
+        self._refresh_caja_ui()
 
     # --- PESTAÑA 4: HORARIO EMPLEADOS ---
     def _crear_page_horarios(self):
@@ -5298,131 +5694,171 @@ class ConfiguracionWindow(QWidget):
         self._f_lbl_counter.setText(f"{h:02d}:{m:02d}:{s:02d}")
 
     def _f_historico_fichajes(self):
-        fichajes = listar_fichajes()
+        """Histórico de fichajes del empleado EN SESIÓN (cada uno ve los suyos): muestra el mes EN CURSO
+        y permite navegar a meses anteriores con las flechas. Columnas: FECHA · ENTRADA · SALIDA ·
+        HORAS DEL DÍA · HORAS DEL MES. Ventana completa; cerrar con la ✕ roja."""
+        import datetime
+        try:
+            self._hf_uid = (sesion_global.usuario_actual or {}).get("id")
+        except Exception:
+            self._hf_uid = None
+        hoy = datetime.date.today()
+        meses = meses_con_fichajes_empleado(self._hf_uid) if self._hf_uid is not None else []
+        actual = (hoy.year, hoy.month)
+        # Páginas: el mes en curso (siempre) + los meses con fichajes, deduplicado, más reciente primero.
+        self._hf_paginas = [actual] + [m for m in meses if m != actual]
+        self._hf_idx = 0
 
         dlg = QDialog(self)
         dlg.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
         dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        dlg.setMinimumSize(820, 500)
+        try:
+            dlg.setGeometry(QApplication.primaryScreen().availableGeometry())  # ventana completa
+        except Exception:
+            dlg.setMinimumSize(900, 600)
 
         card = QFrame(dlg)
         card.setObjectName("hfcard")
-        card.setStyleSheet(
-            f"QFrame#hfcard{{background:#0D1117;border:2px solid {_CIAN};border-radius:14px;}}"
-        )
+        card.setStyleSheet(f"QFrame#hfcard{{background:#0D1117;border:2px solid {_CIAN};border-radius:14px;}}")
         root_lay = QVBoxLayout(dlg)
-        root_lay.setContentsMargins(0, 0, 0, 0)
+        root_lay.setContentsMargins(10, 10, 10, 10)
         root_lay.addWidget(card)
-
         ly = QVBoxLayout(card)
-        ly.setContentsMargins(20, 20, 20, 16)
+        ly.setContentsMargins(26, 20, 26, 18)
         ly.setSpacing(12)
 
-        # Draggable header row
-        _drag = [None]
-        def _on_press(e):
-            if e.button() == Qt.MouseButton.LeftButton:
-                _drag[0] = e.globalPosition().toPoint() - dlg.frameGeometry().topLeft()
-        def _on_move(e):
-            if _drag[0] is not None and e.buttons() == Qt.MouseButton.LeftButton:
-                dlg.move(e.globalPosition().toPoint() - _drag[0])
-        def _on_release(e):
-            _drag[0] = None
-        card.mousePressEvent = _on_press
-        card.mouseMoveEvent = _on_move
-        card.mouseReleaseEvent = _on_release
-
-        hdr_row = QHBoxLayout()
-        lbl = QLabel(tr("cfg.hist_title", default="HISTÓRICO DE FICHAJES"))
-        lbl.setStyleSheet(
-            f"color: {_CIAN}; font-family: 'Segoe UI'; font-weight: 900; font-size: 16px;"
-        )
-        hdr_row.addWidget(lbl)
-        ly.addLayout(hdr_row)
+        # Cabecera: título del mes + ✕ roja arriba a la derecha.
+        hdr = QHBoxLayout()
+        self._hf_titulo = QLabel("")
+        self._hf_titulo.setStyleSheet("color: %s; font-family: 'Segoe UI'; font-weight: 900; font-size: 18px;" % _CIAN)
+        hdr.addWidget(self._hf_titulo)
+        hdr.addStretch()
+        bx = QPushButton("✕")
+        bx.setFixedSize(40, 40)
+        bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet("QPushButton{background:transparent;color:#F85149;border:2px solid #F85149;"
+                         "border-radius:9px;font-weight:900;font-size:18px;}"
+                         "QPushButton:hover{background:#F85149;color:#0D1117;}")
+        bx.clicked.connect(dlg.accept)
+        hdr.addWidget(bx)
+        ly.addLayout(hdr)
 
         headers = [
-            tr("cfg.col_name", default="NOMBRE"),
+            tr("cfg.col_date", default="FECHA"),
             tr("cfg.col_entry", default="ENTRADA"),
             tr("cfg.col_exit", default="SALIDA"),
-            tr("cfg.col_hours", default="HORAS TRABAJADAS"),
+            tr("cfg.col_hours_day", default="HORAS DEL DÍA"),
+            tr("cfg.col_hours_month", default="HORAS DEL MES"),
         ]
-        tbl = QTableWidget(len(fichajes), len(headers))
-        tbl.setHorizontalHeaderLabels(headers)
-        tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        tbl.setAlternatingRowColors(False)
-        tbl.verticalHeader().setVisible(False)
-        hdr = tbl.horizontalHeader()
-        for i in range(4):
-            hdr.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
-        tbl.setStyleSheet(f"""
-            QTableWidget {{
-                background: #161B22; color: white; border: none;
-                font-size: 13px; gridline-color: #21262D;
-                font-family: 'Segoe UI';
-            }}
-            QHeaderView::section {{
-                background: #21262D; color: {_CIAN};
-                font-weight: bold; border: none; padding: 6px 10px;
-                font-family: 'Segoe UI'; font-size: 13px;
-            }}
-            QHeaderView::section:hover {{
-                background: {_CIAN}; color: #0D1117;
-            }}
+        self._hf_tbl = QTableWidget(0, len(headers))
+        self._hf_tbl.setHorizontalHeaderLabels(headers)
+        self._hf_tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._hf_tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._hf_tbl.verticalHeader().setVisible(False)
+        for i in range(len(headers)):
+            self._hf_tbl.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+        # Tabla SIN borde propio: el contorno neón + esquinas redondeadas los aporta un QFrame contenedor,
+        # así las cabeceras no cortan el contorno.
+        self._hf_tbl.setFrameShape(QFrame.Shape.NoFrame)
+        self._hf_tbl.setStyleSheet(f"""
+            QTableWidget {{ background: #161B22; color: white; border: none;
+                font-size: 13px; gridline-color: #21262D; font-family: 'Segoe UI'; }}
+            QHeaderView::section {{ background: #21262D; color: {_CIAN}; font-weight: bold;
+                border: none; border-bottom: 2px solid {_CIAN}; padding: 8px 10px;
+                font-family: 'Segoe UI'; font-size: 13px; }}
+            QHeaderView::section:first {{ border-top-left-radius: 10px; }}
+            QHeaderView::section:last {{ border-top-right-radius: 10px; }}
+            QHeaderView::section:hover {{ background: {_CIAN}; color: #0D1117; }}
             QTableWidget::item {{ padding: 5px 10px; }}
             QTableWidget::item:selected {{ background: #2D333B; }}
         """)
+        _hf_wrap = QFrame()
+        _hf_wrap.setObjectName("hfwrap")
+        _hf_wrap.setStyleSheet(f"QFrame#hfwrap{{background:#0D1117;border:2px solid {_CIAN};border-radius:12px;}}")
+        _hf_wl = QVBoxLayout(_hf_wrap)
+        _hf_wl.setContentsMargins(6, 6, 6, 6)
+        _hf_wl.addWidget(self._hf_tbl)
+        ly.addWidget(_hf_wrap, 1)
 
-        for row, f in enumerate(fichajes):
-            tbl.setItem(row, 0, QTableWidgetItem(f["nombre"]))
-            entrada_dt = f["entrada"]
-            entrada_str = entrada_dt.strftime("%d/%m/%Y  %H:%M:%S") if entrada_dt else "-"
-            tbl.setItem(row, 1, QTableWidgetItem(entrada_str))
-            salida_dt = f["salida"]
-            salida_str = salida_dt.strftime("%d/%m/%Y  %H:%M:%S") if salida_dt else tr("cfg.in_progress", default="EN CURSO")
-            item_sal = QTableWidgetItem(salida_str)
-            if not salida_dt:
-                item_sal.setForeground(QColor(_CIAN))
-            tbl.setItem(row, 2, item_sal)
-            seg = f["segundos"]
-            if seg is not None:
-                h = seg // 3600
-                m_val = (seg % 3600) // 60
-                s_val = seg % 60
-                dur = f"{h:02d}h  {m_val:02d}m  {s_val:02d}s"
-            else:
-                dur = "-"
-            item_dur = QTableWidgetItem(dur)
-            item_dur.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            tbl.setItem(row, 3, item_dur)
+        # Pie: flechas de navegación (◀ mes anterior a la izquierda, ▶ mes siguiente a la derecha) + total.
+        def _flecha(txt):
+            b = QPushButton(txt)
+            b.setFixedSize(52, 44)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(f"QPushButton{{background:#11181D;color:{_CIAN};border:2px solid {_CIAN};"
+                            f"border-radius:10px;font-weight:900;font-size:18px;}}"
+                            f"QPushButton:hover{{background:{_CIAN};color:#0E1117;}}"
+                            f"QPushButton:disabled{{color:#30363D;border-color:#21262D;}}")
+            return b
+        pie = QHBoxLayout()
+        self._hf_prev = _flecha("◀")   # mes anterior (más antiguo)
+        self._hf_next = _flecha("▶")   # mes siguiente (más reciente)
+        self._hf_prev.clicked.connect(lambda: self._hf_navegar(+1))
+        self._hf_next.clicked.connect(lambda: self._hf_navegar(-1))
+        self._hf_total = QLabel("")
+        self._hf_total.setStyleSheet("color: #8B949E; font-family: 'Segoe UI'; font-size: 12px;")
+        pie.addWidget(self._hf_prev)
+        pie.addStretch()
+        pie.addWidget(self._hf_total)
+        pie.addStretch()
+        pie.addWidget(self._hf_next)
+        ly.addLayout(pie)
 
-        ly.addWidget(tbl)
-
-        btn_close = QPushButton(tr("cfg.close", default="CERRAR"))
-        btn_close.setFixedHeight(38)
-        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.clicked.connect(dlg.accept)
-        btn_close.setStyleSheet(f"""
-            QPushButton {{
-                background: {_CIAN}; color: #0E1117; border: none;
-                border-radius: 8px; font-family: 'Segoe UI';
-                font-weight: bold; font-size: 13px; padding: 0 24px;
-            }}
-            QPushButton:hover {{
-                background: #0D1117; color: {_CIAN}; border: 2px solid {_CIAN};
-            }}
-        """)
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        btn_row.addWidget(btn_close)
-        ly.addLayout(btn_row)
-        # Pre-size and center on the parent window before exec() so the dialog
-        # is at the correct position from the very first paint frame.
-        dlg.resize(820, 500)
-        parent = self.window()
-        center = parent.mapToGlobal(parent.rect().center())
-        dlg.move(center.x() - 410, center.y() - 250)
+        self._hf_pintar()
+        # Reaplica la geometría a pantalla completa TRAS mostrarse (setGeometry antes del show no siempre
+        # se respeta en frameless/Tool → la ventana salía más pequeña dejando ver la de detrás).
+        def _full():
+            try:
+                dlg.setGeometry(QApplication.primaryScreen().availableGeometry())
+            except Exception:
+                pass
+        QTimer.singleShot(0, _full)
+        QTimer.singleShot(60, _full)
         dlg.exec()
+
+    def _hf_navegar(self, delta):
+        nuevo = self._hf_idx + delta
+        if 0 <= nuevo < len(self._hf_paginas):
+            self._hf_idx = nuevo
+            self._hf_pintar()
+
+    def _hf_pintar(self):
+        import datetime
+        meses_nom = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+                     "septiembre", "octubre", "noviembre", "diciembre"]
+        y, m = self._hf_paginas[self._hf_idx]
+        self._hf_titulo.setText("📅  " + tr("cfg.hist_title_mes",
+                                           default="HISTÓRICO DE FICHAJES · {mes} {anio}",
+                                           mes=meses_nom[m].upper(), anio=y))
+        fichajes = listar_fichajes_empleado(self._hf_uid, y, m) if self._hf_uid is not None else []
+        total_seg = sum(int(f["segundos"] or 0) for f in fichajes)
+        th, tm = total_seg // 3600, (total_seg % 3600) // 60
+        mes_str = f"{th}h  {tm:02d}m"
+        self._hf_tbl.setRowCount(len(fichajes))
+        for row, f in enumerate(fichajes):
+            ent = f["entrada"]
+            self._hf_tbl.setItem(row, 0, QTableWidgetItem(ent.strftime("%d/%m/%Y") if ent else "-"))
+            self._hf_tbl.setItem(row, 1, QTableWidgetItem(ent.strftime("%H:%M:%S") if ent else "-"))
+            sal = f["salida"]
+            it_sal = QTableWidgetItem(sal.strftime("%H:%M:%S") if sal else tr("cfg.in_progress", default="EN CURSO"))
+            if not sal:
+                it_sal.setForeground(QColor(_CIAN))
+            self._hf_tbl.setItem(row, 2, it_sal)
+            seg = int(f["segundos"] or 0)
+            h, mm, ss = seg // 3600, (seg % 3600) // 60, seg % 60
+            it_dia = QTableWidgetItem(f"{h:02d}h  {mm:02d}m  {ss:02d}s")
+            it_dia.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._hf_tbl.setItem(row, 3, it_dia)
+            it_mes = QTableWidgetItem(mes_str)
+            it_mes.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_mes.setForeground(QColor(_CIAN))
+            self._hf_tbl.setItem(row, 4, it_mes)
+        self._hf_total.setText(tr("cfg.hist_total_mes", default="Total del mes: {h}h {m:02d}m  ·  {n} fichajes",
+                                  h=th, m=tm, n=len(fichajes)))
+        # Flechas: activas solo si hay más de una página (mes en curso + meses anteriores con fichajes).
+        hay_varias = len(self._hf_paginas) > 1
+        self._hf_prev.setEnabled(hay_varias and self._hf_idx < len(self._hf_paginas) - 1)
+        self._hf_next.setEnabled(hay_varias and self._hf_idx > 0)
 
     # --- PESTAÑA 6: LOGO CORPORATIVO ---
     def _crear_page_logo(self):
@@ -5911,211 +6347,6 @@ class ConfiguracionWindow(QWidget):
         h_ly.addStretch()
         return h_ly, combo_h, combo_m
 
-    # --- PESTAÑA 8: FISCALIDAD ---
-    def _crear_page_fiscalidad(self):
-        page = QWidget()
-        outer = QVBoxLayout(page)
-        outer.setContentsMargins(28, 22, 28, 22)
-        outer.setSpacing(16)
-
-        # ── Título ───────────────────────────────────────────────────────────
-        lbl_tit = QLabel(tr("cfg.fis_title", default="CENTRO DE DOCUMENTACIÓN FISCAL Y LABORAL"))
-        lbl_tit.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:16px;")
-        outer.addWidget(lbl_tit)
-
-        # ── Módulos (4 botones de selección) ─────────────────────────────────
-        # EMPRESA se retiró: los datos de empresa se gestionan en la pestaña
-        # "DATOS DE EMPRESA" (fuente única).
-        # AUDITORÍA Y REGISTRO DE DOCUMENTOS se retiró: el repositorio documental
-        # está ahora centralizado en el menú → DOCUMENTOS (centro_documental.py).
-        MODULOS = [
-            ("👷  " + tr("cfg.mod_laboral", default="LABORAL"),   "#3FB950"),
-            ("📋  " + tr("cfg.mod_fiscal", default="FISCAL"),    "#58A6FF"),
-        ]
-        mod_row = QHBoxLayout(); mod_row.setSpacing(8)
-        self._fis_mod_btns = []
-        self._fis_stack = QStackedWidget()
-
-        for i, (label, color) in enumerate(MODULOS):
-            b = QPushButton(label); b.setFixedHeight(46)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setCheckable(True)
-            b.setStyleSheet(
-                f"QPushButton{{background:#161B22;color:{color};border:2px solid {color};"
-                f"border-radius:10px;font-family:'Segoe UI';font-weight:900;font-size:12px;}}"
-                f"QPushButton:checked{{background:{color};color:#0D1117;}}"
-                f"QPushButton:hover{{background:{color};color:#0D1117;}}"
-            )
-            b.clicked.connect(lambda _, idx=i: self._fis_cambiar_modulo(idx))
-            mod_row.addWidget(b)
-            self._fis_mod_btns.append(b)
-
-        outer.addLayout(mod_row)
-
-        self._fis_stack.addWidget(self._fis_modulo_laboral())
-        self._fis_stack.addWidget(self._fis_modulo_fiscal())
-        outer.addWidget(self._fis_stack)
-
-        self._fis_mod_btns[0].setChecked(True)
-        return page
-
-    def _fis_cambiar_modulo(self, idx):
-        for i, b in enumerate(self._fis_mod_btns):
-            b.setChecked(i == idx)
-        self._fis_stack.setCurrentIndex(idx)
-
-    def _fis_card_btn(self, icono, titulo, descripcion, tipo_wizard):
-        """Tarjeta de acción para módulos de fiscalidad."""
-        card = QFrame()
-        card.setObjectName("fisCard")
-        card.setStyleSheet(f"QFrame#fisCard{{background:#161B22;border:1px solid {_BORDE};border-radius:14px;}}QFrame#fisCard:hover{{border-color:{_CIAN};}}")
-        card.setCursor(Qt.CursorShape.PointingHandCursor)
-        card.setFixedHeight(90)
-        ly = QHBoxLayout(card); ly.setContentsMargins(18, 0, 18, 0); ly.setSpacing(14)
-        lbl_ic = QLabel(icono); lbl_ic.setStyleSheet("font-size:26px;background:transparent;")
-        lbl_ic.setFixedWidth(36)
-        info = QVBoxLayout(); info.setSpacing(2)
-        lbl_t = QLabel(titulo); lbl_t.setStyleSheet("color:white;font-family:'Segoe UI';font-weight:900;font-size:13px;background:transparent;")
-        lbl_d = QLabel(descripcion); lbl_d.setStyleSheet("color:#6E7681;font-family:'Segoe UI';font-size:11px;background:transparent;")
-        info.addWidget(lbl_t); info.addWidget(lbl_d)
-        lbl_arr = QLabel("›"); lbl_arr.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:900;background:transparent;")
-        ly.addWidget(lbl_ic); ly.addLayout(info); ly.addStretch(); ly.addWidget(lbl_arr)
-
-        def _click(ev):
-            if ev.button() == Qt.MouseButton.LeftButton:
-                self._abrir_wizard_fiscal(tipo_wizard)
-        card.mousePressEvent = _click
-        return card
-
-    def _abrir_wizard_fiscal(self, tipo):
-        dlg = _WizardDocumentoFiscal(tipo_inicial=tipo, parent=self)
-        dlg.exec()
-
-    def _fis_modulo_laboral(self):
-        w = QWidget()
-        scroll = QScrollArea(); scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
-        inner = QWidget(); inner_ly = QVBoxLayout(inner); inner_ly.setSpacing(8); inner_ly.setContentsMargins(4, 8, 12, 8)
-        entries = [
-            ("📄", tr("cfg.lab_t1", default="CONTRATOS"), tr("cfg.lab_d1", default="Genera contratos laborales con validación legal automática"), "CONTRATO"),
-            ("📊", tr("cfg.lab_t2", default="NÓMINAS"), tr("cfg.lab_d2", default="Cálculo y generación de nóminas con IRPF y cotización"), "NÓMINA"),
-            ("✅", tr("cfg.lab_t3", default="ALTAS LABORALES"), tr("cfg.lab_d3", default="Tramitar altas en la Seguridad Social (preparado para SS RED)"), "ALTA"),
-            ("❌", tr("cfg.lab_t4", default="BAJAS LABORALES"), tr("cfg.lab_d4", default="Tramitar bajas y situaciones de incapacidad temporal"), "BAJA"),
-            ("💼", tr("cfg.lab_t5", default="FINIQUITOS"), tr("cfg.lab_d5", default="Genera finiquitos con cálculo automático de conceptos"), "FINIQUITO"),
-            ("🏢", tr("cfg.lab_t6", default="CERTIFICADOS"), tr("cfg.lab_d6", default="Emite certificados de empresa y vida laboral"), "CERTIFICADO"),
-            ("📃", tr("cfg.lab_t7", default="CERTIFICADOS LABORAL"), tr("cfg.lab_d7", default="Certificados de antigüedad, funciones, ingresos y jornada"), "CERT LABORAL"),
-            ("📮", tr("cfg.lab_t8", default="CARTAS DE DESPIDO"), tr("cfg.lab_d8", default="Redacta cartas con motivos predeterminados y validación legal"), "CARTA DESPIDO"),
-            ("🌴", tr("cfg.lab_t9", default="VACACIONES"), tr("cfg.lab_d9", default="Solicitudes, aprobaciones y denegaciones de vacaciones"), "VACACIONES"),
-        ]
-        for ic, tit, desc, tipo in entries:
-            inner_ly.addWidget(self._fis_card_btn(ic, tit, desc, tipo))
-        inner_ly.addStretch()
-        scroll.setWidget(inner)
-        outer = QVBoxLayout(w); outer.setContentsMargins(0, 0, 0, 0); outer.addWidget(scroll)
-        return w
-
-    def _fis_modulo_fiscal(self):
-        w = QWidget()
-        scroll = QScrollArea(); scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
-        inner = QWidget(); inner_ly = QVBoxLayout(inner); inner_ly.setSpacing(8); inner_ly.setContentsMargins(4, 8, 12, 8)
-        entries = [
-            ("📋", tr("cfg.fis_t1", default="RESUMEN IVA"), tr("cfg.fis_d1", default="Genera el resumen de IVA trimestral o anual"), "RESUMEN FISCAL"),
-            ("📈", tr("cfg.fis_t2", default="LIBRO DE INGRESOS"), tr("cfg.fis_d2", default="Registro de facturas emitidas y totales del período"), "LIBRO INGRESOS"),
-            ("📉", tr("cfg.fis_t3", default="LIBRO DE GASTOS"), tr("cfg.fis_d3", default="Registro de gastos y facturas recibidas del período"), "LIBRO GASTOS"),
-            ("🔍", tr("cfg.fis_t4", default="INFORME AUDITORÍA"), tr("cfg.fis_d4", default="Informe de auditoría de caja, RRHH, accesos y movimientos"), "INFORME AUDIT"),
-        ]
-        for ic, tit, desc, tipo in entries:
-            inner_ly.addWidget(self._fis_card_btn(ic, tit, desc, tipo))
-        inner_ly.addStretch()
-        scroll.setWidget(inner)
-        outer = QVBoxLayout(w); outer.setContentsMargins(0, 0, 0, 0); outer.addWidget(scroll)
-        return w
-
-    def _fis_modulo_empresa(self):
-        w = QWidget()
-        outer_ly = QVBoxLayout(w)
-        outer_ly.setContentsMargins(0, 0, 0, 0)
-        outer_ly.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
-
-        inner = QWidget()
-        ly = QVBoxLayout(inner)
-        ly.setContentsMargins(4, 10, 12, 10)
-        ly.setSpacing(10)
-
-        lbl = QLabel(tr("cfg.emp_title", default="DATOS DE EMPRESA"))
-        lbl.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:13px;")
-        ly.addWidget(lbl)
-
-        def _inp(ph):
-            i = QLineEdit(); i.setPlaceholderText(ph); i.setFixedHeight(44)
-            i.setStyleSheet(f"QLineEdit{{background:#161B22;color:white;border:2px solid {_BORDE};border-radius:10px;padding:10px 14px;font-family:'Segoe UI';font-weight:bold;font-size:13px;}}QLineEdit:focus{{border-color:{_CIAN};}}")
-            return i
-
-        def _lbl_s(txt):
-            l = QLabel(txt); l.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:13px;font-weight:bold;"); return l
-
-        campos = [
-            (tr("cfg.emp_l1", default="Razón social:"), tr("cfg.emp_p1", default="Nombre legal de la empresa")),
-            (tr("cfg.emp_l2", default="CIF / NIF empresa:"), tr("cfg.emp_p2", default="Ej: B12345678")),
-            (tr("cfg.emp_l3", default="Dirección fiscal:"), tr("cfg.emp_p3", default="Calle, número, ciudad, CP")),
-            (tr("cfg.emp_l4", default="Email empresa:"), tr("cfg.emp_p4", default="correo@empresa.com")),
-            (tr("cfg.emp_l5", default="Teléfono:"), tr("cfg.emp_p5", default="+34 XXX XXX XXX")),
-            (tr("cfg.emp_l6", default="IBAN empresa:"), tr("cfg.emp_p6", default="ES00 0000 0000 0000 0000 0000")),
-        ]
-        self._fis_emp_inps = []
-        for lbl_txt, ph in campos:
-            ly.addWidget(_lbl_s(lbl_txt))
-            inp = _inp(ph); ly.addWidget(inp)
-            self._fis_emp_inps.append(inp)
-
-        btn_g = QPushButton(tr("cfg.emp_save_btn", default="GUARDAR DATOS DE EMPRESA"))
-        btn_g.setFixedHeight(44); btn_g.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_g.setStyleSheet(f"QPushButton{{background:#0D1117;color:{_CIAN};border:2px solid {_CIAN};border-radius:10px;font-family:'Segoe UI';font-weight:900;font-size:13px;}}QPushButton:hover{{background:{_CIAN};color:#0D1117;}}")
-        btn_g.clicked.connect(self._fis_guardar_empresa)
-        ly.addWidget(btn_g)
-        ly.addStretch()
-
-        scroll.setWidget(inner)
-        outer_ly.addWidget(scroll)
-
-        self._fis_cargar_empresa()
-        return w
-
-    def _fis_empresa_path(self):
-        return os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "documentos", "datos_empresa.json"))
-
-    def _fis_cargar_empresa(self):
-        # Fuente única: lee de la BD (empresas), no del JSON legacy (FASE 2c).
-        try:
-            from src.db import empresa as _emp
-            e = _emp.obtener_empresa() or {}
-            vals = [e.get("razon_social") or "", e.get("cif_nif") or "",
-                    e.get("direccion_fiscal") or "", e.get("email_principal") or "",
-                    e.get("telefono") or "", ""]
-            for i, inp in enumerate(getattr(self, "_fis_emp_inps", [])):
-                if i < len(vals):
-                    inp.setText(str(vals[i]))
-        except Exception:
-            pass
-
-    def _fis_guardar_empresa(self):
-        # Fuente única: guarda en la BD (empresas); se refleja en todos los documentos.
-        inps = getattr(self, "_fis_emp_inps", [])
-        cols = ["razon_social", "cif_nif", "direccion_fiscal", "email_principal", "telefono"]
-        sets = {cols[i]: inps[i].text().strip() for i in range(min(len(cols), len(inps)))}
-        try:
-            from src.db import empresa as _emp
-            _emp.actualizar_empresa(_emp.empresa_actual_id(), **sets)
-            mostrar_mensaje(self, tr("cfg.saved_title", default="Guardado"), tr("cfg.emp_saved", default="Datos de empresa guardados correctamente."), "success")
-        except Exception as e:
-            mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.emp_save_err", default="No se pudieron guardar los datos: {e}", e=e), "error")
-
     # --- PESTAÑA 2: PLAZO DEVOLUCIÓN ---
     def _crear_page_plazo_devolucion(self):
         page = QWidget()
@@ -6531,6 +6762,22 @@ class ConfiguracionWindow(QWidget):
 
         tabla_ly.addWidget(self.tabla_usuarios)
         tabla_ly.addWidget(btn_cambiar_pin)
+        # RESETEAR MFA (Fase 3): solo visible para quien tiene el permiso `mfa.admin.reset`.
+        try:
+            from src.db.usuario import sesion_global
+            from src.services import autorizacion
+            if autorizacion.puede(sesion_global.usuario_actual or {}, "mfa.admin.reset"):
+                btn_reset_mfa = QPushButton("🔒  " + tr("cfg.reset_mfa", default="RESETEAR MFA"))
+                btn_reset_mfa.setFixedHeight(44)
+                btn_reset_mfa.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_reset_mfa.setStyleSheet(
+                    f"QPushButton {{ background:#0D1117; color:{_CIAN}; border:2px solid {_CIAN};"
+                    f"border-radius:12px; font-family:'Segoe UI'; font-weight:bold; font-size:14px; }}"
+                    f"QPushButton:hover {{ background:{_CIAN}; color:#0E1117; }}")
+                btn_reset_mfa.clicked.connect(self.ejecutar_reset_mfa)
+                tabla_ly.addWidget(btn_reset_mfa)
+        except Exception:
+            pass
         tabla_ly.addWidget(btn_eliminar)
 
         layout_principal.addWidget(form_container)
@@ -6545,6 +6792,22 @@ class ConfiguracionWindow(QWidget):
             self.tabla_usuarios.setItem(i, 0, QTableWidgetItem(str(u["id"])))
             self.tabla_usuarios.setItem(i, 1, QTableWidgetItem(u["nombre"].upper()))
             self.tabla_usuarios.setItem(i, 2, QTableWidgetItem(u["perfil"].upper()))
+
+    def ejecutar_reset_mfa(self):
+        """Reset MFA administrativo del usuario seleccionado (Fase 3). Abre el diálogo con
+        reautenticación + step-up del administrador; el permiso ya se comprobó al crear el botón."""
+        row = self.tabla_usuarios.currentRow()
+        if row < 0 or not self.tabla_usuarios.item(row, 0):
+            return
+        try:
+            oid = int(self.tabla_usuarios.item(row, 0).text())
+        except (TypeError, ValueError):
+            return
+        onombre = self.tabla_usuarios.item(row, 1).text()
+        from src.db.usuario import sesion_global
+        actor = sesion_global.usuario_actual or {}
+        from src.gui.mfa_gui import MFAResetAdminDialog
+        MFAResetAdminDialog(oid, onombre, actor, parent=self).exec()
 
     def ejecutar_creacion_usuario(self):
         nom = self.input_nombre.text().strip()
@@ -6578,6 +6841,14 @@ class ConfiguracionWindow(QWidget):
         if fila < 0:
             mostrar_mensaje(self, tr("cfg.nosel_title", default="Sin selección"), tr("cfg.nosel_pin_msg", default="Selecciona un empleado de la tabla antes de cambiar el PIN."), "warning")
             return
+        # Acción de alto riesgo (cambio de credenciales) → STEP-UP MFA reciente del administrador.
+        try:
+            from src.db.usuario import sesion_global
+            from src.gui.mfa_gui import pedir_step_up
+            if not pedir_step_up(sesion_global.usuario_actual or {}, "password.cambiar", parent=self):
+                return
+        except Exception:
+            pass
         id_u  = int(self.tabla_usuarios.item(fila, 0).text())
         nombre = self.tabla_usuarios.item(fila, 1).text()
 
@@ -6676,90 +6947,8 @@ class ConfiguracionWindow(QWidget):
         else:
             mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.pin_update_err", default="No se pudo actualizar el PIN."), "error")
 
-    # --- PESTAÑA 9: ASIGNAR REFERENCIA ---
-    def _crear_page_referencia(self):
-        page = QWidget()
-        ly = QVBoxLayout(page)
-        ly.setContentsMargins(0, 0, 0, 50)
-        ly.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Barra de Selección (Contorno neón). Guardamos las etiquetas traducidas
-        # para comparar contra ellas (la lógica no depende del idioma).
-        self._ref_lbl_tienda = tr("cfg.ref_store", default="TIENDA (T-)")
-        self._ref_lbl_almacen = tr("cfg.ref_warehouse", default="ALMACÉN (A-)")
-        self.combo_ref = _PerfilDropdown([self._ref_lbl_tienda, self._ref_lbl_almacen])
-        self.combo_ref.setFixedWidth(450)
-        self.combo_ref._btn.setFixedHeight(55)
-
-        # Barra de Texto (Contorno neón)
-        self.input_ref = QLineEdit()
-        self.input_ref.setPlaceholderText(tr("cfg.ref_ph", default="NÚMERO O PALABRA DE REFERENCIA..."))
-        self.input_ref.setFixedWidth(450)
-        self.input_ref.setFixedHeight(55)
-        self.input_ref.setStyleSheet(f"""
-            QLineEdit {{
-                border: 2px solid {_CIAN}; border-radius: 12px; padding: 10px;
-                color: white; background: #161B22; font-family: 'Segoe UI'; font-weight: bold; font-size: 16px;
-            }}
-        """)
-
-        ly.addStretch()
-        ly.addWidget(self.combo_ref, alignment=Qt.AlignmentFlag.AlignCenter)
-        ly.addSpacing(20)
-        ly.addWidget(self.input_ref, alignment=Qt.AlignmentFlag.AlignCenter)
-        ly.addStretch()
-
-        # Botón Guardar Abajo Derecha
-        btn_save = QPushButton(tr("cfg.save", default="GUARDAR"))
-        btn_save.setFixedSize(180, 50)
-        btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_save.setStyleSheet("""
-            QPushButton { background: #238636; color: #0E1117; border-radius: 12px; font-family: 'Segoe UI'; font-weight: bold; font-size: 14px; }
-            QPushButton:hover { background: #FFFFFF; color: #0E1117; }
-        """)
-        btn_save.clicked.connect(self._guardar_ref)
-
-        h_bot = QHBoxLayout()
-        h_bot.addStretch()
-        h_bot.addWidget(btn_save)
-        h_bot.setContentsMargins(0, 0, 40, 0)
-        ly.addLayout(h_bot)
-
-        # Al cambiar el tipo en el combo, cargar la referencia guardada para ese tipo
-        self.combo_ref.currentTextChanged.connect(self._ref_on_combo_change)
-
-        # Cargar valores guardados al inicializar
-        self._ref_datos = obtener_referencias()
-        self._ref_on_combo_change(self.combo_ref.currentText())
-
-        return page
-
-    def _ref_on_combo_change(self, text: str):
-        """Rellena el input con la referencia guardada para el tipo seleccionado."""
-        if not hasattr(self, "_ref_datos"):
-            return
-        if text == getattr(self, "_ref_lbl_almacen", "ALMACÉN (A-)"):
-            self.input_ref.setText(self._ref_datos.get("ref_almacen", ""))
-        else:
-            self.input_ref.setText(self._ref_datos.get("ref_tienda", ""))
-
-    def _guardar_ref(self):
-        valor = self.input_ref.text().strip()
-        if not valor:
-            mostrar_mensaje(self, tr("cfg.ref_empty_title", default="Referencia vacía"), tr("cfg.ref_empty_msg", default="Escribe un número o palabra de referencia antes de guardar."), "warning")
-            return
-        text = self.combo_ref.currentText()
-        tipo = "almacen" if text == getattr(self, "_ref_lbl_almacen", "ALMACÉN (A-)") else "tienda"
-        ok = guardar_referencia(tipo, valor)
-        if ok:
-            # Actualizar caché local
-            if not hasattr(self, "_ref_datos"):
-                self._ref_datos = {}
-            self._ref_datos[f"ref_{tipo}"] = valor
-            _msg = tr("cfg.ref_saved_warehouse", default="Referencia de almacén guardada correctamente.") if tipo == "almacen" else tr("cfg.ref_saved_store", default="Referencia de tienda guardada correctamente.")
-            mostrar_mensaje(self, tr("cfg.saved_title", default="Guardado"), _msg, "success")
-        else:
-            mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.ref_save_err", default="No se pudo guardar la referencia. Revisa la conexión con la base de datos."), "error")
+    # PESTAÑA 9 «ASIGNAR REFERENCIA»: RETIRADA (deprecada → Identidad Operativa/IOC). El slot del stack es
+    # un placeholder QWidget; la identidad de la terminal se gestiona en Centros de trabajo (IOC).
 
     def _id_usuario_actual(self):
         """ID del usuario activo (self.usuario puede ser dict u objeto)."""
@@ -6848,6 +7037,263 @@ class ConfiguracionWindow(QWidget):
             "success",
         )
 
+    # ── SOMA (activación + voz) ───────────────────────────────────────────────
+    def _crear_page_soma(self):
+        """Ajustes del asistente SOMA: desactivar la voz (chat solo-texto) o desactivarlo por completo."""
+        from PyQt6.QtWidgets import QCheckBox
+
+        from src.utils import tema
+        cfg = tema.cargar()
+
+        page = QWidget()
+        ly = QVBoxLayout(page)
+        ly.setContentsMargins(40, 30, 40, 40)
+        ly.setSpacing(16)
+
+        titulo = QLabel(tr("cfg.soma_title", default="ASISTENTE SOMA"))
+        titulo.setStyleSheet("color: white; font-weight: 900; font-size: 20px; letter-spacing: 1px;")
+        ly.addWidget(titulo)
+
+        desc = QLabel(tr("cfg.soma_desc",
+                         default="Controla el asistente SOMA. Los cambios se aplican al reiniciar la "
+                                 "aplicación (SOMA arranca al iniciar sesión)."))
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #8B949E; font-size: 13px;")
+        ly.addWidget(desc)
+        ly.addSpacing(8)
+
+        _chk_ss = (
+            "QCheckBox { color: white; font-family: 'Segoe UI'; font-size: 15px; font-weight: bold;"
+            " padding: 10px; spacing: 12px; }"
+            "QCheckBox::indicator { width: 22px; height: 22px; }"
+            f"QCheckBox:hover {{ color: {_CIAN}; }}"
+        )
+
+        self._soma_chk_activo = QCheckBox(tr("cfg.soma_enabled", default="SOMA activado"))
+        self._soma_chk_activo.setChecked(bool(cfg.get("soma_activo", True)))
+        self._soma_chk_activo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._soma_chk_activo.setStyleSheet(_chk_ss)
+        ly.addWidget(self._soma_chk_activo)
+
+        sub1 = QLabel(tr("cfg.soma_enabled_sub",
+                         default="Si se desactiva, SOMA no aparece ni interviene en ninguna parte de la app."))
+        sub1.setWordWrap(True); sub1.setStyleSheet("color: #6B7685; font-size: 12px; margin-left: 44px;")
+        ly.addWidget(sub1)
+
+        self._soma_chk_voz = QCheckBox(tr("cfg.soma_voice", default="Voz de SOMA (escuchar y hablar)"))
+        self._soma_chk_voz.setChecked(bool(cfg.get("soma_voz", True)))
+        self._soma_chk_voz.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._soma_chk_voz.setStyleSheet(_chk_ss)
+        ly.addWidget(self._soma_chk_voz)
+
+        sub2 = QLabel(tr("cfg.soma_voice_sub",
+                         default="Si se desactiva la voz, SOMA NO escuchará el micrófono ni responderá en "
+                                 "voz alta: solo se comunicará por el chat de texto."))
+        sub2.setWordWrap(True); sub2.setStyleSheet("color: #6B7685; font-size: 12px; margin-left: 44px;")
+        ly.addWidget(sub2)
+
+        # Voz deshabilitada visualmente si SOMA está desactivado.
+        def _sync_voz():
+            self._soma_chk_voz.setEnabled(self._soma_chk_activo.isChecked())
+        self._soma_chk_activo.toggled.connect(lambda _: _sync_voz())
+        _sync_voz()
+
+        ly.addStretch()
+        btn = QPushButton(tr("cfg.save", default="GUARDAR"))
+        btn.setFixedSize(220, 50)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet(
+            "QPushButton { background: #238636; color: #0E1117; border-radius: 12px;"
+            " font-family: 'Segoe UI'; font-weight: bold; font-size: 14px; }"
+            "QPushButton:hover { background: #FFFFFF; color: #0E1117; }"
+        )
+        btn.clicked.connect(self._guardar_soma)
+        h = QHBoxLayout(); h.addStretch(); h.addWidget(btn)
+        ly.addLayout(h)
+        return page
+
+    def _guardar_soma(self):
+        from src.utils import tema
+        ok = tema.guardar({
+            "soma_activo": self._soma_chk_activo.isChecked(),
+            "soma_voz": self._soma_chk_voz.isChecked(),
+        })
+        if ok:
+            mostrar_mensaje(
+                self, tr("cfg.saved_title", default="Guardado"),
+                tr("cfg.soma_saved",
+                   default="Ajustes de SOMA guardados. Reinicia la aplicación para aplicar los cambios."),
+                "success")
+        else:
+            mostrar_mensaje(self, tr("cfg.error_title", default="Error"),
+                            tr("cfg.soma_save_err", default="No se pudieron guardar los ajustes de SOMA."),
+                            "error")
+
+    # ── COLORES (tema de la interfaz + color de SOMA) ─────────────────────────
+    def _fila_color(self, layout, etiqueta, clave, valor_actual, *, subtitulo=None):
+        """Añade una fila de selección de color: rótulo + muestra clicable (abre selector) + HEX."""
+        cont = QVBoxLayout(); cont.setSpacing(2)
+        lbl = QLabel(etiqueta)
+        lbl.setStyleSheet("color: white; font-size: 13px; font-weight: bold; background: transparent;")
+        cont.addWidget(lbl)
+        if subtitulo:
+            sub = QLabel(subtitulo); sub.setWordWrap(True)
+            sub.setStyleSheet("color: #6B7685; font-size: 11px; background: transparent;")
+            cont.addWidget(sub)
+
+        fila = QHBoxLayout(); fila.setSpacing(12)
+        muestra = QPushButton()
+        muestra.setFixedSize(64, 34)
+        muestra.setCursor(Qt.CursorShape.PointingHandCursor)
+        hexlbl = QLabel(valor_actual.upper())
+        hexlbl.setStyleSheet("color: #C9D1D9; font-family: 'Consolas','Segoe UI'; font-size: 13px;"
+                             " font-weight: bold; background: transparent;")
+
+        def _pinta(color_hex):
+            muestra.setStyleSheet(
+                f"QPushButton {{ background: {color_hex}; border: 2px solid #30363D; border-radius: 8px; }}"
+                f"QPushButton:hover {{ border: 2px solid {_CIAN}; }}")
+            hexlbl.setText(color_hex.upper())
+            self._colores_sel[clave] = color_hex.upper()
+
+        _pinta(valor_actual)
+
+        def _elegir():
+            from src.gui.color_picker import seleccionar_color
+            actual = self._colores_sel.get(clave, valor_actual)
+            hexval = seleccionar_color(self, actual, tr("cfg.color_pick", default="Selector de color"))
+            if hexval:
+                _pinta(hexval)
+        muestra.clicked.connect(_elegir)
+
+        fila.addWidget(muestra); fila.addWidget(hexlbl); fila.addStretch()
+        cont.addLayout(fila)
+        layout.addLayout(cont)
+
+    def _crear_page_mfa(self):
+        """Pestaña de autoservicio MFA (Fase 1): enrolamiento/estado/desactivación del segundo factor
+        del usuario en sesión. Reutiliza el panel `gui/mfa_gui.MFASeguridadPanel` (motor `seguridad.mfa`)."""
+        try:
+            from src.gui.mfa_gui import MFASeguridadPanel
+            usuario = getattr(self, "usuario", None)
+            return MFASeguridadPanel(usuario=usuario)
+        except Exception:
+            return QWidget()
+
+    def _crear_page_colores(self):
+        """Selector de colores del tema (fondo, acción/tablas, cancelar, confirmar, retorno) + SOMA."""
+        from PyQt6.QtWidgets import QScrollArea
+
+        from src.utils import tema
+        cfg = tema.cargar()
+        self._colores_sel = {}
+
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(40, 30, 40, 20)
+        outer.setSpacing(10)
+
+        titulo = QLabel(tr("cfg.colors_title", default="COLORES DE LA INTERFAZ"))
+        titulo.setStyleSheet("color: white; font-weight: 900; font-size: 20px; letter-spacing: 1px;")
+        outer.addWidget(titulo)
+        aviso = QLabel(tr("cfg.colors_desc",
+                          default="Personaliza los colores del software y de SOMA. Los cambios se aplican "
+                                  "al REINICIAR la aplicación. Por defecto: turquesa + azul oscuro."))
+        aviso.setWordWrap(True); aviso.setStyleSheet("color: #8B949E; font-size: 13px;")
+        outer.addWidget(aviso)
+
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
+        cont = QWidget(); ly = QVBoxLayout(cont); ly.setSpacing(18); ly.setContentsMargins(2, 8, 12, 8)
+
+        def _sep(txt):
+            s = QLabel(txt)
+            s.setStyleSheet(f"color: {_CIAN}; font-size: 12px; font-weight: 900; letter-spacing: 1px;"
+                            " margin-top: 6px; background: transparent;")
+            ly.addWidget(s)
+
+        _sep(tr("cfg.colors_g1", default="1 · FONDO DE LAS VENTANAS"))
+        self._fila_color(ly, tr("cfg.colors_bg", default="Color de fondo"), "fondo_app", cfg["fondo_app"])
+
+        _sep(tr("cfg.colors_g2", default="2 · TABLAS Y BOTONES DE ACCIÓN"))
+        self._fila_color(ly, tr("cfg.colors_action", default="Color de tablas y botones de acción"),
+                         "accion_bg", cfg["accion_bg"],
+                         subtitulo=tr("cfg.colors_action_sub",
+                                      default="Tablas y botones que inician una acción comparten color."))
+        self._fila_color(ly, tr("cfg.colors_action_txt", default="Color del texto (hover-swap)"),
+                         "accion_texto", cfg["accion_texto"])
+
+        _sep(tr("cfg.colors_g3", default="3 · BOTONES DE CANCELAR"))
+        self._fila_color(ly, tr("cfg.colors_cancel", default="Color de botones de cancelar"),
+                         "cancelar_bg", cfg["cancelar_bg"])
+        self._fila_color(ly, tr("cfg.colors_cancel_txt", default="Color del texto"),
+                         "cancelar_texto", cfg["cancelar_texto"])
+
+        _sep(tr("cfg.colors_g4", default="4 · BOTONES DE CONFIRMAR / AVANZAR"))
+        self._fila_color(ly, tr("cfg.colors_confirm", default="Color de botones de confirmar"),
+                         "confirmar_bg", cfg["confirmar_bg"])
+        self._fila_color(ly, tr("cfg.colors_confirm_txt", default="Color del texto"),
+                         "confirmar_texto", cfg["confirmar_texto"])
+
+        _sep(tr("cfg.colors_g5", default="5 · BOTONES DE RETORNO"))
+        self._fila_color(ly, tr("cfg.colors_back", default="Color de botones de retorno"),
+                         "retorno_bg", cfg["retorno_bg"])
+        self._fila_color(ly, tr("cfg.colors_back_txt", default="Color del texto"),
+                         "retorno_texto", cfg["retorno_texto"])
+
+        _sep(tr("cfg.colors_soma", default="SOMA · COLOR DEL PERSONAJE"))
+        self._fila_color(ly, tr("cfg.colors_soma_lbl", default="Color de SOMA"), "soma_color",
+                         cfg["soma_color"],
+                         subtitulo=tr("cfg.colors_soma_sub",
+                                      default="Tiñe al asistente SOMA con este color."))
+
+        ly.addStretch()
+        scroll.setWidget(cont)
+        outer.addWidget(scroll, 1)
+
+        # Botonera: RESTABLECER + GUARDAR.
+        h = QHBoxLayout()
+        btn_reset = QPushButton(tr("cfg.colors_reset", default="RESTABLECER"))
+        btn_reset.setFixedSize(180, 48); btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_reset.setStyleSheet(
+            "QPushButton { background: #30363D; color: white; border-radius: 12px; font-weight: bold;"
+            " font-size: 13px; }"
+            "QPushButton:hover { background: #F85149; color: #0E1117; }")
+        btn_reset.clicked.connect(self._restablecer_colores)
+        btn_save = QPushButton(tr("cfg.save", default="GUARDAR"))
+        btn_save.setFixedSize(180, 48); btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_save.setStyleSheet(
+            "QPushButton { background: #238636; color: #0E1117; border-radius: 12px; font-weight: bold;"
+            " font-size: 14px; }"
+            "QPushButton:hover { background: #FFFFFF; color: #0E1117; }")
+        btn_save.clicked.connect(self._guardar_colores)
+        h.addStretch(); h.addWidget(btn_reset); h.addWidget(btn_save)
+        outer.addLayout(h)
+        return page
+
+    def _guardar_colores(self):
+        from src.utils import tema
+        if tema.guardar(self._colores_sel):
+            mostrar_mensaje(
+                self, tr("cfg.saved_title", default="Guardado"),
+                tr("cfg.colors_saved",
+                   default="Colores guardados. Reinicia la aplicación para ver los cambios."),
+                "success")
+        else:
+            mostrar_mensaje(self, tr("cfg.error_title", default="Error"),
+                            tr("cfg.colors_save_err", default="No se pudieron guardar los colores."),
+                            "error")
+
+    def _restablecer_colores(self):
+        from src.utils import tema
+        tema.restablecer()
+        mostrar_mensaje(
+            self, tr("cfg.saved_title", default="Guardado"),
+            tr("cfg.colors_reset_ok",
+               default="Colores restablecidos a los valores por defecto. Reinicia la aplicación para "
+                       "ver los cambios."),
+            "success")
+
     def _crear_page_placeholder(self, nombre):
         page = QWidget()
         l = QVBoxLayout(page)
@@ -6913,16 +7359,16 @@ class GestionCajaWindow(ConfiguracionWindow):
         header.setStyleSheet(f"background-color:{_PANEL_BG};border-bottom:1px solid #30363D;")
         h_ly = QHBoxLayout(header)
         h_ly.setContentsMargins(28, 0, 28, 0)
-        titulo = QLabel("🧰  " + tr("cfg.tab_caja", default="GESTIÓN CAJA"))
+        titulo = QLabel(tr("cfg.tab_caja", default="GESTIÓN CAJA"))
         titulo.setStyleSheet("color:white;font-weight:900;font-size:16px;letter-spacing:1px;")
         h_ly.addWidget(titulo)
         h_ly.addStretch()
-        btn_volver = QPushButton(tr("cfg.exit", default="SALIR AL MENÚ"))
+        btn_volver = QPushButton("✕")
         btn_volver.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_volver.setFixedHeight(38)
+        btn_volver.setFixedSize(50, 44)
         btn_volver.setStyleSheet(
             "QPushButton{background:transparent;color:#F85149;border:2px solid #F85149;"
-            "border-radius:8px;padding:0 18px;font-family:'Segoe UI';font-weight:900;font-size:12px;}"
+            "border-radius:9px;font-family:'Segoe UI';font-weight:900;font-size:18px;}"
             "QPushButton:hover{background:#F85149;color:#0E1117;}"
         )
         btn_volver.clicked.connect(self.ejecutar_regreso)

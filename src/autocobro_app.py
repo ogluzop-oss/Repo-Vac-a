@@ -31,8 +31,16 @@ def main():
     except Exception as e:
         logger.warning(f"No se pudo aplicar el estilo global: {e}")
 
-    # ID de caja de autocobro: permite varios terminales (AUTO-01, AUTO-02…)
-    id_caja = sys.argv[1] if len(sys.argv) > 1 else "AUTO-01"
+    # ID de caja de autocobro: permite varios terminales (AUTO-01, AUTO-02…). Argumento explícito o,
+    # en su defecto, el resuelto por el rol del terminal (env TERMINAL_CAJA / TERMINAL_CODIGO).
+    if len(sys.argv) > 1:
+        id_caja = sys.argv[1]
+    else:
+        try:
+            from src.services.tpv.terminal_rol import id_caja as _id_caja
+            id_caja = _id_caja()
+        except Exception:
+            id_caja = "AUTO-01"
 
     win = AutocobroWindow(id_caja=id_caja)
     win.showFullScreen()

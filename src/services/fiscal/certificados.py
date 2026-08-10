@@ -25,14 +25,19 @@ TIPOS = ("sello", "representante")          # D5: sello de empresa es el princip
 
 
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v2 (Bloque III): resolución de empresa vía capa de identidad (Strangler).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.services.fiscal.identidad_fiscal import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        from src.db.conexion import EMPRESA_DEFAULT_ID
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            from src.db.conexion import EMPRESA_DEFAULT_ID
+            return EMPRESA_DEFAULT_ID
 
 
 def _auditar(id_empresa, id_cert, accion, detalle=None):

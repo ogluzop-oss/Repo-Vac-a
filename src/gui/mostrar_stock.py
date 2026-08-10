@@ -17,6 +17,7 @@ from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -298,23 +299,24 @@ def _crear_tabla(parent, cols):
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
-def _buscar_articulos(query: str):
+def _buscar_articulos(query: str, id_familia=None):
+    """Búsqueda por texto y, opcionalmente, por FAMILIA (id_familia=0 → artículos sin familia)."""
     try:
         like = f"%{query}%"
+        cond = "(codigo LIKE %s OR nombre LIKE %s)"
+        params = [like, like]
+        if id_familia == 0:
+            cond += " AND id_familia IS NULL"
+        elif id_familia is not None:
+            cond += " AND id_familia=%s"
+            params.append(id_familia)
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    SELECT codigo, nombre,
-                           COALESCE(Stock_tienda, 0),
-                           COALESCE(Stock_total, 0),
-                           COALESCE(Stock_central, 0)
-                    FROM articulos
-                    WHERE codigo LIKE %s OR nombre LIKE %s
-                    ORDER BY nombre ASC
-                    LIMIT 200
-                    """,
-                    (like, like),
+                    "SELECT codigo, nombre, COALESCE(Stock_tienda, 0), COALESCE(Stock_total, 0), "
+                    "COALESCE(Stock_central, 0) FROM articulos WHERE " + cond +
+                    " ORDER BY nombre ASC LIMIT 200",
+                    tuple(params),
                 )
                 return cur.fetchall()
     except Exception:
@@ -372,12 +374,34 @@ class _StockTiendaPage(QWidget):
         lbl.setStyleSheet(f"color: {_CIAN};")
         layout.addWidget(lbl)
 
+        fila_busq = QHBoxLayout(); fila_busq.setSpacing(10)
         self.buscador = QLineEdit()
         self.buscador.setPlaceholderText(tr("stock.search_ph", default="Buscar por código o nombre…"))
         self.buscador.setStyleSheet(_NEON_INPUT_SS)
         self.buscador.setFixedHeight(44)
         self.buscador.textChanged.connect(self._filtrar)
-        layout.addWidget(self.buscador)
+        fila_busq.addWidget(self.buscador, 1)
+
+        # Filtro por FAMILIA de producto (reutiliza db/familias; "Todas" = sin filtro).
+        self.cmb_familia = QComboBox()
+        self.cmb_familia.setFixedHeight(44)
+        self.cmb_familia.setMinimumWidth(210)
+        self.cmb_familia.setStyleSheet(
+            f"QComboBox{{background:{_PANEL_BG};color:#FFFFFF;border:2px solid {_CIAN};border-radius:12px;"
+            f"padding:6px 14px;font-size:14px;font-weight:bold;}}"
+            f"QComboBox::drop-down{{border:none;width:22px;}}"
+            f"QComboBox QAbstractItemView{{background:{_PANEL_BG};color:#FFFFFF;border:1px solid {_CIAN};"
+            f"selection-background-color:{_CIAN};selection-color:#0E1117;}}")
+        self.cmb_familia.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._recargar_familias()
+        self.cmb_familia.currentIndexChanged.connect(self._filtrar)
+        fila_busq.addWidget(self.cmb_familia)
+        layout.addLayout(fila_busq)
+
+        # Fase 8 (IA predictiva VISIBLE en Smart Stock): tarjeta de previsión de demanda + riesgo de rotura,
+        # reutilizando gui/prediccion_card ← services/prediccion (motor real). Degradable: si no hay datos
+        # suficientes o el motor no está disponible, no se pinta (nunca inventa cifras/riesgo).
+        self._cargar_ia_predictiva(layout)
 
         contenedor, self.tabla = _crear_tabla(self, self._cols())
         hh = self.tabla.horizontalHeader()
@@ -386,6 +410,30 @@ class _StockTiendaPage(QWidget):
             hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(contenedor)
         self.cargar()
+
+    def _cargar_ia_predictiva(self, layout):
+        """Pinta la previsión de demanda y el riesgo de rotura (motor real, tenant actual). Silenciosa."""
+        from PyQt6.QtWidgets import QHBoxLayout
+        try:
+            from src.db.empresa import empresa_actual_id
+            from src.services.prediccion import consulta, riesgo_rotura
+            from src.gui.prediccion_card import tarjeta_prevision, tarjeta_riesgo
+            id_emp = empresa_actual_id()
+            fila = QHBoxLayout(); fila.setSpacing(12)
+            r = consulta.responder("previsión de demanda", id_emp, horizonte=30)
+            if r.get("aplicable") and r.get("suficiente"):
+                fila.addWidget(tarjeta_prevision(consulta.resumen_ui(r["detalle"])))
+                # Riesgo de rotura agregado de empresa (demanda media prevista vs stock objetivo global).
+                det = r["detalle"]; pred = det.get("prediccion") or []
+                dem = (sum(pred) / len(pred)) if pred else 0
+                rr = riesgo_rotura.evaluar(stock_actual=0, demanda_diaria=dem) if dem else {"nivel": "INSUFICIENTE",
+                     "recomendacion": "No hay datos suficientes para calcular el riesgo."}
+                fila.addWidget(tarjeta_riesgo(rr))
+            fila.addStretch(1)
+            if fila.count() > 1:            # sólo si hay al menos una tarjeta
+                layout.addLayout(fila)
+        except Exception:
+            pass                           # la IA nunca rompe la pantalla de stock
 
     @staticmethod
     def _cols():
@@ -401,72 +449,32 @@ class _StockTiendaPage(QWidget):
         self.buscador.setPlaceholderText(tr("stock.search_ph", default="Buscar por código o nombre…"))
         self.tabla.setHorizontalHeaderLabels(self._cols())
 
-    def cargar(self):
-        self._poblar(_buscar_articulos(""))
+    def _recargar_familias(self):
+        self.cmb_familia.blockSignals(True)
+        self.cmb_familia.clear()
+        self.cmb_familia.addItem(tr("stock.fam_all", default="Todas las familias"), None)
+        self.cmb_familia.addItem(tr("stock.fam_none", default="— Sin familia —"), 0)
+        try:
+            from src.db.familias import listar_familias
+            for f in listar_familias():
+                self.cmb_familia.addItem(f["nombre"], f["id"])
+        except Exception:
+            pass
+        self.cmb_familia.blockSignals(False)
 
-    def _filtrar(self, texto):
-        self._poblar(_buscar_articulos(texto.strip()))
+    def cargar(self):
+        self._aplicar()
+
+    def _filtrar(self, *_):
+        self._aplicar()
+
+    def _aplicar(self):
+        self._poblar(_buscar_articulos(self.buscador.text().strip(), self.cmb_familia.currentData()))
 
     def _poblar(self, rows):
         self.tabla.setRowCount(len(rows))
         for r, row in enumerate(rows):
             for c, v in enumerate([str(row[0]), str(row[1]), str(row[2]), str(row[3])]):
-                item = QTableWidgetItem(v)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.tabla.setItem(r, c, item)
-
-
-class _StockCentralPage(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 16)
-        layout.setSpacing(14)
-
-        self._lbl = lbl = QLabel(tr("stock.title_central", default="Stock Almacén Central"))
-        lbl.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
-        lbl.setStyleSheet(f"color: {_CIAN};")
-        layout.addWidget(lbl)
-
-        self.buscador = QLineEdit()
-        self.buscador.setPlaceholderText(tr("stock.search_ph", default="Buscar por código o nombre…"))
-        self.buscador.setStyleSheet(_NEON_INPUT_SS)
-        self.buscador.setFixedHeight(44)
-        self.buscador.textChanged.connect(self._filtrar)
-        layout.addWidget(self.buscador)
-
-        contenedor, self.tabla = _crear_tabla(self, self._cols())
-        hh = self.tabla.horizontalHeader()
-        hh.setStretchLastSection(False)
-        for c in range(3):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
-        layout.addWidget(contenedor)
-        self.cargar()
-
-    @staticmethod
-    def _cols():
-        return [
-            tr("stock.col_ean", default="EAN"),
-            tr("stock.col_item", default="Artículo"),
-            tr("stock.col_central", default="Stock Almacén Central"),
-        ]
-
-    def _retraducir(self):
-        self._lbl.setText(tr("stock.title_central", default="Stock Almacén Central"))
-        self.buscador.setPlaceholderText(tr("stock.search_ph", default="Buscar por código o nombre…"))
-        self.tabla.setHorizontalHeaderLabels(self._cols())
-
-    def cargar(self):
-        self._poblar(_buscar_articulos(""))
-
-    def _filtrar(self, texto):
-        self._poblar(_buscar_articulos(texto.strip()))
-
-    def _poblar(self, rows):
-        self.tabla.setRowCount(len(rows))
-        for r, row in enumerate(rows):
-            for c, v in enumerate([str(row[0]), str(row[1]), str(row[4])]):
                 item = QTableWidgetItem(v)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -736,6 +744,7 @@ class _EditarStockPage(QWidget):
             hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         hh.resizeSection(4, 80)
+        self.tabla.verticalHeader().setDefaultSectionSize(46)   # filas más altas: el lápiz no se corta
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(contenedor)
 
@@ -777,19 +786,19 @@ class _EditarStockPage(QWidget):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.tabla.setItem(r, col_idx, item)
-            btn_edit = QPushButton("✏")
-            btn_edit.setStyleSheet(f"""
-                QPushButton {{
+            btn_edit = QPushButton("✏️")
+            btn_edit.setFixedHeight(34)
+            btn_edit.setStyleSheet("""
+                QPushButton {
                     background: transparent;
                     border: none;
                     font-size: 16px;
-                    color: {_CIAN};
                     padding: 0;
-                }}
-                QPushButton:hover {{
+                }
+                QPushButton:hover {
                     background-color: #1A2230;
                     border-radius: 6px;
-                }}
+                }
             """)
             btn_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -856,6 +865,12 @@ class _EditarStockPage(QWidget):
 
 
 class _ImportarHilo(QThread):
+    """@deprecated (Strangler) — sustituido por el importador maestro `services.importacion` + la ventana
+    `gui.migracion_gui.MigracionDatosWindow` (menú → "Migración de datos"), que hace upsert seguro por columnas
+    mapeadas con `id_empresa`, familias y stock por kárdex, dry-run e idempotencia. Este hilo solo tocaba
+    `articulos` y hacía `ALTER TABLE` por cada cabecera desconocida. Se conserva un ciclo y se eliminará cuando
+    no queden referencias."""
+
     finalizado = pyqtSignal(str)
 
     def __init__(self, ruta):
@@ -986,8 +1001,9 @@ class _ImportarStockPage(QWidget):
 
 
 class _ExportarStockPage(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, host=None, parent=None):
         super().__init__(parent)
+        self._host = host   # MostrarStockWindow (para navegar a Documentos)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(16)
@@ -1021,15 +1037,27 @@ class _ExportarStockPage(QWidget):
         _sombra_cian(btn)
         layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
+        # Mensaje + acción tras exportar (centrado en la pestaña).
         self.lbl_resultado = QLabel()
         self.lbl_resultado.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_resultado.setStyleSheet(f"color: {_CIAN}; font-size: 13px;")
+        self.lbl_resultado.setStyleSheet(f"color: {_CIAN}; font-size: 14px; font-weight: bold;")
         self.lbl_resultado.setWordWrap(True)
         self.lbl_resultado.setVisible(False)
         layout.addWidget(self.lbl_resultado)
+
+        self._btn_ver = QPushButton(tr("stock.export_view_btn", default="📂 VER ARCHIVO"))
+        self._btn_ver.setStyleSheet(_BTN_CIAN_SS)
+        self._btn_ver.setMinimumSize(160, 52); self._btn_ver.setMaximumWidth(300)
+        self._btn_ver.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        self._btn_ver.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_ver.clicked.connect(self._abrir_documentos_exportaciones)
+        self._btn_ver.setVisible(False)
+        layout.addWidget(self._btn_ver, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addStretch()
 
-    def _exportar(self):
+    def _generar_excel(self):
+        """Genera el informe Excel de stock y devuelve su ruta (o None si vacío/error,
+        mostrando el motivo en pantalla). Reutilizable por export y envío por correo."""
         try:
             query = (
                 "SELECT codigo AS Código, nombre AS Nombre, "
@@ -1045,7 +1073,7 @@ class _ExportarStockPage(QWidget):
             if df.empty:
                 self.lbl_resultado.setText(tr("stock.export_empty", default="No hay artículos para exportar."))
                 self.lbl_resultado.setVisible(True)
-                return
+                return None
 
             # Cabeceras del informe en el idioma activo.
             df.columns = [
@@ -1094,67 +1122,70 @@ class _ExportarStockPage(QWidget):
                 except Exception:
                     pass
 
-            self.lbl_resultado.setText(tr("stock.export_ok", default="Exportado correctamente:\n{ruta}", ruta=ruta))
-            self.lbl_resultado.setVisible(True)
+            return ruta
         except Exception as e:
             self.lbl_resultado.setText(tr("stock.export_err", default="Error al exportar:\n{e}", e=e))
             self.lbl_resultado.setVisible(True)
+            return None
+
+    def _exportar(self):
+        # 1) Generar el Excel con el stock actual.
+        ruta = self._generar_excel()
+        if not ruta:
+            return
+        # 2) Registrarlo en Documentos → categoría "Exportaciones Excel" (tipo=exportacion).
+        registrado = False
+        try:
+            from src.db.documentos import registrar_documento
+            registrado = bool(registrar_documento(
+                ruta, tipo="exportacion",
+                nombre=os.path.basename(ruta),
+                referencia="STOCK",
+            ))
+        except Exception as e:
+            self.lbl_resultado.setStyleSheet("color:#F85149;font-size:14px;font-weight:bold;")
+            self.lbl_resultado.setText(tr(
+                "stock.export_doc_err",
+                default="Excel generado, pero no se pudo registrar en Documentos:\n{e}", e=e))
+            self.lbl_resultado.setVisible(True)
+            self._btn_ver.setVisible(False)
+            return
+        # 3) Mensaje centrado + botón "Ver archivo" hacia Exportaciones Excel.
+        self.lbl_resultado.setStyleSheet(f"color:{_CIAN};font-size:14px;font-weight:bold;")
+        self.lbl_resultado.setText(tr(
+            "stock.export_done_msg",
+            default=("El stock se ha exportado correctamente.\n"
+                     "Puedes encontrar el archivo en la pestaña «Exportaciones Excel» "
+                     "de la función Documentos, donde podrás compartirlo o enviarlo.")))
+        self.lbl_resultado.setVisible(True)
+        self._btn_ver.setVisible(registrado)
+
+    def _abrir_documentos_exportaciones(self):
+        """Abre la función Documentos posicionada en la categoría «Exportaciones Excel»."""
+        from src.gui.centro_documental import CentroDocumentalWindow
+        main = getattr(self._host, "main", None)
+        try:
+            if main is not None and hasattr(main, "manejar_apertura"):
+                main.manejar_apertura(
+                    "documentos", CentroDocumentalWindow,
+                    callback_vuelta=getattr(main, "mostrar_menu_principal", None),
+                    usuario=getattr(self._host, "usuario_actual", None),
+                    categoria_inicial="exportacion")
+            else:
+                self._doc_win = CentroDocumentalWindow(
+                    usuario=getattr(self._host, "usuario_actual", None),
+                    categoria_inicial="exportacion")
+                self._doc_win.showMaximized()
+        except Exception as e:
+            self.lbl_resultado.setStyleSheet("color:#F85149;font-size:14px;font-weight:bold;")
+            self.lbl_resultado.setText(tr("stock.export_nav_err",
+                                          default="No se pudo abrir Documentos:\n{e}", e=e))
 
     def _retraducir(self):
         self._lbl_titulo.setText(tr("stock.title_export", default="Exportar Stock"))
         self._lbl_desc.setText(tr("stock.export_desc", default=_EXPORT_DESC_DEFAULT))
         self._btn.setText(tr("stock.export_btn", default="EXPORTAR STOCK"))
-
-
-class _InventarioPage(QWidget):
-    _DRIVE_URL = "https://drive.google.com/drive/my-drive"
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(16)
-        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-
-        self._lbl_titulo = lbl_titulo = QLabel(tr("stock.title_inventory", default="Inventario"))
-        lbl_titulo.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
-        lbl_titulo.setStyleSheet(f"color: {_CIAN};")
-        layout.addWidget(lbl_titulo)
-
-        self._lbl_desc = lbl_desc = QLabel(tr("stock.inventory_desc", default=_INVENTORY_DESC_DEFAULT))
-        lbl_desc.setStyleSheet(_DESC_SS)
-        lbl_desc.setWordWrap(True)
-        lbl_desc.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        layout.addWidget(lbl_desc)
-
-        icon_lbl = QLabel("📋")
-        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_lbl.setStyleSheet(
-            "font-size: 160px; background: transparent; border: none;"
-        )
-        icon_lbl.setFixedHeight(200)
-        layout.addWidget(icon_lbl)
-
-        self._btn = btn = QPushButton(tr("stock.inventory_btn", default="ABRIR INVENTARIO"))
-        btn.setStyleSheet(_BTN_CIAN_SS)
-        btn.setMinimumSize(180, 62); btn.setMaximumWidth(340)  # responsive (P2): antes fijo 240x62
-        btn.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
-        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn.clicked.connect(self._abrir_drive)
-        _sombra_cian(btn)
-        layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addStretch()
-
-    def _retraducir(self):
-        self._lbl_titulo.setText(tr("stock.title_inventory", default="Inventario"))
-        self._lbl_desc.setText(tr("stock.inventory_desc", default=_INVENTORY_DESC_DEFAULT))
-        self._btn.setText(tr("stock.inventory_btn", default="ABRIR INVENTARIO"))
-
-    def _abrir_drive(self):
-        from PyQt6.QtCore import QUrl
-        from PyQt6.QtGui import QDesktopServices
-
-        QDesktopServices.openUrl(QUrl(self._DRIVE_URL))
+        self._btn_ver.setText(tr("stock.export_view_btn", default="📂 VER ARCHIVO"))
 
 
 # ---------------------------------------------------------------------------
@@ -1170,6 +1201,7 @@ class MostrarStockWindow(QWidget):
 
         self.callback_vuelta = callback_vuelta
         self.usuario_actual = usuario
+        self.main = kwargs.get("main")   # menú principal (para navegar a otros módulos)
         if isinstance(usuario, dict):
             self.perfil = usuario.get("perfil", "OPERARIO")
         else:
@@ -1214,9 +1246,10 @@ class MostrarStockWindow(QWidget):
         self._tab_keys = [
             "stock.tab_store", "stock.tab_central", "stock.tab_edit",
             "stock.tab_import", "stock.tab_export", "stock.tab_inventory",
+            "stock.tab_kardex", "stock.tab_lotes",
         ]
-        _tab_def = ["STOCK TIENDA", "STOCK ALMACÉN CENTRAL", "EDITAR STOCK",
-                    "IMPORTAR STOCK", "EXPORTAR STOCK", "INVENTARIO"]
+        _tab_def = ["STOCK TIENDA", "STOCK ALMACÉN", "EDITAR STOCK",
+                    "IMPORTAR STOCK", "EXPORTAR STOCK", "INVENTARIO", "KÁRDEX", "LOTES"]
 
         self._nav_btns = []
         for idx, key in enumerate(self._tab_keys):
@@ -1267,11 +1300,16 @@ class MostrarStockWindow(QWidget):
         self._vistas.setStyleSheet(f"background-color: {_FONDO};")
 
         self._page_tienda = _StockTiendaPage()
-        self._page_central = _StockCentralPage()
+        # Reubicadas (embebidas, misma lógica): Stock por almacén sustituye a "central",
+        # Inventario físico sustituye a "inventario", y se añade Kárdex.
+        self._page_central = self._embed_window("stock_almacen_gui", "StockAlmacenWindow")
         self._page_editar = _EditarStockPage()
         self._page_importar = _ImportarStockPage()
-        self._page_exportar = _ExportarStockPage()
-        self._page_inventario = _InventarioPage()
+        self._page_exportar = _ExportarStockPage(host=self)
+        self._page_inventario = self._embed_window("inventario_fisico", "InventarioFisicoWindow")
+        self._page_kardex = self._embed_window("kardex_visor", "KardexVisorWindow")
+        # Lotes y caducidades migrado desde el menú principal (misma lógica, embebida).
+        self._page_lotes = self._embed_window("lotes_caducidades", "LotesWindow")
 
         for page in (
             self._page_tienda,
@@ -1280,21 +1318,44 @@ class MostrarStockWindow(QWidget):
             self._page_importar,
             self._page_exportar,
             self._page_inventario,
+            self._page_kardex,
+            self._page_lotes,
         ):
             self._vistas.addWidget(page)
 
-        root.addWidget(self._vistas)
+        # Responsive P2: el contenido (con ventanas embebidas anchas) se envuelve en un scroll para
+        # que la ventana pueda encogerse en pantallas/resoluciones pequeñas (1366px, etc.) sin cortar
+        # información — el contenido hace scroll en lugar de forzar un ancho mínimo grande. No altera
+        # proporciones ni el diseño Enterprise.
+        from PyQt6.QtWidgets import QScrollArea
+        try:
+            from src.gui.foundation import tokens as _T
+            _sb = _T.qss_scrollbar()
+        except Exception:
+            _sb = ""
+        _scroll_cont = QScrollArea()
+        _scroll_cont.setWidgetResizable(True)
+        _scroll_cont.setFrameShape(QScrollArea.Shape.NoFrame)
+        _scroll_cont.setStyleSheet(f"QScrollArea{{background:{_FONDO};border:none;}}" + _sb)
+        _scroll_cont.setWidget(self._vistas)
+        root.addWidget(_scroll_cont)
         self._ir_a(0)
 
+    def _embed_window(self, modulo, clase):
+        """Instancia una ventana existente para EMBEBERLA como pestaña (sin tocar su lógica)."""
+        mod = __import__(f"src.gui.{modulo}", fromlist=[clase])
+        return getattr(mod, clase)(callback_vuelta=None, usuario=self.usuario_actual, main=self)
+
     def _retraducir(self):
-        _tab_def = ["STOCK TIENDA", "STOCK ALMACÉN CENTRAL", "EDITAR STOCK",
-                    "IMPORTAR STOCK", "EXPORTAR STOCK", "INVENTARIO"]
+        _tab_def = ["STOCK TIENDA", "STOCK ALMACÉN", "EDITAR STOCK",
+                    "IMPORTAR STOCK", "EXPORTAR STOCK", "INVENTARIO", "KÁRDEX", "LOTES"]
         for i, btn in enumerate(self._nav_btns):
             btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
         self._btn_exit.setText(tr("stock.exit", default="SALIR AL MENÚ"))
         for page in (
             self._page_tienda, self._page_central, self._page_editar,
             self._page_importar, self._page_exportar, self._page_inventario,
+            self._page_kardex, self._page_lotes,
         ):
             if hasattr(page, "_retraducir"):
                 page._retraducir()

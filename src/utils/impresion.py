@@ -424,16 +424,8 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
 
     sep()
 
-    # 9) CÓDIGO DE BARRAS + QR
+    # 9) QR (los tickets de compra conservan SOLO el QR; sin código de barras).
     ticket_num = oper.get("ticket_num") or str(oper.get("venta_id") or "")
-    if ticket_num:
-        ir_bc, ratio = _ticket_imagen_codigo("bc", ticket_num)
-        if ir_bc is not None:
-            bw = 55 * mm
-            bh = max(10 * mm, min(16 * mm, bw * ratio))
-            def _f(c, y, _ir=ir_bc, _bw=bw, _bh=bh):
-                c.drawImage(_ir, (W - _bw) / 2, y - _bh, _bw, _bh, preserveAspectRatio=True, mask="auto")
-            add(bh + 4, _f)
     # Leyenda fiscal legal (Verifactu) — solo si la venta generó registro fiscal.
     fiscal = datos.get("fiscal") or {}
     if fiscal.get("leyenda"):
@@ -486,6 +478,223 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         y -= h
     c.save()
     logger.info(f"Ticket PDF generado ({lang}): {archivo}")
+
+
+# ============================================================
+# BLOQUE TICKET DE OPERACIÓN DE CAJA (documento interno de empresa)
+# ============================================================
+
+def generar_ticket_operacion_pdf(datos: dict, archivo: str = "ticket_operacion.pdf",
+                                  idioma: str = None):
+    """Ticket de OPERACIÓN de caja (cierre diario, apertura/cierre de caja fuerte y de cajas
+    registradoras, movimiento de efectivo, cambio de cajero…) en el MISMO formato recibo (80 mm)
+    que el ticket de compra, adaptado como documento que CONSERVA la empresa:
+
+      - margen IZQUIERDO ampliado (para perforar y archivar),
+      - SIN código de barras ni QR,
+      - nº de ticket ÚNICO (trazabilidad),
+      - recuento de billetes/monedas (si procede) y campos de FIRMA (si procede).
+
+    `datos`: {logo, empresa, tienda, titulo, subtitulo, operacion{ticket_num, empleado, caja, fecha},
+    secciones[(titulo,[(k,v)…])], denominaciones[{denominacion,cantidad,subtotal}], total(et,val),
+    firmas[(etiqueta,valor|None)], pie, moneda}.
+    """
+    from reportlab.lib.units import mm
+    from reportlab.pdfbase.pdfmetrics import stringWidth as _sw
+
+    lang = _doc_idioma(idioma)
+    try:
+        from src.utils import pdf_fonts
+        _FN, _FB = pdf_fonts.fuentes_para(lang)
+    except Exception:
+        _FN, _FB = "Helvetica", "Helvetica-Bold"
+
+    moneda = datos.get("moneda")
+
+    def M(v):
+        return divisas.formatear(v or 0, moneda)
+
+    def L(clave, defecto):
+        return _doc_tr(f"ticket.{clave}", defecto)
+
+    emp = datos.get("empresa") or {}
+    tienda = datos.get("tienda") or {}
+    oper = datos.get("operacion") or {}
+    titulo = datos.get("titulo") or L("op_ticket", "TICKET DE OPERACIÓN")
+    subtitulo = datos.get("subtitulo")
+    secciones = datos.get("secciones") or []
+    denoms = datos.get("denominaciones") or []
+    total = datos.get("total")            # (etiqueta, valor) o None
+    firmas = datos.get("firmas") or []    # [(etiqueta, valor|None), …]
+
+    W = 80 * mm
+    ML = 14 * mm                          # margen IZQUIERDO ampliado (perforación para archivar)
+    MR = 5 * mm
+    XL, XR = ML, W - MR
+    CW = XR - XL
+    CX = (XL + XR) / 2
+    elementos = []
+
+    def add(h, fn):
+        elementos.append((h, fn))
+
+    def _strw(t, f, s):
+        try:
+            return _sw(t, f, s)
+        except Exception:
+            return len(t) * s * 0.5
+
+    def _wrap(t, font, size, maxw):
+        out, cur = [], ""
+        for w in str(t).split():
+            pr = (cur + " " + w).strip()
+            if _strw(pr, font, size) <= maxw:
+                cur = pr
+            else:
+                if cur:
+                    out.append(cur)
+                cur = w
+        if cur:
+            out.append(cur)
+        return out or [""]
+
+    def sep(h=8):
+        def _f(c, y):
+            c.setDash(1, 2); c.setLineWidth(0.5); c.line(XL, y - h / 2, XR, y - h / 2); c.setDash()
+        add(h, _f)
+
+    def kv(k, v, size=8, bold_v=False, indent=0.0):
+        def _f(c, y):
+            c.setFont(_FN, size); c.drawString(XL + indent, y - size, str(k))
+            c.setFont(_FB if bold_v else _FN, size); c.drawRightString(XR, y - size, str(v))
+        add(size + 4, _f)
+
+    def texto(t, font=None, size=8, center=False, color=(0, 0, 0), gap=3):
+        font = font or _FN
+        for ln in _wrap(t, font, size, CW):
+            def _f(c, y, _ln=ln, _f2=font, _s=size, _c=center, _col=color):
+                c.setFillColorRGB(*_col); c.setFont(_f2, _s)
+                if _c:
+                    c.drawCentredString(CX, y - _s, _ln)
+                else:
+                    c.drawString(XL, y - _s, _ln)
+                c.setFillColorRGB(0, 0, 0)
+            add(size + gap, _f)
+
+    def espacio(h):
+        add(h, lambda c, y: None)
+
+    # 1) LOGO (o nombre si no hay)
+    logo = datos.get("logo")
+    if logo and os.path.exists(logo):
+        try:
+            from reportlab.lib.utils import ImageReader
+            ir = ImageReader(logo); iw, ih = ir.getSize()
+            lw = 34 * mm
+            lh = min(lw * (ih / iw) if iw else 18 * mm, 20 * mm)
+            lw = lh * (iw / ih) if ih else lw
+            def _f(c, y, _ir=ir, _lw=lw, _lh=lh):
+                c.drawImage(_ir, CX - _lw / 2, y - _lh, _lw, _lh, preserveAspectRatio=True, mask="auto")
+            add(lh + 4, _f)
+        except Exception as e:
+            logger.warning("No se pudo dibujar el logo del ticket de operación: %s", e)
+    else:
+        texto(emp.get("nombre_comercial") or emp.get("nombre") or L("title", "SMART MANAGER"),
+              _FB, 11, center=True)
+
+    # 2) CABECERA FISCAL
+    for ln in [
+        (f"{L('cif', 'CIF')}: {emp.get('cif')}" if emp.get("cif") else ""),
+        emp.get("direccion_completa") or emp.get("direccion") or "",
+        emp.get("pais") or "",
+        (f"{L('phone', 'Tel')}: {emp.get('telefono')}" if emp.get("telefono") else ""),
+        emp.get("email") or "",
+    ]:
+        if ln:
+            texto(ln, _FN, 7, center=True, gap=2)
+    sep()
+
+    # 3) TÍTULO DE LA OPERACIÓN
+    texto(titulo, _FB, 11, center=True)
+    if subtitulo:
+        texto(subtitulo, _FN, 8, center=True, gap=2)
+    sep()
+
+    # 4) DATOS DE OPERACIÓN (tienda + ref + empleado + fecha/hora exactas)
+    if tienda.get("nombre"):
+        cod = f"  ({tienda.get('codigo')})" if tienda.get("codigo") else ""
+        texto(f"{tienda.get('nombre')}{cod}", _FB, 8, center=True)
+    if oper.get("ticket_num"):
+        kv(L("op_ref", "Nº ticket"), oper.get("ticket_num"))
+    if oper.get("caja"):
+        kv(L("register", "Caja"), oper.get("caja"))
+    if oper.get("empleado") not in (None, ""):
+        kv(L("employee", "Empleado"), oper.get("empleado"))
+    if oper.get("fecha"):
+        kv(L("datetime", "Fecha y hora"), oper.get("fecha"))
+    sep()
+
+    # 5) SECCIONES (hechos económicos / detalles)
+    for stit, filas in secciones:
+        if stit:
+            texto(stit, _FB, 8)
+        for k, v in filas:
+            kv(k, v, size=8, indent=3 * mm)
+        sep()
+
+    # 6) RECUENTO DE BILLETES Y MONEDAS
+    if denoms:
+        texto(L("cash_count", "RECUENTO DE EFECTIVO"), _FB, 8)
+        def _fh(c, y):
+            c.setFont(_FB, 7)
+            c.drawString(XL, y - 7, L("denom", "Denominación"))
+            c.drawString(XL + 30 * mm, y - 7, L("qty", "Cant."))
+            c.drawRightString(XR, y - 7, L("col_amount", "Importe"))
+        add(11, _fh)
+        for d in denoms:
+            def _f(c, y, _d=d):
+                c.setFont(_FN, 7)
+                c.drawString(XL, y - 7, str(_d.get("denominacion", "")))
+                c.drawString(XL + 30 * mm, y - 7, str(_d.get("cantidad", "")))
+                c.drawRightString(XR, y - 7, M(_d.get("subtotal", 0)))
+            add(10, _f)
+        sep()
+
+    # 7) TOTAL DESTACADO
+    if total is not None:
+        et, val = total
+        def _ft(c, y, _et=et, _val=val):
+            c.setLineWidth(1.0); c.rect(XL, y - 22, CW, 20, stroke=1, fill=0)
+            c.setFont(_FB, 9); c.drawString(XL + 3 * mm, y - 15, str(_et))
+            c.setFont(_FB, 13); c.drawRightString(XR - 3 * mm, y - 16, M(_val))
+        add(26, _ft); espacio(4)
+
+    # 8) FIRMAS (p. ej. cambio de cajero: cajero saliente encima, responsable debajo)
+    if firmas:
+        espacio(6)
+        for et, val in firmas:
+            def _f(c, y, _et=et, _val=val):
+                c.setLineWidth(0.5); c.line(XL, y - 2, XL + 48 * mm, y - 2)
+                c.setFont(_FN, 7)
+                c.drawString(XL, y - 10, str(_et) + (f": {_val}" if _val else ""))
+            add(20, _f)
+
+    # 9) PIE + TRAZABILIDAD (sin códigos; solo la referencia única)
+    sep()
+    pie = datos.get("pie") or L("op_footer", "Documento interno · conservar para archivo")
+    texto(pie, _FN, 6, center=True, color=(0.5, 0.5, 0.5), gap=1)
+    if oper.get("ticket_num"):
+        texto(f"REF {oper.get('ticket_num')}", _FN, 5, center=True, color=(0.5, 0.5, 0.5), gap=1)
+
+    # ── Render ───────────────────────────────────────────────────────────────
+    top_pad = bot_pad = 6 * mm
+    alto = top_pad + bot_pad + sum(h for h, _ in elementos)
+    c = canvas.Canvas(archivo, pagesize=(W, alto))
+    y = alto - top_pad
+    for h, fn in elementos:
+        fn(c, y); y -= h
+    c.save()
+    logger.info(f"Ticket de operación PDF generado ({lang}): {archivo}")
 
 
 # ============================================================

@@ -1780,10 +1780,6 @@ QComboBox {{
     font-size: 13px;
     font-family: 'Segoe UI';
 }}
-QComboBox::drop-down {{
-    border: none;
-    width: 24px;
-}}
 QComboBox QAbstractItemView {{
     background-color: #161B22;
     color: #FFFFFF;
@@ -1967,15 +1963,6 @@ QComboBox {{
     font-weight: bold;
     font-family: 'Segoe UI';
     outline: none;
-}}
-QComboBox::drop-down {{
-    width: 0px;
-    border: none;
-}}
-QComboBox::down-arrow {{
-    image: none;
-    width: 0px;
-    height: 0px;
 }}
 """
 
@@ -4658,6 +4645,8 @@ class RecepcionPaleWindow(QWidget):
         self.btn_nav_incid     = self.crear_boton_nav("Incidencias")
         self.btn_nav_historial = self.crear_boton_nav("Historial")
         self.btn_nav_reab      = self.crear_boton_nav("Reabastecimiento")
+        # 'Pedir a Central' es UNA PESTAÑA MÁS (arriba, junto al resto), no un diálogo emergente.
+        self.btn_nav_central   = self.crear_boton_nav("Pedir a Central")
 
         self.lista_botones_nav = [
             self.btn_nav_scan,
@@ -4667,6 +4656,7 @@ class RecepcionPaleWindow(QWidget):
             self.btn_nav_incid,
             self.btn_nav_historial,
             self.btn_nav_reab,
+            self.btn_nav_central,
         ]
 
         for btn in self.lista_botones_nav:
@@ -4715,14 +4705,16 @@ class RecepcionPaleWindow(QWidget):
             4: lambda: IncidenciasPage(usuario=self.usuario, codigo_local=self.codigo_local),
             5: lambda: HistorialUnificadoPage(usuario=self.usuario, codigo_local=self.codigo_local),
             6: lambda: _ReabastecimientoPage(self._engine),
+            7: lambda: self._crear_panel_pedido_central(),          # PEDIR A CENTRAL (pestaña embebida)
         }
         self._vista_attr = {
             1: "vista_traspaso", 2: "vista_preparacion", 3: "vista_expediciones",
             4: "vista_incidencias", 5: "vista_historial", 6: "vista_reabastecimiento",
+            7: "vista_pedido_central",
         }
         self._vista_built = {0: True}
-        # Placeholders (y atributos a None) para los índices 1..6.
-        for i in range(1, 7):
+        # Placeholders (y atributos a None) para los índices 1..7.
+        for i in range(1, 8):
             setattr(self, self._vista_attr[i], None)
             self.vistas.addWidget(QWidget())
 
@@ -4753,6 +4745,14 @@ class RecepcionPaleWindow(QWidget):
                 pass
             page.btn_lanzar_dialogo.clicked.connect(self.abrir_dialogo_traspaso_final)
 
+    def _crear_panel_pedido_central(self):
+        """Factory de la pestaña 'Pedir a Central' (panel embebido; sin ventana emergente). Degradable."""
+        try:
+            from src.gui.pedido_central_gui import PedidoCentralPanel
+            return PedidoCentralPanel(usuario=getattr(self, "usuario", None))
+        except Exception as e:
+            logger.error("crear panel pedido central: %s", e)
+            return QWidget()
 
     def crear_boton_nav(self, txt, active=False):
         """Crea botones de sidebar ocupando todo el ancho usando el estilo global."""
@@ -4816,6 +4816,9 @@ class RecepcionPaleWindow(QWidget):
         )
         self.btn_nav_reab.clicked.connect(
             lambda: self.cambiar_vista(6, self.btn_nav_reab)
+        )
+        self.btn_nav_central.clicked.connect(
+            lambda: self.cambiar_vista(7, self.btn_nav_central)
         )
 
         # 2. Acción del botón central de la Landing Page
@@ -4933,17 +4936,28 @@ class RecepcionPaleWindow(QWidget):
 
                 QApplication.processEvents()
 
-                # 4. Cerramos definitivamente
-                self.close()
+                # 4. Cerramos definitivamente (el callback puede haber eliminado ya esta ventana del stack
+                #    → el objeto C++ estaría destruido; el cierre es seguro).
+                self._cerrar_seguro()
             else:
                 logger.warning(
                     "Navegación: No se detectó callback_vuelta. Forzando cierre seguro."
                 )
-                self.close()
+                self._cerrar_seguro()
 
+        except RuntimeError:
+            # La ventana ya fue destruida por el callback (retorno normal por stack): nada más que cerrar.
+            pass
         except Exception as e:
             logger.error(f"Error crítico en navegación de retorno: {e}")
+            self._cerrar_seguro()
+
+    def _cerrar_seguro(self):
+        """Cierra la ventana sin fallar si el objeto C++ ya fue destruido (RuntimeError de SIP)."""
+        try:
             self.close()
+        except RuntimeError:
+            pass
 
     def procesar_confirmacion_recepcion(self, id_pale_escaneado, items_a_recibir):
         """

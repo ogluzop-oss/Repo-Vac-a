@@ -24,13 +24,16 @@ from PyQt6.QtWidgets import (
 
 from assets.estilo_global import (
     construir_tabla_estilizada,
+    estilizar_completer,
     mostrar_mensaje,
 )
 from src.db.conexion import _ajustar_stock_articulo_por_tipo, obtener_articulo
 from src.db.mermas import (
     eliminar_merma,
+    marcar_mermas_exportadas,
     modificar_merma,
     obtener_mermas,
+    obtener_mermas_pendientes,
     registrar_merma,
 )
 from src.utils import i18n
@@ -247,9 +250,10 @@ class _RegistrarMermaPage(QWidget):
         self.search_bar.setPlaceholderText(
             tr("merma.search_ph", default="INTRODUCE NOMBRE O CÓDIGO DEL ARTÍCULO...")
         )
-        self.search_bar.setStyleSheet(_NEON_INPUT_SS)
-        # Reducción de tamaño horizontal de la barra de búsqueda
-        self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
+        # Fuente 1pt más pequeña (15px) para que quepa el placeholder completo.
+        self.search_bar.setStyleSheet(_NEON_INPUT_SS + "QLineEdit{font-size:15px;}")
+        # Más ancha para que se vea el texto completo del placeholder.
+        self.search_bar.setMinimumWidth(470); self.search_bar.setMaximumWidth(620)
         self.search_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.search_bar.returnPressed.connect(self._buscar)
 
@@ -258,9 +262,20 @@ class _RegistrarMermaPage(QWidget):
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self.search_bar.setCompleter(completer)
+        estilizar_completer(completer)
         self.search_bar.textChanged.connect(self._on_search_text_changed)
 
         search_ly.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Botón BUSCAR justo debajo de la barra de búsqueda.
+        self._btn_buscar = QPushButton(tr("merma.search_btn", default="BUSCAR"))
+        self._btn_buscar.setStyleSheet(_BTN_CIAN_SS)
+        self._btn_buscar.setFixedSize(200, 50)
+        self._btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_buscar.clicked.connect(self._buscar)
+        search_ly.addSpacing(12)
+        search_ly.addWidget(self._btn_buscar, alignment=Qt.AlignmentFlag.AlignCenter)
+
         layout.addWidget(self.search_container)
 
         # --- FASE 2: FLUJO DE REGISTRO (QStackedWidget para fases) ---
@@ -387,6 +402,7 @@ class _RegistrarMermaPage(QWidget):
         self.search_bar.setPlaceholderText(
             tr("merma.search_ph", default="INTRODUCE NOMBRE O CÓDIGO DEL ARTÍCULO...")
         )
+        self._btn_buscar.setText(tr("merma.search_btn", default="BUSCAR"))
         self._lbl_qty.setText(tr("merma.qty_label", default="CANTIDAD A MERMAR:"))
         self._lbl_source.setText(tr("merma.source_q", default="¿DE DÓNDE DESCONTAR EL STOCK?"))
         self.btn_lineal.setText(tr("merma.stock_shelf", default="STOCK LINEAL"))
@@ -587,6 +603,7 @@ class _ModificarEliminarMermaPage(QWidget):
 
         for i, m in enumerate(mermas):
             self.tabla.insertRow(i)
+            self.tabla.setRowHeight(i, 66)   # altura suficiente para los botones de acciones
             id_m, cod, cant, mot, fecha = m
 
             for j, val in enumerate([cod, cant, mot, str(fecha)[:16]]):
@@ -598,18 +615,28 @@ class _ModificarEliminarMermaPage(QWidget):
             btn_lyt = QHBoxLayout(btn_box)
             btn_lyt.setContentsMargins(5, 2, 5, 2)
 
+            from PyQt6.QtGui import QFont
+            _font_acc = QFont("Segoe UI", 13, QFont.Weight.Bold)
+
             btn_edit = QPushButton(tr("merma.edit_btn", default="MODIFICAR"))
+            btn_edit.setFont(_font_acc)
             btn_edit.setStyleSheet(
-                _BTN_CIAN_SS
-                + "QPushButton { padding: 5px 10px; font-size: 10px; height: 30px; }"
+                "QPushButton { background-color: #0E1117; color: %s; font-family: 'Segoe UI'; "
+                "font-weight: bold; font-size: 13px; border-radius: 8px; padding: 6px 12px; "
+                "border: 2px solid %s; }"
+                "QPushButton:hover { background-color: %s; color: #0E1117; border: 2px solid %s; }"
+                % (_CIAN, _CIAN, _CIAN, _CIAN)
             )
+            btn_edit.setMinimumHeight(42)
             btn_edit.clicked.connect(lambda _, mid=id_m, r=i: self._modificar(mid, r))
 
             btn_del = QPushButton(tr("merma.del_btn", default="ELIMINAR"))
+            btn_del.setFont(_font_acc)
             btn_del.setStyleSheet(
-                "QPushButton { background-color: #0D1117; color: #F85149; font-weight: 900; border-radius: 8px; padding: 5px 10px; font-size: 10px; height: 30px; border: 2px solid #F85149; }"
+                "QPushButton { background-color: #0D1117; color: #F85149; font-family: 'Segoe UI'; font-weight: bold; border-radius: 8px; padding: 6px 12px; font-size: 13px; border: 2px solid #F85149; }"
                 "QPushButton:hover { background-color: #F85149; color: #0E1117; border: 2px solid #F85149; }"
             )
+            btn_del.setMinimumHeight(42)
             btn_del.clicked.connect(lambda _, mid=id_m, r=i: self._eliminar(mid, r))
 
             btn_lyt.addWidget(btn_edit)
@@ -700,17 +727,31 @@ class _ModificarEliminarMermaPage(QWidget):
 
 
 class _ExportarExcelPage(QWidget):
+    """Lista de artículos mermados AÚN NO exportados. Un único botón exporta TODA la
+    lista a un Excel, lo registra en Documentos → Exportaciones Excel, y vacía la tabla."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._host = parent   # GestionMermasWindow (para navegar a Documentos)
+        self._pendientes = []
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 20, 30, 30)
-        layout.setSpacing(20)
+        layout.setSpacing(16)
 
-        self._title = title = QLabel(tr("merma.reports_title", default="REPORTES MENSUALES"))
+        # Cabecera: título (izq) + botón "Exportar mermas" (esquina superior derecha).
+        cab = QHBoxLayout()
+        self._title = title = QLabel(tr("merma.export_pending_title", default="EXPORTAR MERMAS"))
         title.setStyleSheet(
             f"color: {_CIAN}; font-size: 20px; font-weight: 900; letter-spacing: 1px;"
         )
-        layout.addWidget(title)
+        cab.addWidget(title); cab.addStretch()
+        self._btn_export = QPushButton(tr("merma.export_pending_btn", default="EXPORTAR MERMAS"))
+        self._btn_export.setStyleSheet(_BTN_CIAN_SS)
+        self._btn_export.setMinimumHeight(44)
+        self._btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_export.clicked.connect(self._exportar_mermas)
+        cab.addWidget(self._btn_export)
+        layout.addLayout(cab)
 
         self.container_tabla, self.tabla = construir_tabla_estilizada(self)
         if self.container_tabla.layout():
@@ -737,72 +778,83 @@ class _ExportarExcelPage(QWidget):
             QHeaderView::section:last {{ border-top-right-radius: 18px; }}
         """)
 
-        self.tabla.setColumnCount(3)
+        self.tabla.setColumnCount(2)
         self.tabla.setHorizontalHeaderLabels(self._headers())
         self.tabla.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
-        layout.addWidget(self.container_tabla)
+        layout.addWidget(self.container_tabla, 1)
+
+        # Mensaje de éxito + "Ver archivo" (oculto hasta exportar).
+        self.lbl_msg = QLabel()
+        self.lbl_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_msg.setWordWrap(True)
+        self.lbl_msg.setStyleSheet(f"color: {_CIAN}; font-size: 14px; font-weight: bold;")
+        self.lbl_msg.setVisible(False)
+        layout.addWidget(self.lbl_msg)
+
+        self.btn_ver = QPushButton(tr("merma.view_file_btn", default="📂 VER ARCHIVO"))
+        self.btn_ver.setStyleSheet(_BTN_CIAN_SS)
+        self.btn_ver.setMinimumSize(160, 48); self.btn_ver.setMaximumWidth(300)
+        self.btn_ver.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_ver.clicked.connect(self._abrir_documentos_exportaciones)
+        self.btn_ver.setVisible(False)
+        layout.addWidget(self.btn_ver, alignment=Qt.AlignmentFlag.AlignHCenter)
 
     @staticmethod
     def _headers():
         return [
             tr("merma.col_month", default="MES / AÑO"),
-            tr("merma.col_file", default="ARCHIVO"),
-            tr("merma.col_action", default="ACCIÓN"),
+            tr("merma.col_article", default="ARTÍCULO"),
         ]
 
     def _retraducir(self):
-        self._title.setText(tr("merma.reports_title", default="REPORTES MENSUALES"))
+        self._title.setText(tr("merma.export_pending_title", default="EXPORTAR MERMAS"))
+        self._btn_export.setText(tr("merma.export_pending_btn", default="EXPORTAR MERMAS"))
+        self.btn_ver.setText(tr("merma.view_file_btn", default="📂 VER ARCHIVO"))
         self.tabla.setHorizontalHeaderLabels(self._headers())
         self.cargar_datos()
 
     def cargar_datos(self):
         self.tabla.setRowCount(0)
-        mermas = obtener_mermas()
-        meses = sorted(list(set(str(m[4])[:7] for m in mermas)), reverse=True)
-
-        for i, mes_str in enumerate(meses):
+        self._pendientes = obtener_mermas_pendientes()
+        for i, m in enumerate(self._pendientes):
             self.tabla.insertRow(i)
-            dt = datetime.strptime(mes_str, "%Y-%m")
-            fecha_disp = dt.strftime("%m/%Y")
-            file_name = f"Mermas_{dt.strftime('%m_%Y')}.xlsx"
-
-            for j, val in enumerate([fecha_disp, file_name]):
+            fecha = str(m.get("fecha") or "")
+            try:
+                mes = datetime.strptime(fecha[:7], "%Y-%m").strftime("%m/%Y")
+            except Exception:
+                mes = fecha[:7]
+            articulo = f"{m.get('nombre', '')} ({m.get('codigo', '')})"
+            for j, val in enumerate([mes, articulo]):
                 item = QTableWidgetItem(val)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.tabla.setItem(i, j, item)
 
-            btn = QPushButton(tr("merma.export_btn", default="EXPORTAR"))
-            btn.setStyleSheet(
-                _BTN_CIAN_SS
-                + "QPushButton { padding: 5px; font-size: 11px; height: 32px; }"
+    def _exportar_mermas(self):
+        pend = self._pendientes or obtener_mermas_pendientes()
+        if not pend:
+            mostrar_mensaje(
+                self,
+                tr("merma.export_title", default="Exportación"),
+                tr("merma.export_empty", default="No hay mermas pendientes de exportar."),
+                nivel="warning",
             )
-            btn.clicked.connect(lambda _, m=mes_str, f=file_name: self._exportar(m, f))
-            self.tabla.setCellWidget(i, 2, btn)
-
-    def _exportar(self, mes_f, name):
+            return
         try:
-            mermas = obtener_mermas(mes=mes_f)
             _h = (
                 tr("merma.col_code", default="CÓDIGO"),
-                tr("merma.col_qty", default="CANTIDAD"),
-                tr("merma.col_reason", default="MOTIVO"),
+                tr("merma.col_name", default="ARTÍCULO"),
                 tr("merma.col_date", default="FECHA"),
             )
-            df = pd.DataFrame(
-                [
-                    {
-                        _h[0]: m[1],
-                        _h[1]: m[2],
-                        _h[2]: m[3],
-                        _h[3]: str(m[4])[:16],
-                    }
-                    for m in mermas
-                ]
-            )
+            df = pd.DataFrame([
+                {_h[0]: m.get("codigo"), _h[1]: m.get("nombre"),
+                 _h[2]: str(m.get("fecha"))[:16]}
+                for m in pend
+            ])
             ruta_dir = os.path.join(os.getcwd(), "documentos", "mermas")
             os.makedirs(ruta_dir, exist_ok=True)
+            name = f"Mermas_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.xlsx"
             path = os.path.join(ruta_dir, name)
 
             with pd.ExcelWriter(path, engine="openpyxl") as writer:
@@ -810,30 +862,24 @@ class _ExportarExcelPage(QWidget):
                 ws = writer.sheets["Mermas"]
                 from openpyxl.styles import Alignment, Font, PatternFill
 
-                fill = PatternFill(
-                    start_color="00FFC6", end_color="00FFC6", fill_type="solid"
-                )
+                fill = PatternFill(start_color="00FFC6", end_color="00FFC6", fill_type="solid")
                 hdr_font = Font(name="Segoe UI", bold=True)
                 for cell in ws[1]:
                     cell.fill, cell.font, cell.alignment = (
-                        fill,
-                        hdr_font,
-                        Alignment(horizontal="center"),
-                    )
+                        fill, hdr_font, Alignment(horizontal="center"))
                 for row in ws.iter_rows(min_row=2):
                     for cell in row:
-                        cell.font, cell.alignment = Font(name="Segoe UI"), Alignment(
-                            horizontal="center"
-                        )
+                        cell.font, cell.alignment = (
+                            Font(name="Segoe UI"), Alignment(horizontal="center"))
+                for col in ws.columns:
+                    max_len = max(len(str(c.value or "")) for c in col)
+                    ws.column_dimensions[col[0].column_letter].width = max(16, max_len + 4)
 
-            mostrar_mensaje(
-                self,
-                tr("merma.export_title", default="Exportación"),
-                tr("merma.export_ok", default="Archivo generado:\n{path}", path=path),
-                nivel="success",
-            )
-            from src.utils import plataforma
-            plataforma.abrir_carpeta(ruta_dir)
+            # Registrar en Documentos → categoría "Exportaciones Excel".
+            from src.db.documentos import registrar_documento
+            registrar_documento(path, tipo="exportacion", nombre=name, referencia="MERMAS")
+            # Marcar como exportadas → la tabla se vaciará al recargar.
+            marcar_mermas_exportadas([m.get("id") for m in pend])
         except Exception as e:
             mostrar_mensaje(
                 self,
@@ -841,6 +887,37 @@ class _ExportarExcelPage(QWidget):
                 tr("merma.export_err", default="Fallo al exportar Excel: {e}", e=e),
                 nivel="error",
             )
+            return
+
+        self.lbl_msg.setText(tr(
+            "merma.export_done_msg",
+            default=("Las mermas se han exportado correctamente.\n"
+                     "Puedes encontrar el archivo en la pestaña «Exportaciones Excel» "
+                     "de la función Documentos, donde podrás compartirlo o enviarlo.")))
+        self.lbl_msg.setVisible(True)
+        self.btn_ver.setVisible(True)
+        self.cargar_datos()   # vacía la tabla (ya no hay pendientes)
+
+    def _abrir_documentos_exportaciones(self):
+        """Abre Documentos posicionado en la categoría «Exportaciones Excel»."""
+        from src.gui.centro_documental import CentroDocumentalWindow
+        main = getattr(self._host, "main", None)
+        try:
+            if main is not None and hasattr(main, "manejar_apertura"):
+                main.manejar_apertura(
+                    "documentos", CentroDocumentalWindow,
+                    callback_vuelta=getattr(main, "mostrar_menu_principal", None),
+                    usuario=getattr(self._host, "usuario_actual", None),
+                    categoria_inicial="exportacion")
+            else:
+                self._doc_win = CentroDocumentalWindow(
+                    usuario=getattr(self._host, "usuario_actual", None),
+                    categoria_inicial="exportacion")
+                self._doc_win.showMaximized()
+        except Exception as e:
+            mostrar_mensaje(self, tr("merma.error_title", default="Error"),
+                            tr("merma.nav_err", default="No se pudo abrir Documentos: {e}", e=e),
+                            nivel="error")
 
 
 class GestionMermasWindow(QWidget):
@@ -849,6 +926,7 @@ class GestionMermasWindow(QWidget):
 
         self.callback_vuelta = callback_vuelta
         self.usuario_actual = usuario
+        self.main = kwargs.get("main")   # menú principal (para navegar a Documentos)
         self.setWindowTitle(tr("merma.window_title", default="SMART MANAGER - GESTIÓN DE MERMAS"))
         self.resize(1100, 750)
         self.setStyleSheet(f"background-color: {_FONDO};")
@@ -886,7 +964,7 @@ class GestionMermasWindow(QWidget):
         side_ly.addWidget(lbl_m)
 
         self._tab_keys = ["merma.tab_register", "merma.tab_edit", "merma.tab_export"]
-        _tab_def = ["REGISTRAR MERMA", "MODIFICAR / ELIMINAR", "EXPORTAR EXCEL"]
+        _tab_def = ["REGISTRAR MERMA", "MODIFICAR / ELIMINAR", "EXPORTAR MERMAS"]
         self.nav_btns = []
         for idx, key in enumerate(self._tab_keys):
             btn = _SidebarBtn(tr(key, default=_tab_def[idx]))
@@ -931,7 +1009,7 @@ class GestionMermasWindow(QWidget):
 
     def _retraducir(self):
         self.setWindowTitle(tr("merma.window_title", default="SMART MANAGER - GESTIÓN DE MERMAS"))
-        _tab_def = ["REGISTRAR MERMA", "MODIFICAR / ELIMINAR", "EXPORTAR EXCEL"]
+        _tab_def = ["REGISTRAR MERMA", "MODIFICAR / ELIMINAR", "EXPORTAR MERMAS"]
         for i, btn in enumerate(self.nav_btns):
             btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
         self._btn_exit.setText(tr("merma.exit", default="SALIR AL MENÚ"))

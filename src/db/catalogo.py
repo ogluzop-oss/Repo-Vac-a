@@ -1,6 +1,12 @@
 """
 Capa de datos del CATÁLOGO ONLINE (Fase 2 — omnicanal).
 
+Desambiguación de nombres (Rearquitectura CD · Fase 4): existen tres módulos «catalogo» con dominios
+DISTINTOS (no son duplicidad) — (1) ESTE `db.catalogo` = datos maestros de PRODUCTO (PIM, overlay
+sobre `articulos`); (2) `comercio_digital.catalogo` = ficha comercial COMPUESTA para canales
+(i18n/divisa/IVA, solo lectura); (3) `marketplace.catalogo` = catálogo de PLUGINS de la App Store. No
+se renombran (se conservan los contratos públicos); esta nota evita reconfundirlos en el futuro.
+
 Es una capa de presentación SOBRE `articulos`: cada producto de catálogo
 referencia `articulos.codigo` (única fuente de stock/precio) y añade los datos
 web (categoría, marca, galería, atributos, variantes, etiquetas, destacados…).
@@ -21,13 +27,18 @@ logger = logging.getLogger("catalogo_db")
 
 # ── Contexto de tenant ───────────────────────────────────────────────────────
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v3 (Bloque V): seam de identidad delegado en la fachada de datos (db -> db).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.db.identidad_contexto import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return EMPRESA_DEFAULT_ID
 
 
 def _tienda(id_tienda="auto"):

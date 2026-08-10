@@ -1,6 +1,6 @@
 import os
 
-from PyQt6.QtCore import QPropertyAnimation, QSize, Qt
+from PyQt6.QtCore import QPropertyAnimation, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPalette, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -73,6 +73,27 @@ class _LangCombo(QComboBox):
     def showPopup(self):
         super().showPopup()
         view = self.view()
+        # Scrollbar IDÉNTICA a la del resto de la app: se aplica el MISMO estilo `_sm_combo_view` de
+        # estilo_global DIRECTAMENTE sobre la vista, en cada apertura, para que ni el filtro global ni el
+        # recorte redondeado del popup la oculten (era el motivo de que aquí no se viera la barra).
+        try:
+            from PyQt6.QtWidgets import QAbstractItemView
+            view.setObjectName("_sm_combo_view")
+            view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+            view.setStyleSheet(
+                "QListView#_sm_combo_view{border:none;background:#0D1117;outline:0px;}"
+                "QListView#_sm_combo_view QScrollBar:vertical{"
+                "background:transparent;width:8px;margin:12px 9px 12px 0px;}"
+                "QListView#_sm_combo_view QScrollBar::handle:vertical{"
+                "background:#00FFC6;min-height:26px;border-radius:4px;}"
+                "QListView#_sm_combo_view QScrollBar::add-line:vertical,"
+                "QListView#_sm_combo_view QScrollBar::sub-line:vertical{"
+                "border:none;background:none;width:0px;height:0px;}"
+                "QListView#_sm_combo_view QScrollBar::add-page:vertical,"
+                "QListView#_sm_combo_view QScrollBar::sub-page:vertical{background:transparent;}"
+            )
+        except Exception:
+            pass
         n = self.count()
         if n > self._MAX_VIS:
             row_h = view.sizeHintForRow(0)
@@ -82,14 +103,16 @@ class _LangCombo(QComboBox):
             popup = view.parentWidget() or view
             popup.setMaximumHeight(alto)
             popup.resize(popup.width(), alto)
-            view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            # AlwaysOn cuando hay más de 5 idiomas: garantiza que la barra sea visible (como en la app).
+            view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
             # Abrir mostrando el idioma actual arriba (no a mitad de lista).
             try:
-                from PyQt6.QtWidgets import QAbstractItemView
                 idx = self.model().index(self.currentIndex(), 0)
                 view.scrollTo(idx, QAbstractItemView.ScrollHint.PositionAtTop)
             except Exception:
                 pass
+        else:
+            view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
 
 class NeonEyeButton(QToolButton):
@@ -165,6 +188,9 @@ class NeonEyeButton(QToolButton):
 # ============================================================
 
 class LoginWindow(QWidget):
+    # Se emite al pulsar el botón rojo "atrás": vuelve al selector de perfil.
+    volver_a_selector = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"Smart Manager - {tr('login.window_title')}")
@@ -218,7 +244,7 @@ class LoginWindow(QWidget):
 
         self.login_box = QWidget()
         self.login_box.setObjectName("card_neon")
-        self.login_box.setMinimumWidth(300); self.login_box.setMaximumWidth(400)  # responsive (P2): antes fijo 400
+        self.login_box.setFixedWidth(400)  # tamaño original de escritorio (restaurado tras P2)
 
         self.shadow = QGraphicsDropShadowEffect(self)
         self.shadow.setBlurRadius(35)
@@ -232,10 +258,15 @@ class LoginWindow(QWidget):
 
         self.lbl_perfil = lbl_perfil = QLabel(tr("login.user_label"))
         lbl_perfil.setObjectName("login_section_title")
-        lbl_perfil.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        lbl_perfil.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
 
         self.nombre_frame = QFrame()
-        self.nombre_frame.setObjectName("password_frame")
+        # ObjectName propio (no "password_frame") para NO heredar el hover de brillo del global:
+        # el nombre puede estar bloqueado (perfil elegido) y el hover haría creer que es editable.
+        self.nombre_frame.setObjectName("nombre_frame")
+        self.nombre_frame.setStyleSheet(
+            "QFrame#nombre_frame{background-color:#1A1D23;border:2px solid #00FFC6;"
+            "border-radius:16px;}")
         self.nombre_frame.setFixedHeight(50)
 
         nombre_row = QHBoxLayout(self.nombre_frame)
@@ -251,7 +282,7 @@ class LoginWindow(QWidget):
 
         self.lbl_password = lbl_password = QLabel(tr("login.password_label"))
         lbl_password.setObjectName("login_section_title")
-        lbl_password.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        lbl_password.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
 
         self.password_frame = QFrame()
         self.password_frame.setObjectName("password_frame")
@@ -298,17 +329,66 @@ class LoginWindow(QWidget):
         self.btn_login.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_login.setFont(QFont("Segoe UI", 11, QFont.Weight.Black))
 
-        inner_layout.addWidget(lbl_perfil)
-        inner_layout.addWidget(self.nombre_frame)
-        inner_layout.addWidget(lbl_password)
-        inner_layout.addWidget(self.password_frame)
+        # Cada título va PEGADO a su barra (spacing pequeño dentro del grupo); entre grupos se
+        # mantiene la separación del inner_layout (18px).
+        grp_nombre = QVBoxLayout()
+        grp_nombre.setContentsMargins(0, 0, 0, 0)
+        grp_nombre.setSpacing(6)
+        grp_nombre.addWidget(lbl_perfil)
+        grp_nombre.addWidget(self.nombre_frame)
+
+        grp_password = QVBoxLayout()
+        grp_password.setContentsMargins(0, 0, 0, 0)
+        grp_password.setSpacing(6)
+        grp_password.addWidget(lbl_password)
+        grp_password.addWidget(self.password_frame)
+
+        inner_layout.addLayout(grp_nombre)
+        inner_layout.addSpacing(16)   # separación visible entre el bloque Nombre y el bloque Contraseña
+        inner_layout.addLayout(grp_password)
         inner_layout.addSpacing(18)
         inner_layout.addWidget(self.btn_login)
 
         main_layout.addWidget(self.login_box, 0, Qt.AlignmentFlag.AlignCenter)
         main_layout.addStretch(1)
 
+        # ── Botón "atrás" (rojo, esquina inferior izquierda): vuelve al selector de perfil.
+        # Solo visible cuando se llegó al login desde un perfil (nombre bloqueado). ──
+        bottom_bar = QHBoxLayout()
+        bottom_bar.setContentsMargins(0, 0, 0, 0)
+        self.btn_volver = QPushButton("←  " + tr("login.back_button", default="ATRÁS"))
+        self.btn_volver.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_volver.setFont(QFont("Segoe UI", 10, QFont.Weight.Black))
+        self.btn_volver.setFixedHeight(44)
+        self.btn_volver.setStyleSheet(
+            "QPushButton{background:#0E1117;color:#FF4B4B;border:2px solid #FF4B4B;"
+            "border-radius:12px;padding:8px 22px;font-family:'Segoe UI';font-weight:900;}"
+            "QPushButton:hover{background:#FF4B4B;color:#0E1117;border:2px solid #FF4B4B;}")
+        self.btn_volver.clicked.connect(self.volver_a_selector.emit)
+        self.btn_volver.setVisible(False)
+        bottom_bar.addWidget(self.btn_volver)
+        bottom_bar.addStretch(1)
+        main_layout.addLayout(bottom_bar)
+
         self.animate_glow(self.shadow)
+
+    # ── Integración con el selector de perfil ─────────────────────────────────
+    def fijar_perfil(self, nombre):
+        """Pre-rellena y BLOQUEA el nombre del empleado (elegido en el selector). El usuario solo
+        podrá introducir la contraseña; para cambiar de perfil debe volver con el botón «atrás»."""
+        self.txt_nombre.setText(nombre or "")
+        self.txt_nombre.setReadOnly(True)
+        self.txt_password.clear()
+        self.btn_volver.setVisible(True)
+        self.txt_password.setFocus()
+
+    def liberar_perfil(self):
+        """Desbloquea el nombre (al volver al selector) y oculta el botón «atrás»."""
+        self.txt_nombre.setReadOnly(False)
+        self.txt_nombre.clear()
+        self.txt_password.clear()
+        self.btn_volver.setVisible(False)
+        self.txt_nombre.setFocus()
 
     def _login_refresh_logo(self):
         w = max(self.width(), 450)
@@ -335,7 +415,11 @@ class LoginWindow(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._login_refresh_logo()
-        self.txt_nombre.setFocus()
+        # Si el nombre está bloqueado (perfil elegido en el selector), el foco va a la contraseña.
+        if self.txt_nombre.isReadOnly():
+            self.txt_password.setFocus()
+        else:
+            self.txt_nombre.setFocus()
 
 
 # ============================================================
@@ -413,7 +497,6 @@ class LoginWindow(QWidget):
         combo.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         combo.setFixedHeight(38)
         combo.setMinimumWidth(180)
-        combo.setToolTip(tr("login.language_tooltip"))
 
         actual = i18n.current_language()
         idx_actual = 0
@@ -444,15 +527,16 @@ class LoginWindow(QWidget):
             "selection-background-color:#00FFC6;selection-color:#0D1117;}"
             "QComboBox#login_lang_combo QAbstractItemView::item{min-height:30px;padding:2px 10px;}"
             "QComboBox#login_lang_combo QAbstractItemView::item:hover{background:#11312B;}"
-            # Scrollbar neón discreta.
+            # Scrollbar IDÉNTICA a la del resto de la app (ver estilo_global `_sm_combo_view`):
+            # barra cian de 8px con extremos redondeados (pastilla), SIN columna de fondo, metida hacia
+            # dentro con márgenes 12/9 para no cortar el contorno neón redondeado del popup.
             "QComboBox#login_lang_combo QAbstractItemView QScrollBar:vertical{"
-            "background:#0D1117;width:10px;margin:3px;border-radius:5px;}"
+            "background:transparent;width:8px;margin:12px 9px 12px 0px;}"
             "QComboBox#login_lang_combo QAbstractItemView QScrollBar::handle:vertical{"
-            "background:#00FFC6;border-radius:5px;min-height:28px;}"
-            "QComboBox#login_lang_combo QAbstractItemView QScrollBar::handle:vertical:hover{"
-            "background:#7AFFF0;}"
+            "background:#00FFC6;min-height:26px;border-radius:4px;}"
             "QComboBox#login_lang_combo QAbstractItemView QScrollBar::add-line:vertical,"
-            "QComboBox#login_lang_combo QAbstractItemView QScrollBar::sub-line:vertical{height:0;}"
+            "QComboBox#login_lang_combo QAbstractItemView QScrollBar::sub-line:vertical{"
+            "border:none;background:none;width:0px;height:0px;}"
             "QComboBox#login_lang_combo QAbstractItemView QScrollBar::add-page:vertical,"
             "QComboBox#login_lang_combo QAbstractItemView QScrollBar::sub-page:vertical{background:transparent;}"
         )
@@ -475,8 +559,8 @@ class LoginWindow(QWidget):
             self.lbl_password.setText(tr("login.password_label"))
             self.txt_nombre.setPlaceholderText(tr("login.user_placeholder"))
             self.btn_login.setText(tr("login.access_button"))
-            if hasattr(self, "combo_idioma"):
-                self.combo_idioma.setToolTip(tr("login.language_tooltip"))
+            if hasattr(self, "btn_volver"):
+                self.btn_volver.setText("←  " + tr("login.back_button", default="ATRÁS"))
         except Exception:
             pass
         self._aplicar_direccion_rtl()

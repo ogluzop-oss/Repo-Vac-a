@@ -17,7 +17,8 @@ MODULOS = {
     "clientes": "Clientes", "proveedores": "Proveedores", "facturacion": "Facturación",
     "correo": "Correo corporativo", "rrhh": "RRHH", "tesoreria": "Tesorería",
     "workflow": "Workflow/BPM", "scheduler": "Automatizaciones", "comunicaciones": "Comunicaciones",
-    "bi": "Business Intelligence", "aeat": "Modelos AEAT", "verifactu": "Verifactu",
+    "bi": "Business Intelligence", "contabilidad": "Contabilidad",
+    "aeat": "Modelos AEAT", "verifactu": "Verifactu",
     "facturae": "Facturae", "branding": "Branding", "multiempresa": "Multiempresa",
     "api": "API completa", "conectores": "Conectores premium",
     "automatizaciones": "Automatizaciones avanzadas", "admin_delegada": "Administración delegada",
@@ -25,7 +26,7 @@ MODULOS = {
 }
 
 _BASE = ["tpv", "ventas", "compras", "inventario", "clientes", "proveedores", "facturacion", "correo"]
-_PLUS = _BASE + ["rrhh", "tesoreria", "workflow", "scheduler", "comunicaciones", "bi",
+_PLUS = _BASE + ["rrhh", "tesoreria", "contabilidad", "workflow", "scheduler", "comunicaciones", "bi",
                  "aeat", "verifactu", "facturae", "forecasting"]
 # PRO añade lo Enterprise: comparativas multiempresa, branding, api, conectores, etc.
 _PRO = list(MODULOS.keys())

@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QTabWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.gui.catalogo_gestion import (_BG, _BORDE, _CIAN, _DIM, _SIDEBAR, _TEXT,
-                                      _btn, _inp, _tabla)
+                                      _btn, _btn_x, _inp, _tabla)
 
 logger = logging.getLogger("rrhh.portal.gui")
 
@@ -36,7 +36,7 @@ class PortalEmpleadoWindow(QWidget):
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
         if callback_vuelta:
-            cab.addWidget(_btn("Volver", self._volver))
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
         self.empleado = self._resolver()

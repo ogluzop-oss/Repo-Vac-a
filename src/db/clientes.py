@@ -55,21 +55,63 @@ def obtener_cliente(cliente_id) -> dict | None:
         return None
 
 
+def buscar_cliente_por_codigo(codigo, id_empresa=None) -> dict | None:
+    """Resuelve un cliente a partir del código escaneado de su tarjeta (QR/código de barras).
+    Acepta: id numérico del cliente, o NIF/teléfono/email exacto. Devuelve el cliente o None."""
+    codigo = (codigo or "").strip()
+    if not codigo:
+        return None
+    # 1) id numérico del cliente.
+    if codigo.isdigit():
+        c = obtener_cliente(int(codigo))
+        if c:
+            return c
+    # 2) coincidencia EXACTA por NIF / teléfono / email.
+    cl = codigo.lower()
+    for c in buscar_clientes(codigo, id_empresa=id_empresa, limite=10):
+        for campo in ("nif", "telefono", "email"):
+            if str(c.get(campo) or "").strip().lower() == cl:
+                return c
+    # 3) una única coincidencia por texto.
+    res = buscar_clientes(codigo, id_empresa=id_empresa, limite=2)
+    return res[0] if len(res) == 1 else None
+
+
 def crear_cliente(nombre, nif=None, telefono=None, email=None,
-                  direccion=None, id_empresa=None) -> int | None:
+                  direccion=None, id_empresa=None, *, cp=None, poblacion=None,
+                  provincia=None, pais=None) -> int | None:
     id_empresa = id_empresa or empresa_actual_id()
     if not (nombre or "").strip():
         return None
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO clientes (nombre, nif, telefono, email, direccion, id_empresa) "
-                "VALUES (%s,%s,%s,%s,%s,%s)",
-                (nombre.strip(), (nif or None), (telefono or None),
-                 (email or None), (direccion or None), id_empresa))
+            # Inserta solo las columnas de domicilio que existan (migr 0068).
+            cols = {"nombre": nombre.strip(), "nif": nif or None, "telefono": telefono or None,
+                    "email": email or None, "direccion": direccion or None,
+                    "id_empresa": id_empresa}
+            try:
+                existentes = {r["Field"] if isinstance(r, dict) else r[0]
+                              for r in (cur.execute("SHOW COLUMNS FROM clientes"), cur.fetchall())[1]}
+            except Exception:
+                existentes = set(cols)
+            for k, v in (("cp", cp), ("poblacion", poblacion), ("provincia", provincia), ("pais", pais)):
+                if k in existentes and v:
+                    cols[k] = v
+            campos = ", ".join(cols)
+            marcas = ", ".join(["%s"] * len(cols))
+            cur.execute(f"INSERT INTO clientes ({campos}) VALUES ({marcas})", tuple(cols.values()))
             conn.commit()
-            return cur.lastrowid
+            _cid = cur.lastrowid
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("CLIENTE_CREADO", id_empresa=id_empresa, origen="crm",
+                         ref_entidad="cliente", ref_id=_cid,
+                         payload={"nombre": (nombre or "").strip(), "nif": nif or None})
+        except Exception:
+            pass
+        return _cid
     except Exception as e:
         logger.error("Error crear_cliente: %s", e)
         return None
@@ -79,8 +121,64 @@ def crear_cliente(nombre, nif=None, telefono=None, email=None,
 _PERMITIDOS = ("nombre", "nif", "telefono", "email", "direccion", "estado",
                "limite_credito", "riesgo_actual", "categoria", "segmento",
                "observaciones", "estado_crediticio",
+               # Domicilio fiscal (migr 0068) — facturación
+               "cp", "poblacion", "provincia", "pais",
                # AEAT-6 — dimensión intracomunitaria (Modelo 349)
-               "nif_iva", "es_intracomunitario", "pais_fiscal")
+               "nif_iva", "es_intracomunitario", "pais_fiscal",
+               # FASE 3.1 — atributos fiscales del cliente (migr 0076)
+               "regimen_fiscal", "tipo_operacion", "aplica_recargo_equivalencia",
+               "aplica_retencion_irpf", "porcentaje_retencion", "validacion_vies",
+               "es_extranjero", "aplica_isp", "condiciones_pago")
+
+
+# Regímenes fiscales soportados (origen: cliente.regimen_fiscal).
+REGIMENES_FISCALES = ("general", "recargo", "exento", "intracomunitario", "extranjero", "isp")
+
+
+def perfil_fiscal(cliente) -> dict:
+    """ORIGEN ÚNICO de decisión fiscal de la factura a partir del cliente.
+
+    Acepta un dict de cliente o un id (lo resuelve). Devuelve un perfil normalizado y
+    seguro (defaults neutros) que consumirá el motor fiscal (FASE 3.2) para determinar
+    automáticamente IVA / recargo / ISP / exención intracomunitaria / IRPF sin intervención
+    manual. Si el cliente no tiene datos fiscales (o no hay cliente), el perfil es el
+    GENERAL → comportamiento idéntico al actual."""
+    if isinstance(cliente, (int, str)):
+        cliente = obtener_cliente(cliente) or {}
+    c = cliente or {}
+
+    def _b(k):
+        v = c.get(k)
+        return bool(int(v)) if str(v).strip() not in ("", "None") else False
+
+    regimen = (c.get("regimen_fiscal") or "general").strip().lower()
+    if regimen not in REGIMENES_FISCALES:
+        regimen = "general"
+    # Banderas derivadas (régimen explícito O flags individuales, lo que sea verdadero).
+    recargo = _b("aplica_recargo_equivalencia") or regimen == "recargo"
+    isp = _b("aplica_isp") or regimen == "isp"
+    intracom = _b("es_intracomunitario") or regimen == "intracomunitario"
+    extranjero = _b("es_extranjero") or regimen == "extranjero"
+    exento = regimen == "exento"
+    irpf = _b("aplica_retencion_irpf")
+    try:
+        pct_irpf = float(c.get("porcentaje_retencion") or 0)
+    except Exception:
+        pct_irpf = 0.0
+    return {
+        "regimen": regimen,
+        "recargo_equivalencia": recargo,
+        "isp": isp,
+        "intracomunitario": intracom,
+        "extranjero": extranjero,
+        "exento": exento,
+        "retencion_irpf": irpf and pct_irpf > 0,
+        "porcentaje_retencion": pct_irpf,
+        "nif_iva": c.get("nif_iva") or None,
+        "vies": (c.get("validacion_vies") or None),
+        "pais_fiscal": (c.get("pais_fiscal") or None),
+        "condiciones_pago": c.get("condiciones_pago") or None,
+    }
 
 
 def actualizar_cliente(cliente_id, id_empresa=None, **campos) -> bool:

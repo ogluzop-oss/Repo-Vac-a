@@ -1,0 +1,12 @@
+# Agrupa los manifiestos para `kubectl apply -k deploy/k8s`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: smart-manager
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - hpa.yaml

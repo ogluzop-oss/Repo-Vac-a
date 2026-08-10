@@ -4,6 +4,14 @@ Configuración de la WEB PROPIA (Escenario B) por empresa.
 La tienda online generada (servida por el backend) lee esta config para su marca
 (nombre, color, logo, moneda, dominio) y si está activa. Una fila por empresa.
 La web consume el catálogo en vivo (siempre sincronizada). Ver [[project_venta_online]].
+
+@deprecated-ownership (Rearquitectura Comercio Digital · Fase 1 → Fase 2):
+    Esta configuración (marca/logo/color/moneda/dominio de la presencia digital propia) NO pertenece
+    al CATÁLOGO (que es un PIM: solo producto). Su propietario definitivo es CANAL WEB. En Fase 2,
+    Canal Web pasará a ser el ÚNICO editor de `web_config` (o se unificará con `cd_canal_web`), y el
+    storefront leerá la fuente unificada. Se CONSERVA íntegra como capa de compatibilidad: el backend
+    (`backend/storefront.py`) sigue leyéndola sin cambios; NO se elimina hasta que no queden lectores.
+    Único escritor actual: la pestaña «Web» de CatalogoWindow (a retirar en Fase 2).
 """
 
 import logging
@@ -14,13 +22,18 @@ logger = logging.getLogger("web_tienda_db")
 
 
 def _empresa(id_empresa=None):
-    if id_empresa:
-        return id_empresa
+    # IOC v3 (Bloque V): seam de identidad delegado en la fachada de datos (db -> db).
     try:
-        from src.db.empresa import empresa_actual_id
-        return empresa_actual_id()
+        from src.db.identidad_contexto import empresa_id
+        return empresa_id(id_empresa)
     except Exception:
-        return EMPRESA_DEFAULT_ID
+        if id_empresa:
+            return id_empresa
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return EMPRESA_DEFAULT_ID
 
 
 def obtener_config(id_empresa=None) -> dict:

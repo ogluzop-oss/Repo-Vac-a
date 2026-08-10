@@ -1,0 +1,14 @@
+{
+  "fondo_app": "#0E1117",
+  "accion_bg": "#00FFC6",
+  "accion_texto": "#0E1117",
+  "cancelar_bg": "#F85149",
+  "cancelar_texto": "#FFFFFF",
+  "confirmar_bg": "#1ED760",
+  "confirmar_texto": "#0E1117",
+  "retorno_bg": "#00FFC6",
+  "retorno_texto": "#0E1117",
+  "soma_color": "#FF5500",
+  "soma_activo": true,
+  "soma_voz": false
+}
