@@ -41,16 +41,21 @@ def tienda_por_defecto(id_empresa=None):
 
 
 def _tienda_efectiva(id_tienda):
+    """Tienda efectiva coaccionada a ENTERO para la columna `stock_tienda.id_tienda` (INT). El contexto de
+    tienda puede ser un código alfanumérico (p. ej. 'ALMC'), que rompería el INSERT con error 1366; se
+    coacciona con `tienda_actual_id_int` (código no numérico → 0, consistente con el resto del sistema).
+    Devuelve None solo si no hay ninguna tienda resoluble."""
+    from src.db.empresa import tienda_actual_id, tienda_actual_id_int
     if id_tienda is not None:
-        return id_tienda
+        return tienda_actual_id_int(id_tienda)
     try:
-        from src.db.empresa import tienda_actual_id
         t = tienda_actual_id()
         if t is not None:
-            return t
+            return tienda_actual_id_int(t)
     except Exception:
         pass
-    return tienda_por_defecto()
+    d = tienda_por_defecto()
+    return tienda_actual_id_int(d) if d is not None else None
 
 
 def flush_stock(id_tienda=None, id_empresa=None) -> bool:
