@@ -172,12 +172,9 @@ class WorkflowWindow(QWidget):
 
     def _load_def(self):
         try:
-            from src.db.conexion import obtener_conexion
-            with obtener_conexion() as conn, conn.cursor() as cur:
-                cur.execute("SELECT id, codigo, nombre, entidad, activo FROM wf_definiciones "
-                            "WHERE id_empresa=%s ORDER BY entidad", (_empresa(),))
-                filas = [r if isinstance(r, dict) else dict(zip([d[0] for d in cur.description], r))
-                         for r in cur.fetchall()]
+            # Cliente fino (Fase 3): datos desde la capa de datos; la GUI solo orquesta.
+            from src.db.workflow import listar_definiciones
+            filas = listar_definiciones(_empresa())
             self.tbl_def.setRowCount(len(filas))
             for i, d in enumerate(filas):
                 for j, v in enumerate([d["id"], d["codigo"], d["nombre"], d["entidad"], d["activo"]]):

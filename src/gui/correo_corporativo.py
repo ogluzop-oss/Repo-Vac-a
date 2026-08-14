@@ -28,7 +28,6 @@ from PyQt6.QtWidgets import (
 )
 
 from src.db import correo as correo_db
-from src.db.conexion import obtener_conexion
 from src.db.usuario import sesion_global
 from src.gui._neon_ui import _RoundTableCorners, _ss_tabla_neon
 from src.gui.gestion_usuarios import _NeonComboBox
@@ -60,20 +59,9 @@ _COMBO_NEON = (
 
 
 def _listar_tiendas() -> list[dict]:
-    try:
-        with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT id, nombre, codigo_tienda FROM tiendas WHERE COALESCE(activo,1)=1 ORDER BY id")
-            filas = cur.fetchall()
-        out = []
-        for f in filas:
-            if isinstance(f, dict):
-                out.append(f)
-            else:
-                out.append({"id": f[0], "nombre": f[1], "codigo_tienda": f[2]})
-        return out
-    except Exception as e:
-        logger.error("Error listar tiendas: %s", e)
-        return []
+    # Cliente fino: reutiliza la capa de datos (db.tiendas.listar_tiendas) en vez de SQL directo.
+    from src.db.tiendas import listar_tiendas
+    return listar_tiendas()
 
 
 class _NuevoCorreoDialog(QDialog):

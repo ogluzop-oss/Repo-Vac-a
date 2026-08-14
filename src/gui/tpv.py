@@ -54,7 +54,6 @@ from PyQt6.QtWidgets import (
 
 from src.db.conexion import (
     obtener_articulo,
-    obtener_conexion,
     stock_signals,
     transaccion,
 )

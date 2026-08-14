@@ -37,6 +37,21 @@ def _filas(cur):
     return [_fila(cur, r) for r in cur.fetchall()]
 
 
+def listar_definiciones(id_empresa=None) -> list:
+    """Definiciones de workflow de la empresa (dicts), ordenadas por entidad. Fase 3 · cliente fino:
+    extraída de `gui/workflow_gui` para que la ventana no consulte `wf_definiciones` con SQL directo."""
+    emp = _emp(id_empresa)
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id, codigo, nombre, entidad, activo FROM wf_definiciones "
+                        "WHERE id_empresa=%s ORDER BY entidad", (emp,))
+            return _filas(cur)
+    except Exception as e:
+        logger.error("listar_definiciones: %s", e)
+        return []
+
+
 def _uno(cur):
     r = cur.fetchone()
     return (r[0] if not isinstance(r, dict) else list(r.values())[0]) if r else None

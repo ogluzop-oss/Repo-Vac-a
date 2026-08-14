@@ -201,6 +201,16 @@ def obtener_conexion(config=None):
             conn.close()
 
 
+def db_disponible() -> bool:
+    """True si se puede ABRIR una conexión a la BD. Pensado para INDICADORES DE ESTADO en la UI
+    (que no deben abrir conexiones a mano); nunca lanza."""
+    try:
+        with obtener_conexion() as conn:
+            return conn is not None
+    except Exception:
+        return False
+
+
 @contextmanager
 def transaccion(config=None):
     """Transacción REAL (A2.2): toma una conexión del pool con autocommit
