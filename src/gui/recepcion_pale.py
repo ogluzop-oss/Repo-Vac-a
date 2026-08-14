@@ -4961,154 +4961,80 @@ class RecepcionPaleWindow(QWidget):
 
     def procesar_confirmacion_recepcion(self, id_pale_escaneado, items_a_recibir):
         """
-        Procesa la entrada de mercancía extrayendo el ID de movimiento
-        del ID de palé impersonal escaneado y actualizando stock.
+        Procesa la entrada de mercancía de un palé escaneado delegando en el MOTOR OFICIAL de
+        recepción (`db.logistica.procesar_recepcion_logistica`): recepción transaccional con alta de
+        stock, kárdex `ENTRADA_TRASPASO`, líneas, registro de recepción, incidencias e idempotencia.
+
+        FIX de bug real (cliente fino, Fase 3): esta pantalla tenía una copia INLINE y ROTA de la
+        recepción — por una indentación incorrecta, el alta de stock quedaba como código muerto tras un
+        `continue`, así que la recepción NUNCA sumaba stock y TODO artículo salía como "no encontrado".
+        Se elimina ese motor paralelo y se reutiliza el oficial (N7). La GUI SOLO orquesta el resultado.
         """
         if not id_pale_escaneado or not items_a_recibir:
             _mensaje_ui(self, "Error", "No hay datos válidos para recibir.", "warning")
             return
 
-        # 1. PARSEAR ID IMPERSONAL (PAL-SIGLA-ORIGEN-SEC-DESTINO)
-        partes = id_pale_escaneado.split("-")
-        if len(partes) < 5:
-            _mensaje_ui(
-                self, "Error", "Formato de etiqueta de palé no reconocido.", "error"
-            )
+        # Validación básica del formato de etiqueta (PAL-SIGLA-ORIGEN-SEC-DESTINO). El motor localiza el
+        # palé por su id en documentos_logisticos_pales (no hace falta reconstruir el documento maestro).
+        if len(id_pale_escaneado.split("-")) < 5:
+            _mensaje_ui(self, "Error", "Formato de etiqueta de palé no reconocido.", "error")
             return
 
-        # Reconstruimos el ID de movimiento maestro (TRA-ORIGEN-SEC-DESTINO-AÑO)
-        origen_id, sec_id, destino_id = partes[2], partes[3], partes[4]
-        anio_actual = datetime.now().year
-        id_movimiento_maestro = f"TRA-{origen_id}-{sec_id}-{destino_id}-{anio_actual}"
-
-        CODIGOS_IGNORAR = ["LOGISTICA", "PALE", "CARTON", "PLASTICO", "VACIO", "BULTO"]
-        articulos_no_encontrados = []
-        count_actualizados = 0
-
+        from src.db.logistica import procesar_recepcion_logistica
         try:
-
-            conn = obtener_conexion()
-            cursor = conn.cursor()
-
-            # 2. VALIDACIÓN: ¿Existe el movimiento y es para esta tienda?
-            cursor.execute(
-                "SELECT estado, destino FROM documentos_logisticos WHERE id_documento = %s",
-                (id_movimiento_maestro,),
+            res = procesar_recepcion_logistica(
+                id_pale_escaneado, self.codigo_local, self.usuario, items_a_recibir
             )
-            registro = None
-            r = cursor.fetchone()
-            if isinstance(r, dict):
-                registro = r
-            elif r:
-                # Cursor may return tuple; map to keys if available
-                # Try to fetch column names from cursor.description
-                try:
-                    cols = [c[0] for c in cursor.description]
-                    registro = dict(zip(cols, r, strict=False))
-                except Exception:
-                    registro = None
-
-            if not registro:
-                _mensaje_ui(
-                    self,
-                    "Error",
-                    f"No existe el registro maestro: {id_movimiento_maestro}",
-                    "error",
-                )
-                return
-
-            if (registro is None) or (registro.get("destino") != self.codigo_local):
-                _mensaje_ui(
-                    self,
-                    "Destino Incorrecto",
-                    f"Este palé está destinado a {registro['destino']}. No puede recibirlo en {self.codigo_local}.",
-                    "error",
-                )
-                return
-
-            # 3. PROCESAMIENTO DE ARTÍCULOS
-            for item in items_a_recibir:
-                cod = str(item[0]).strip().upper()
-                nombre = item[1]
-                cant = item[2]
-
-                if any(x in cod for x in CODIGOS_IGNORAR):
-                    continue
-
-                    # Verificar si el artículo existe en el maestro global
-                    cursor.execute(
-                        "SELECT codigo FROM articulos WHERE codigo = %s", (cod,)
-                    )
-                    if cursor.fetchone():
-                        # ACTUALIZACIÓN DE STOCK (Centralizado)
-                        cursor.execute(
-                            """UPDATE articulos 
-                           SET Stock_total = Stock_total + %s, 
-                               Stock_tienda = Stock_tienda + %s 
-                           WHERE codigo = %s""",
-                            (cant, cant, cod),
-                        )
-                    count_actualizados += 1
-                else:
-                    # El artículo es nuevo para el sistema
-                    articulos_no_encontrados.append(
-                        {"ean": cod, "nombre": nombre, "cantidad": cant}
-                    )
-
-            # 4. ACTUALIZAR ESTADOS DE TRAZABILIDAD
-            # Marcamos el documento maestro como RECIBIDO
-            cursor.execute(
-                """UPDATE documentos_logisticos 
-                   SET estado = 'RECIBIDO', 
-                       fecha_recepcion = NOW(), 
-                       usuario_receptor = %s 
-                   WHERE id_documento = %s""",
-                (self.usuario, id_movimiento_maestro),
-            )
-
-            # Marcamos el palé específico como verificado en la tabla de pales
-            cursor.execute(
-                "UPDATE documentos_logisticos_pales SET estado = 'VERIFICADO' WHERE id_pale = %s AND id_documento = %s",
-                (id_pale_escaneado, id_movimiento_maestro),
-            )
-
-            conn.commit()
-            conn.close()
-
-            # Marcar propuestas activas de los artículos recibidos como RECIBIDO
-            codigos_recibidos = [
-                str(item[0]).strip().upper()
-                for item in items_a_recibir
-                if not any(x in str(item[0]).upper() for x in CODIGOS_IGNORAR)
-            ]
-            if codigos_recibidos:
-                _reab_marcar_articulos_recibidos(codigos_recibidos)
-                try:
-                    from src.db.conexion import stock_signals as _db_signals
-                    _db_signals.propuestas_actualizadas.emit()
-                except Exception:
-                    pass
-
-            # 5. FEEDBACK FINAL
-            resumen = f"Stock actualizado: {count_actualizados} productos."
-            if articulos_no_encontrados:
-                resumen += f"\n\nAtención: {len(articulos_no_encontrados)} códigos no existen en la base de datos."
-
-            _mensaje_ui(self, "Recepción Exitosa", resumen, "success")
-
-            # Si hay artículos nuevos, abrir diálogo de creación rápida
-            if articulos_no_encontrados:
-
-                dialogo = DialogoNuevosArticulos(articulos_no_encontrados, self)
-                dialogo.exec()
-
-            # Redirigir automáticamente al Historial (Vista Index 5)
-            self.cambiar_vista(5, self.btn_nav_historial)
-
         except Exception as e:
-            _mensaje_ui(
-                self, "Error de Base de Datos", f"Fallo crítico: {str(e)}", "error"
-            )
+            _mensaje_ui(self, "Error de Base de Datos", f"Fallo crítico: {e}", "error")
+            return
+
+        if not res.get("ok"):
+            motivo = res.get("motivo")
+            if motivo == "destino_incorrecto":
+                _mensaje_ui(self, "Destino Incorrecto",
+                            f"Este palé está destinado a {res.get('destino')}. No puede recibirlo en {self.codigo_local}.",
+                            "error")
+            elif motivo == "pale_ya_recibido":
+                _mensaje_ui(self, "Palé ya recibido",
+                            "Este palé ya había sido recibido anteriormente.", "warning")
+            else:
+                _mensaje_ui(self, "Error", f"No se pudo procesar la recepción: {motivo}", "error")
+            return
+
+        count_actualizados = res.get("count_actualizados", 0)
+        articulos_no_encontrados = res.get("articulos_no_encontrados", [])
+
+        # Marcar propuestas activas de los artículos realmente recibidos como RECIBIDO.
+        no_enc = {str(a.get("ean", "")).upper() for a in articulos_no_encontrados}
+        codigos_recibidos = [
+            str(item[0]).strip().upper()
+            for item in items_a_recibir
+            if str(item[0]).strip().upper() not in no_enc
+            and not any(x in str(item[0]).upper()
+                        for x in ("LOGISTICA", "PALE", "CARTON", "PLASTICO", "VACIO", "BULTO"))
+        ]
+        if codigos_recibidos:
+            _reab_marcar_articulos_recibidos(codigos_recibidos)
+            try:
+                from src.db.conexion import stock_signals as _db_signals
+                _db_signals.propuestas_actualizadas.emit()
+            except Exception:
+                pass
+
+        # Feedback final.
+        resumen = f"Stock actualizado: {count_actualizados} productos."
+        if articulos_no_encontrados:
+            resumen += f"\n\nAtención: {len(articulos_no_encontrados)} códigos no existen en la base de datos."
+        _mensaje_ui(self, "Recepción Exitosa", resumen, "success")
+
+        # Si hay artículos nuevos, abrir diálogo de creación rápida.
+        if articulos_no_encontrados:
+            dialogo = DialogoNuevosArticulos(articulos_no_encontrados, self)
+            dialogo.exec()
+
+        # Redirigir automáticamente al Historial (Vista Index 5).
+        self.cambiar_vista(5, self.btn_nav_historial)
 
 
 # ============================================================
