@@ -41,7 +41,6 @@ from assets.estilo_global import (
     mostrar_mensaje,
     repolish_widget,
 )
-from src.db.conexion import obtener_conexion
 from src.gui.iconos_neon import BotonMas
 from src.utils import i18n
 from src.utils.i18n import tr
@@ -334,13 +333,8 @@ class _CambiarPrecioPage(QWidget):
             return
 
         try:
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT codigo, nombre, precio FROM articulos WHERE codigo=%s OR nombre LIKE %s",
-                    (termino, f"%{termino}%"),
-                )
-                res = cur.fetchone()
+            from src.db.articulos import buscar_uno
+            res = buscar_uno(termino)
 
             if res:
                 self._abrir_dialogo_edicion(res[0], res[1], res[2])
@@ -490,11 +484,9 @@ class _CambiarPrecioPage(QWidget):
                 _emp = _eai()
             except Exception:
                 _emp = None
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute("UPDATE articulos SET precio=%s WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
-                            (nuevo_p, codigo, _emp, _emp))
-                conn.commit()
+            # Cliente fino (Fase 3): la actualización de precio vive en la capa de datos.
+            from src.db.articulos import actualizar_precio
+            actualizar_precio(codigo, nuevo_p)
             # Etiqueta generada con el PRECIO NUEVO ya confirmado y el TIPO (color) elegido.
             _tipo_sel = self.combo_tipo.currentData() or "normal"
             ruta = GeneradorEtiquetas.generar(codigo, nombre, nuevo_p,
@@ -666,13 +658,9 @@ QCheckBox::indicator:checked {{ border:1px solid {_CIAN}; background:{_CIAN}; }}
 
 def _articulos_completer():
     """Sugerencias 'CÓDIGO – NOMBRE' para vincular etiquetas."""
-    try:
-        with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT codigo, nombre FROM articulos ORDER BY nombre")
-            return [f"{str(c or '').strip()} – {str(n or '').strip()}".strip(" –")
-                    for c, n in cur.fetchall()]
-    except Exception:
-        return []
+    from src.db.articulos import listar_codigo_nombre
+    return [f"{str(c or '').strip()} – {str(n or '').strip()}".strip(" –")
+            for c, n in listar_codigo_nombre()]
 
 
 class _ESLConfigDialog(QDialog):
