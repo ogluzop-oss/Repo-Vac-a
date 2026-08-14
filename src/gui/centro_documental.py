@@ -92,21 +92,16 @@ def _mapa_empresas() -> dict:
 
 
 def _mapa_tiendas() -> dict:
-    """id_tienda → {nombre, id_empresa} para resolver nombre y ámbito."""
-    try:
-        from src.db.conexion import obtener_conexion
-        with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT id, codigo_tienda, nombre, id_empresa FROM tiendas")
-            out = {}
-            for f in cur.fetchall():
-                if isinstance(f, dict):
-                    out[f["id"]] = {"nombre": f.get("nombre") or f.get("codigo_tienda") or str(f["id"]),
-                                    "id_empresa": f.get("id_empresa")}
-                else:
-                    out[f[0]] = {"nombre": f[2] or f[1] or str(f[0]), "id_empresa": f[3]}
-            return out
-    except Exception:
-        return {}
+    """id_tienda → {nombre, id_empresa} para resolver nombre y ámbito.
+
+    Cliente fino (Strangler, Fase 3): los datos vienen de la CAPA DE DATOS (`db.tiendas.listar_tiendas`,
+    que además loguea errores y filtra activas); la GUI solo ORQUESTA el mapa, sin SQL directo."""
+    from src.db.tiendas import listar_tiendas
+    out = {}
+    for t in listar_tiendas():
+        out[t["id"]] = {"nombre": t.get("nombre") or t.get("codigo_tienda") or str(t["id"]),
+                        "id_empresa": t.get("id_empresa")}
+    return out
 
 
 class _AccionesDelegate(QStyledItemDelegate):
