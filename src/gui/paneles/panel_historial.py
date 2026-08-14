@@ -42,16 +42,12 @@ class PanelHistorial(QWidget):
 
     def _cargar(self):
         emp = self.id_empresa
-        filas = []
         try:
-            from src.db.conexion import _filas_a_dicts, obtener_conexion
-            like = " OR ".join(["accion LIKE %s"] * len(_PREFIJOS))
-            params = [f"{p}%" for p in _PREFIJOS]
-            with obtener_conexion() as c, c.cursor() as cur:
-                cur.execute(f"SELECT fecha, usuario, accion, detalles FROM auditoria_logs "
-                            f"WHERE ({like}) ORDER BY fecha DESC LIMIT 500", params)
-                filas = _filas_a_dicts(cur, cur.fetchall())
+            # Cliente fino (Fase 3): lectura de auditoría desde la capa de datos, sin SQL en la GUI.
+            from src.db.auditoria import listar_por_prefijos
+            filas = listar_por_prefijos(_PREFIJOS)
         except Exception as e:
             logger.debug("historial: %s", e)
+            filas = []
         self.tabla.set_datos([{"Fecha": str(f.get("fecha")), "Usuario": f.get("usuario"),
                                "Acción": f.get("accion"), "Detalle": f.get("detalles")} for f in filas])

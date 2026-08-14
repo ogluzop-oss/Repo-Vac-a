@@ -2427,7 +2427,6 @@ class _WizardDocumentoFiscal(WizardFormsRRHHMixin, QDialog):
         cb.addItem(tr("cfg.wz_centro_principal", default="— Centro principal por defecto —"), None)
         try:
             from src.db import centros as _cts
-            from src.db.conexion import obtener_conexion
             from src.db.empresa import empresa_actual_id
             eid = empresa_actual_id()
             # 1) Centros de trabajo registrados (datos completos)
@@ -2438,29 +2437,25 @@ class _WizardDocumentoFiscal(WizardFormsRRHHMixin, QDialog):
                 cb.addItem("🏢  " + (etq or "Centro"),
                            {"id_centro": c.get("id_centro"), "nombre": c.get("nombre_centro"),
                             "municipio": c.get("municipio"), "fuente": "centro"})
-            with obtener_conexion() as cn, cn.cursor() as cu:
-                # 2) Tiendas
-                try:
-                    cu.execute("SELECT nombre, codigo_tienda FROM tiendas WHERE id_empresa=%s AND activo=1 ORDER BY nombre", (eid,))
-                    for r in cu.fetchall():
-                        nom = (r[0] if not isinstance(r, dict) else r.get("nombre")) or ""
-                        cod = (r[1] if not isinstance(r, dict) else r.get("codigo_tienda")) or ""
-                        if nom:
-                            cb.addItem("🏪  " + nom + (f" ({cod})" if cod else ""),
-                                       {"id_centro": None, "nombre": nom, "codigo": cod, "fuente": "tienda"})
-                except Exception:
-                    pass
-                # 3) Almacenes
-                try:
-                    cu.execute("SELECT nombre, codigo_almacen FROM almacen WHERE id_empresa=%s AND activo=1 ORDER BY nombre", (eid,))
-                    for r in cu.fetchall():
-                        nom = (r[0] if not isinstance(r, dict) else r.get("nombre")) or ""
-                        cod = (r[1] if not isinstance(r, dict) else r.get("codigo_almacen")) or ""
-                        if nom:
-                            cb.addItem("📦  " + nom + (f" ({cod})" if cod else ""),
-                                       {"id_centro": None, "nombre": nom, "codigo": cod, "fuente": "almacen"})
-                except Exception:
-                    pass
+            # 2) Tiendas + 3) Almacenes (cliente fino: capa de datos, sin SQL directo en la GUI).
+            try:
+                from src.db.tiendas import listar_tiendas
+                for t in listar_tiendas(eid):
+                    nom = t.get("nombre") or ""; cod = t.get("codigo_tienda") or ""
+                    if nom:
+                        cb.addItem("🏪  " + nom + (f" ({cod})" if cod else ""),
+                                   {"id_centro": None, "nombre": nom, "codigo": cod, "fuente": "tienda"})
+            except Exception:
+                pass
+            try:
+                from src.db.stock_almacen import listar_almacenes
+                for a in listar_almacenes(eid):
+                    nom = a.get("nombre") or ""; cod = a.get("codigo_almacen") or ""
+                    if nom:
+                        cb.addItem("📦  " + nom + (f" ({cod})" if cod else ""),
+                                   {"id_centro": None, "nombre": nom, "codigo": cod, "fuente": "almacen"})
+            except Exception:
+                pass
             # 4) Correos corporativos (cada buzón implica un centro)
             try:
                 from src.db import correo as _co

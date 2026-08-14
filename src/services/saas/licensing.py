@@ -30,6 +30,20 @@ def _emp(id_empresa=None):
         return EMPRESA_DEFAULT_ID
 
 
+def listar_licencias(limite=500) -> list:
+    """Licencias por empresa (`empresa_licencia`), más recientes primero (dicts: id_empresa, codigo_plan,
+    estado, proximo_cobro). Fase 3 · cliente fino: extraído de `gui/saas_admin` (panel multi-tenant)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id_empresa, codigo_plan, estado, proximo_cobro FROM empresa_licencia "
+                        "ORDER BY fecha_alta DESC LIMIT %s", (int(limite),))
+            return [r if isinstance(r, dict) else dict(zip([d[0] for d in cur.description], r))
+                    for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_licencias: %s", e)
+        return []
+
+
 def asignar_plan(id_empresa, codigo_plan, *, estado="activa", usuario=None) -> bool:
     """Asigna/actualiza el plan de una empresa (idempotente) + histórico + evento."""
     id_empresa = _emp(id_empresa)

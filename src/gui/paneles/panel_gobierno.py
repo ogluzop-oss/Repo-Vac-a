@@ -149,11 +149,8 @@ class PanelGobierno(QWidget):
 
         # Escalados
         try:
-            from src.db.conexion import _filas_a_dicts, obtener_conexion
-            with obtener_conexion() as c, c.cursor() as cur:
-                cur.execute("SELECT referencia, desde_usuario, hacia_usuario, nivel, horas FROM "
-                            "org_escalados WHERE id_empresa=%s ORDER BY id DESC LIMIT 100", (emp,))
-                rows = _filas_a_dicts(cur, cur.fetchall())
+            from src.services.gobierno.escalado import listar_escalados
+            rows = listar_escalados(emp)
             self.t_esc.set_datos([{"Referencia": r.get("referencia"), "Desde": r.get("desde_usuario"),
                                    "Hacia": r.get("hacia_usuario"), "Nivel": r.get("nivel"),
                                    "Horas": r.get("horas")} for r in rows])

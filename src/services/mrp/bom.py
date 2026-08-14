@@ -24,6 +24,20 @@ def _fila(cur, r):
     return r if isinstance(r, dict) else dict(zip([d[0] for d in cur.description], r))
 
 
+def listar(id_empresa=None) -> list:
+    """BOMs de la empresa (dicts), más recientes primero. Fase 3 · cliente fino: extraída de
+    `gui/mrp_dashboard` para que la ventana no consulte `bom` con SQL directo."""
+    eid = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id, articulo_final, version, estado FROM bom WHERE id_empresa=%s "
+                        "ORDER BY id DESC", (eid,))
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar bom: %s", e)
+        return []
+
+
 def crear_bom(articulo_final, *, version="1", nombre=None, cantidad_base=1, lineas=None,
               estado="activa", id_empresa=None) -> int | None:
     """Crea una BOM con sus lineas. `lineas`: [{componente, cantidad, merma_pct?, es_alternativo?, sustituye_a?}]."""

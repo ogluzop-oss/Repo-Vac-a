@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.db.conexion import obtener_conexion, obtener_referencias
+from src.db.conexion import obtener_referencias
 
 # Importaciones de negocio y datos
 from src.db.usuario import sesion_global
@@ -1548,10 +1548,11 @@ class MenuPrincipal(QWidget):
     # BLOQUE ESTADO DE CONEXIÓN A BASE DE DATOS
     # ============================================================
     def actualizar_estado_db(self):
-        try:
-            with obtener_conexion() as conn:
-                self._actualizar_ref_label()
-        except Exception:
+        # Cliente fino: la UI no abre conexiones a mano; usa el helper de estado de la capa de datos.
+        from src.db.conexion import db_disponible
+        if db_disponible():
+            self._actualizar_ref_label()
+        else:
             self.ref_label.hide()
         self._actualizar_logo_label()
 

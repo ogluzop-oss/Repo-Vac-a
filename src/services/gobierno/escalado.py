@@ -17,6 +17,21 @@ def _emp(id_empresa=None):
     return _O._emp(id_empresa)
 
 
+def listar_escalados(id_empresa=None, limite=100) -> list:
+    """Escalados de gobierno (`org_escalados`) de la empresa, más recientes primero (dicts). Fase 3 ·
+    cliente fino: extraído de `gui/paneles/panel_gobierno`."""
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import _filas_a_dicts, obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT referencia, desde_usuario, hacia_usuario, nivel, horas FROM org_escalados "
+                        "WHERE id_empresa=%s ORDER BY id DESC LIMIT %s", (emp, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.debug("listar_escalados: %s", e)
+        return []
+
+
 def _registrar(emp, ref, desde, hacia, nivel, horas, motivo):
     try:
         from src.db.conexion import obtener_conexion

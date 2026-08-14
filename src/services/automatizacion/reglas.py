@@ -26,6 +26,35 @@ def _emp(id_empresa=None):
 
 
 # ── Condiciones (predicados reutilizando IA/Prediccion) ───────────────────────
+def listar_reglas(id_empresa=None, limite=200) -> list:
+    """Reglas de automatización de la empresa (+ globales), por código (dicts). Fase 3 · cliente fino:
+    extraído de `gui/paneles/panel_automatizacion`."""
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import _filas_a_dicts, obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT codigo, nombre, trigger_tipo, accion, activa FROM automatizaciones_reglas "
+                        "WHERE id_empresa=%s OR id_empresa IS NULL ORDER BY codigo LIMIT %s", (emp, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.debug("listar_reglas: %s", e)
+        return []
+
+
+def listar_ejecuciones(id_empresa=None, limite=200) -> list:
+    """Ejecuciones de automatización de la empresa, más recientes primero (dicts). Fase 3 · cliente fino."""
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import _filas_a_dicts, obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT codigo_regla, accion, estado, creado FROM automatizaciones_ejecuciones "
+                        "WHERE id_empresa=%s ORDER BY creado DESC LIMIT %s", (emp, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.debug("listar_ejecuciones: %s", e)
+        return []
+
+
 def _stock_critico(emp):
     b = IAA.articulos_bajo_umbral(emp)
     return (len(b) > 0, {"items": b, "n": len(b), "prioridad": "ALTA",

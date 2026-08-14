@@ -63,15 +63,9 @@ class PanelAutomatizacion(QWidget):
             logger.debug("panel automatizacion: %s", e)
 
         try:
-            from src.db.conexion import _filas_a_dicts, obtener_conexion
-            with obtener_conexion() as c, c.cursor() as cur:
-                cur.execute("SELECT codigo, nombre, trigger_tipo, accion, activa FROM "
-                            "automatizaciones_reglas WHERE id_empresa=%s OR id_empresa IS NULL "
-                            "ORDER BY codigo LIMIT 200", (emp,))
-                reglas = _filas_a_dicts(cur, cur.fetchall())
-                cur.execute("SELECT codigo_regla, accion, estado, creado FROM "
-                            "automatizaciones_ejecuciones WHERE id_empresa=%s ORDER BY creado DESC LIMIT 200", (emp,))
-                ejec = _filas_a_dicts(cur, cur.fetchall())
+            from src.services.automatizacion.reglas import listar_ejecuciones, listar_reglas
+            reglas = listar_reglas(emp)
+            ejec = listar_ejecuciones(emp)
         except Exception as e:
             logger.debug("tablas automatizacion: %s", e)
             reglas, ejec = [], []

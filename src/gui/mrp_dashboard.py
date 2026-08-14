@@ -376,12 +376,10 @@ class BOMWindow(QWidget):
             self._load()
 
     def _load(self):
-        from src.db.conexion import obtener_conexion
         try:
-            with obtener_conexion() as conn, conn.cursor() as cur:
-                cur.execute("SELECT id, articulo_final, version, estado FROM bom WHERE id_empresa=%s "
-                            "ORDER BY id DESC", (_empresa(),))
-                filas = cur.fetchall()
+            # Cliente fino (Fase 3): datos desde services/mrp; la GUI solo orquesta.
+            from src.services.mrp.bom import listar as listar_bom
+            filas = listar_bom(_empresa())
             self.tbl.setRowCount(len(filas))
             for i, r in enumerate(filas):
                 r = list(r.values()) if isinstance(r, dict) else r

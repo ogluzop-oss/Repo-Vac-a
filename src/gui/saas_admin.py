@@ -169,12 +169,8 @@ class SaaSAdminWindow(QWidget):
             self.lbl_metrics.setText(
                 f"Empresas activas: {m['empresas_activas']} · Usuarios: {m['usuarios_activos']} · "
                 f"MRR: {m['mrr']:.2f} € · ARR: {m['arr']:.2f} € · Churn: {m['churn_pct']}%")
-            from src.db.conexion import obtener_conexion
-            with obtener_conexion() as conn, conn.cursor() as cur:
-                cur.execute("SELECT id_empresa, codigo_plan, estado, proximo_cobro FROM empresa_licencia "
-                            "ORDER BY fecha_alta DESC LIMIT 500")
-                filas = [r if isinstance(r, dict) else dict(zip([d[0] for d in cur.description], r))
-                         for r in cur.fetchall()]
+            from src.services.saas.licensing import listar_licencias
+            filas = listar_licencias()
             self.tbl_tenants.setRowCount(len(filas))
             for i, d in enumerate(filas):
                 for j, v in enumerate([d["id_empresa"], d["codigo_plan"], d["estado"], d.get("proximo_cobro")]):
