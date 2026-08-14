@@ -421,12 +421,9 @@ class TesoreriaWindow(QWidget):
 
     def _load_remesas(self):
         try:
-            from src.db.conexion import obtener_conexion
-            with obtener_conexion() as conn, conn.cursor() as cur:
-                cur.execute("SELECT id, tipo, estado, num_operaciones, importe_total, mensaje_id "
-                            "FROM remesas_sepa WHERE id_empresa=%s ORDER BY id DESC LIMIT 200", (_empresa(),))
-                filas = [r if isinstance(r, dict) else dict(zip([d[0] for d in cur.description], r))
-                         for r in cur.fetchall()]
+            # Cliente fino (Strangler, Fase 3): los datos vienen de la capa de datos; la GUI orquesta.
+            from src.db.sepa import listar_remesas
+            filas = listar_remesas(id_empresa=_empresa())
             self.tbl_rem.setRowCount(len(filas))
             for i, r in enumerate(filas):
                 vals = [r["id"], r["tipo"], r["estado"], r["num_operaciones"],

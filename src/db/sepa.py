@@ -113,6 +113,22 @@ def listar_mandatos(*, solo_activos=True, id_empresa=None) -> list:
 
 
 # ─────────────────────────────── Remesas ───────────────────────────────
+def listar_remesas(*, id_empresa=None, limite=200) -> list:
+    """Remesas SEPA de la empresa, más recientes primero (dicts). Extraída de la GUI de tesorería
+    (Fase 3 · cliente fino): la ventana ya no consulta `remesas_sepa` con SQL directo."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id, tipo, estado, num_operaciones, importe_total, mensaje_id "
+                        "FROM remesas_sepa WHERE id_empresa=%s ORDER BY id DESC LIMIT %s",
+                        (id_empresa, int(limite)))
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_remesas: %s", e)
+        return []
+
+
+
 def crear_remesa(tipo, *, id_cuenta=None, id_empresa=None) -> int | None:
     id_empresa = _emp(id_empresa)
     tipo = (tipo or "").upper()
