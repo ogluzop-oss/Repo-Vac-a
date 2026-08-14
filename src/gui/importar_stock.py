@@ -17,7 +17,6 @@ import pandas as pd
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
 
-from src.db.conexion import obtener_conexion
 
 # ============================================================
 # BLOQUE IMPORTACIÓN DESDE FICHERO
@@ -85,36 +84,9 @@ class ImportarHilo(QThread):
 
             df.columns = [c.strip().lower() for c in df.columns]
 
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-
-                # Retrieve existing columns from MariaDB INFORMATION_SCHEMA
-                cur.execute(
-                    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
-                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'articulos'"
-                )
-                columnas_existentes = {row[0].lower() for row in cur.fetchall()}
-
-                for col in df.columns:
-                    if col not in columnas_existentes:
-                        cur.execute(
-                            f"ALTER TABLE articulos ADD COLUMN `{col}` TEXT"
-                        )
-                        columnas_existentes.add(col)
-
-                for _, row in df.iterrows():
-                    cols = list(row.index)
-                    values = [row[c] for c in cols]
-                    col_names = ", ".join(f"`{c}`" for c in cols)
-                    placeholders = ", ".join("%s" for _ in cols)
-                    updates = ", ".join(f"`{c}`=VALUES(`{c}`)" for c in cols if c != "codigo")
-                    query = (
-                        f"INSERT INTO articulos ({col_names}) VALUES ({placeholders}) "
-                        f"ON DUPLICATE KEY UPDATE {updates}"
-                    )
-                    cur.execute(query, values)
-
-                conn.commit()
+            # Cliente fino (Fase 3): la importación (ALTER dinámico + upsert) vive en la capa de datos.
+            from src.db.articulos import importar_articulos_df
+            importar_articulos_df(df)
 
             self.finalizado.emit(
                 f"Stock importado correctamente desde:\n{self.ruta_fichero}"

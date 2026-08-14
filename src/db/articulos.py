@@ -127,6 +127,92 @@ def actualizar_imagen(codigo, imagen, id_empresa=None) -> bool:
         return False
 
 
+def obtener_stock(codigo, id_empresa=None):
+    """Stock desglosado de un artículo → dict {nombre, lineal, almacen, central, esperado} o None.
+    Fase 3 · cliente fino (extraído de mostrar_stock)."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT nombre, COALESCE(Stock_tienda,0), COALESCE(Stock_total,0), "
+                        "COALESCE(Stock_central,0), COALESCE(Stock_esperado,0) "
+                        "FROM articulos WHERE codigo=%s AND id_empresa=%s", (codigo, id_empresa))
+            row = cur.fetchone()
+        if not row:
+            return None
+        v = list(row.values()) if isinstance(row, dict) else row
+        return {"nombre": v[0], "lineal": v[1], "almacen": v[2], "central": v[3], "esperado": v[4]}
+    except Exception:
+        return None
+
+
+def buscar_stock(query, id_familia=None, id_empresa=None) -> list:
+    """Búsqueda por texto (+ familia opcional; id_familia=0 → sin familia). Devuelve tuplas
+    (codigo, nombre, Stock_tienda, Stock_total, Stock_central). Fase 3 · cliente fino."""
+    id_empresa = _emp(id_empresa)
+    try:
+        like = f"%{query}%"
+        cond = "id_empresa=%s AND (codigo LIKE %s OR nombre LIKE %s)"
+        params = [id_empresa, like, like]
+        if id_familia == 0:
+            cond += " AND id_familia IS NULL"
+        elif id_familia is not None:
+            cond += " AND id_familia=%s"
+            params.append(id_familia)
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT codigo, nombre, COALESCE(Stock_tienda,0), COALESCE(Stock_total,0), "
+                        "COALESCE(Stock_central,0) FROM articulos WHERE " + cond +
+                        " ORDER BY nombre ASC LIMIT 200", tuple(params))
+            return cur.fetchall()
+    except Exception:
+        return []
+
+
+def df_stock_export(id_empresa=None):
+    """DataFrame (pandas) con el stock de todos los artículos para EXPORTAR: 6 columnas en orden
+    (codigo, nombre, Stock lineal/almacen/central/esperado). La GUI pone las cabeceras traducidas.
+    Fase 3 · cliente fino (extraído de mostrar_stock)."""
+    import pandas as pd
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn:
+            return pd.read_sql_query(
+                "SELECT codigo, nombre, COALESCE(Stock_tienda,0), COALESCE(Stock_total,0), "
+                "COALESCE(Stock_central,0), COALESCE(Stock_esperado,0) "
+                "FROM articulos WHERE id_empresa=%s ORDER BY nombre ASC", conn, params=(id_empresa,))
+    except Exception:
+        return pd.DataFrame()
+
+
+def importar_articulos_df(df) -> int:
+    """Importa/actualiza artículos desde un DataFrame (columnas ya en minúscula). Crea como TEXT las
+    columnas que no existan (import flexible) y hace UPSERT por `codigo`. Devuelve nº de filas.
+    Fase 3 · cliente fino: lógica extraída y COMPARTIDA por las GUIs de importación (evita duplicar el
+    ALTER dinámico + bulk INSERT en varias ventanas)."""
+    if df is None or getattr(df, "empty", True):
+        return 0
+    with obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='articulos'")
+        existentes = {(r[0] if not isinstance(r, dict) else list(r.values())[0]).lower()
+                      for r in cur.fetchall()}
+        for col in df.columns:
+            if col not in existentes:
+                cur.execute(f"ALTER TABLE articulos ADD COLUMN `{col}` TEXT")
+                existentes.add(col)
+        n = 0
+        for _, row in df.iterrows():
+            cols = list(row.index)
+            values = [row[c] for c in cols]
+            col_names = ", ".join(f"`{c}`" for c in cols)
+            placeholders = ", ".join(["%s"] * len(cols))
+            updates = ", ".join(f"`{c}`=VALUES(`{c}`)" for c in cols if c != "codigo")
+            cur.execute(f"INSERT INTO articulos ({col_names}) VALUES ({placeholders}) "
+                        f"ON DUPLICATE KEY UPDATE {updates}", values)
+            n += 1
+        conn.commit()
+    return n
+
+
 def obtener_fisica_seguridad(codigo, id_empresa=None):
     """Devuelve {'peso_unitario': float|None, 'tolerancia_peso': float|None} del artículo (o None)."""
     id_empresa = _emp(id_empresa)

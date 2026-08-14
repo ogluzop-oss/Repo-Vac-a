@@ -43,7 +43,6 @@ from assets.estilo_global import (
 from src.db.conexion import (
     ensure_schema,
     modificar_stock_completo,
-    obtener_conexion,
 )
 from src.utils import i18n
 from src.utils.i18n import tr
@@ -301,60 +300,19 @@ def _crear_tabla(parent, cols):
 # ---------------------------------------------------------------------------
 def _buscar_articulos(query: str, id_familia=None):
     """Búsqueda por texto y, opcionalmente, por FAMILIA (id_familia=0 → artículos sin familia)."""
-    try:
-        like = f"%{query}%"
-        cond = "(codigo LIKE %s OR nombre LIKE %s)"
-        params = [like, like]
-        if id_familia == 0:
-            cond += " AND id_familia IS NULL"
-        elif id_familia is not None:
-            cond += " AND id_familia=%s"
-            params.append(id_familia)
-        with obtener_conexion() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT codigo, nombre, COALESCE(Stock_tienda, 0), COALESCE(Stock_total, 0), "
-                    "COALESCE(Stock_central, 0) FROM articulos WHERE " + cond +
-                    " ORDER BY nombre ASC LIMIT 200",
-                    tuple(params),
-                )
-                return cur.fetchall()
-    except Exception:
-        return []
+    # Cliente fino (Fase 3): búsqueda de stock en la capa de datos.
+    from src.db.articulos import buscar_stock
+    return buscar_stock(query, id_familia)
 
 
 def _get_todos_articulos():
-    try:
-        with obtener_conexion() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT codigo, nombre FROM articulos ORDER BY nombre ASC")
-                return cur.fetchall()
-    except Exception:
-        return []
+    from src.db.articulos import listar_codigo_nombre
+    return listar_codigo_nombre()
 
 
 def _get_articulo_stock(codigo: str):
-    try:
-        with obtener_conexion() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT nombre, COALESCE(Stock_tienda,0), COALESCE(Stock_total,0), "
-                    "COALESCE(Stock_central,0), COALESCE(Stock_esperado,0) "
-                    "FROM articulos WHERE codigo=%s",
-                    (codigo,),
-                )
-                row = cur.fetchone()
-        if row:
-            return {
-                "nombre": row[0],
-                "lineal": row[1],
-                "almacen": row[2],
-                "central": row[3],
-                "esperado": row[4],
-            }
-        return None
-    except Exception:
-        return None
+    from src.db.articulos import obtener_stock
+    return obtener_stock(codigo)
 
 
 # ---------------------------------------------------------------------------
@@ -897,33 +855,9 @@ class _ImportarHilo(QThread):
                 self.finalizado.emit(tr("stock.file_empty", default="El fichero está vacío."))
                 return
             df.columns = [c.strip().lower() for c in df.columns]
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
-                        "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='articulos'"
-                    )
-                    existentes = {r[0].lower() for r in cur.fetchall()}
-                    for col in df.columns:
-                        if col not in existentes:
-                            cur.execute(
-                                f"ALTER TABLE articulos ADD COLUMN `{col}` TEXT"
-                            )
-                            existentes.add(col)
-                    for _, row in df.iterrows():
-                        cols = list(row.index)
-                        values = [row[c] for c in cols]
-                        col_names = ", ".join(f"`{c}`" for c in cols)
-                        placeholders = ", ".join("%s" for _ in cols)
-                        updates = ", ".join(
-                            f"`{c}`=VALUES(`{c}`)" for c in cols if c != "codigo"
-                        )
-                        cur.execute(
-                            f"INSERT INTO articulos ({col_names}) VALUES ({placeholders}) "
-                            f"ON DUPLICATE KEY UPDATE {updates}",
-                            values,
-                        )
-                conn.commit()
+            # Cliente fino (Fase 3): importación (ALTER dinámico + upsert) COMPARTIDA en la capa de datos.
+            from src.db.articulos import importar_articulos_df
+            importar_articulos_df(df)
             self.finalizado.emit(
                 tr("stock.import_ok", default="Stock importado correctamente desde:\n{ruta}", ruta=self.ruta)
             )
@@ -1059,16 +993,9 @@ class _ExportarStockPage(QWidget):
         """Genera el informe Excel de stock y devuelve su ruta (o None si vacío/error,
         mostrando el motivo en pantalla). Reutilizable por export y envío por correo."""
         try:
-            query = (
-                "SELECT codigo AS Código, nombre AS Nombre, "
-                "COALESCE(Stock_tienda,0) AS 'Stock Lineal', "
-                "COALESCE(Stock_total,0) AS 'Stock Almacén', "
-                "COALESCE(Stock_central,0) AS 'Stock Almacén Central', "
-                "COALESCE(Stock_esperado,0) AS 'Stock Esperado' "
-                "FROM articulos ORDER BY nombre ASC"
-            )
-            with obtener_conexion() as conn:
-                df = pd.read_sql_query(query, conn)
+            # Cliente fino (Fase 3): el DataFrame de stock para exportar viene de la capa de datos.
+            from src.db.articulos import df_stock_export
+            df = df_stock_export()
 
             if df.empty:
                 self.lbl_resultado.setText(tr("stock.export_empty", default="No hay artículos para exportar."))
