@@ -69,6 +69,64 @@ def actualizar_emoji(codigo, emoji, id_empresa=None):
 # peso_unitario (kg) + tolerancia_peso (kg): master data que alimenta el control antifraude.
 # ============================================================
 
+def listar_codigo_nombre(id_empresa=None) -> list:
+    """(codigo, nombre) de los artículos, ordenados por nombre. Para combos/sugerencias de la GUI
+    (Fase 3 · cliente fino). Devuelve lista de tuplas."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT codigo, nombre FROM articulos WHERE id_empresa=%s ORDER BY nombre",
+                        (id_empresa,))
+            return [((r["codigo"], r["nombre"]) if isinstance(r, dict) else (r[0], r[1]))
+                    for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def buscar_uno(termino, id_empresa=None):
+    """Primer artículo cuyo código coincide o cuyo nombre contiene `termino`. Devuelve
+    (codigo, nombre, precio) o None. Fase 3 · cliente fino (extraído de etiquetas_precios)."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT codigo, nombre, precio FROM articulos "
+                        "WHERE id_empresa=%s AND (codigo=%s OR nombre LIKE %s) LIMIT 1",
+                        (id_empresa, termino, f"%{termino}%"))
+            r = cur.fetchone()
+            if not r:
+                return None
+            return (r["codigo"], r["nombre"], r["precio"]) if isinstance(r, dict) else (r[0], r[1], r[2])
+    except Exception:
+        return None
+
+
+def obtener_imagen(codigo, id_empresa=None):
+    """Imagen (BLOB/bytes) del artículo o None. Fase 3 · cliente fino (extraído de info_articulo)."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT imagen FROM articulos WHERE codigo=%s AND id_empresa=%s", (codigo, id_empresa))
+            r = cur.fetchone()
+            if not r:
+                return None
+            return r["imagen"] if isinstance(r, dict) else r[0]
+    except Exception:
+        return None
+
+
+def actualizar_imagen(codigo, imagen, id_empresa=None) -> bool:
+    """Fija (o borra, con imagen=None) la imagen del artículo. Fase 3 · cliente fino."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE articulos SET imagen=%s WHERE codigo=%s AND id_empresa=%s",
+                        (imagen, codigo, id_empresa))
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
 def obtener_fisica_seguridad(codigo, id_empresa=None):
     """Devuelve {'peso_unitario': float|None, 'tolerancia_peso': float|None} del artículo (o None)."""
     id_empresa = _emp(id_empresa)

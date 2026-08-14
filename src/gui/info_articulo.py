@@ -29,7 +29,6 @@ from pyzbar.pyzbar import decode
 
 from src.db.conexion import (
     obtener_articulo,
-    obtener_conexion,
     ventas_semana,
 )
 from src.utils import i18n
@@ -150,19 +149,14 @@ QListWidget::item:selected {{ background-color: #1A2230; color: {_CIAN}; }}
 
 def _get_completer_data():
     """Sugerencias en formato único 'CÓDIGO – NOMBRE' (sin duplicar código y nombre)."""
-    try:
-        with obtener_conexion() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT codigo, nombre FROM articulos ORDER BY nombre")
-                data = []
-                for r in cur.fetchall():
-                    cod = str(r[0] or "").strip()
-                    nom = str(r[1] or "").strip()
-                    if cod or nom:
-                        data.append(f"{cod} – {nom}".strip(" –"))
-                return data
-    except Exception:
-        return []
+    from src.db.articulos import listar_codigo_nombre
+    data = []
+    for cod, nom in listar_codigo_nombre():
+        cod = str(cod or "").strip()
+        nom = str(nom or "").strip()
+        if cod or nom:
+            data.append(f"{cod} – {nom}".strip(" –"))
+    return data
 
 
 def _sombra_cian(widget):
@@ -839,16 +833,9 @@ class _ImagenArticuloPage(QWidget):
             destino = os.path.join(destino_dir, f"{safe}{ext}")
             if os.path.abspath(self._img_pendiente) != os.path.abspath(destino):
                 shutil.copy2(self._img_pendiente, destino)
-            try:                                     # PK compuesta (migr 0181): filtra por empresa de la sesión
-                from src.db.empresa import empresa_actual_id as _eai
-                _emp = _eai()
-            except Exception:
-                _emp = None
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE articulos SET imagen=%s WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
-                                (destino, codigo, _emp, _emp))
-                conn.commit()
+            # Cliente fino (Fase 3): la escritura de imagen vive en la capa de datos.
+            from src.db.articulos import actualizar_imagen
+            actualizar_imagen(codigo, destino)
         except Exception as e:
             self._status(tr("info.img_save_error", default="No se pudo guardar la imagen: {e}", e=e), error=True)
             return
@@ -865,20 +852,10 @@ class _ImagenArticuloPage(QWidget):
             return
         codigo = self._art_sel.get("codigo")
         try:
-            try:                                     # PK compuesta (migr 0181): filtra por empresa de la sesión
-                from src.db.empresa import empresa_actual_id as _eai
-                _emp = _eai()
-            except Exception:
-                _emp = None
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT imagen FROM articulos WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
-                                (codigo, _emp, _emp))
-                    fila = cur.fetchone()
-                    ruta_actual = fila[0] if fila else None
-                    cur.execute("UPDATE articulos SET imagen=NULL WHERE codigo=%s AND (%s IS NULL OR "
-                                "id_empresa=%s)", (codigo, _emp, _emp))
-                conn.commit()
+            # Cliente fino (Fase 3): lectura/escritura de imagen en la capa de datos.
+            from src.db.articulos import actualizar_imagen, obtener_imagen
+            ruta_actual = obtener_imagen(codigo)
+            actualizar_imagen(codigo, None)
             if ruta_actual and os.path.exists(ruta_actual):
                 try:
                     os.remove(ruta_actual)
