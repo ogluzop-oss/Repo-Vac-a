@@ -30,8 +30,10 @@ def test_ventana_abre_y_secciones(db, fab):
         from src.services.contabilidad import cuentas as K
         K.activar(emp, 2026)
         w = ContabilidadWindow(callback_vuelta=lambda: None, usuario={"nombre": "T"})
-        assert w.stack.count() == 6
-        for i in range(6):
+        # Smoke robusto: floor de secciones + TODAS navegables (no fija número exacto, que crece con la UI).
+        n = w.stack.count()
+        assert n >= 6
+        for i in range(n):
             w._ir(i); assert w.stack.currentIndex() == i
         w.close()
 

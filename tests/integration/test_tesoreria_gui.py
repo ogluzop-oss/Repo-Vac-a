@@ -25,9 +25,10 @@ def test_ventana_tesoreria(db):
         with contexto_tenant(E, None):
             from src.gui.tesoreria_gui import TesoreriaWindow
             w = TesoreriaWindow()
-            # 8 pestañas
-            assert w.tabs.count() == 8
-            titulos = [w.tabs.tabText(i) for i in range(8)]
+            # Floor de pestañas (crece con la UI) + comprobación por NOMBRE de las clave.
+            n = w.tabs.count()
+            assert n >= 8
+            titulos = [w.tabs.tabText(i) for i in range(n)]
             assert "Cuentas" in titulos and "Remesas SEPA" in titulos and "Cash Flow" in titulos
             # la tabla de cuentas se ha poblado con la cuenta creada
             assert w.tbl_cuentas.rowCount() >= 1
