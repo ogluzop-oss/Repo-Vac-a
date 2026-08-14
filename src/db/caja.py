@@ -31,13 +31,15 @@ def _emp(id_empresa=None):
 
 
 def _tienda(id_tienda=None):
-    if id_tienda is not None:
-        return id_tienda
+    """Id de tienda para la columna INT `caja_sesiones.id_tienda`. Coacciona el contexto —que puede ser
+    un código alfanumérico ('ALMC')— a ENTERO con el helper canónico (código→0), evitando el error 1366;
+    None se mantiene (sin tienda). Clase de bug 'ALMC' — ver stock/kardex."""
     try:
-        from src.db.empresa import tienda_actual_id
-        return tienda_actual_id()
+        from src.db.empresa import tienda_actual_id, tienda_actual_id_int
+        v = id_tienda if id_tienda is not None else tienda_actual_id()
+        return tienda_actual_id_int(v) if v is not None else None
     except Exception:
-        return None
+        return id_tienda if isinstance(id_tienda, int) else None
 
 
 def abrir_sesion(caja=None, fondo_inicial=0, id_tienda=None, usuario=None, id_empresa=None) -> int | None:
