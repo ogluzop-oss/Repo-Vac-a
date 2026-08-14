@@ -36,7 +36,6 @@ from PyQt6.QtWidgets import (
 )
 
 from assets.estilo_global import instalar_corner_cover, mostrar_mensaje
-from src.db.conexion import obtener_conexion
 from src.utils import divisas, i18n
 from src.utils.i18n import tr
 
@@ -2151,27 +2150,16 @@ class _ImportarHistoricoHilo(QThread):
                 )
                 return
 
-            insertados = 0
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                for _, row in df.iterrows():
-                    try:
-                        fecha_val  = pd.to_datetime(row[col_fecha]).date()
-                        total_val  = float(row[col_total])
-                        dia_semana = fecha_val.weekday()
-                        cur.execute(
-                            "INSERT INTO prevision_historico "
-                            "(fecha, total_facturado, fuente, dia_semana) "
-                            "VALUES (%s, %s, 'IMPORTADO', %s) "
-                            "ON DUPLICATE KEY UPDATE "
-                            "total_facturado = VALUES(total_facturado), "
-                            "dia_semana = VALUES(dia_semana)",
-                            (fecha_val, total_val, dia_semana),
-                        )
-                        insertados += 1
-                    except Exception:
-                        continue
-                conn.commit()
+            # Cliente fino (Fase 3): la GUI prepara los datos; el upsert vive en la capa de datos.
+            items = []
+            for _, row in df.iterrows():
+                try:
+                    fecha_val = pd.to_datetime(row[col_fecha]).date()
+                    items.append((fecha_val, float(row[col_total]), fecha_val.weekday()))
+                except Exception:
+                    continue
+            from src.db.ventas_analitica import importar_prevision_historico
+            insertados = importar_prevision_historico(items)
 
             self.finalizado.emit(
                 tr("vta.hist_import_ok", default="Histórico importado: {n} días cargados desde\n{ruta}", n=insertados, ruta=self.ruta)
@@ -2387,54 +2375,14 @@ class VentasAnaliticaWindow(QWidget):
         hasta  = self.res_fecha_hasta.date().toString("yyyy-MM-dd")
         art    = self.res_articulo.text().strip() or None
         secc   = self.res_seccion.text().strip() or None
-        tf, tp = self._tenant_filtro("v")
-
         try:
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                if art:
-                    cur.execute(
-                        "SELECT DATE(v.fecha) AS dia, SUM(vi.subtotal) AS total "
-                        "FROM ventas v JOIN venta_items vi ON vi.venta_id = v.id "
-                        "WHERE DATE(v.fecha) BETWEEN %s AND %s "
-                        "AND (vi.codigo_articulo = %s OR vi.nombre LIKE %s) "
-                        + tf + " GROUP BY dia ORDER BY dia",
-                        (desde, hasta, art, f"%{art}%", *tp),
-                    )
-                elif secc:
-                    cur.execute(
-                        "SELECT DATE(v.fecha) AS dia, SUM(vi.subtotal) AS total "
-                        "FROM ventas v JOIN venta_items vi ON vi.venta_id = v.id "
-                        "WHERE DATE(v.fecha) BETWEEN %s AND %s AND vi.seccion = %s "
-                        + tf + " GROUP BY dia ORDER BY dia",
-                        (desde, hasta, secc, *tp),
-                    )
-                else:
-                    cur.execute(
-                        "SELECT DATE(v.fecha) AS dia, SUM(v.total) AS total "
-                        "FROM ventas v WHERE DATE(v.fecha) BETWEEN %s AND %s "
-                        + tf + " GROUP BY dia ORDER BY dia",
-                        (desde, hasta, *tp),
-                    )
-                datos = cur.fetchall()
-
-                # Integra el canal de venta online en la facturación total
-                # (cuando no se filtra por artículo/sección, que son del TPV).
-                if not art and not secc:
-                    datos = self._merge_facturacion_online(datos, desde, hasta)
-
-                # Top 10
-                cur.execute(
-                    "SELECT vi.codigo_articulo, vi.nombre, SUM(vi.cantidad) AS uds "
-                    "FROM ventas v JOIN venta_items vi ON vi.venta_id = v.id "
-                    "WHERE DATE(v.fecha) BETWEEN %s AND %s "
-                    + ("AND vi.seccion = %s " if secc else "")
-                    + tf
-                    + " GROUP BY vi.codigo_articulo, vi.nombre ORDER BY uds DESC LIMIT 10",
-                    ((desde, hasta, secc, *tp) if secc else (desde, hasta, *tp)),
-                )
-                top10 = cur.fetchall()
-
+            # Cliente fino (Fase 3): las consultas y el filtro de tenant viven en la capa de datos.
+            from src.db.ventas_analitica import serie_por_dia, top_articulos
+            datos = serie_por_dia(desde, hasta, art, secc)
+            # Integra el canal de venta online (solo cuando no se filtra por artículo/sección).
+            if not art and not secc:
+                datos = self._merge_facturacion_online(datos, desde, hasta)
+            top10 = top_articulos(desde, hasta, secc)
             self._dibujar_grafica(datos, top10, desde, hasta)
         except Exception as e:
             self._chart_placeholder.setText(tr("vta.summary_err", default="Error al generar resumen: {e}", e=e))
@@ -2598,15 +2546,8 @@ class VentasAnaliticaWindow(QWidget):
 
     def _cargar_resumen_historico(self):
         try:
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT YEAR(fecha) AS anio, COUNT(*) AS dias, "
-                    "SUM(total_facturado) AS total, fuente "
-                    "FROM prevision_historico "
-                    "GROUP BY anio, fuente ORDER BY anio DESC, fuente"
-                )
-                filas = cur.fetchall()
+            from src.db.ventas_analitica import resumen_historico
+            filas = resumen_historico()
             self.tbl_historico.setRowCount(len(filas))
             for r, (anio, dias, total, fuente) in enumerate(filas):
                 for c, val in enumerate([str(anio), str(dias), f"{divisas.formatear(float(total or 0))}", fuente]):
@@ -2643,12 +2584,8 @@ class VentasAnaliticaWindow(QWidget):
     def _ver_prevision(self):
         try:
             anio_actual = datetime.now().year
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT COUNT(*) FROM prevision_historico"
-                )
-                cnt = cur.fetchone()[0]
+            from src.db.ventas_analitica import contar_historico
+            cnt = contar_historico()
 
             if cnt == 0:
                 mostrar_mensaje(
@@ -2668,12 +2605,8 @@ class VentasAnaliticaWindow(QWidget):
             from openpyxl import Workbook
             from openpyxl.styles import Alignment, Font, PatternFill
 
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT fecha, total_facturado FROM prevision_historico ORDER BY fecha"
-                )
-                hist = cur.fetchall()
+            from src.db.ventas_analitica import serie_historico
+            hist = serie_historico()
 
             if not hist:
                 return
@@ -2692,14 +2625,10 @@ class VentasAnaliticaWindow(QWidget):
             fechas_anio = pd.date_range(f"{anio}-01-01", f"{anio}-12-31")
             objetivo = total_anual  # default: same as historical total
             try:
-                with obtener_conexion() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "SELECT objetivo_anual FROM prevision_objetivos WHERE anio = %s", (anio,)
-                    )
-                    row = cur.fetchone()
-                    if row and row[0]:
-                        objetivo = float(row[0])
+                from src.db.ventas_analitica import objetivo_anual as _obj_anual
+                _o = _obj_anual(anio)
+                if _o:
+                    objetivo = _o
             except Exception:
                 pass
 
@@ -2766,14 +2695,8 @@ class VentasAnaliticaWindow(QWidget):
             ruta = os.path.join(carpeta, f"Prevision_{anio}.xlsx")
             wb.save(ruta)
 
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "INSERT INTO prevision_objetivos (anio, objetivo_anual, excel_generado, ruta_excel_drive) "
-                    "VALUES (%s, %s, 1, %s) ON DUPLICATE KEY UPDATE excel_generado=1, ruta_excel_drive=%s",
-                    (anio, objetivo, ruta, ruta),
-                )
-                conn.commit()
+            from src.db.ventas_analitica import guardar_objetivo
+            guardar_objetivo(anio, objetivo, ruta)
 
             mostrar_mensaje(self, tr("vta.forecast_generated_title", default="Previsión generada"), tr("vta.excel_saved", default="Excel guardado en:\n{ruta}", ruta=ruta))
             try:
@@ -2857,12 +2780,8 @@ class VentasAnaliticaWindow(QWidget):
     def _serie_historica(self):
         """Serie diaria [(fecha, importe)] del histórico subido (prevision_historico)."""
         try:
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT fecha, SUM(total_facturado) FROM prevision_historico "
-                    "GROUP BY fecha ORDER BY fecha")
-                filas = cur.fetchall()
+            from src.db.ventas_analitica import serie_historico_agrupada
+            filas = serie_historico_agrupada()
         except Exception:
             filas = []
         serie = []
@@ -2902,13 +2821,8 @@ class VentasAnaliticaWindow(QWidget):
     def _serie_ventas_tpv(self):
         """Serie diaria [(fecha, importe)] de las ventas reales del TPV/autocobro."""
         try:
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                tf, tp = self._tenant_filtro()
-                cur.execute(
-                    "SELECT DATE(fecha), COALESCE(SUM(total),0) FROM ventas WHERE 1=1"
-                    + tf + " GROUP BY DATE(fecha) ORDER BY DATE(fecha)", tp)
-                filas = cur.fetchall()
+            from src.db.ventas_analitica import serie_ventas_tpv
+            filas = serie_ventas_tpv()
         except Exception:
             filas = []
         serie = []
@@ -3137,56 +3051,39 @@ class VentasAnaliticaWindow(QWidget):
         ndias = calendar.monthrange(anio, mes)[1]
         data = {d: {"fact": 0.0, "clientes": 0, "horas": 0.0, "prev": 0.0} for d in range(1, ndias + 1)}
         try:
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                tf, tp = self._tenant_filtro()
-                cur.execute(
-                    "SELECT DAY(fecha), COALESCE(SUM(total),0), COUNT(*) FROM ventas "
-                    "WHERE YEAR(fecha)=%s AND MONTH(fecha)=%s" + tf + " GROUP BY DAY(fecha)",
-                    (anio, mes, *tp))
-                for d, tot, cnt in cur.fetchall():
-                    if d in data:
-                        data[d]["fact"] = float(tot or 0); data[d]["clientes"] = int(cnt or 0)
-                # Integra la facturación del canal online por día.
-                desde = f"{anio:04d}-{mes:02d}-01"
-                hasta = f"{anio:04d}-{mes:02d}-{ndias:02d}"
-                for fecha_iso, total in self._facturacion_online_por_dia(desde, hasta).items():
-                    try:
-                        d = int(fecha_iso[8:10])
-                    except (ValueError, IndexError):
-                        continue
-                    if d in data:
-                        data[d]["fact"] += float(total or 0)
-                cur.execute(
-                    "SELECT DAY(entrada), COALESCE(SUM(TIMESTAMPDIFF(MINUTE, entrada, salida)),0) "
-                    "FROM fichajes WHERE salida IS NOT NULL AND YEAR(entrada)=%s AND MONTH(entrada)=%s "
-                    + tf + " GROUP BY DAY(entrada)", (anio, mes, *tp))
-                for d, mins in cur.fetchall():
-                    if d in data:
-                        data[d]["horas"] = round(float(mins or 0) / 60.0, 2)
-                # Previsión IA: modelo predictivo alimentado por el histórico de
-                # ventas subido en la pestaña HISTÓRICO DE VENTAS (prevision_historico).
+            # Cliente fino (Fase 3): consultas en la capa de datos; la GUI compone el dict del mes.
+            from src.db.ventas_analitica import (horas_por_dia_mes, rendimiento_diario_guardado,
+                                                 ventas_por_dia_mes)
+            for d, tot, cnt in ventas_por_dia_mes(anio, mes):
+                if d in data:
+                    data[d]["fact"] = float(tot or 0); data[d]["clientes"] = int(cnt or 0)
+            # Integra la facturación del canal online por día.
+            desde = f"{anio:04d}-{mes:02d}-01"
+            hasta = f"{anio:04d}-{mes:02d}-{ndias:02d}"
+            for fecha_iso, total in self._facturacion_online_por_dia(desde, hasta).items():
                 try:
-                    pred = self._prever_facturacion_mensual(anio, mes)
-                    for d, v in pred.items():
-                        if d in data:
-                            data[d]["prev"] = v
-                except Exception:
-                    pass
-                try:
-                    from src.db.empresa import empresa_actual_id
-                    cur.execute(
-                        "SELECT DAY(fecha), facturacion, clientes, horas, prevision FROM rendimiento_diario "
-                        "WHERE id_empresa=%s AND YEAR(fecha)=%s AND MONTH(fecha)=%s",
-                        (empresa_actual_id(), anio, mes))
-                    for d, f, c, h, p in cur.fetchall():
-                        if d in data:
-                            if f is not None: data[d]["fact"] = float(f)
-                            if c is not None: data[d]["clientes"] = int(c)
-                            if h is not None: data[d]["horas"] = float(h)
-                            if p is not None: data[d]["prev"] = float(p)
-                except Exception:
-                    pass
+                    d = int(fecha_iso[8:10])
+                except (ValueError, IndexError):
+                    continue
+                if d in data:
+                    data[d]["fact"] += float(total or 0)
+            for d, mins in horas_por_dia_mes(anio, mes):
+                if d in data:
+                    data[d]["horas"] = round(float(mins or 0) / 60.0, 2)
+            # Previsión IA: modelo predictivo alimentado por el histórico de ventas (prevision_historico).
+            try:
+                pred = self._prever_facturacion_mensual(anio, mes)
+                for d, v in pred.items():
+                    if d in data:
+                        data[d]["prev"] = v
+            except Exception:
+                pass
+            for d, f, c, h, p in rendimiento_diario_guardado(anio, mes):
+                if d in data:
+                    if f is not None: data[d]["fact"] = float(f)
+                    if c is not None: data[d]["clientes"] = int(c)
+                    if h is not None: data[d]["horas"] = float(h)
+                    if p is not None: data[d]["prev"] = float(p)
         except Exception:
             pass
         return data
@@ -3264,23 +3161,18 @@ class VentasAnaliticaWindow(QWidget):
             eid = None
         t = self.tbl_rend
         try:
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                for r in range(t.rowCount()):
-                    it0 = t.item(r, 0)
-                    dia = (it0.text().strip() if it0 else "")
-                    if not dia.isdigit():
-                        continue
-                    fecha = _d.date(self._rend_anio, self._rend_mes, int(dia))
-                    fact = self._rend_num(r, 1); cli = int(self._rend_num(r, 3)); horas = self._rend_num(r, 5)
-                    prev = self._rend_num(r, 9)   # previsión IA (última columna)
-                    cur.execute(
-                        "INSERT INTO rendimiento_diario (id_empresa, fecha, facturacion, clientes, horas, prevision) "
-                        "VALUES (%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE "
-                        "facturacion=VALUES(facturacion), clientes=VALUES(clientes), horas=VALUES(horas), "
-                        "prevision=VALUES(prevision)",
-                        (eid, fecha, fact, cli, horas, prev))
-                conn.commit()
+            # Cliente fino (Fase 3): la GUI arma las filas; el upsert vive en la capa de datos.
+            items = []
+            for r in range(t.rowCount()):
+                it0 = t.item(r, 0)
+                dia = (it0.text().strip() if it0 else "")
+                if not dia.isdigit():
+                    continue
+                fecha = _d.date(self._rend_anio, self._rend_mes, int(dia))
+                items.append((fecha, self._rend_num(r, 1), int(self._rend_num(r, 3)),
+                              self._rend_num(r, 5), self._rend_num(r, 9)))
+            from src.db.ventas_analitica import guardar_rendimiento_diario
+            guardar_rendimiento_diario(items, eid)
             mostrar_mensaje(self, tr("vta.perf_saved_t", default="Guardado"),
                             tr("vta.perf_saved", default="Rendimiento guardado correctamente."), "success")
         except Exception as e:
