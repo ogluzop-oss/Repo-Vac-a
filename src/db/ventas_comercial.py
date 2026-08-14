@@ -28,9 +28,13 @@ def _emp(id_empresa=None):
 
 
 def _tienda():
+    """Id de tienda para columnas INT de ventas comerciales (`ventas_pedidos_cliente.id_tienda`,
+    `ventas_presupuestos.id_tienda`). Coacciona el contexto (código 'ALMC'→0) con el helper canónico,
+    evitando el error 1366; None si no hay tienda."""
     try:
-        from src.db.empresa import tienda_actual_id
-        return tienda_actual_id()
+        from src.db.empresa import tienda_actual_id, tienda_actual_id_int
+        v = tienda_actual_id()
+        return tienda_actual_id_int(v) if v is not None else None
     except Exception:
         return None
 
