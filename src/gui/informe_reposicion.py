@@ -34,7 +34,6 @@ from assets.estilo_global import (
 )
 from src.db.conexion import (
     obtener_articulo,
-    obtener_conexion,
     set_stock_esperado,
 )
 from src.db.conexion import stock_signals as global_stock_signals
@@ -83,17 +82,9 @@ class InformeReposicionWindow(QWidget):
 
     def crear_campo_repuesto(self):
         """Verifica y añade la columna repuesto usando sintaxis MariaDB."""
-        try:
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute("SHOW COLUMNS FROM articulos LIKE 'repuesto'")
-                if not cur.fetchone():
-                    cur.execute(
-                        "ALTER TABLE articulos ADD COLUMN repuesto INTEGER DEFAULT 0"
-                    )
-                    conn.commit()
-        except Exception as e:
-            print(f"Error al verificar/crear columna repuesto: {e}")
+        # Cliente fino (Fase 3): asegurar la columna vive en la capa de datos.
+        from src.db.articulos import asegurar_columna_repuesto
+        asegurar_columna_repuesto()
 
     # ---------------------------------------------------------------------------
     # CONSTANTES Y ESTILOS
@@ -323,39 +314,34 @@ class InformeReposicionWindow(QWidget):
         def cargar_datos(self):
             self.tabla.setRowCount(0)
             try:
-                with obtener_conexion() as conn:
-                    cur = conn.cursor()
-                    # COALESCE para manejar posibles valores NULL en la base de datos
-                    cur.execute(
-                        "SELECT codigo, nombre, COALESCE(Stock_total, 0), COALESCE(Stock_tienda, 0), COALESCE(Stock_esperado, 0) FROM articulos"
-                    )
+                # Cliente fino (Fase 3): datos de reposición desde la capa de datos.
+                from src.db.articulos import listar_para_reposicion
+                for row in listar_para_reposicion():
+                    codigo, nombre, s_alm, s_lin, s_esp = row
 
-                    for row in cur.fetchall():
-                        codigo, nombre, s_alm, s_lin, s_esp = row
+                    # Asegurarse de que sean números para el cálculo
+                    s_esp = int(s_esp) if s_esp is not None else 0
+                    s_lin = int(s_lin) if s_lin is not None else 0
+                    s_alm = int(s_alm) if s_alm is not None else 0
 
-                        # Asegurarse de que sean números para el cálculo
-                        s_esp = int(s_esp) if s_esp is not None else 0
-                        s_lin = int(s_lin) if s_lin is not None else 0
-                        s_alm = int(s_alm) if s_alm is not None else 0
-
-                        # Aparece SOLO si: lineal por debajo del umbral mínimo (70% del
-                        # esperado) Y hay stock en el ALMACÉN DE LA TIENDA (Stock_total,
-                        # no el central). Ambas condiciones son obligatorias.
-                        umbral = s_esp * 0.7
-                        if s_lin < umbral and s_alm > 0:
-                            r = self.tabla.rowCount()
-                            self.tabla.insertRow(r)
-                            items = [
-                                str(codigo),
-                                str(nombre),
-                                str(s_alm),
-                                str(s_lin),
-                                str(s_esp),
-                            ]
-                            for c, val in enumerate(items):
-                                item = QTableWidgetItem(val)
-                                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                                self.tabla.setItem(r, c, item)
+                    # Aparece SOLO si: lineal por debajo del umbral mínimo (70% del
+                    # esperado) Y hay stock en el ALMACÉN DE LA TIENDA (Stock_total,
+                    # no el central). Ambas condiciones son obligatorias.
+                    umbral = s_esp * 0.7
+                    if s_lin < umbral and s_alm > 0:
+                        r = self.tabla.rowCount()
+                        self.tabla.insertRow(r)
+                        items = [
+                            str(codigo),
+                            str(nombre),
+                            str(s_alm),
+                            str(s_lin),
+                            str(s_esp),
+                        ]
+                        for c, val in enumerate(items):
+                            item = QTableWidgetItem(val)
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                            self.tabla.setItem(r, c, item)
                 self.tabla.resizeRowsToContents()
             except Exception as e:
                 print(f"Error cargando reposición: {e}")
@@ -515,20 +501,10 @@ class InformeReposicionWindow(QWidget):
             articulo = obtener_articulo(termino)  # This now returns a dict
             if not articulo:
                 # Try searching by name if not found by code
-                with obtener_conexion() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "SELECT codigo, nombre, Stock_esperado FROM articulos WHERE nombre LIKE %s",
-                        (f"%{termino}%",),
-                    )
-                    res_tuple = cur.fetchone()
-                    if res_tuple:
-                        # Convert tuple to dict manually for consistency
-                        articulo = {
-                            "codigo": res_tuple[0],
-                            "nombre": res_tuple[1],
-                            "Stock_esperado": res_tuple[2],
-                        }
+                from src.db.articulos import buscar_por_nombre
+                _res = buscar_por_nombre(termino)
+                if _res:
+                    articulo = _res
                 if not articulo:
                     QMessageBox.warning(
                         self,
@@ -654,34 +630,30 @@ class InformeReposicionWindow(QWidget):
             # 1. Obtener artículos bajo el umbral
             articulos_a_reponer = []
             try:
-                with obtener_conexion() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "SELECT codigo, nombre, COALESCE(Stock_total, 0), COALESCE(Stock_tienda, 0), COALESCE(Stock_esperado, 0) FROM articulos"
-                    )
-                    for row in cur.fetchall():
-                        codigo, nombre, s_alm, s_lin, s_esp = row
-                        s_alm = int(s_alm or 0); s_lin = int(s_lin or 0); s_esp = int(s_esp or 0)
-                        # Mismas dos premisas que la tabla: lineal bajo mínimo Y stock en
-                        # el almacén de la tienda. Se repone con lo DISPONIBLE en almacén:
-                        #   - si hay suficiente → lineal hasta el máximo (esperado),
-                        #   - si no → se suma al lineal solo lo que haya en almacén.
-                        if s_lin < (s_esp * 0.7) and s_alm > 0:
-                            falta = s_esp - s_lin
-                            mover = min(falta, s_alm)
-                            if mover > 0:
-                                articulos_a_reponer.append(
-                                    {
-                                        "Código": codigo,
-                                        "Nombre": nombre,
-                                        "Unidades a reponer": mover,
-                                        "s_esp": s_esp,
-                                        "s_lin": s_lin,
-                                        "s_alm": s_alm,
-                                        "nuevo_lineal": s_lin + mover,
-                                        "nuevo_almacen": s_alm - mover,
-                                    }
-                                )
+                from src.db.articulos import listar_para_reposicion
+                for row in listar_para_reposicion():
+                    codigo, nombre, s_alm, s_lin, s_esp = row
+                    s_alm = int(s_alm or 0); s_lin = int(s_lin or 0); s_esp = int(s_esp or 0)
+                    # Mismas dos premisas que la tabla: lineal bajo mínimo Y stock en
+                    # el almacén de la tienda. Se repone con lo DISPONIBLE en almacén:
+                    #   - si hay suficiente → lineal hasta el máximo (esperado),
+                    #   - si no → se suma al lineal solo lo que haya en almacén.
+                    if s_lin < (s_esp * 0.7) and s_alm > 0:
+                        falta = s_esp - s_lin
+                        mover = min(falta, s_alm)
+                        if mover > 0:
+                            articulos_a_reponer.append(
+                                {
+                                    "Código": codigo,
+                                    "Nombre": nombre,
+                                    "Unidades a reponer": mover,
+                                    "s_esp": s_esp,
+                                    "s_lin": s_lin,
+                                    "s_alm": s_alm,
+                                    "nuevo_lineal": s_lin + mover,
+                                    "nuevo_almacen": s_alm - mover,
+                                }
+                            )
             except Exception as e:
                 mostrar_mensaje(
                     self,
@@ -763,27 +735,12 @@ class InformeReposicionWindow(QWidget):
                     worksheet.column_dimensions["C"].width = 20
 
                 # 4. Actualizar Base de Datos (Marcar como repuesto)
-                with obtener_conexion() as conn:
-                    cur = conn.cursor()
-                    try:                             # PK compuesta (migr 0181): filtra por empresa de la sesión
-                        from src.db.empresa import empresa_actual_id as _eai
-                        _emp = _eai()
-                    except Exception:
-                        _emp = None
-                    for art in articulos_a_reponer:
-                        codigo = art["Código"]
-                        # Valores ya calculados de forma inteligente (mover = min(falta, almacén)):
-                        nuevo_lineal = art["nuevo_lineal"]
-                        nuevo_almacen = art["nuevo_almacen"]
-
-                        cur.execute(
-                            "UPDATE articulos SET Stock_tienda = %s, Stock_total = %s WHERE codigo = %s "
-                            "AND (%s IS NULL OR id_empresa = %s)",
-                            (nuevo_lineal, nuevo_almacen, codigo, _emp, _emp),
-                        )
-                        # Emitir señal global para otros módulos
-                        self.main_window.signals.stock_actualizado.emit(str(codigo))
-                    conn.commit()
+                # Cliente fino (Fase 3): la escritura en bloque vive en la capa de datos.
+                from src.db.articulos import marcar_repuestos
+                marcar_repuestos([(art["Código"], art["nuevo_lineal"], art["nuevo_almacen"])
+                                  for art in articulos_a_reponer])
+                for art in articulos_a_reponer:
+                    self.main_window.signals.stock_actualizado.emit(str(art["Código"]))
 
                 # H3: integra la reposición (movimiento almacén→lineal) en kárdex y
                 # sincroniza el ledger stock_almacen (evita divergencia caché↔ledger).
@@ -952,40 +909,19 @@ class InformeReposicionWindow(QWidget):
 
     def obtener_articulos_reposicion(self):
         """Obtiene artículos bajo el umbral usando el context manager."""
-        try:
-            with obtener_conexion() as conn:
-                cur = conn.cursor()
-                cur.execute("""
-                    SELECT codigo, nombre, Stock_total, Stock_tienda, 
-                           COALESCE(stock_esperado, 0), capacidad_lineal
-                    FROM articulos
-                    ORDER BY nombre ASC
-                    """)
-                resultados = []
-                for (
-                    codigo,
-                    nombre,
-                    stock_total,
-                    stock_tienda,
-                    stock_esperado,
-                    capacidad_lineal,
-                ) in cur.fetchall():
-
-                    stock_total = self._convert_to_int(stock_total)
-                    stock_tienda = self._convert_to_int(stock_tienda)
-                    stock_esperado = self._convert_to_int(stock_esperado)
-
-                    if stock_esperado == 0 and capacidad_lineal:
-                        stock_esperado = capacidad_lineal // 2
-
-                    if stock_tienda < stock_esperado:
-                        resultados.append(
-                            (codigo, nombre, stock_total, stock_tienda, stock_esperado)
-                        )
-                return resultados
-        except Exception as e:
-            print(f"[ERROR] No se pudieron obtener los artículos: {e}")
-            return []
+        # Cliente fino (Fase 3): datos desde la capa de datos; la GUI aplica la lógica de umbral.
+        from src.db.articulos import listar_bajo_umbral
+        resultados = []
+        for (codigo, nombre, stock_total, stock_tienda,
+             stock_esperado, capacidad_lineal) in listar_bajo_umbral():
+            stock_total = self._convert_to_int(stock_total)
+            stock_tienda = self._convert_to_int(stock_tienda)
+            stock_esperado = self._convert_to_int(stock_esperado)
+            if stock_esperado == 0 and capacidad_lineal:
+                stock_esperado = capacidad_lineal // 2
+            if stock_tienda < stock_esperado:
+                resultados.append((codigo, nombre, stock_total, stock_tienda, stock_esperado))
+        return resultados
 
     # ============================================================
     # BLOQUE CARGA Y ACTUALIZACIÓN DE TABLA (Lógica para Parte 2)
@@ -1174,23 +1110,13 @@ class InformeReposicionWindow(QWidget):
             df.to_excel(ruta_export, index=False)
 
             try:
-                with obtener_conexion() as conn:
-                    cur = conn.cursor()
-                    hoy = datetime.now().strftime("%Y-%m-%d")
-
-                    for fila in filas_exportar:
-                        codigo = fila[0]
-                        stock_esperado = self._convert_to_int(fila[4])
-
-                        cur.execute(
-                            """
-                            UPDATE articulos 
-                            SET repuesto = 1, Stock_tienda = ?, ultima_recepcion = ? 
-                            WHERE codigo = ?
-                            """,
-                            (stock_esperado, hoy, codigo),
-                        )
-                    conn.commit()
+                # Cliente fino (Fase 3): marcado en bloque en la capa de datos. Además corrige el bug
+                # pre-existente de placeholders '?' → '%s' que hacía fallar EN SILENCIO este UPDATE con
+                # pymysql (el `repuesto=1` nunca llegaba a persistir).
+                from src.db.articulos import marcar_repuesto_exportado
+                _hoy = datetime.now().strftime("%Y-%m-%d")
+                marcar_repuesto_exportado([(fila[0], self._convert_to_int(fila[4]), _hoy)
+                                           for fila in filas_exportar])
 
                 for fila in filas_exportar:
                     self.signals.stock_actualizado.emit(fila[0])
