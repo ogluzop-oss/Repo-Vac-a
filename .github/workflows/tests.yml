@@ -51,13 +51,13 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Ejecutar pruebas (con cobertura)
-        # --reruns 2: reintenta flaky (un fallo real falla en los 3 intentos).
-        # Omitidos en CI por dependencia del entorno (se ejecutan en local): 3 tests XSD (red W3C),
-        # test_rrhh_pdf_decomp (golden sensible al locale) y test_pitr_restore_timestamp (restore
-        # real vía mysql contra el MariaDB efímero; infra-flaky).
+        # Sin --reruns: NO se enmascaran los flaky; un test inestable debe verse en rojo y arreglarse.
+        # Suelo de cobertura 35% (medido: unit-only ya da 36%; CI corre además integración → más).
+        # Deselecciones que quedan = bloqueos EXTERNOS reales, no flakiness maquillable: 3 tests XSD
+        # (dependen de la red W3C) y test_pitr_restore_timestamp (restore real, infra-flaky).
+        # test_rrhh_pdf_decomp SE RE-ACTIVA: ya es determinista y portable (fecha/empresa/divisa fijas).
         run: |
-          python -m pytest --cov-fail-under=20 --cov-report=xml --reruns 2 --reruns-delay 2 \
-            --ignore tests/integration/test_rrhh_pdf_decomp.py \
+          python -m pytest --cov-fail-under=35 --cov-report=xml \
             --deselect tests/integration/test_disaster_recovery.py::test_pitr_restore_timestamp \
             --deselect tests/unit/test_verifactu_xml.py::test_alta_valida_contra_xsd \
             --deselect tests/unit/test_verifactu_xml.py::test_anulacion_valida_contra_xsd \
