@@ -182,6 +182,74 @@ def test_recepcion_articulo_no_encontrado_genera_incidencia(db, fab):
         assert cur.fetchone()[0] == 0                    # no hubo movimiento de stock
 
 
+# ── GUI · el slot de recepción enruta al MOTOR OFICIAL (regresión de bug) ─────
+def test_gui_slot_recepcion_actualiza_stock_via_motor_oficial(db, fab, monkeypatch):
+    """Regresión de bug real: la pantalla de recepción tenía una copia INLINE y ROTA del alta de stock
+    (código muerto tras un `continue`) que dejaba el stock intacto y marcaba TODO como "no encontrado".
+    Ahora `procesar_confirmacion_recepcion` delega en `procesar_recepcion_logistica`, así que SÍ suma
+    stock. Se invoca el slot con un `self` mínimo (sin ventana Qt) y las ayudas de UI parcheadas.
+    """
+    from src.gui import recepcion_pale as RP
+
+    cod = fab.articulo(stock_total=0, stock_tienda=0)
+    id_doc, pales = _crear_traspaso(db, fab, {"P1": _pale(cod, 8)}, destino="TIENDAR1")
+
+    mensajes, marcados = [], []
+    monkeypatch.setattr(RP, "_mensaje_ui", lambda *a, **k: mensajes.append(a))
+    monkeypatch.setattr(RP, "_reab_marcar_articulos_recibidos", lambda cods: marcados.extend(cods))
+    monkeypatch.setattr(RP, "DialogoNuevosArticulos",
+                        lambda *a, **k: type("_D", (), {"exec": lambda self: None})())
+
+    class _FakeWin:
+        codigo_local = "TIENDAR1"
+        usuario = "RECEPTOR"
+        btn_nav_historial = None
+
+        def __init__(self):
+            self.redirigido = None
+
+        def cambiar_vista(self, idx, btn=None):
+            self.redirigido = idx
+
+    win = _FakeWin()
+    RP.RecepcionPaleWindow.procesar_confirmacion_recepcion(win, pales[0], [[cod, "Art", 8]])
+
+    assert _stock(db, cod) == (8, 8)                 # el bug dejaba (0, 0)
+    assert cod.upper() in marcados                    # propuesta marcada como recibida
+    assert win.redirigido == 5                        # redirige al historial
+    assert _estado_doc(db, id_doc) == "RECIBIDO"      # documento cerrado por el motor oficial
+
+
+def test_gui_slot_recepcion_destino_incorrecto_no_suma_stock(db, fab, monkeypatch):
+    """Destino incorrecto: el slot muestra el aviso y NO toca stock ni redirige."""
+    from src.gui import recepcion_pale as RP
+
+    cod = fab.articulo(stock_total=0, stock_tienda=0)
+    _id, pales = _crear_traspaso(db, fab, {"P1": _pale(cod, 5)}, destino="TIENDAR1")
+
+    titulos = []
+    monkeypatch.setattr(RP, "_mensaje_ui", lambda parent, titulo, *a, **k: titulos.append(titulo))
+    monkeypatch.setattr(RP, "_reab_marcar_articulos_recibidos", lambda cods: None)
+
+    class _FakeWin:
+        codigo_local = "OTRO_CENTRO"
+        usuario = "RECEPTOR"
+        btn_nav_historial = None
+
+        def __init__(self):
+            self.redirigido = None
+
+        def cambiar_vista(self, idx, btn=None):
+            self.redirigido = idx
+
+    win = _FakeWin()
+    RP.RecepcionPaleWindow.procesar_confirmacion_recepcion(win, pales[0], [[cod, "Art", 5]])
+
+    assert _stock(db, cod) == (0, 0)
+    assert win.redirigido is None
+    assert any("Destino" in t for t in titulos)
+
+
 # ── INTEGRIDAD DE STOCK ───────────────────────────────────────────────────────
 def test_cantidad_no_positiva_se_ignora(db, fab):
     from src.db import logistica as L
