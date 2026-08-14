@@ -5,7 +5,11 @@ la sesión (`empresa_actual_id`), de modo que las llamadas existentes quedan cor
 sin cambiarlas. En instalaciones de una sola empresa el comportamiento es idéntico.
 """
 
+import logging
+
 from src.db.conexion import EMPRESA_DEFAULT_ID, obtener_conexion
+
+logger = logging.getLogger("articulos.db")
 
 
 def _emp(id_empresa=None):
@@ -210,6 +214,102 @@ def importar_articulos_df(df) -> int:
                         f"ON DUPLICATE KEY UPDATE {updates}", values)
             n += 1
         conn.commit()
+    return n
+
+
+# ── Reposición (extraído de gui/informe_reposicion — Fase 3 · cliente fino) ──────────────────────────
+def asegurar_columna_repuesto() -> None:
+    """Crea la columna `repuesto INTEGER DEFAULT 0` en `articulos` si no existe (best-effort)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SHOW COLUMNS FROM articulos LIKE 'repuesto'")
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE articulos ADD COLUMN repuesto INTEGER DEFAULT 0")
+                conn.commit()
+    except Exception as e:
+        logger.debug("asegurar_columna_repuesto: %s", e)
+
+
+def listar_para_reposicion(id_empresa=None) -> list:
+    """(codigo, nombre, Stock_total, Stock_tienda, Stock_esperado) de todos los artículos, para el
+    cálculo de reposición. Devuelve tuplas."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT codigo, nombre, COALESCE(Stock_total,0), COALESCE(Stock_tienda,0), "
+                        "COALESCE(Stock_esperado,0) FROM articulos WHERE id_empresa=%s", (id_empresa,))
+            return [tuple(r.values()) if isinstance(r, dict) else r for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_para_reposicion: %s", e)
+        return []
+
+
+def buscar_por_nombre(termino, id_empresa=None):
+    """Primer artículo cuyo nombre contiene `termino` → dict {codigo, nombre, Stock_esperado} o None."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT codigo, nombre, Stock_esperado FROM articulos "
+                        "WHERE id_empresa=%s AND nombre LIKE %s LIMIT 1", (id_empresa, f"%{termino}%"))
+            r = cur.fetchone()
+            if not r:
+                return None
+            v = list(r.values()) if isinstance(r, dict) else r
+            return {"codigo": v[0], "nombre": v[1], "Stock_esperado": v[2]}
+    except Exception:
+        return None
+
+
+def listar_bajo_umbral(id_empresa=None) -> list:
+    """(codigo, nombre, Stock_total, Stock_tienda, stock_esperado, capacidad_lineal) por nombre, para
+    detectar artículos bajo umbral. Devuelve tuplas."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT codigo, nombre, Stock_total, Stock_tienda, COALESCE(stock_esperado,0), "
+                        "capacidad_lineal FROM articulos WHERE id_empresa=%s ORDER BY nombre ASC",
+                        (id_empresa,))
+            return [tuple(r.values()) if isinstance(r, dict) else r for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_bajo_umbral: %s", e)
+        return []
+
+
+def marcar_repuestos(items, id_empresa=None) -> int:
+    """Bulk: fija Stock_tienda (lineal) y Stock_total (almacén). `items` = iterable de
+    (codigo, nuevo_lineal, nuevo_almacen). Devuelve nº actualizados. Fase 3 · reposición."""
+    id_empresa = _emp(id_empresa)
+    n = 0
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            for codigo, nuevo_lineal, nuevo_almacen in items:
+                cur.execute("UPDATE articulos SET Stock_tienda=%s, Stock_total=%s "
+                            "WHERE codigo=%s AND id_empresa=%s",
+                            (nuevo_lineal, nuevo_almacen, codigo, id_empresa))
+                n += 1
+            conn.commit()
+    except Exception as e:
+        logger.error("marcar_repuestos: %s", e)
+    return n
+
+
+def marcar_repuesto_exportado(items, id_empresa=None) -> int:
+    """Bulk: marca `repuesto=1`, fija Stock_tienda y ultima_recepcion. `items` = iterable de
+    (codigo, stock_esperado, fecha). Devuelve nº actualizados. Fase 3 · reposición.
+    (Corrige el bug pre-existente de placeholders `?` → `%s`, que hacía que este UPDATE fallara en
+    silencio con pymysql y NUNCA persistiera el `repuesto=1`.)"""
+    id_empresa = _emp(id_empresa)
+    n = 0
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            for codigo, stock_esperado, fecha in items:
+                cur.execute("UPDATE articulos SET repuesto=1, Stock_tienda=%s, ultima_recepcion=%s "
+                            "WHERE codigo=%s AND id_empresa=%s",
+                            (stock_esperado, fecha, codigo, id_empresa))
+                n += 1
+            conn.commit()
+    except Exception as e:
+        logger.error("marcar_repuesto_exportado: %s", e)
     return n
 
 
