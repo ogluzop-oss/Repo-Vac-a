@@ -49,7 +49,9 @@ logger = logging.getLogger("conexion_db")
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "127.0.0.1"),
     "user": os.getenv("DB_USER", "root"),
-    "password": os.getenv("DB_PASSWORD", "admin123"),
+    # SIN contraseña por defecto: bakear 'admin123' arrancaba en silencio con una credencial débil
+    # conocida. Si falta DB_PASSWORD, `_conectar` falla de forma explícita (fail-fast) en vez de usarla.
+    "password": os.getenv("DB_PASSWORD"),
     "database": os.getenv("DB_NAME", "smart_manager_db"),
     "port": int(os.getenv("DB_PORT", 3306)),
     "autocommit": True,
@@ -155,6 +157,15 @@ def _resetear_pool(cfg):
 
 def _conectar(cfg):
     """Conexión del pool (o directa si DBUtils no está disponible)."""
+    # Fail-fast de seguridad: sin contraseña configurada NO se conecta (antes se usaba 'admin123' por
+    # defecto en silencio). `None` = variable no definida; una cadena vacía es elección EXPLÍCITA y se
+    # permite. Mensaje accionable en vez de un error de auth críptico.
+    if cfg.get("password") is None:
+        raise RuntimeError(
+            "Credenciales de BD no configuradas: falta DB_PASSWORD. Define las variables DB_* en un "
+            "fichero .env (ver .env.example) o en el entorno. Por seguridad ya no hay contraseña por "
+            "defecto."
+        )
     if _POOL_DISPONIBLE:
         return _obtener_pool(cfg).connection()
     return pymysql.connect(**cfg)

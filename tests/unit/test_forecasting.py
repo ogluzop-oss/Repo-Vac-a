@@ -45,7 +45,17 @@ def test_seleccion_estadistica_y_backtest():
 
 
 def test_prophet_real_cuando_procede():
-    pytest.importorskip("prophet")            # degradable: si Prophet no está, se omite este test
+    pytest.importorskip("prophet")            # degradable: si Prophet no está instalado, se omite
+    # Prophet puede IMPORTARSE pero no poder FITEAR si le falta el backend Stan (cmdstan) — p. ej. en
+    # CI. Ahí el motor degrada HONESTAMENTE a lineal, así que probamos primero un fit real: si no
+    # fitea, omitimos (no es fallo de producto); si SÍ fitea, exigimos que el motor use Prophet.
+    import pandas as _pd
+    try:
+        from prophet import Prophet as _P
+        _P().fit(_pd.DataFrame({"ds": _pd.date_range("2025-01-01", periods=30),
+                                "y": [float(i) for i in range(30)]}))
+    except Exception as e:                     # backend Stan no operativo en este entorno
+        pytest.skip(f"Prophet no puede fitear aquí (backend Stan): {e}")
     from src.services.prediccion import forecasting as F
     base = datetime.date(2025, 1, 1)
     fechas = [str(base + datetime.timedelta(days=i)) for i in range(75)]

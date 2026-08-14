@@ -188,15 +188,18 @@ def test_vta7_caja_sesion_arqueo(db, fab):
 # ── VTA.8 facturación comercial + márgenes ───────────────────────────────────
 def test_vta8_factura_y_cobro(db, fab):
     cid = _cli(fab, db)
+    # Precios de línea en PVP (IVA INCLUIDO): 2×50 = 100 total. El IVA de línea (21%) NO se suma
+    # encima, sino que el motor DESGLOSA el PVP: base 82.64 + cuota 17.36 = 100 (modelo del sistema).
     fid = FC.crear_factura(id_cliente=cid, lineas=[{"codigo": "X", "cantidad": 2,
-                           "precio_unitario": 50, "coste_unitario": 30}], iva=21, id_empresa=E)
+                           "precio_unitario": 50, "coste_unitario": 30, "iva": 21}], id_empresa=E)
     fab.al_limpiar(lambda: _del(db, "facturas_cliente", "id_factura", fid))
     f = FC.obtener_factura(fid, E)
-    assert float(f["total"]) == 121.0 and f["estado"] == "borrador"
-    assert FC.emitir(fid, E)
+    # Una "factura" NACE ya emitida (el estado 'borrador' es de proformas/presupuestos), por eso
+    # tampoco se llama a emitir() aquí. Total en PVP = 100.
+    assert float(f["total"]) == 100.0 and f["estado"] == "emitida"
     r = FC.registrar_cobro_factura(fid, 60, E)
     assert r["estado"] == "parcial"
-    r2 = FC.registrar_cobro_factura(fid, 61, E)
+    r2 = FC.registrar_cobro_factura(fid, 40, E)   # 60 + 40 = 100 (PVP total) → cobrada
     assert r2["estado"] == "cobrada"
 
 

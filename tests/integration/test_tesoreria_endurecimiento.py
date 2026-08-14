@@ -8,6 +8,7 @@ Cubre los riesgos residuales de la auditoría de robustez:
   • movimiento de tesorería sin asiento tras fallo (recuperación)
 """
 
+import datetime as _dt
 import uuid
 
 import pytest
@@ -86,8 +87,11 @@ def test_remesa_no_reemite(db, cuenta):
 # ── Recuperación: movimiento sin asiento tras fallo ──────────────────────────
 def test_recuperacion_movimiento_sin_asiento(db, cuenta):
     K.activar(E)
+    # Fecha RECIENTE: `reparar_tesoreria_pendiente` solo mira los últimos 30 días (CURDATE-30d), así
+    # que una fecha fija se queda fuera de ventana con el tiempo. Usar hoy la mantiene siempre dentro.
     with contexto_tenant(E, None):
-        mid = T.registrar_movimiento("COBRO", 77, id_cuenta=cuenta, fecha="2026-06-05", id_empresa=E)
+        mid = T.registrar_movimiento("COBRO", 77, id_cuenta=cuenta,
+                                     fecha=_dt.date.today().isoformat(), id_empresa=E)
     # Simula fallo entre commit del movimiento y su asiento: borra el asiento creado.
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM contab_asientos WHERE id_empresa=%s AND ref_origen=%s", (E, f"tes:{mid}"))
