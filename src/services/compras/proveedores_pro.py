@@ -11,6 +11,14 @@ import logging
 
 logger = logging.getLogger("compras.proveedores_pro")
 
+# Unidades de medida admitidas en las tarifas de proveedor (bolsa de proveedores, migr 0197).
+UNIDADES_MEDIDA = ("unidad", "caja", "pale", "kg")
+
+
+def _norm_unidad(u):
+    u = (str(u or "unidad").strip().lower())
+    return u if u in UNIDADES_MEDIDA else "unidad"
+
 
 def _emp(id_empresa=None):
     # IOC v2 (Bloque III.3): la resolución de empresa pasa por la capa de identidad (Strangler).
@@ -113,19 +121,22 @@ def acuerdos_marco(id_proveedor=None, id_empresa=None) -> list:
 # ── Precios negociados por artículo ─────────────────────────────────────────
 def set_precio_negociado(id_proveedor, codigo_articulo, precio, *, divisa="EUR", descuento=0,
                          cantidad_minima=1, fecha_inicio=None, fecha_fin=None, id_acuerdo=None,
-                         id_empresa=None) -> int | None:
+                         unidad_medida="unidad", id_empresa=None) -> int | None:
+    """Alta de una tarifa de proveedor para un artículo. `unidad_medida` ∈ UNIDADES_MEDIDA
+    (unidad/caja/pale/kg): un mismo artículo puede tener varias tarifas de un proveedor por unidad."""
     emp = _emp(id_empresa)
     try:
         from src.db.conexion import obtener_conexion
         with obtener_conexion() as c, c.cursor() as cur:
             cur.execute("INSERT INTO proveedor_precios_negociados (id_empresa, id_proveedor, "
                         "codigo_articulo, precio, divisa, descuento, cantidad_minima, fecha_inicio, "
-                        "fecha_fin, id_acuerdo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        "fecha_fin, id_acuerdo, unidad_medida) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                         (emp, id_proveedor, codigo_articulo, float(precio), divisa, float(descuento or 0),
-                         int(cantidad_minima or 1), fecha_inicio, fecha_fin, id_acuerdo))
+                         int(cantidad_minima or 1), fecha_inicio, fecha_fin, id_acuerdo,
+                         _norm_unidad(unidad_medida)))
             pid = cur.lastrowid
             c.commit()
-        _audit("PROV_PRECIO_NEGOCIADO", f"{id_proveedor}:{codigo_articulo}={precio}",
+        _audit("PROV_PRECIO_NEGOCIADO", f"{id_proveedor}:{codigo_articulo}={precio}/{unidad_medida}",
                "proveedor_precios_negociados")
         return pid
     except Exception as e:
@@ -152,6 +163,48 @@ def precio_vigente(id_proveedor, codigo_articulo, *, id_empresa=None):
     except Exception as e:
         logger.debug("precio_vigente: %s", e)
         return None
+
+
+def bolsa_precios(codigo_articulo, *, id_proveedor=None, unidad_medida=None, orden="precio",
+                  descendente=False, solo_vigentes=True, solo_activos=True, id_empresa=None) -> list:
+    """BOLSA DE PROVEEDORES: todas las tarifas VIGENTES de un artículo en los distintos proveedores, para
+    comparar y elegir. Reutiliza `proveedor_precios_negociados` (+ `proveedores` para el nombre). Se puede
+    filtrar por proveedor y unidad de medida, y ordenar por 'precio' (neto: precio − descuento) o
+    'proveedor'. Devuelve [{id, id_proveedor, proveedor, precio, descuento, precio_neto, divisa,
+    unidad_medida, cantidad_minima}]."""
+    emp = _emp(id_empresa)
+    col = "precio_neto" if orden != "proveedor" else "proveedor"
+    dir_ = "DESC" if descendente else "ASC"
+    cond = ["pn.id_empresa<=>%s", "pn.codigo_articulo=%s"]
+    params = [emp, codigo_articulo]
+    if id_proveedor is not None:
+        cond.append("pn.id_proveedor=%s"); params.append(int(id_proveedor))
+    if unidad_medida:
+        cond.append("pn.unidad_medida=%s"); params.append(_norm_unidad(unidad_medida))
+    if solo_vigentes:
+        cond.append("(pn.fecha_inicio IS NULL OR pn.fecha_inicio<=CURDATE())")
+        cond.append("(pn.fecha_fin IS NULL OR pn.fecha_fin>=CURDATE())")
+    if solo_activos:
+        cond.append("(p.estado IS NULL OR p.estado='activo')")
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute(
+                "SELECT pn.id, pn.id_proveedor, "
+                "COALESCE(p.razon_social, CONCAT('Proveedor ', pn.id_proveedor)) AS proveedor, "
+                "pn.precio, pn.descuento, "
+                "ROUND(pn.precio * (1 - COALESCE(pn.descuento,0)/100), 4) AS precio_neto, "
+                "pn.divisa, pn.unidad_medida, pn.cantidad_minima "
+                "FROM proveedor_precios_negociados pn "
+                "LEFT JOIN proveedores p ON p.id_proveedor = pn.id_proveedor "
+                "WHERE " + " AND ".join(cond) + f" ORDER BY {col} {dir_}, proveedor ASC",
+                tuple(params))
+            filas = cur.fetchall()
+            cols = [d[0] for d in cur.description]
+            return [f if isinstance(f, dict) else dict(zip(cols, f)) for f in filas]
+    except Exception as e:
+        logger.error("bolsa_precios(%s): %s", codigo_articulo, e)
+        return []
 
 
 # ── Renovaciones automáticas (job del Scheduler existente) ──────────────────
