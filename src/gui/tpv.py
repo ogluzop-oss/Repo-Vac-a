@@ -752,11 +752,13 @@ class _LoginTPVDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        # Se muestra durante la construcción del TPV (login de caja), cuando la ventana padre aún no
-        # tiene geometría → si se mapeara visible, aparecería mal colocado (sobre la tarjeta TPV del menú)
-        # y, al ser frameless+translúcido, con un primer frame BLANCO. Lo mapeamos INVISIBLE (opacidad 0)
-        # y lo revelamos ya centrado y pintado (ver _centrar_en_pantalla). Adiós al parpadeo blanco.
+        # Este diálogo se muestra DURANTE la construcción del TPV (login de caja), cuando la ventana padre
+        # aún no tiene geometría. Antes era translúcido (WA_TranslucentBackground): en Windows, una ventana
+        # frameless+translúcida pinta su PRIMER frame en BLANCO (la paleta oscura global NO cubre ventanas
+        # translúcidas) → el "cuadrito blanco" que aparecía sobre la tarjeta TPV del menú. Se quita la
+        # translucidez y se fija fondo oscuro: el primer frame ya es oscuro. Además se mapea invisible
+        # (opacidad 0) y se revela ya centrado (ver _centrar_en_pantalla) para que no salte de posición.
+        self.setStyleSheet(f"QDialog{{background:{_BG};border-radius:20px;}}")
         self.setWindowOpacity(0.0)
         self._nombre_empleado: str = ""
         self._id_empleado = None
@@ -6108,7 +6110,7 @@ class _CantidadDialog(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         # Tamaño FIJO (ancho y alto): un frameless translúcido a veces se auto-dimensiona por debajo del
         # sizeHint y comprime la rejilla (botones solapados). Fijándolo, el teclado siempre tiene sitio.
-        self.setFixedSize(500, 640)
+        self.setFixedSize(560, 640)
         main = QVBoxLayout(self); main.setContentsMargins(0, 0, 0, 0)
         cont = QFrame()
         cont.setStyleSheet(f"QFrame{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
