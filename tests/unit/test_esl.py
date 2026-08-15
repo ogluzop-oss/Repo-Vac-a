@@ -10,7 +10,7 @@ import pytest
 
 from src.services.esl import ESLGateway, config, registro, sync
 
-TIENDA = "TIENDA_TEST_ESL"
+TIENDA = 1   # id_tienda unificado a INT (migr 0193): las tiendas se identifican por entero
 
 
 @pytest.fixture
@@ -86,8 +86,8 @@ def test_aislamiento_empresa_tienda(fab, emp):
     labels_b = {l["label_id"] for l in registro.listar(id_empresa=otra, id_tienda=TIENDA)}
     assert "LBL-A" in labels_a and "LBL-A" not in labels_b
     assert "LBL-B" in labels_b and "LBL-B" not in labels_a
-    # otra tienda de la misma empresa no ve la etiqueta
-    assert not registro.listar(id_empresa=emp, id_tienda="OTRA_TIENDA")
+    # otra tienda (id distinto) de la misma empresa no ve la etiqueta
+    assert not registro.listar(id_empresa=emp, id_tienda=2)
 
 
 def test_config_credencial_cifrada(fab, emp, db):

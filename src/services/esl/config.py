@@ -12,20 +12,16 @@ logger = logging.getLogger("esl.config")
 
 
 def _ctx(id_empresa=None, id_tienda=None):
-    """Normaliza (empresa, tienda) a cadena — evita NULLs en la clave única (empresa, tienda)."""
+    """Normaliza (empresa, tienda). `id_tienda` se coacciona a ENTERO (migr 0193): la clave (empresa,
+    tienda) de ESL es exacta y por-tienda; sin contexto o central ('ALMC') → 0 (no hay 'todas')."""
     if id_empresa is None:
         try:
             from src.db.empresa import empresa_actual_id
             id_empresa = empresa_actual_id()
         except Exception:
             id_empresa = None
-    if id_tienda is None:
-        try:
-            from src.db.empresa import tienda_actual_id
-            id_tienda = tienda_actual_id()
-        except Exception:
-            id_tienda = None
-    return (id_empresa or ""), (id_tienda or "")
+    from src.db.empresa import tienda_actual_id_int
+    return (id_empresa or ""), tienda_actual_id_int(id_tienda)
 
 
 def _descifrar(cif):
