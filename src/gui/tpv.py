@@ -753,6 +753,11 @@ class _LoginTPVDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Se muestra durante la construcción del TPV (login de caja), cuando la ventana padre aún no
+        # tiene geometría → si se mapeara visible, aparecería mal colocado (sobre la tarjeta TPV del menú)
+        # y, al ser frameless+translúcido, con un primer frame BLANCO. Lo mapeamos INVISIBLE (opacidad 0)
+        # y lo revelamos ya centrado y pintado (ver _centrar_en_pantalla). Adiós al parpadeo blanco.
+        self.setWindowOpacity(0.0)
         self._nombre_empleado: str = ""
         self._id_empleado = None
         self._pin: str = ""
@@ -1003,6 +1008,8 @@ class _LoginTPVDialog(QDialog):
             screen.x() + (screen.width() - self.width()) // 2,
             screen.y() + (screen.height() - self.height()) // 2,
         )
+        # Ya está centrado y pintado (dark): revelar sin flash blanco ni salto de posición.
+        self.setWindowOpacity(1.0)
 
     def get_nombre_empleado(self) -> str:
         return self._nombre_empleado
