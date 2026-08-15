@@ -198,6 +198,30 @@ def enviar_pedido(id_pedido, id_empresa=None) -> bool:
     return cambiar_estado(id_pedido, "ENVIADO", id_empresa)
 
 
+def enviar_todos_borradores(id_empresa=None, ids=None) -> dict:
+    """Tramita EN LOTE todos los pedidos BORRADOR de la empresa (o solo los `ids` indicados): pasa cada
+    uno a ENVIADO. Cada pedido se envía por separado (transacción propia en `cambiar_estado`), de modo
+    que un fallo NO aborta el resto y no se colapsa con muchos pedidos de distintos proveedores.
+    Devuelve {total, enviados, fallidos, ids_enviados}."""
+    emp = _empresa(id_empresa)
+    borradores = listar_pedidos(id_empresa=emp, estado="BORRADOR")
+    if ids is not None:
+        objetivo = {int(x) for x in ids}
+        borradores = [p for p in borradores if int(p.get("id_pedido")) in objetivo]
+    enviados, fallidos, ok_ids = 0, 0, []
+    for p in borradores:
+        pid = p.get("id_pedido")
+        try:
+            if enviar_pedido(pid, id_empresa=emp):
+                enviados += 1; ok_ids.append(pid)
+            else:
+                fallidos += 1
+        except Exception as e:
+            logger.error("enviar_todos_borradores(%s): %s", pid, e)
+            fallidos += 1
+    return {"total": len(borradores), "enviados": enviados, "fallidos": fallidos, "ids_enviados": ok_ids}
+
+
 def cancelar_pedido(id_pedido, id_empresa=None) -> bool:
     return cambiar_estado(id_pedido, "CANCELADO", id_empresa)
 
