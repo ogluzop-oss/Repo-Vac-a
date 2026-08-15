@@ -91,3 +91,58 @@ def test_satelite_y_eliminar_por_epc(db, fab):
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("SELECT 1 FROM ubicaciones WHERE epc=%s", (epc,))
         assert cur.fetchone() is None
+
+
+# ── FIX del bug latente: operaciones que antes fallaban por columnas inexistentes ──────────────
+def test_asignar_ubicacion_persiste_de_verdad(db, fab):
+    """Antes fallaba (articulos.pasillo inexistente) y no persistía nada. Ahora: guarda la cadena
+    legible en articulos.ubicacion_tienda y la ubicación estructurada en `ubicaciones`."""
+    cod = fab.articulo()
+    fab.al_limpiar(lambda: _limpia_ubi(db, codigo_articulo=cod))
+
+    res = U.asignar_ubicacion(cod, "PAS3", "EST3", "2", es_lineal=True)
+    assert res["ok"] is True
+
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ubicacion_tienda FROM articulos WHERE codigo=%s", (cod,))
+        r = cur.fetchone()
+        assert (r[0] if not isinstance(r, dict) else r["ubicacion_tienda"]) == "PAS3-EST3-2"
+    # fila estructurada en `ubicaciones`
+    u = U.ubicacion_por_articulo(cod)
+    assert u is not None and u[3] == "PAS3" and u[4] == "EST3"
+
+
+def test_reportar_incidencia_marca_en_ubicaciones(db, fab):
+    cod = fab.articulo()
+    fab.al_limpiar(lambda: _limpia_ubi(db, codigo_articulo=cod))
+    U.upsert_nodo_qr(cod, "P9", "E9", 1.0, 2.0)
+
+    assert U.reportar_incidencia_ubicacion(cod) is True
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT incidencia_ubicacion FROM ubicaciones WHERE codigo_articulo=%s", (cod,))
+        assert int(cur.fetchone()[0]) == 1
+    # el listado admin refleja la incidencia (join con ubicaciones)
+    fila = [r for r in U.buscar_articulos_admin(cod) if r[0] == cod]
+    assert fila and int(fila[0][2]) == 1
+
+
+def test_cola_impresion_y_coords_metricas_por_epc(db, fab):
+    epc = "EPC-PRINT-0001"
+    fab.al_limpiar(lambda: _limpia_ubi(db, epc=epc))
+    _limpia_ubi(db, epc=epc)
+    # alta de un satélite (impreso=0 por defecto)
+    U.upsert_satelite(epc, "SAT", 3.0, 4.0, 0.0, 0.0)
+
+    pendientes = {e[0] for e in U.epcs_sin_imprimir()}
+    assert epc in pendientes
+
+    U.marcar_epcs_impresos([epc])
+    pendientes2 = {e[0] for e in U.epcs_sin_imprimir()}
+    assert epc not in pendientes2
+
+    # coordenadas métricas por EPC
+    assert U.actualizar_coords_epc(epc, 30.0, 40.0, 1.25, 2.5) is True
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT x_metros, y_metros FROM ubicaciones WHERE epc=%s", (epc,))
+        r = cur.fetchone()
+        assert (float(r[0]), float(r[1])) == (1.25, 2.5)
