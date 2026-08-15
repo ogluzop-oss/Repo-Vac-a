@@ -224,6 +224,8 @@ class ComprasWindow(QWidget):
         fila.addWidget(_btn(tr("compras.enviar", default="ENVIAR"), self._enviar_pedido_sel, primary=True))
         fila.addWidget(_btn(tr("compras.desde_reab", default="DESDE REPOSICIÓN"), self._desde_reab, primary=True))
         fila.addWidget(_btn(tr("compras.cancelar", default="CANCELAR"), self._cancelar_pedido_sel, danger=True))
+        fila.addWidget(_btn(tr("compras.tramitar_todos", default="⚡  TRAMITAR TODOS"),
+                            self._tramitar_todos, primary=True))
         fila.addStretch(1)
         fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_pedidos, primary=True))
         ly.addLayout(fila)
@@ -277,6 +279,19 @@ class ComprasWindow(QWidget):
                                tr("compras.total", default="Total"), tr("compras.fecha", default="Fecha")])
         ly.addWidget(self.tbl_ped, 1)
         return w
+
+    def _tramitar_todos(self):
+        """Envía DE GOLPE todos los pedidos BORRADOR de la cola (batch), sin ir de uno en uno."""
+        r = C.enviar_todos_borradores()
+        self._load_pedidos()
+        if r["total"] == 0:
+            _aviso(self, tr("compras.pedidos_titulo", default="Pedidos"),
+                   tr("compras.tramitar_vacio", default="No hay pedidos en borrador que tramitar."), "info")
+        else:
+            _aviso(self, tr("compras.pedidos_titulo", default="Pedidos"),
+                   tr("compras.tramitar_ok", default="Tramitados {e} de {t} pedidos (fallidos: {f}).",
+                      e=r["enviados"], t=r["total"], f=r["fallidos"]),
+                   "success" if r["fallidos"] == 0 else "warning")
 
     # ── Bolsa de proveedores ─────────────────────────────────────────────────
     def _buscar_bolsa(self):
