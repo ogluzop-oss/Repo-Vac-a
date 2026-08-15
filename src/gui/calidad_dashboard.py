@@ -87,7 +87,7 @@ class CalidadDashboardWindow(QWidget):
         t = QLabel("Calidad · Cuadro de mando")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
-        cab.addWidget(_btn("Actualizar", self._load, primary=True))
+        cab.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
         if callback_vuelta:
             cab.addWidget(_btn("Volver", self._volver))
         root.addLayout(cab)
@@ -106,16 +106,16 @@ class CalidadDashboardWindow(QWidget):
         self.tabs.addTab(self._page(self.tbl_insp, insp_bar), "Inspecciones")
         # No Conformidades (alta + transiciones de estado).
         nc_bar = [("➕  Nueva NC", self._nueva_nc, True),
-                  ("En análisis", lambda: self._nc_estado("en_analisis"), False),
-                  ("Accionar", lambda: self._nc_estado("accionada"), False),
-                  ("Cerrar", lambda: self._nc_estado("cerrada"), False),
-                  ("Rechazar", lambda: self._nc_estado("rechazada"), False)]
+                  ("En análisis", lambda: self._nc_estado("en_analisis"), True),
+                  ("Accionar", lambda: self._nc_estado("accionada"), True),
+                  ("Cerrar", lambda: self._nc_estado("cerrada"), True),
+                  ("Rechazar", lambda: self._nc_estado("rechazada"), True)]
         self.tabs.addTab(self._page(self.tbl_nc, nc_bar), "No conformidades")
         # CAPA (alta + transiciones).
         capa_bar = [("➕  Nueva acción (CAPA)", self._nueva_capa, True),
-                    ("En curso", lambda: self._capa_estado("en_curso"), False),
-                    ("Cerrar (eficacia)", self._capa_cerrar, False),
-                    ("Cancelar", lambda: self._capa_estado("cancelada"), False)]
+                    ("En curso", lambda: self._capa_estado("en_curso"), True),
+                    ("Cerrar (eficacia)", self._capa_cerrar, True),
+                    ("Cancelar", lambda: self._capa_estado("cancelada"), True)]
         self.tabs.addTab(self._page(self.tbl_capa, capa_bar), "CAPA")
         self.tabs.addTab(self.tbl_aud, "Auditorías")
         self.tabs.addTab(self.tbl_kpi, "KPIs")

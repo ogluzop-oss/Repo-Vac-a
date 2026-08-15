@@ -169,7 +169,7 @@ class ComprasWindow(QWidget):
         self.in_prov_tel = _inp("Teléfono"); self.in_prov_tel.setFixedWidth(140)
         for x in (self.in_prov_razon, self.in_prov_cif, self.in_prov_email, self.in_prov_tel):
             form.addWidget(x)
-        form.addWidget(_btn(tr("compras.nuevo", default="NUEVO"), self._nuevo_proveedor))
+        form.addWidget(_btn(tr("compras.nuevo", default="NUEVO"), self._nuevo_proveedor, primary=True))
         form.addWidget(_btn(tr("compras.guardar", default="GUARDAR"), self._guardar_proveedor, primary=True))
         ly.addLayout(form)
         self.tbl_prov = _tabla(["ID", tr("compras.razon", default="Razón social"), "CIF/NIF",
@@ -221,11 +221,11 @@ class ComprasWindow(QWidget):
         w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10); ly.setContentsMargins(0, 0, 0, 0)
         fila = QHBoxLayout()
         fila.addWidget(_btn(tr("compras.nuevo_pedido", default="NUEVO PEDIDO"), self._dlg_nuevo_pedido, primary=True))
-        fila.addWidget(_btn(tr("compras.enviar", default="ENVIAR"), self._enviar_pedido_sel))
+        fila.addWidget(_btn(tr("compras.enviar", default="ENVIAR"), self._enviar_pedido_sel, primary=True))
+        fila.addWidget(_btn(tr("compras.desde_reab", default="DESDE REPOSICIÓN"), self._desde_reab, primary=True))
         fila.addWidget(_btn(tr("compras.cancelar", default="CANCELAR"), self._cancelar_pedido_sel, danger=True))
-        fila.addWidget(_btn(tr("compras.desde_reab", default="DESDE REPOSICIÓN"), self._desde_reab))
         fila.addStretch(1)
-        fila.addWidget(_btn(tr("compras.refrescar", default="REFRESCAR"), self._load_pedidos))
+        fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_pedidos, primary=True))
         ly.addLayout(fila)
         self.tbl_ped = _tabla(["ID", tr("compras.numero", default="Número"),
                                tr("compras.proveedor", default="Proveedor"),
@@ -288,7 +288,7 @@ class ComprasWindow(QWidget):
         fila.addWidget(QLabel(tr("compras.pedidos_recep", default="Pedidos pendientes de recibir")))
         fila.addStretch(1)
         fila.addWidget(_btn(tr("compras.recibir_todo", default="RECIBIR TODO"), self._recibir_sel, primary=True))
-        fila.addWidget(_btn(tr("compras.refrescar", default="REFRESCAR"), self._load_recepciones))
+        fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_recepciones, primary=True))
         ly.addLayout(fila)
         self.tbl_rec = _tabla(["ID", tr("compras.numero", default="Número"),
                                tr("compras.proveedor", default="Proveedor"),
@@ -329,9 +329,9 @@ class ComprasWindow(QWidget):
         w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10); ly.setContentsMargins(0, 0, 0, 0)
         fila = QHBoxLayout()
         fila.addWidget(_btn(tr("compras.nueva_factura", default="NUEVA FACTURA"), self._dlg_nueva_factura, primary=True))
-        fila.addWidget(_btn(tr("compras.validar", default="VALIDAR"), self._validar_factura_sel))
+        fila.addWidget(_btn(tr("compras.validar", default="VALIDAR"), self._validar_factura_sel, primary=True))
         fila.addStretch(1)
-        fila.addWidget(_btn(tr("compras.refrescar", default="REFRESCAR"), self._load_facturas))
+        fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_facturas, primary=True))
         ly.addLayout(fila)
         self.tbl_fac = _tabla(["ID", tr("compras.numero", default="Nº factura"),
                                tr("compras.pedido", default="Pedido"),
@@ -384,7 +384,7 @@ class ComprasWindow(QWidget):
         ])
         self.cb_informe.currentIndexChanged.connect(lambda _i: self._cargar_informe())
         fila.addWidget(self.cb_informe, 1)
-        fila.addWidget(_btn(tr("compras.refrescar", default="REFRESCAR"), self._cargar_informe))
+        fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._cargar_informe, primary=True))
         ly.addLayout(fila)
         self.tbl_inf = _tabla(["", "", "", ""])
         ly.addWidget(self.tbl_inf, 1)
