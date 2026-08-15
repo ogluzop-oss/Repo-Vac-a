@@ -36,12 +36,25 @@ def test_multiseleccion_toggle_y_boton_sumar(db):
     assert set(d._seleccion) == {"B"}
 
 
-def test_dialogo_cantidad_multiple_pasos_y_clamp(db):
-    from src.gui.tpv import _CantidadMultipleDialog
+def test_dialogo_unidades_editar_y_clamp(db, monkeypatch):
+    import src.gui.tpv as tpv
     prods = [{"codigo": "A", "nombre": "Croissant", "precio": 1.2, "emoji": "🥐"},
              {"codigo": "B", "nombre": "Pan", "precio": 0.9, "emoji": ""}]
-    d = _CantidadMultipleDialog(prods)
+    d = tpv._CantidadMultipleDialog(prods)
     assert d.cantidades == {"A": 1, "B": 1}               # por defecto 1 cada uno
-    d._paso("A", +1); d._paso("A", +1)                    # A = 3
-    d._paso("B", -10)                                     # B no baja de 1 (clamp)
-    assert d.cantidades == {"A": 3, "B": 1}
+
+    # Al tocar el nº de unidades (o el botón «Unidades») se abre el teclado; lo simulamos.
+    class _FakeKeypad:
+        def __init__(self, nombre, precio, parent=None, val=0):
+            self.cantidad = _FakeKeypad.next_val
+        def exec(self):
+            from PyQt6.QtWidgets import QDialog
+            return QDialog.DialogCode.Accepted
+    _FakeKeypad.next_val = 3
+    monkeypatch.setattr(tpv, "_CantidadDialog", _FakeKeypad)
+    d._editar_cantidad("A", "Croissant", 1.2)             # teclado devuelve 3
+    assert d.cantidades["A"] == 3 and d._labels["A"].text() == "3"
+
+    _FakeKeypad.next_val = 5000                            # se recorta a 999 (máximo)
+    d._editar_cantidad("A", "Croissant", 1.2)
+    assert d.cantidades["A"] == 999

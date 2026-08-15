@@ -6099,27 +6099,29 @@ class _CantidadDialog(QDialog):
         self.setModal(True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedWidth(360)
+        self.setFixedWidth(460)
         main = QVBoxLayout(self); main.setContentsMargins(0, 0, 0, 0)
         cont = QFrame()
         cont.setStyleSheet(f"QFrame{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
         main.addWidget(cont)
-        ly = QVBoxLayout(cont); ly.setContentsMargins(18, 16, 18, 16); ly.setSpacing(10)
-        ly.addWidget(_lbl(tr("tpv.qty_title", default="¿Cuántas unidades?"), bold=True, size=15, color=_CIAN))
+        ly = QVBoxLayout(cont); ly.setContentsMargins(22, 20, 22, 20); ly.setSpacing(14)
+        ly.addWidget(_lbl(tr("tpv.qty_title", default="¿Cuántas unidades?"), bold=True, size=16, color=_CIAN))
         ly.addWidget(_lbl(f"{nombre} · {divisas.formatear(precio)}", size=12, color=_TEXT2))
-        self._disp = _lbl("1", bold=True, size=34, color=_VERDE)
+        self._disp = _lbl("1", bold=True, size=38, color=_VERDE)
         self._disp.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ly.addWidget(self._disp)
-        grid = QGridLayout(); grid.setSpacing(8)
+        grid = QGridLayout(); grid.setSpacing(12)
         teclas = [("7", 0, 0), ("8", 0, 1), ("9", 0, 2), ("4", 1, 0), ("5", 1, 1), ("6", 1, 2),
                   ("1", 2, 0), ("2", 2, 1), ("3", 2, 2), ("C", 3, 0), ("0", 3, 1), ("⌫", 3, 2)]
         for t, r, c in teclas:
-            b = QPushButton(t); b.setMinimumSize(90, 54); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b = QPushButton(t); b.setMinimumSize(126, 62); b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT};border:1px solid {_BORDE};"
-                            f"border-radius:10px;font-size:18px;font-weight:800;}}"
+                            f"border-radius:10px;font-size:20px;font-weight:800;}}"
                             f"QPushButton:hover{{border-color:{_CIAN};color:{_CIAN};}}")
             b.clicked.connect(lambda _=False, k=t: self._tecla(k))
             grid.addWidget(b, r, c)
+        for c in range(3):
+            grid.setColumnStretch(c, 1)
         ly.addLayout(grid)
         fila = QHBoxLayout(); fila.setSpacing(8)
         bc = QPushButton(tr("common.cancel", default="Cancelar")); bc.setMinimumHeight(46)
@@ -6160,8 +6162,9 @@ class _CantidadDialog(QDialog):
 
 
 class _CantidadMultipleDialog(QDialog):
-    """Pide la CANTIDAD de CADA producto seleccionado (multiselección del TPV Bakery). Una fila por
-    producto con pasos +/–; al aceptar, `cantidades` = {codigo: unidades}."""
+    """Pide las UNIDADES de cada producto seleccionado (multiselección del TPV Bakery). Una fila por
+    producto: nombre · precio · nº de unidades (verde, tocable) · botón «Unidades». Ambos abren el
+    teclado numérico (`_CantidadDialog`) para el valor exacto. Al aceptar, `cantidades` = {codigo: uds}."""
 
     def __init__(self, productos, parent=None):
         super().__init__(parent)
@@ -6170,14 +6173,14 @@ class _CantidadMultipleDialog(QDialog):
         self.setModal(True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedWidth(500)
-        self.setMaximumHeight(660)
+        self.setFixedWidth(640)
+        self.setMaximumHeight(680)
         main = QVBoxLayout(self); main.setContentsMargins(0, 0, 0, 0)
         cont = QFrame()
         cont.setStyleSheet(f"QFrame{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
         main.addWidget(cont)
         ly = QVBoxLayout(cont); ly.setContentsMargins(18, 16, 18, 16); ly.setSpacing(10)
-        ly.addWidget(_lbl(tr("tpv.qty_multi_title", default="Cantidades"), bold=True, size=16, color=_CIAN))
+        ly.addWidget(_lbl(tr("tpv.qty_multi_title", default="Unidades"), bold=True, size=16, color=_CIAN))
         ly.addWidget(_lbl(tr("tpv.qty_multi_sub",
                               default="Indica las unidades de cada producto seleccionado."),
                           size=12, color=_TEXT2))
@@ -6215,39 +6218,32 @@ class _CantidadMultipleDialog(QDialog):
         cod = p["codigo"]
         f = QFrame()
         f.setStyleSheet(f"QFrame{{background:{_BG2};border:1px solid {_BORDE};border-radius:10px;}}")
-        h = QHBoxLayout(f); h.setContentsMargins(12, 8, 12, 8); h.setSpacing(8)
+        h = QHBoxLayout(f); h.setContentsMargins(14, 10, 14, 10); h.setSpacing(12)
         emoji = str(p.get("emoji") or "").strip()
         txt = f"{emoji}  {p['nombre']}" if emoji else str(p["nombre"])
-        lbl = _lbl(txt, bold=True, size=13, color=_TEXT); lbl.setWordWrap(True)
+        lbl = _lbl(txt, bold=True, size=14, color=_TEXT); lbl.setWordWrap(True)
         h.addWidget(lbl, 1)
-        h.addWidget(_lbl(divisas.formatear(p["precio"]), size=12, color=_TEXT2))
-        h.addWidget(self._stepper("–", lambda _=False, c=cod: self._paso(c, -1)))
-        # Cantidad TAPPABLE: abre el teclado numérico táctil (_CantidadDialog) para introducir un valor
-        # exacto (útil para cantidades grandes). Los pasos +/– cubren el ajuste fino.
-        bq = QPushButton("1"); bq.setFixedWidth(52); bq.setMinimumHeight(44)
-        bq.setCursor(Qt.CursorShape.PointingHandCursor)
-        bq.setStyleSheet(f"QPushButton{{background:transparent;color:{_VERDE};border:none;"
-                         f"font-family:'Segoe UI';font-weight:900;font-size:18px;}}"
-                         f"QPushButton:hover{{color:{_CIAN};}}")
+        h.addWidget(_lbl(divisas.formatear(p["precio"]), size=13, color=_TEXT2))
+        # Columna central = UNIDADES: número verde grande y TOCABLE → abre el teclado numérico para el
+        # valor exacto de este producto.
+        bq = QPushButton("1"); bq.setFixedSize(74, 50); bq.setCursor(Qt.CursorShape.PointingHandCursor)
+        bq.setStyleSheet(f"QPushButton{{background:{_BG};color:{_VERDE};border:2px solid {_VERDE};"
+                         f"border-radius:10px;font-family:'Segoe UI';font-weight:900;font-size:22px;}}"
+                         f"QPushButton:hover{{background:{_VERDE};color:#0B1118;}}")
         bq.clicked.connect(lambda _=False, c=cod, nom=str(p["nombre"]), pr=float(p["precio"]):
                            self._editar_cantidad(c, nom, pr))
         self._labels[cod] = bq
         h.addWidget(bq)
-        h.addWidget(self._stepper("+", lambda _=False, c=cod: self._paso(c, +1)))
+        # Botón «Unidades» a la derecha → también abre el teclado numérico (etiqueta explícita).
+        bu = QPushButton(tr("tpv.qty_units_btn", default="Unidades"))
+        bu.setFixedHeight(50); bu.setMinimumWidth(120); bu.setCursor(Qt.CursorShape.PointingHandCursor)
+        bu.setStyleSheet(f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};"
+                         f"border-radius:10px;font-weight:900;font-size:14px;padding:0 14px;}}"
+                         f"QPushButton:hover{{background:{_CIAN};color:#0B1118;}}")
+        bu.clicked.connect(lambda _=False, c=cod, nom=str(p["nombre"]), pr=float(p["precio"]):
+                           self._editar_cantidad(c, nom, pr))
+        h.addWidget(bu)
         return f
-
-    def _stepper(self, txt, cb):
-        b = QPushButton(txt); b.setFixedSize(48, 44); b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setStyleSheet(f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};"
-                        f"border-radius:9px;font-size:20px;font-weight:900;}}"
-                        f"QPushButton:hover{{background:{_CIAN};color:#0B1118;}}")
-        b.clicked.connect(cb)
-        return b
-
-    def _paso(self, cod, d):
-        self.cantidades[cod] = max(1, min(999, self.cantidades.get(cod, 1) + d))
-        self._labels[cod].setText(str(self.cantidades[cod]))
-        self._actualizar_total()
 
     def _editar_cantidad(self, cod, nombre, precio):
         dlg = _CantidadDialog(nombre, precio, parent=self)
