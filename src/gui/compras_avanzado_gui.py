@@ -61,9 +61,9 @@ class ComprasAvanzadoWindow(QWidget):
         ly.addWidget(self.cmb_prov)
         b = QHBoxLayout()
         b.addWidget(_btn("Aprobar (homologar)", lambda: self._homolog("aprobado"), primary=True))
-        b.addWidget(_btn("Suspender", lambda: self._homolog("suspendido")))
+        b.addWidget(_btn("Suspender", lambda: self._homolog("suspendido"), primary=True))
+        b.addWidget(_btn("Editar descuento", self._set_descuento, primary=True))
         b.addWidget(_btn("Bloquear", lambda: self._homolog("bloqueado"), danger=True))
-        b.addWidget(_btn("Editar descuento", self._set_descuento))
         b.addStretch()
         ly.addLayout(b)
         self.lbl_cond = QLabel(""); self.lbl_cond.setStyleSheet(f"color:{_TEXT};")
@@ -147,7 +147,7 @@ class ComprasAvanzadoWindow(QWidget):
         w = QWidget(); ly = QVBoxLayout(w)
         self.tbl_inc = _tabla(["id", "Tipo", "Artículo", "Cantidad", "Estado", "Fecha"])
         ly.addWidget(self.tbl_inc)
-        ly.addWidget(_btn("Actualizar", self._carga_inc))
+        ly.addWidget(_btn("🔄  Actualizar", self._carga_inc, primary=True))
         self._carga_inc()
         return w
 
