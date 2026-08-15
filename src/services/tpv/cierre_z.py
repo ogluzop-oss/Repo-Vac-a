@@ -40,6 +40,15 @@ def _empresa(id_empresa=None):
             return EMPRESA_DEFAULT_ID
 
 
+def _tid(valor):
+    """Coacciona id_tienda a INT (migr 0196). El cierre Z pertenece SIEMPRE a una tienda y forma parte de
+    la clave exacta de numeración: sin contexto o central ('ALMC') → 0 (nunca NULL); concreta → su int."""
+    if valor is None or valor == "":
+        return 0
+    from src.db.empresa import tienda_actual_id_int
+    return tienda_actual_id_int(valor)
+
+
 def _bucket(forma):
     f = (forma or "efectivo").strip().lower()
     return f if f in _MEDIOS else "otros"
@@ -125,7 +134,7 @@ def existe_cierre(fecha, id_empresa=None, id_tienda="", caja=1) -> dict | None:
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM cierres_z WHERE id_empresa=%s AND id_tienda=%s "
-                        "AND caja=%s AND fecha=%s", (id_empresa, id_tienda or "", int(caja),
+                        "AND caja=%s AND fecha=%s", (id_empresa, _tid(id_tienda), int(caja),
                                                      _fecha_str(fecha)))
             return _fila_a_dict(cur, cur.fetchone())
     except Exception as e:
@@ -139,7 +148,7 @@ def generar_cierre_z(fecha, importe_declarado, usuario=None, id_empresa=None,
     importe_esperado = fondo_inicial + efectivo neto (ventas - devoluciones en efectivo).
     """
     id_empresa = _empresa(id_empresa)
-    id_tienda = id_tienda or ""
+    id_tienda = _tid(id_tienda)
     fecha = _fecha_str(fecha)
     # caja=None → CIERRE DIARIO de tienda (agrega TODAS las cajas del día); se persiste con caja 0.
     caja_alm = int(caja) if caja is not None else 0
@@ -239,7 +248,7 @@ def listar_cierres_z(id_empresa=None, id_tienda=None, limite=200) -> list:
     id_empresa = _empresa(id_empresa)
     filtros, params = ["id_empresa=%s"], [id_empresa]
     if id_tienda is not None:
-        filtros.append("id_tienda=%s"); params.append(id_tienda)
+        filtros.append("id_tienda=%s"); params.append(_tid(id_tienda))
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM cierres_z WHERE " + " AND ".join(filtros)
