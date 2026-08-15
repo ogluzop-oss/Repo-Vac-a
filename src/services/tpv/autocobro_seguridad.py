@@ -26,9 +26,14 @@ def _conn():
 
 
 def _tenant(id_empresa=None, id_tienda=None):
+    """(empresa, tienda) con `id_tienda` a la convención INT unificada (migr 0194): sin tienda → None
+    (NULL = todas, la analítica no filtra); tienda concreta → int (central 'ALMC' → 0)."""
     try:
-        from src.db.empresa import empresa_actual_id, tienda_actual_id
-        return (id_empresa or empresa_actual_id(), id_tienda or tienda_actual_id())
+        from src.db.empresa import empresa_actual_id, tienda_actual_id, tienda_actual_id_int
+        emp = id_empresa or empresa_actual_id()
+        raw = id_tienda if id_tienda is not None else tienda_actual_id()
+        tie = None if raw in (None, "") else tienda_actual_id_int(raw)
+        return (emp, tie)
     except Exception:
         return (id_empresa, id_tienda)
 
@@ -87,7 +92,7 @@ def articulos_conflictivos(*, id_empresa=None, id_tienda=None, dias=90, limite=2
     params: list = [int(dias)]
     if emp:
         cond.append("id_empresa=%s"); params.append(emp)
-    if tie:
+    if tie is not None:   # 0 (central) es una tienda válida y filtrable; None = todas (sin filtro)
         cond.append("id_tienda=%s"); params.append(tie)
     if tipo:
         cond.append("tipo=%s"); params.append(tipo)
@@ -111,7 +116,7 @@ def resumen(*, id_empresa=None, id_tienda=None, dias=30) -> dict:
     params: list = [int(dias)]
     if emp:
         cond.append("id_empresa=%s"); params.append(emp)
-    if tie:
+    if tie is not None:   # 0 (central) es una tienda válida y filtrable; None = todas (sin filtro)
         cond.append("id_tienda=%s"); params.append(tie)
     base = {"ventas": 0, "intervenciones_peso": 0, "anulaciones": 0,
             "duracion_media_seg": 0.0, "ventas_con_intervencion": 0}
