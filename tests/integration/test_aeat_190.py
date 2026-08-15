@@ -24,7 +24,7 @@ EJ = 2035
 def _empleado(db, nombre, nif):
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("INSERT INTO rrhh_empleados (id_empresa, id_tienda, nombre, nif) "
-                    "VALUES (%s,'',%s,%s)", (E, nombre, nif))
+                    "VALUES (%s,0,%s,%s)", (E, nombre, nif))   # id_tienda INT (migr 0195): 0 = central
         eid = cur.lastrowid; conn.commit()
     return eid
 
