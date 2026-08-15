@@ -6099,30 +6099,34 @@ class _CantidadDialog(QDialog):
         self.setModal(True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedWidth(460)
+        # Tamaño FIJO (ancho y alto): un frameless translúcido a veces se auto-dimensiona por debajo del
+        # sizeHint y comprime la rejilla (botones solapados). Fijándolo, el teclado siempre tiene sitio.
+        self.setFixedSize(500, 640)
         main = QVBoxLayout(self); main.setContentsMargins(0, 0, 0, 0)
         cont = QFrame()
         cont.setStyleSheet(f"QFrame{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
         main.addWidget(cont)
-        ly = QVBoxLayout(cont); ly.setContentsMargins(22, 20, 22, 20); ly.setSpacing(14)
+        ly = QVBoxLayout(cont); ly.setContentsMargins(22, 18, 22, 18); ly.setSpacing(12)
         ly.addWidget(_lbl(tr("tpv.qty_title", default="¿Cuántas unidades?"), bold=True, size=16, color=_CIAN))
         ly.addWidget(_lbl(f"{nombre} · {divisas.formatear(precio)}", size=12, color=_TEXT2))
-        self._disp = _lbl("1", bold=True, size=38, color=_VERDE)
+        self._disp = _lbl("1", bold=True, size=40, color=_VERDE)
         self._disp.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ly.addWidget(self._disp)
-        grid = QGridLayout(); grid.setSpacing(12)
+        grid = QGridLayout(); grid.setSpacing(14)
         teclas = [("7", 0, 0), ("8", 0, 1), ("9", 0, 2), ("4", 1, 0), ("5", 1, 1), ("6", 1, 2),
                   ("1", 2, 0), ("2", 2, 1), ("3", 2, 2), ("C", 3, 0), ("0", 3, 1), ("⌫", 3, 2)]
         for t, r, c in teclas:
-            b = QPushButton(t); b.setMinimumSize(126, 62); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b = QPushButton(t); b.setMinimumSize(130, 68); b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_TEXT};border:1px solid {_BORDE};"
-                            f"border-radius:10px;font-size:20px;font-weight:800;}}"
+                            f"border-radius:10px;font-size:22px;font-weight:800;}}"
                             f"QPushButton:hover{{border-color:{_CIAN};color:{_CIAN};}}")
             b.clicked.connect(lambda _=False, k=t: self._tecla(k))
             grid.addWidget(b, r, c)
         for c in range(3):
             grid.setColumnStretch(c, 1)
-        ly.addLayout(grid)
+        for r in range(4):
+            grid.setRowStretch(r, 1)
+        ly.addLayout(grid, 1)
         fila = QHBoxLayout(); fila.setSpacing(8)
         bc = QPushButton(tr("common.cancel", default="Cancelar")); bc.setMinimumHeight(46)
         bc.setCursor(Qt.CursorShape.PointingHandCursor); bc.clicked.connect(self.reject)
@@ -6224,17 +6228,13 @@ class _CantidadMultipleDialog(QDialog):
         lbl = _lbl(txt, bold=True, size=14, color=_TEXT); lbl.setWordWrap(True)
         h.addWidget(lbl, 1)
         h.addWidget(_lbl(divisas.formatear(p["precio"]), size=13, color=_TEXT2))
-        # Columna central = UNIDADES: número verde grande y TOCABLE → abre el teclado numérico para el
-        # valor exacto de este producto.
-        bq = QPushButton("1"); bq.setFixedSize(74, 50); bq.setCursor(Qt.CursorShape.PointingHandCursor)
-        bq.setStyleSheet(f"QPushButton{{background:{_BG};color:{_VERDE};border:2px solid {_VERDE};"
-                         f"border-radius:10px;font-family:'Segoe UI';font-weight:900;font-size:22px;}}"
-                         f"QPushButton:hover{{background:{_VERDE};color:#0B1118;}}")
-        bq.clicked.connect(lambda _=False, c=cod, nom=str(p["nombre"]), pr=float(p["precio"]):
-                           self._editar_cantidad(c, nom, pr))
+        # Columna central = UNIDADES: SOLO muestra el nº (verde). Para cambiarlo está el botón «Unidades».
+        bq = QLabel("1"); bq.setFixedSize(74, 50); bq.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bq.setStyleSheet(f"QLabel{{background:{_BG};color:{_VERDE};border:2px solid {_VERDE};"
+                         f"border-radius:10px;font-family:'Segoe UI';font-weight:900;font-size:22px;}}")
         self._labels[cod] = bq
         h.addWidget(bq)
-        # Botón «Unidades» a la derecha → también abre el teclado numérico (etiqueta explícita).
+        # Botón «Unidades» a la derecha → abre el teclado numérico para fijar las unidades de este producto.
         bu = QPushButton(tr("tpv.qty_units_btn", default="Unidades"))
         bu.setFixedHeight(50); bu.setMinimumWidth(120); bu.setCursor(Qt.CursorShape.PointingHandCursor)
         bu.setStyleSheet(f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};"
