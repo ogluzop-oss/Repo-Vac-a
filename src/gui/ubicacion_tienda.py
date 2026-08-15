@@ -55,8 +55,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
 
-# Busca tus imports y añade este:
-from src.db.conexion import obtener_conexion
+# Capa de datos del mapa/ubicaciones (Fase 3 · cliente fino): esta pantalla ya no ejecuta SQL directo.
+from src.db import ubicaciones as ubi_db
 from src.utils import i18n
 from src.utils.i18n import tr
 
@@ -238,15 +238,7 @@ class UbicacionTiendaWindow(QMainWindow):
         p_idx = getattr(self, "planta_actual", 0)
         display = tr("ubic.no_plan", default="SIN PLANO")
         try:
-            from src.db.conexion import obtener_conexion
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT COALESCE(tipo,'LOCAL'), titulo_plano "
-                        "FROM configuracion_mapa WHERE planta_index=%s",
-                        (p_idx,),
-                    )
-                    row = cur.fetchone()
+            row = ubi_db.plano_info(p_idx)
             if row:
                 tipo = (row[0] or "LOCAL").upper()
                 titulo = (row[1] or "").strip()
@@ -372,7 +364,6 @@ class UbicacionTiendaWindow(QMainWindow):
             QVBoxLayout,
         )
 
-        from src.db.conexion import obtener_conexion
 
         p_idx = getattr(self, "planta_actual", 0)
 
@@ -471,23 +462,7 @@ class UbicacionTiendaWindow(QMainWindow):
         except ValueError:
             return None
 
-        try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    try:
-                        cur.execute(
-                            "ALTER TABLE configuracion_mapa "
-                            "ADD COLUMN IF NOT EXISTS altura_metros DOUBLE DEFAULT NULL"
-                        )
-                    except Exception:
-                        pass
-                    cur.execute(
-                        "UPDATE configuracion_mapa SET altura_metros=%s WHERE planta_index=%s",
-                        (metros, p_idx),
-                    )
-                conn.commit()
-        except Exception as e:
-            print(f"⚠️ Error guardando altura: {e}")
+        ubi_db.guardar_altura(p_idx, metros)
 
         return metros
 
@@ -803,23 +778,7 @@ class UbicacionTiendaWindow(QMainWindow):
         if not pasillo or not estanteria:
             return None
         try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SELECT mapa_x, mapa_y
-                        FROM ubicaciones
-                        WHERE pasillo = %s AND estanteria = %s
-                          AND mapa_x IS NOT NULL AND mapa_y IS NOT NULL
-                          AND (mapa_x != 0 OR mapa_y != 0)
-                        ORDER BY (codigo_articulo IS NULL OR codigo_articulo = '') DESC,
-                                 verificado DESC,
-                                 id DESC
-                        LIMIT 1
-                        """,
-                        (pasillo, estanteria),
-                    )
-                    res = cursor.fetchone()
+            res = ubi_db.coords_por_pasillo_estanteria(pasillo, estanteria)
             if not res:
                 return None
             return QPointF(float(res[0]), float(res[1]))
@@ -833,86 +792,53 @@ class UbicacionTiendaWindow(QMainWindow):
 
         opciones = []
         try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    # pasillo/estantería (tienda y almacén) viven en `ubicaciones`, no en `articulos`
-                    # (ver migr 0105): se obtienen con un LEFT JOIN por código de artículo.
-                    cursor.execute(
-                        """
-                        SELECT a.codigo, a.nombre, a.ubicacion_tienda, u.pasillo, u.estanteria,
-                               a.ubicacion_almacen, u.pasillo_almacen, u.estanteria_almacen
-                        FROM articulos a
-                        LEFT JOIN ubicaciones u ON u.codigo_articulo = a.codigo
-                        WHERE a.codigo = %s OR a.nombre LIKE %s
-                        ORDER BY CASE WHEN a.codigo = %s THEN 0 ELSE 1 END, a.nombre ASC
-                        LIMIT 1
-                        """,
-                        (termino, f"%{termino}%", termino),
+            # pasillo/estantería (tienda y almacén) viven en `ubicaciones`, no en `articulos`
+            # (ver migr 0105): se obtienen con un LEFT JOIN por código de artículo.
+            art = ubi_db.buscar_articulo_con_ubicaciones(termino)
+
+            if art:
+                (
+                    codigo,
+                    nombre,
+                    ubi_lin,
+                    pas_lin,
+                    est_lin,
+                    ubi_alm,
+                    pas_alm,
+                    est_alm,
+                ) = art
+                for tipo, ubicacion_txt, pasillo, estanteria in [
+                    ("LINEAL", ubi_lin, pas_lin, est_lin),
+                    ("ALMACEN", ubi_alm, pas_alm, est_alm),
+                ]:
+                    if not ubicacion_txt or not pasillo or not estanteria:
+                        continue
+                    punto = self._resolver_coordenadas_ubicacion(
+                        pasillo, estanteria
                     )
-                    art = cursor.fetchone()
+                    opciones.append(
+                        {
+                            "tipo": tipo,
+                            "nombre": str(nombre).upper(),
+                            "codigo": str(codigo).upper(),
+                            "ubicacion": str(ubicacion_txt).upper(),
+                            "coords": punto,
+                            "disponible": punto is not None,
+                        }
+                    )
 
-                    if art:
-                        (
-                            codigo,
-                            nombre,
-                            ubi_lin,
-                            pas_lin,
-                            est_lin,
-                            ubi_alm,
-                            pas_alm,
-                            est_alm,
-                        ) = art
-                        for tipo, ubicacion_txt, pasillo, estanteria in [
-                            ("LINEAL", ubi_lin, pas_lin, est_lin),
-                            ("ALMACEN", ubi_alm, pas_alm, est_alm),
-                        ]:
-                            if not ubicacion_txt or not pasillo or not estanteria:
-                                continue
-                            punto = self._resolver_coordenadas_ubicacion(
-                                pasillo, estanteria
-                            )
-                            opciones.append(
-                                {
-                                    "tipo": tipo,
-                                    "nombre": str(nombre).upper(),
-                                    "codigo": str(codigo).upper(),
-                                    "ubicacion": str(ubicacion_txt).upper(),
-                                    "coords": punto,
-                                    "disponible": punto is not None,
-                                }
-                            )
-
-                    if not opciones:
-                        like_term = f"%{termino}%"
-                        cursor.execute(
-                            """
-                            SELECT CONCAT_WS(' ', pasillo, estanteria, balda) AS nombre_ubicacion,
-                                   mapa_x, mapa_y
-                            FROM ubicaciones
-                            WHERE (
-                                CONCAT_WS(' ', pasillo, estanteria, balda) LIKE %s
-                                OR CONCAT_WS('-', pasillo, estanteria, balda) LIKE %s
-                                OR pasillo LIKE %s
-                                OR estanteria LIKE %s
-                            )
-                              AND mapa_x IS NOT NULL AND mapa_y IS NOT NULL
-                              AND (mapa_x != 0 OR mapa_y != 0)
-                            ORDER BY verificado DESC, id DESC
-                            LIMIT 6
-                            """,
-                            (like_term, like_term, like_term, like_term),
-                        )
-                        for nombre_ubi, mapa_x, mapa_y in cursor.fetchall():
-                            opciones.append(
-                                {
-                                    "tipo": "UBICACION",
-                                    "nombre": str(nombre_ubi).upper(),
-                                    "codigo": "",
-                                    "ubicacion": str(nombre_ubi).upper(),
-                                    "coords": QPointF(float(mapa_x), float(mapa_y)),
-                                    "disponible": True,
-                                }
-                            )
+            if not opciones:
+                for nombre_ubi, mapa_x, mapa_y in ubi_db.buscar_ubicaciones_por_texto(termino):
+                    opciones.append(
+                        {
+                            "tipo": "UBICACION",
+                            "nombre": str(nombre_ubi).upper(),
+                            "codigo": "",
+                            "ubicacion": str(nombre_ubi).upper(),
+                            "coords": QPointF(float(mapa_x), float(mapa_y)),
+                            "disponible": True,
+                        }
+                    )
         except Exception as e:
             print(f"Error al resolver destinos GPS: {e}")
 
@@ -1028,21 +954,7 @@ class UbicacionTiendaWindow(QMainWindow):
         )
 
     def _seleccionar_planta_borrado(self):
-        try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SELECT planta_index
-                        FROM configuracion_mapa
-                        WHERE ruta_imagen IS NOT NULL AND ruta_imagen != ''
-                        GROUP BY planta_index
-                        ORDER BY planta_index ASC
-                        """
-                    )
-                    plantas = [int(row[0]) for row in cursor.fetchall()]
-        except Exception:
-            plantas = []
+        plantas = ubi_db.plantas_con_imagen()
 
         if not plantas:
             return None
@@ -1805,18 +1717,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
     def _esta_calibrado_planta(self, planta_idx):
         """Returns True if the given planta_index has a calibration (escala_px_metro > 0) in DB."""
-        try:
-            from src.db.conexion import obtener_conexion
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT escala_px_metro FROM configuracion_mapa WHERE planta_index = %s",
-                        (planta_idx,),
-                    )
-                    row = cursor.fetchone()
-                    return row is not None and float(row[0] or 0) > 0
-        except Exception:
-            return False
+        return ubi_db.esta_calibrada(planta_idx)
 
     def _clic_boton_escala(self):
         """Stateless calibration button handler — delegates based on current plan's DB state."""
@@ -1838,7 +1739,6 @@ class UbicacionTiendaWindow(QMainWindow):
             QVBoxLayout,
         )
 
-        from src.db.conexion import obtener_conexion
 
         diag = QDialog(self)
         diag.setFixedSize(460, 220)
@@ -1913,16 +1813,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         try:
             p_idx = getattr(self, "planta_actual", 0)
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE configuracion_mapa "
-                        "SET escala_px_metro=0, ancla_x=0, ancla_y=0, "
-                        "    matriz_binaria=NULL, muros_vectoriales='[]' "
-                        "WHERE planta_index=%s",
-                        (p_idx,),
-                    )
-                    conn.commit()
+            ubi_db.reset_calibracion(p_idx)
 
             self.paso_calibracion = 1
             for v in [getattr(self, "visor_admin", None), getattr(self, "visor_mapa", None)]:
@@ -2112,7 +2003,6 @@ class UbicacionTiendaWindow(QMainWindow):
             QGraphicsView,
         )
 
-        from src.db.conexion import obtener_conexion
 
         # --- 0. PRE-CHECKS before opening the OS file picker ---
         titulo_plano = None
@@ -2120,18 +2010,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         if not ruta_directa:
             # Find the last loaded plan index
-            _max_cargado = None
-            try:
-                with obtener_conexion() as _conn:
-                    with _conn.cursor() as _cur:
-                        _cur.execute(
-                            "SELECT MAX(planta_index) FROM configuracion_mapa "
-                            "WHERE ruta_imagen IS NOT NULL AND ruta_imagen != ''"
-                        )
-                        _row = _cur.fetchone()
-                        _max_cargado = _row[0] if _row and _row[0] is not None else None
-            except Exception:
-                pass
+            _max_cargado = ubi_db.max_planta_con_imagen()
 
             if _max_cargado is not None:
                 # Block immediately if the last loaded plan is not yet calibrated
@@ -2269,34 +2148,7 @@ class UbicacionTiendaWindow(QMainWindow):
         escena.setSceneRect(rect_plano)
 
         # Sincronizar DB
-        try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    # Ensure titulo_plano and tipo columns exist (idempotent for existing DBs)
-                    for _alter in (
-                        "ALTER TABLE configuracion_mapa ADD COLUMN IF NOT EXISTS titulo_plano VARCHAR(255) DEFAULT NULL",
-                        "ALTER TABLE configuracion_mapa ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) DEFAULT 'LOCAL'",
-                    ):
-                        try:
-                            cursor.execute(_alter)
-                        except Exception:
-                            pass
-                    cursor.execute(
-                        """
-                        INSERT INTO configuracion_mapa
-                            (planta_index, ruta_imagen, titulo_plano, tipo, escala_px_metro, fecha_actualizacion)
-                        VALUES (%s, %s, %s, %s, 0, NOW())
-                        ON DUPLICATE KEY UPDATE
-                            ruta_imagen = VALUES(ruta_imagen),
-                            titulo_plano = COALESCE(VALUES(titulo_plano), titulo_plano),
-                            tipo = COALESCE(VALUES(tipo), tipo),
-                            escala_px_metro = 0
-                    """,
-                        (p_idx, nombre_archivo, titulo_plano, tipo_plano),
-                    )
-                conn.commit()
-        except Exception as e:
-            print(f"❌ DB Error: {e}")
+        ubi_db.registrar_plano(p_idx, nombre_archivo, titulo_plano, tipo_plano)
 
         # Función de encuadre quirúrgico
         def aplicar_encuadre_perfecto():
@@ -2413,7 +2265,6 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QMessageBox
 
-        from src.db.conexion import obtener_conexion
 
         # 1. IDENTIFICAR PLANTA ACTUAL
         planta_idx = getattr(self, "planta_actual", 0)
@@ -2470,11 +2321,7 @@ class UbicacionTiendaWindow(QMainWindow):
         if msg.clickedButton() == btn_si:
             try:
                 # 3. ELIMINACIÓN EN DB (Usando planta_index)
-                with obtener_conexion() as conn:
-                    with conn.cursor() as cursor:
-                        query = "DELETE FROM configuracion_mapa WHERE planta_index = %s"
-                        cursor.execute(query, (planta_idx,))
-                        conn.commit()
+                ubi_db.eliminar_planta(planta_idx)
 
                 # 4. LIMPIEZA RADICAL DE ESCENA (Lo que ves en pantalla)
                 # Buscamos el visor ya sea en self o en self.visor_admin
@@ -2764,16 +2611,8 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # --- FASE 1: POSICIONAMIENTO GPS (Prioridad) ---
         try:
-            with obtener_conexion() as conn:
-                if conn:
-                    cursor = conn.cursor()
-                    # Consultamos si el código escaneado es un punto de ubicación
-                    cursor.execute(
-                        """SELECT mapa_x, mapa_y, verificado, pasillo, estanteria 
-                           FROM ubicaciones WHERE codigo_articulo = %s""",
-                        (codigo,),
-                    )
-                    res_ubi = cursor.fetchone()
+            # Consultamos si el código escaneado es un punto de ubicación
+            res_ubi = ubi_db.ubicacion_por_articulo(codigo)
 
             if res_ubi:
                 mx, my, verificado, pas, est = res_ubi
@@ -2879,14 +2718,7 @@ class UbicacionTiendaWindow(QMainWindow):
                             )
                         return
 
-                with obtener_conexion() as conn:
-                    if conn:
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "SELECT nombre, mapa_x, mapa_y FROM ubicaciones WHERE codigo_articulo = %s",
-                            (codigo,),
-                        )
-                        res_prod = cursor.fetchone()
+                res_prod = ubi_db.nombre_y_coords_por_articulo(codigo)
 
                 if res_prod and res_prod[1] != 0:
                     nombre_art, dest_x, dest_y = res_prod
@@ -3516,30 +3348,7 @@ class UbicacionTiendaWindow(QMainWindow):
             sat_id = f"SAT_{int(pos.x())}_{int(pos.y())}"
 
             # --- 3. GUARDAR EN MARIADB ---
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
-                query = """
-                    INSERT INTO ubicaciones 
-                    (epc, pasillo, estanteria, mapa_x, mapa_y, real_x, real_y, verificado) 
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, 1)
-                    ON DUPLICATE KEY UPDATE estanteria=%s, real_x=%s, real_y=%s, mapa_x=%s, mapa_y=%s
-                """
-                valores = (
-                    sat_id,
-                    "SISTEMA",
-                    nombre_sat,
-                    pos.x(),
-                    pos.y(),
-                    real_x,
-                    real_y,
-                    nombre_sat,
-                    real_x,
-                    real_y,
-                    pos.x(),
-                    pos.y(),
-                )
-                cursor.execute(query, valores)
-                conn.commit()
+            ubi_db.upsert_satelite(sat_id, nombre_sat, pos.x(), pos.y(), real_x, real_y)
 
             # --- 4. QR ---
             if hasattr(self, "generar_qr_estanteria"):
@@ -3564,41 +3373,17 @@ class UbicacionTiendaWindow(QMainWindow):
             # --- 6. PERSISTENCIA EN configuracion_mapa (puntos_infraestructura) ---
             # Needed so the satellite survives plan navigation and session restarts.
             try:
-                import json as _json_mod
                 _planta_idx = getattr(self, "planta_actual", 0)
-                with obtener_conexion() as _conn2:
-                    _cur2 = _conn2.cursor()
-                    _cur2.execute(
-                        "SELECT puntos_infraestructura FROM configuracion_mapa WHERE planta_index = %s",
-                        (_planta_idx,),
-                    )
-                    _row2 = _cur2.fetchone()
-                    _lista_infra = []
-                    if _row2 and _row2[0]:
-                        try:
-                            _lista_infra = _json_mod.loads(_row2[0])
-                        except Exception:
-                            _lista_infra = []
-                    _lista_infra = [p for p in _lista_infra if p.get("epc") != sat_id]
-                    _lista_infra.append({
-                        "tipo": "SATÉLITE",
-                        "x": pos.x(),
-                        "y": pos.y(),
-                        "nombre": nombre_sat,
-                        "epc": sat_id,
-                    })
-                    _infra_json_new = _json_mod.dumps(_lista_infra)
-                    if _row2:
-                        _cur2.execute(
-                            "UPDATE configuracion_mapa SET puntos_infraestructura = %s WHERE planta_index = %s",
-                            (_infra_json_new, _planta_idx),
-                        )
-                    else:
-                        _cur2.execute(
-                            "INSERT INTO configuracion_mapa (planta_index, puntos_infraestructura) VALUES (%s, %s)",
-                            (_planta_idx, _infra_json_new),
-                        )
-                    _conn2.commit()
+                _lista_infra = ubi_db.puntos_infraestructura(_planta_idx)
+                _lista_infra = [p for p in _lista_infra if p.get("epc") != sat_id]
+                _lista_infra.append({
+                    "tipo": "SATÉLITE",
+                    "x": pos.x(),
+                    "y": pos.y(),
+                    "nombre": nombre_sat,
+                    "epc": sat_id,
+                })
+                ubi_db.guardar_puntos_infraestructura(_planta_idx, _lista_infra)
             except Exception as _e2:
                 print(f"⚠️ Error al persistir satélite en configuracion_mapa: {_e2}")
 
@@ -3792,20 +3577,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         try:
             # --- FASE 1: PERSISTENCIA SQL (MariaDB) ---
-            query_sql = """
-                INSERT INTO ubicaciones 
-                (codigo_articulo, pasillo, estanteria, balda, mapa_x, mapa_y, verificado)
-                VALUES (%s, %s, %s, '0', %s, %s, 1)
-                ON DUPLICATE KEY UPDATE 
-                mapa_x=VALUES(mapa_x), mapa_y=VALUES(mapa_y), verificado=1
-            """
-            params = (qr_id, pasillo, estanteria, pos_clic.x(), pos_clic.y())
-
-            # Se asume la existencia de obtener_conexion() en el scope global
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
-                cursor.execute(query_sql, params)
-                conn.commit()
+            ubi_db.upsert_nodo_qr(qr_id, pasillo, estanteria, pos_clic.x(), pos_clic.y())
 
             # --- FASE 2: REGISTRO DE NODO LOGÍSTICO (Motor A*) ---
             nombre_nodo = f"{pasillo} | {estanteria}"
@@ -4020,95 +3792,16 @@ class UbicacionTiendaWindow(QMainWindow):
             )
             return
 
-        coord_mapa = None
-
         try:
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
-
-                ubicacion_legible = f"{pasillo}-{estanteria}-{nivel}"
-                es_lineal = bool(contexto and "LINEAL" in contexto.upper())
-
-                try:                                 # PK compuesta (migr 0181): filtra por empresa de la sesión
-                    from src.db.empresa import empresa_actual_id as _eai
-                    _emp = _eai()
-                except Exception:
-                    _emp = None
-                # 2. Actualizacion principal de ubicacion comercial
-                if es_lineal:
-                    sql = """
-                        UPDATE articulos
-                        SET pasillo = %s, estanteria = %s, nivel = %s,
-                            ubicacion_tienda = %s,
-                            incidencia_ubicacion = 0, ultima_actualizacion = NOW()
-                        WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)
-                    """
-                else:
-                    sql = """
-                        UPDATE articulos
-                        SET pasillo_almacen = %s, estanteria_almacen = %s, nivel_almacen = %s,
-                            ubicacion_almacen = %s,
-                            incidencia_ubicacion = 0, ultima_actualizacion = NOW()
-                        WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)
-                    """
-
-                cursor.execute(
-                    sql, (pasillo, estanteria, nivel, ubicacion_legible, codigo_art, _emp, _emp)
+            es_lineal = bool(contexto and "LINEAL" in contexto.upper())
+            # Transacción completa (articulos + ubicaciones) en la capa de datos.
+            _res = ubi_db.asignar_ubicacion(codigo_art, pasillo, estanteria, nivel, es_lineal)
+            if not _res.get("ok"):
+                QMessageBox.critical(
+                    self, "ERROR DE PERSISTENCIA", "No se pudo guardar la ubicación."
                 )
-
-                # 3. Buscar coordenadas de la estanteria en infraestructura
-                cursor.execute(
-                    """
-                    SELECT mapa_x, mapa_y
-                    FROM ubicaciones
-                    WHERE pasillo = %s AND estanteria = %s
-                      AND mapa_x IS NOT NULL AND mapa_y IS NOT NULL
-                      AND (mapa_x != 0 OR mapa_y != 0)
-                    ORDER BY (codigo_articulo IS NULL OR codigo_articulo = '') DESC,
-                             verificado DESC,
-                             id DESC
-                    LIMIT 1
-                    """,
-                    (pasillo, estanteria),
-                )
-                coord_mapa = cursor.fetchone()
-                mapa_x = float(coord_mapa[0]) if coord_mapa else None
-                mapa_y = float(coord_mapa[1]) if coord_mapa else None
-
-                # 4. Upsert del articulo en la tabla tecnica de ubicaciones
-                cursor.execute(
-                    """
-                    INSERT INTO ubicaciones
-                    (codigo_articulo, pasillo, estanteria, balda, mapa_x, mapa_y, verificado)
-                    VALUES (%s, %s, %s, %s, %s, %s, 1)
-                    ON DUPLICATE KEY UPDATE
-                        pasillo = VALUES(pasillo),
-                        estanteria = VALUES(estanteria),
-                        balda = VALUES(balda),
-                        mapa_x = COALESCE(VALUES(mapa_x), mapa_x),
-                        mapa_y = COALESCE(VALUES(mapa_y), mapa_y),
-                        verificado = IF(
-                            COALESCE(VALUES(mapa_x), mapa_x) IS NULL
-                            AND COALESCE(VALUES(mapa_y), mapa_y) IS NULL,
-                            verificado,
-                            1
-                        )
-                    """,
-                    (codigo_art, pasillo, estanteria, nivel, mapa_x, mapa_y),
-                )
-
-                # 5. Si tenemos coordenadas, sincronizamos tambien en articulos
-                if coord_mapa:
-                    cursor.execute(
-                        """
-                        UPDATE articulos
-                        SET mapa_x = %s, mapa_y = %s
-                        WHERE codigo = %s AND (%s IS NULL OR id_empresa = %s)
-                        """,
-                        (mapa_x, mapa_y, codigo_art, _emp, _emp),
-                    )
-
-                conn.commit()
+                return
+            coord_mapa = _res.get("con_coordenadas")
 
             # 6. Feedback visual y reset
             if hasattr(self, "mostrar_notificacion_temporal"):
@@ -4204,26 +3897,8 @@ class UbicacionTiendaWindow(QMainWindow):
             return
 
         try:
-
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
-
-                # 2. Marcamos 'incidencia_ubicacion' como 1
-                # Esto hará que aparezca en ROJO en la lista del administrador
-                sql = """
-                    UPDATE articulos 
-                    SET incidencia_ubicacion = 1, 
-                        ultima_actualizacion = NOW() 
-                    WHERE codigo = %s
-                """
-                try:                                 # PK compuesta (migr 0181): filtra por empresa de la sesión
-                    from src.db.empresa import empresa_actual_id as _eai
-                    _emp = _eai()
-                except Exception:
-                    _emp = None
-                sql += " AND (%s IS NULL OR id_empresa = %s)"
-                cursor.execute(sql, (codigo_art, _emp, _emp))
-                conn.commit()
+            # 2. Marcamos 'incidencia_ubicacion' como 1 (aparece en ROJO en la lista del administrador)
+            ubi_db.reportar_incidencia_ubicacion(codigo_art)
 
             # 3. Feedback Visual e Interfaz
             if self.window().statusBar():
@@ -5183,20 +4858,10 @@ class UbicacionTiendaWindow(QMainWindow):
         self._articulo_busqueda_actual = {}
 
         try:
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
-                # Búsqueda por nombre (parcial) o código (exacto). NOTA: mapa_x/mapa_y NO están en
-                # `articulos` (viven en la tabla `ubicaciones`); las coordenadas GPS se obtienen
-                # aparte con _obtener_opciones_destino_gps. Seleccionarlas aquí rompía TODA búsqueda
-                # con error 1054 ("Unknown column 'mapa_x'"). Se piden solo columnas existentes.
-                sql = """
-                    SELECT codigo, nombre,
-                           ubicacion_tienda, ubicacion_almacen, COALESCE(Stock_total, 0)
-                    FROM articulos
-                    WHERE nombre LIKE %s OR codigo = %s
-                """
-                cursor.execute(sql, (f"%{termino}%", termino))
-                producto = cursor.fetchone()
+            # Búsqueda por nombre (parcial) o código (exacto). NOTA: mapa_x/mapa_y NO están en
+            # `articulos` (viven en la tabla `ubicaciones`); las coordenadas GPS se obtienen aparte
+            # con _obtener_opciones_destino_gps. Se piden solo columnas existentes.
+            producto = ubi_db.buscar_con_ubicacion_stock(termino)
 
             if producto:
                 codigo, nombre, u_lin, u_alm, stock = producto
@@ -5588,20 +5253,9 @@ class UbicacionTiendaWindow(QMainWindow):
             return
 
         try:
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
+            if True:
                 # Búsqueda por código exacto primero; si no, por nombre parcial
-                cursor.execute(
-                    "SELECT codigo, nombre FROM articulos WHERE codigo = %s",
-                    (busqueda,),
-                )
-                res = cursor.fetchone()
-                if not res:
-                    cursor.execute(
-                        "SELECT codigo, nombre FROM articulos WHERE nombre LIKE %s LIMIT 1",
-                        (f"%{busqueda}%",),
-                    )
-                    res = cursor.fetchone()
+                res = ubi_db.buscar_codigo_nombre(busqueda)
 
                 if res:
                     # --- ESTADO: ARTÍCULO ENCONTRADO ---
@@ -5663,23 +5317,8 @@ class UbicacionTiendaWindow(QMainWindow):
             return
 
         try:
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
-                # Marcamos flag de incidencia y estampamos el timestamp actual
-                sql = """
-                    UPDATE articulos 
-                    SET incidencia_ubicacion = 1, 
-                        ultima_incidencia = NOW() 
-                    WHERE codigo = %s
-                """
-                try:                                 # PK compuesta (migr 0181): filtra por empresa de la sesión
-                    from src.db.empresa import empresa_actual_id as _eai
-                    _emp = _eai()
-                except Exception:
-                    _emp = None
-                sql += " AND (%s IS NULL OR id_empresa = %s)"
-                cursor.execute(sql, (self.articulo_seleccionado, _emp, _emp))
-                conn.commit()
+            # Marcamos flag de incidencia y estampamos el timestamp actual
+            ubi_db.reportar_discrepancia(self.articulo_seleccionado)
 
             # Feedback Visual: Alerta Naranja (Precaución)
             self.info_art.setText("⚠️ " + tr("ubic.discrepancy_reported", default="DISCREPANCIA REPORTADA A LOGÍSTICA"))
@@ -5870,7 +5509,6 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QApplication, QGraphicsView
 
-        from src.db.conexion import obtener_conexion
 
         if not getattr(self, "visor_admin", None):
             return
@@ -5968,89 +5606,16 @@ class UbicacionTiendaWindow(QMainWindow):
 
             ruta_plano_memoria = os.path.basename(ruta_cruda) if ruta_cruda else ""
 
-            # 5. TRANSACCIÓN MARIADB
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT ruta_imagen FROM configuracion_mapa WHERE planta_index = %s",
-                        (planta_idx,),
-                    )
-                    registro = cursor.fetchone()
-
-                    if not ruta_plano_memoria and registro and registro[0]:
-                        ruta_plano_memoria = registro[0]
-
-                    if registro:
-                        sql_upd = """
-                            UPDATE configuracion_mapa SET 
-                                ruta_imagen=%s, matriz_binaria=%s, escala_px_metro=%s, 
-                                muros_vectoriales=%s, puntos_infraestructura=%s, 
-                                ancla_x=%s, ancla_y=%s, fecha_actualizacion=NOW()
-                            WHERE planta_index=%s
-                        """
-                        cursor.execute(
-                            sql_upd,
-                            (
-                                ruta_plano_memoria,
-                                muros_blob,
-                                escala,
-                                muros_json,
-                                infra_json,
-                                ancla_x,
-                                ancla_y,
-                                planta_idx,
-                            ),
-                        )
-                    else:
-                        sql_ins = """
-                            INSERT INTO configuracion_mapa 
-                            (planta_index, ruta_imagen, matriz_binaria, escala_px_metro, 
-                             muros_vectoriales, puntos_infraestructura, ancla_x, ancla_y, fecha_actualizacion)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                        """
-                        cursor.execute(
-                            sql_ins,
-                            (
-                                planta_idx,
-                                ruta_plano_memoria,
-                                muros_blob,
-                                escala,
-                                muros_json,
-                                infra_json,
-                                ancla_x,
-                                ancla_y,
-                            ),
-                        )
-
-                conn.commit()
+            # 5. TRANSACCIÓN MARIADB (upsert del plano completo; conserva la ruta previa si no hay nueva)
+            ruta_plano_memoria = ubi_db.guardar_plano_completo(
+                planta_idx, ruta_plano_memoria, muros_blob, escala,
+                muros_json, infra_json, ancla_x, ancla_y,
+            )
 
             # 5b. FLUSH DE ICONOS PENDIENTES → ubicaciones
             iconos_pendientes = getattr(self, "_iconos_pendientes", [])
             if iconos_pendientes:
-                with obtener_conexion() as conn_ubi:
-                    with conn_ubi.cursor() as cur_ubi:
-                        for icono in iconos_pendientes:
-                            cur_ubi.execute(
-                                """
-                                INSERT INTO ubicaciones
-                                    (epc, pasillo, estanteria, mapa_x, mapa_y, real_x, real_y,
-                                     verificado, fecha_actualizacion)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, NOW())
-                                ON DUPLICATE KEY UPDATE
-                                    mapa_x = VALUES(mapa_x),
-                                    mapa_y = VALUES(mapa_y),
-                                    real_x = VALUES(real_x),
-                                    real_y = VALUES(real_y),
-                                    estanteria = VALUES(estanteria),
-                                    fecha_actualizacion = NOW()
-                                """,
-                                (
-                                    icono["epc"], icono["pasillo"], icono["estanteria"],
-                                    icono["mapa_x"], icono["mapa_y"],
-                                    icono["real_x"], icono["real_y"],
-                                ),
-                            )
-                    conn_ubi.commit()
+                ubi_db.flush_iconos(iconos_pendientes)
                 self._iconos_pendientes = []
 
             # 6. SINCRONIZACIÓN Y REBLOQUEO DE SEGURIDAD
@@ -6105,7 +5670,6 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtCore import QPointF
         from PyQt6.QtWidgets import QApplication
 
-        from src.db.conexion import obtener_conexion
 
         if not self.visor_admin:
             return
@@ -6138,35 +5702,8 @@ class UbicacionTiendaWindow(QMainWindow):
 
             planta_idx = getattr(self, "planta_actual", 0)
 
-            # 4. PERSISTENCIA EN BASE DE DATOS
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT id FROM configuracion_mapa WHERE planta_index = %s",
-                        (planta_idx,),
-                    )
-                    existe = cursor.fetchone()
-
-                    if existe:
-                        query = """
-                            UPDATE configuracion_mapa 
-                            SET escala_px_metro = %s, ancla_x = %s, ancla_y = %s, ruta_imagen = %s, fecha_actualizacion = NOW()
-                            WHERE planta_index = %s
-                        """
-                        cursor.execute(
-                            query, (ratio_x, ancla_x, ancla_y, ruta_mapa, planta_idx)
-                        )
-                    else:
-                        query = """
-                            INSERT INTO configuracion_mapa 
-                            (planta_index, escala_px_metro, ancla_x, ancla_y, ruta_imagen, fecha_actualizacion)
-                            VALUES (%s, %s, %s, %s, %s, NOW())
-                        """
-                        cursor.execute(
-                            query, (planta_idx, ratio_x, ancla_x, ancla_y, ruta_mapa)
-                        )
-
-                    conn.commit()
+            # 4. PERSISTENCIA EN BASE DE DATOS (upsert de calibración)
+            ubi_db.guardar_calibracion(planta_idx, ratio_x, ancla_x, ancla_y, ruta_mapa)
 
             # 5. SINCRONIZACIÓN EN CALIENTE
             for v in [self.visor_admin, getattr(self, "visor_mapa", None)]:
@@ -7075,37 +6612,14 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         from PyQt6.QtCore import QPointF
 
-        from src.db.conexion import obtener_conexion
 
         try:
             termino = termino.strip().upper()
             if not termino:
                 return None
 
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    # 1. PRIORIDAD: INFRAESTRUCTURA (Ubicación fija o Pasillo)
-                    sql_ubi = """
-                        SELECT CONCAT('UBICACIÓN: ', pasillo, '-', estanteria), mapa_x, mapa_y 
-                        FROM ubicaciones 
-                        WHERE (codigo_articulo = %s OR pasillo = %s) 
-                        AND mapa_x IS NOT NULL AND mapa_x != 0 
-                        LIMIT 1
-                    """
-                    cursor.execute(sql_ubi, (termino, termino))
-                    res = cursor.fetchone()
-
-                    # 2. SEGUNDA OPCIÓN: STOCK COMERCIAL (Artículos volátiles)
-                    if not res:
-                        sql_art = """
-                            SELECT nombre, mapa_x, mapa_y 
-                            FROM articulos 
-                            WHERE (nombre LIKE %s OR codigo = %s) 
-                            AND mapa_x IS NOT NULL AND mapa_x != 0 
-                            LIMIT 1
-                        """
-                        cursor.execute(sql_art, (f"%{termino}%", termino))
-                        res = cursor.fetchone()
+            # 1. Infraestructura fija (ubicaciones) y, si no, 2. artículo con coordenadas.
+            res = ubi_db.buscar_destino_gps(termino)
 
             # 3. PROCESAMIENTO DE COORDENADAS (Blindaje de precisión)
             if res:
@@ -7134,7 +6648,6 @@ class UbicacionTiendaWindow(QMainWindow):
         Selector de Nivel: Recarga infraestructura y LIMPIA rastreos activos
         para evitar rutas huérfanas entre plantas.
         """
-        from src.db.conexion import obtener_conexion
 
         actual = getattr(self, "planta_actual", 0)
         nuevo_indice = actual + direccion
@@ -7145,13 +6658,7 @@ class UbicacionTiendaWindow(QMainWindow):
             return
 
         try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT COUNT(*) FROM configuracion_mapa WHERE planta_index = %s",
-                        (nuevo_indice,),
-                    )
-                    existe = cursor.fetchone()[0] > 0
+            existe = ubi_db.existe_planta(nuevo_indice)
 
             if existe:
                 # 1. ACTUALIZACIÓN DE ESTADO
@@ -7209,7 +6716,6 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
         from PyQt6.QtWidgets import QGraphicsView
 
-        from src.db.conexion import obtener_conexion
 
         # 1. VALIDACIÓN DE COMPONENTES
         visor_admin = getattr(self, "visor_admin", None)
@@ -7256,16 +6762,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 print()
 
             # --- 2. EXTRACCIÓN DE DATOS ---
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    sql = """
-                        SELECT ruta_imagen, escala_px_metro, ancla_x, ancla_y, 
-                               muros_vectoriales, puntos_infraestructura 
-                        FROM configuracion_mapa WHERE planta_index = %s 
-                        ORDER BY id DESC LIMIT 1
-                    """
-                    cursor.execute(sql, (p_idx,))
-                    config = cursor.fetchone()
+            config = ubi_db.config_plano(p_idx)
 
             if not config:
                 self._vaciar_plano_en_visores()
@@ -7487,21 +6984,9 @@ class UbicacionTiendaWindow(QMainWindow):
         Cambia el estado de 0 (Naranja) a 1 (Turquesa) en la tabla 'ubicaciones'.
         Garantiza persistencia visual y en DB tras el escaneo.
         """
-        from src.db.conexion import obtener_conexion
-
         try:
-            # Query optimizada: Solo actúa si el estado es 0
-            query = """
-                UPDATE ubicaciones 
-                SET verificado = 1 
-                WHERE codigo_articulo = %s AND verificado = 0
-            """
-
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(query, (qr_id,))
-                    conn.commit()
-                    filas_afectadas = cursor.rowcount
+            # Solo actúa si el estado es 0 (naranja → turquesa)
+            filas_afectadas = ubi_db.marcar_verificado(qr_id)
 
             # 2. Feedback y Sincronización Visual
             if filas_afectadas > 0:
@@ -7612,25 +7097,15 @@ class UbicacionTiendaWindow(QMainWindow):
                 ]
             ]
 
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
-                # Orden lógico de caminata: Pasillo -> Estantería -> Nivel
-                sql = """
-                    SELECT codigo, nombre, pasillo, estanteria, nivel 
-                    FROM articulos 
-                    WHERE pasillo IS NOT NULL AND pasillo != ''
-                    ORDER BY pasillo ASC, CAST(estanteria AS UNSIGNED) ASC, CAST(nivel AS UNSIGNED) ASC
-                """
-                cursor.execute(sql)
-                rows = cursor.fetchall()
-
-                for r in rows:
-                    ubicacion_str = f"{r[2]} - {r[3]} - {r[4]}"
-                    # Truncamos nombre para que no rompa la tabla
-                    nombre_corto = (r[1][:35] + "..") if len(r[1]) > 35 else r[1]
-                    datos_tabla.append(
-                        [r[0], nombre_corto.upper(), ubicacion_str, "[  ]"]
-                    )
+            # Orden lógico de caminata: Pasillo -> Estantería -> Nivel
+            rows = ubi_db.articulos_para_pdf_ubicaciones()
+            for r in rows:
+                ubicacion_str = f"{r[2]} - {r[3]} - {r[4]}"
+                # Truncamos nombre para que no rompa la tabla
+                nombre_corto = (r[1][:35] + "..") if len(r[1]) > 35 else r[1]
+                datos_tabla.append(
+                    [r[0], nombre_corto.upper(), ubicacion_str, "[  ]"]
+                )
 
             # 4. Diseño de la Tabla (Estilo Industrial)
             tabla = Table(datos_tabla, colWidths=[90, 230, 130, 50])
@@ -7778,13 +7253,8 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # 1. OBTENER DATOS DE INFRAESTRUCTURA PENDIENTE
         try:
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
-                # Seleccionamos las que aún no han pasado por la cola de impresión
-                cursor.execute(
-                    "SELECT epc, pasillo, estanteria FROM ubicaciones WHERE impreso = 0"
-                )
-                lista_pendientes = cursor.fetchall()
+            # Seleccionamos las que aún no han pasado por la cola de impresión
+            lista_pendientes = ubi_db.epcs_sin_imprimir()
 
             if not lista_pendientes:
                 QMessageBox.information(
@@ -7868,13 +7338,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
             # 3. ACTUALIZACIÓN MASIVA EN BASE DE DATOS
             # Marcamos como impresas para que no salgan en el próximo PDF
-            with obtener_conexion() as conn:
-                cursor = conn.cursor()
-                for epc_id in epcs_procesados:
-                    cursor.execute(
-                        "UPDATE ubicaciones SET impreso = 1 WHERE epc = %s", (epc_id,)
-                    )
-                conn.commit()
+            ubi_db.marcar_epcs_impresos(epcs_procesados)
 
             # 4. Finalización y Apertura
             if self.window().statusBar():
@@ -7903,7 +7367,6 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtCore import Qt
         from PyQt6.QtGui import QColor, QFont
 
-        from src.db.conexion import obtener_conexion
 
         if not hasattr(self, "lista_articulos_admin"):
             return
@@ -7918,18 +7381,8 @@ class UbicacionTiendaWindow(QMainWindow):
         filtro = filtro.strip().upper()
 
         try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    # Query con prioridad: Incidencias arriba
-                    sql = """
-                        SELECT codigo, nombre, incidencia_ubicacion 
-                        FROM articulos 
-                        WHERE nombre LIKE %s OR codigo LIKE %s
-                        ORDER BY incidencia_ubicacion DESC, nombre ASC
-                    """
-                    term = f"%{filtro}%"
-                    cursor.execute(sql, (term, term))
-                    registros = cursor.fetchall()
+            # Query con prioridad: Incidencias arriba
+            registros = ubi_db.buscar_articulos_admin(filtro)
 
             for cod, nom, inc in registros:
                 icono = "⚠️" if inc else "📦"
@@ -7973,7 +7426,6 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         from PyQt6.QtCore import QPointF, Qt
 
-        from src.db.conexion import obtener_conexion
 
         # --- VALIDACIÓN QUIRÚRGICA ANTI-CRASH ---
         if isinstance(item, bool) or item is None or not hasattr(item, "data"):
@@ -7984,13 +7436,7 @@ class UbicacionTiendaWindow(QMainWindow):
             return
 
         try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT mapa_x, mapa_y FROM ubicaciones WHERE codigo_articulo = %s",
-                        (codigo_ref,),
-                    )
-                    pos = cursor.fetchone()
+            pos = ubi_db.coords_por_articulo(codigo_ref)
 
             if pos:
                 x_px, y_px = pos[0], pos[1]
@@ -8050,7 +7496,6 @@ class UbicacionTiendaWindow(QMainWindow):
             QVBoxLayout,
         )
 
-        from src.db.conexion import obtener_conexion
 
         dialogo = QDialog(self)
         dialogo.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
@@ -8092,17 +7537,12 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # Carga de sugerencias
         try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT codigo_articulo FROM ubicaciones WHERE mapa_x != 0"
-                    )
-                    lista_sugerencias = [row[0] for row in cursor.fetchall()]
-                    completer = QCompleter(lista_sugerencias)
-                    completer.setFilterMode(Qt.MatchFlag.MatchContains)
-                    search_input.setCompleter(completer)
-                    from assets.estilo_global import estilizar_completer
-                    estilizar_completer(completer)
+            lista_sugerencias = ubi_db.articulos_ubicados()
+            completer = QCompleter(lista_sugerencias)
+            completer.setFilterMode(Qt.MatchFlag.MatchContains)
+            search_input.setCompleter(completer)
+            from assets.estilo_global import estilizar_completer
+            estilizar_completer(completer)
         except:
             pass
 
@@ -8224,18 +7664,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # Fetch plan name and check whether a plan actually exists for this index
         nombre_plano = f"PLANTA {planta_idx}"
-        row = None
-        try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "SELECT COALESCE(tipo,'LOCAL'), titulo_plano, ruta_imagen "
-                        "FROM configuracion_mapa WHERE planta_index=%s",
-                        (planta_idx,),
-                    )
-                    row = cursor.fetchone()
-        except Exception:
-            pass
+        row = ubi_db.plano_info_completo(planta_idx)
 
         # If no plan is loaded, show an informative message instead of the delete dialog
         plano_existe = row is not None and bool(row[2])  # ruta_imagen must be non-empty
@@ -8354,28 +7783,10 @@ class UbicacionTiendaWindow(QMainWindow):
             return
 
         try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        "DELETE FROM configuracion_mapa WHERE planta_index = %s",
-                        (planta_idx,),
-                    )
-                conn.commit()
+            ubi_db.eliminar_planta(planta_idx)
 
             # Navigate to another available plan after deletion
-            siguiente_idx = None
-            try:
-                with obtener_conexion() as conn:
-                    with conn.cursor() as cursor:
-                        cursor.execute(
-                            "SELECT planta_index FROM configuracion_mapa "
-                            "WHERE ruta_imagen IS NOT NULL AND ruta_imagen != '' "
-                            "ORDER BY planta_index ASC LIMIT 1"
-                        )
-                        row2 = cursor.fetchone()
-                siguiente_idx = int(row2[0]) if row2 else None
-            except Exception:
-                pass
+            siguiente_idx = ubi_db.primera_planta_con_imagen()
 
             self._vaciar_plano_en_visores()
             self._reiniciar_historial_planta(planta_idx)
@@ -8495,24 +7906,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt.addWidget(search_input)
 
         try:
-            sugerencias = []
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SELECT codigo FROM articulos WHERE codigo IS NOT NULL AND codigo != ''
-                        UNION
-                        SELECT nombre FROM articulos WHERE nombre IS NOT NULL AND nombre != ''
-                        UNION
-                        SELECT CONCAT_WS(' ', pasillo, estanteria, balda) FROM ubicaciones
-                        WHERE pasillo IS NOT NULL AND pasillo != ''
-                        """
-                    )
-                    sugerencias = [
-                        str(row[0]).upper()
-                        for row in cursor.fetchall()
-                        if row and row[0]
-                    ]
+            sugerencias = ubi_db.sugerencias_busqueda()
             if sugerencias:
                 completer = QCompleter(sorted(set(sugerencias)))
                 completer.setFilterMode(Qt.MatchFlag.MatchContains)
@@ -8712,7 +8106,6 @@ class UbicacionTiendaWindow(QMainWindow):
 
         from PyQt6.QtWidgets import QMessageBox
 
-        from src.db.conexion import obtener_conexion
 
         try:
             from reportlab.lib import colors
@@ -8774,39 +8167,30 @@ class UbicacionTiendaWindow(QMainWindow):
                 ["ID", "PRODUCTO", "CÓDIGO EPC", "EJE X (px)", "EJE Y (px)", "ESTADO"]
             ]
 
-            with obtener_conexion() as conn:
-                with conn.cursor() as cursor:
-                    # Buscamos artículos que tengan coordenadas asignadas
-                    sql = """
-                        SELECT codigo, nombre, mapa_x, mapa_y 
-                        FROM articulos 
-                        WHERE mapa_x IS NOT NULL 
-                        ORDER BY nombre ASC
-                    """
-                    cursor.execute(sql)
-                    rows = cursor.fetchall()
+            # Buscamos artículos que tengan coordenadas asignadas
+            rows = ubi_db.articulos_con_coordenadas()
 
-                    if not rows:
-                        QMessageBox.warning(
-                            self,
-                            "AVISO",
-                            "No hay artículos con coordenadas mapeadas para exportar.",
-                        )
-                        return
+            if not rows:
+                QMessageBox.warning(
+                    self,
+                    "AVISO",
+                    "No hay artículos con coordenadas mapeadas para exportar.",
+                )
+                return
 
-                    for i, f in enumerate(rows):
-                        datos_tabla.append(
-                            [
-                                str(i + 1),
-                                str(f[1])[
-                                    :30
-                                ].upper(),  # Nombre truncado para evitar desbordamiento
-                                str(f[0]),
-                                f"{float(f[2]):.1f}",
-                                f"{float(f[3]):.1f}",
-                                "MAPEADO",
-                            ]
-                        )
+            for i, f in enumerate(rows):
+                datos_tabla.append(
+                    [
+                        str(i + 1),
+                        str(f[1])[
+                            :30
+                        ].upper(),  # Nombre truncado para evitar desbordamiento
+                        str(f[0]),
+                        f"{float(f[2]):.1f}",
+                        f"{float(f[3]):.1f}",
+                        "MAPEADO",
+                    ]
+                )
 
             # 4. DISEÑO DE TABLA 'INDUSTRIAL DARK'
             # Ancho de columnas optimizado para A4
@@ -9887,7 +9271,6 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         import time
 
-        from src.db.conexion import obtener_conexion
 
         # 1. ESCUDO ANTI-SPAM (Throttling)
         # Evita colapsar la base de datos si el icono se arrastra muy rápido
@@ -9919,18 +9302,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 m_y = round(float(metros_y), 3)
 
             # 3. PERSISTENCIA EN MARIA DB
-            with obtener_conexion() as conn:
-                if conn:
-                    with conn.cursor() as cursor:
-                        query = """
-                            UPDATE ubicaciones 
-                            SET mapa_x = %s, mapa_y = %s, x_metros = %s, y_metros = %s, fecha_actualizacion = NOW()
-                            WHERE epc = %s
-                        """
-                        cursor.execute(query, (x_px, y_px, m_x, m_y, epc))
-                    conn.commit()
-                else:
-                    raise Exception("No se pudo obtener conexión del pool.")
+            ubi_db.actualizar_coords_epc(epc, x_px, y_px, m_x, m_y)
 
             # 4. FEEDBACK VISUAL (Solo si se fuerza o se suelta el icono)
             if forzar_update:
@@ -12332,12 +11704,6 @@ class VistaMapa(QGraphicsView):
             QVBoxLayout,
         )
 
-        # Importación perezosa de la conexión
-        try:
-            from src.db.conexion import obtener_conexion
-        except ImportError:
-            pass
-
         activo_id = item.data(0)
 
         # 1. Configuración del Diálogo Estilo Neón
@@ -12427,12 +11793,7 @@ class VistaMapa(QGraphicsView):
         if diag.exec() == QDialog.DialogCode.Accepted:
             try:
                 # A. Borrado en MariaDB
-                with obtener_conexion() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "DELETE FROM ubicaciones WHERE epc = %s", (activo_id,)
-                    )
-                    conn.commit()
+                ubi_db.eliminar_por_epc(activo_id)
 
                 # B. Sincronización de Lista Interna
                 if hasattr(self, "puntos_interactivos"):
