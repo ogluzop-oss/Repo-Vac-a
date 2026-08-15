@@ -310,10 +310,14 @@ def ubicacion_por_articulo(codigo):
 
 
 def nombre_y_coords_por_articulo(codigo):
-    """(nombre, mapa_x, mapa_y) del punto de ubicación del artículo, o None."""
+    """(nombre, mapa_x, mapa_y) del punto de ubicación del artículo, o None. El nombre viene de
+    `articulos` (la tabla `ubicaciones` no tiene columna `nombre`)."""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT nombre, mapa_x, mapa_y FROM ubicaciones WHERE codigo_articulo=%s", (codigo,))
+            cur.execute(
+                "SELECT a.nombre, u.mapa_x, u.mapa_y FROM ubicaciones u "
+                "LEFT JOIN articulos a ON a.codigo = u.codigo_articulo "
+                "WHERE u.codigo_articulo=%s LIMIT 1", (codigo,))
             return cur.fetchone()
     except Exception:
         return None
@@ -445,12 +449,16 @@ def flush_iconos(iconos) -> int:
 
 
 def asignar_ubicacion(codigo, pasillo, estanteria, nivel, es_lineal) -> dict:
-    """Transacción completa de asignación de ubicación de un artículo:
+    """Transacción completa de asignación de ubicación de un artículo.
 
-    1) Actualiza la ubicación comercial en `articulos` (tienda LINEAL o almacén) y limpia incidencia.
+    Modelo de datos (migr 0105): la ubicación ESTRUCTURADA (pasillo/estantería/balda/coordenadas/
+    incidencia) vive en `ubicaciones` por `codigo_articulo`; `articulos` solo guarda la cadena legible
+    (`ubicacion_tienda`/`ubicacion_almacen`). Antes esta función escribía `articulos.pasillo/estanteria/
+    nivel/mapa_x` (columnas inexistentes) y fallaba en silencio; ahora:
+
+    1) Guarda la cadena legible en `articulos.ubicacion_tienda`/`ubicacion_almacen`.
     2) Busca coordenadas de mapa de esa estantería en `ubicaciones`.
-    3) Upsert del artículo en `ubicaciones` (tabla técnica) con esas coordenadas.
-    4) Si hay coordenadas, las sincroniza también en `articulos`.
+    3) Upsert del artículo en `ubicaciones` con pasillo/estantería/balda/coordenadas y limpia incidencia.
 
     Devuelve {ok, con_coordenadas, mapa_x, mapa_y}.
     """
@@ -458,18 +466,10 @@ def asignar_ubicacion(codigo, pasillo, estanteria, nivel, es_lineal) -> dict:
     ubicacion_legible = f"{pasillo}-{estanteria}-{nivel}"
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            if es_lineal:
-                cur.execute(
-                    "UPDATE articulos SET pasillo=%s, estanteria=%s, nivel=%s, ubicacion_tienda=%s, "
-                    "incidencia_ubicacion=0, ultima_actualizacion=NOW() "
-                    "WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
-                    (pasillo, estanteria, nivel, ubicacion_legible, codigo, emp, emp))
-            else:
-                cur.execute(
-                    "UPDATE articulos SET pasillo_almacen=%s, estanteria_almacen=%s, nivel_almacen=%s, "
-                    "ubicacion_almacen=%s, incidencia_ubicacion=0, ultima_actualizacion=NOW() "
-                    "WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
-                    (pasillo, estanteria, nivel, ubicacion_legible, codigo, emp, emp))
+            col_txt = "ubicacion_tienda" if es_lineal else "ubicacion_almacen"
+            cur.execute(
+                f"UPDATE articulos SET {col_txt}=%s WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
+                (ubicacion_legible, codigo, emp, emp))
 
             cur.execute(
                 "SELECT mapa_x, mapa_y FROM ubicaciones "
@@ -482,19 +482,15 @@ def asignar_ubicacion(codigo, pasillo, estanteria, nivel, es_lineal) -> dict:
             mapa_y = float(coord[1]) if coord else None
 
             cur.execute(
-                "INSERT INTO ubicaciones (codigo_articulo, pasillo, estanteria, balda, mapa_x, mapa_y, verificado) "
-                "VALUES (%s, %s, %s, %s, %s, %s, 1) "
+                "INSERT INTO ubicaciones "
+                "(codigo_articulo, pasillo, estanteria, balda, mapa_x, mapa_y, verificado, incidencia_ubicacion) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 1, 0) "
                 "ON DUPLICATE KEY UPDATE pasillo=VALUES(pasillo), estanteria=VALUES(estanteria), "
                 "balda=VALUES(balda), mapa_x=COALESCE(VALUES(mapa_x), mapa_x), "
-                "mapa_y=COALESCE(VALUES(mapa_y), mapa_y), "
+                "mapa_y=COALESCE(VALUES(mapa_y), mapa_y), incidencia_ubicacion=0, "
                 "verificado=IF(COALESCE(VALUES(mapa_x), mapa_x) IS NULL "
                 "AND COALESCE(VALUES(mapa_y), mapa_y) IS NULL, verificado, 1)",
                 (codigo, pasillo, estanteria, nivel, mapa_x, mapa_y))
-
-            if coord:
-                cur.execute(
-                    "UPDATE articulos SET mapa_x=%s, mapa_y=%s WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
-                    (mapa_x, mapa_y, codigo, emp, emp))
             conn.commit()
         return {"ok": True, "con_coordenadas": bool(coord), "mapa_x": mapa_x, "mapa_y": mapa_y}
     except Exception as e:
@@ -607,8 +603,10 @@ def buscar_destino_gps(termino):
             res = cur.fetchone()
             if not res:
                 cur.execute(
-                    "SELECT nombre, mapa_x, mapa_y FROM articulos "
-                    "WHERE (nombre LIKE %s OR codigo=%s) AND mapa_x IS NOT NULL AND mapa_x != 0 LIMIT 1",
+                    "SELECT a.nombre, u.mapa_x, u.mapa_y FROM articulos a "
+                    "JOIN ubicaciones u ON u.codigo_articulo = a.codigo "
+                    "WHERE (a.nombre LIKE %s OR a.codigo=%s) "
+                    "AND u.mapa_x IS NOT NULL AND u.mapa_x != 0 LIMIT 1",
                     (f"%{termino}%", termino))
                 res = cur.fetchone()
             return res
@@ -644,38 +642,45 @@ def actualizar_coords_epc(epc, x_px, y_px, m_x, m_y) -> bool:
 
 
 def articulos_para_pdf_ubicaciones() -> list:
-    """[(codigo, nombre, pasillo, estanteria, nivel)] de artículos con ubicación, en orden de caminata."""
+    """[(codigo, nombre, pasillo, estanteria, balda)] de artículos con ubicación, en orden de caminata.
+    Pasillo/estantería/balda viven en `ubicaciones` (migr 0105), no en `articulos`."""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT codigo, nombre, pasillo, estanteria, nivel FROM articulos "
-                "WHERE pasillo IS NOT NULL AND pasillo != '' "
-                "ORDER BY pasillo ASC, CAST(estanteria AS UNSIGNED) ASC, CAST(nivel AS UNSIGNED) ASC")
+                "SELECT a.codigo, a.nombre, u.pasillo, u.estanteria, u.balda "
+                "FROM articulos a JOIN ubicaciones u ON u.codigo_articulo = a.codigo "
+                "WHERE u.pasillo IS NOT NULL AND u.pasillo != '' "
+                "ORDER BY u.pasillo ASC, CAST(u.estanteria AS UNSIGNED) ASC, CAST(u.balda AS UNSIGNED) ASC")
             return list(cur.fetchall())
     except Exception:
         return []
 
 
 def articulos_con_coordenadas() -> list:
-    """[(codigo, nombre, mapa_x, mapa_y)] de artículos con coordenada de mapa asignada."""
+    """[(codigo, nombre, mapa_x, mapa_y)] de artículos con coordenada de mapa asignada (en `ubicaciones`)."""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT codigo, nombre, mapa_x, mapa_y FROM articulos "
-                        "WHERE mapa_x IS NOT NULL ORDER BY nombre ASC")
+            cur.execute(
+                "SELECT a.codigo, a.nombre, u.mapa_x, u.mapa_y "
+                "FROM articulos a JOIN ubicaciones u ON u.codigo_articulo = a.codigo "
+                "WHERE u.mapa_x IS NOT NULL AND u.mapa_x != 0 ORDER BY a.nombre ASC")
             return list(cur.fetchall())
     except Exception:
         return []
 
 
 def buscar_articulos_admin(filtro) -> list:
-    """[(codigo, nombre, incidencia_ubicacion)] por filtro (nombre/código), incidencias primero."""
+    """[(codigo, nombre, incidencia_ubicacion)] por filtro (nombre/código), incidencias primero.
+    La marca de incidencia vive en `ubicaciones` (migr 0105)."""
     term = f"%{filtro}%"
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT codigo, nombre, incidencia_ubicacion FROM articulos "
-                "WHERE nombre LIKE %s OR codigo LIKE %s "
-                "ORDER BY incidencia_ubicacion DESC, nombre ASC", (term, term))
+                "SELECT a.codigo, a.nombre, COALESCE(MAX(u.incidencia_ubicacion), 0) AS inc "
+                "FROM articulos a LEFT JOIN ubicaciones u ON u.codigo_articulo = a.codigo "
+                "WHERE a.nombre LIKE %s OR a.codigo LIKE %s "
+                "GROUP BY a.codigo, a.nombre "
+                "ORDER BY inc DESC, a.nombre ASC", (term, term))
             return list(cur.fetchall())
     except Exception:
         return []
@@ -696,13 +701,13 @@ def sugerencias_busqueda() -> list:
 
 
 def reportar_incidencia_ubicacion(codigo) -> bool:
-    """Marca incidencia de ubicación (incidencia_ubicacion=1, ultima_actualizacion) del artículo."""
-    emp = _emp()
+    """Marca incidencia de ubicación (incidencia_ubicacion=1) del artículo. La marca vive en
+    `ubicaciones` (migr 0105), no en `articulos`."""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE articulos SET incidencia_ubicacion=1, ultima_actualizacion=NOW() "
-                "WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)", (codigo, emp, emp))
+                "UPDATE ubicaciones SET incidencia_ubicacion=1, fecha_actualizacion=NOW() "
+                "WHERE codigo_articulo=%s", (codigo,))
             conn.commit()
         return True
     except Exception as e:
@@ -711,13 +716,12 @@ def reportar_incidencia_ubicacion(codigo) -> bool:
 
 
 def reportar_discrepancia(codigo) -> bool:
-    """Registra una discrepancia de stock/ubicación (incidencia_ubicacion=1, ultima_incidencia)."""
-    emp = _emp()
+    """Registra una discrepancia de stock/ubicación (incidencia_ubicacion=1) en `ubicaciones`."""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
-                "UPDATE articulos SET incidencia_ubicacion=1, ultima_incidencia=NOW() "
-                "WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)", (codigo, emp, emp))
+                "UPDATE ubicaciones SET incidencia_ubicacion=1, fecha_actualizacion=NOW() "
+                "WHERE codigo_articulo=%s", (codigo,))
             conn.commit()
         return True
     except Exception as e:
