@@ -47,6 +47,8 @@ src/documentos/
 # Caché de traducción IA y ajustes locales (por si se generan fuera)
 ai_translate_cache.json
 app_settings.json
+# Edición elegida en el onboarding (per-install): NO versionar; cada instalación decide su tipo de comercio.
+config_edicion.json
 
 # ── Logs ────────────────────────────────────────────────────
 *.log
