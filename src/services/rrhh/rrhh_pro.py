@@ -21,6 +21,15 @@ def _emp(id_empresa=None):
         return fuentes.emp(id_empresa)
 
 
+def _tid(valor):
+    """Coacciona id_tienda a la convención INT unificada (migr 0195): None/'' = sin tienda (NULL); el
+    resto (código 'ALMC' incluido) al entero canónico (código no numérico → 0)."""
+    if valor is None or valor == "":
+        return None
+    from src.db.empresa import tienda_actual_id_int
+    return tienda_actual_id_int(valor)
+
+
 def _audit(accion, detalle, tabla):
     try:
         from src.db.conexion import log_auditoria
@@ -233,7 +242,7 @@ def planificar_turno(id_empleado, fecha, *, hora_inicio=None, hora_fin=None, rol
         with obtener_conexion() as c, c.cursor() as cur:
             cur.execute("INSERT INTO rrhh_turnos_plan (id_empresa, id_tienda, id_empleado, fecha, "
                         "hora_inicio, hora_fin, rol) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                        (emp, id_tienda, id_empleado, fecha, hora_inicio, hora_fin, rol))
+                        (emp, _tid(id_tienda), id_empleado, fecha, hora_inicio, hora_fin, rol))
             tid = cur.lastrowid
             c.commit()
         _audit("TURNO_PLANIFICADO", f"{tid}:emp{id_empleado} {fecha}", "rrhh_turnos_plan")
@@ -252,7 +261,7 @@ def cuadrante(fecha_desde, fecha_hasta, *, id_tienda=None, id_empleado=None, id_
             q = ("SELECT * FROM rrhh_turnos_plan WHERE id_empresa<=>%s AND fecha BETWEEN %s AND %s")
             p = [emp, fecha_desde, fecha_hasta]
             if id_tienda is not None:
-                q += " AND id_tienda<=>%s"; p.append(id_tienda)
+                q += " AND id_tienda<=>%s"; p.append(_tid(id_tienda))
             if id_empleado is not None:
                 q += " AND id_empleado=%s"; p.append(id_empleado)
             q += " ORDER BY fecha, hora_inicio"

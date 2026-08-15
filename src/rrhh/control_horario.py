@@ -19,6 +19,15 @@ from src.db.empresa import empresa_actual_id
 
 logger = logging.getLogger("rrhh.control_horario")
 
+
+def _tid(valor):
+    """Coacciona id_tienda a la convención INT unificada (migr 0195): None/'' = sin tienda (NULL); el
+    resto (código 'ALMC' incluido) al entero canónico (código no numérico → 0)."""
+    if valor is None or valor == "":
+        return None
+    from src.db.empresa import tienda_actual_id_int
+    return tienda_actual_id_int(valor)
+
 TIPOS_PAUSA = {"comida": "Comida", "descanso": "Descanso", "medico": "Médico", "otros": "Otros"}
 JORNADA_DEFECTO_MIN = 480   # 8 h
 
@@ -108,7 +117,7 @@ def registrar_jornada(id_empleado, fecha, hora_entrada, hora_salida=None, pausas
                 "hora_entrada, hora_salida, pausa_segundos, tiempo_efectivo_min, "
                 "planificada_min, exceso_min, deficit_min, observaciones, usuario_registro, "
                 "origen) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (id_empresa, id_tienda or "", id_empleado, fch.isoformat(),
+                (id_empresa, _tid(id_tienda), id_empleado, fch.isoformat(),
                  ent, sal, pausa_seg, efectivo_min, int(planificada_min or 0), exceso, deficit,
                  observaciones, usuario, origen))
             jid = cur.lastrowid
@@ -151,7 +160,7 @@ def listar_jornadas(id_empleado, id_empresa=None, desde=None, hasta=None, id_tie
     if hasta:
         filtros.append("fecha<=%s"); params.append(_fecha(hasta).isoformat())
     if id_tienda is not None:
-        filtros.append("id_tienda=%s"); params.append(id_tienda)
+        filtros.append("id_tienda=%s"); params.append(_tid(id_tienda))
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:

@@ -155,10 +155,10 @@ def test_expediente_incluye_control_horario(db, fab):
 def test_multitienda_filtro(db, fab):
     emp, eid = _emp(db, fab)
     CH.registrar_jornada(eid, "2026-06-13", "2026-06-13 09:00", "2026-06-13 17:00",
-                         id_empresa=emp, id_tienda="T1")
+                         id_empresa=emp, id_tienda=1)   # id_tienda unificado a INT (migr 0195)
     CH.registrar_jornada(eid, "2026-06-14", "2026-06-14 09:00", "2026-06-14 17:00",
-                         id_empresa=emp, id_tienda="T2")
-    assert len(CH.listar_jornadas(eid, emp, id_tienda="T1")) == 1
+                         id_empresa=emp, id_tienda=2)
+    assert len(CH.listar_jornadas(eid, emp, id_tienda=1)) == 1
     assert len(CH.listar_jornadas(eid, emp)) == 2
 
 

@@ -14,6 +14,15 @@ from src.db.empresa import empresa_actual_id
 
 logger = logging.getLogger("rrhh.empleados")
 
+
+def _tid(valor):
+    """Coacciona id_tienda a INT (migr 0195). El empleado SIEMPRE pertenece a una tienda (columna NOT
+    NULL): sin contexto o central ('ALMC') → 0 (nunca NULL); tienda concreta → su entero."""
+    if valor is None or valor == "":
+        return 0
+    from src.db.empresa import tienda_actual_id_int
+    return tienda_actual_id_int(valor)
+
 _PERMITIDOS = (
     "id_tienda", "id_usuario", "nombre", "apellidos", "sexo", "fecha_nacimiento",
     "nacionalidad", "nif", "num_ss", "direccion", "municipio", "provincia", "cp",
@@ -33,6 +42,8 @@ def crear_empleado(id_empresa=None, **campos) -> int | None:
     datos = {k: campos.get(k) for k in _PERMITIDOS if k in campos}
     datos["nombre"] = nombre
     datos["nif"] = nif
+    if "id_tienda" in datos:
+        datos["id_tienda"] = _tid(datos["id_tienda"])   # convención INT/NULL (migr 0195)
     cols = ["id_empresa"] + list(datos.keys())
     vals = [id_empresa] + list(datos.values())
     ph = ", ".join(["%s"] * len(cols))
@@ -114,6 +125,8 @@ def actualizar_empleado(id_empleado, id_empresa=None, **campos) -> bool:
     sets = {k: campos[k] for k in _PERMITIDOS if k in campos}
     if "nif" in sets and sets["nif"]:
         sets["nif"] = str(sets["nif"]).strip().upper()
+    if "id_tienda" in sets:
+        sets["id_tienda"] = _tid(sets["id_tienda"])   # convención INT/NULL (migr 0195)
     if not sets:
         return False
     cols = ", ".join(f"{k}=%s" for k in sets)
