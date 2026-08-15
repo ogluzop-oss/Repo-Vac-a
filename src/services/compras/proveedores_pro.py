@@ -186,6 +186,14 @@ def bolsa_precios(codigo_articulo, *, id_proveedor=None, unidad_medida=None, ord
         cond.append("(pn.fecha_fin IS NULL OR pn.fecha_fin>=CURDATE())")
     if solo_activos:
         cond.append("(p.estado IS NULL OR p.estado='activo')")
+    # Solo la tarifa MÁS RECIENTE por (proveedor, artículo, unidad): la tabla es versionada (un alta por
+    # cambio de precio / cada import), así que la bolsa muestra el precio ACTUAL, no el histórico.
+    cond.append(
+        "pn.id = (SELECT MAX(pn2.id) FROM proveedor_precios_negociados pn2 "
+        "WHERE pn2.id_empresa<=>pn.id_empresa AND pn2.id_proveedor=pn.id_proveedor "
+        "AND pn2.codigo_articulo=pn.codigo_articulo AND pn2.unidad_medida=pn.unidad_medida "
+        "AND (pn2.fecha_inicio IS NULL OR pn2.fecha_inicio<=CURDATE()) "
+        "AND (pn2.fecha_fin IS NULL OR pn2.fecha_fin>=CURDATE()))")
     try:
         from src.db.conexion import obtener_conexion
         with obtener_conexion() as c, c.cursor() as cur:
@@ -205,6 +213,67 @@ def bolsa_precios(codigo_articulo, *, id_proveedor=None, unidad_medida=None, ord
     except Exception as e:
         logger.error("bolsa_precios(%s): %s", codigo_articulo, e)
         return []
+
+
+# Sinónimos de columnas para autodetectar el mapeo al importar tarifas.
+_SINONIMOS_TARIFA = {
+    "codigo": ("codigo", "codigoarticulo", "sku", "ean", "referencia", "ref", "articulo"),
+    "precio": ("precio", "price", "pvp", "coste", "importe", "preciounitario"),
+    "unidad": ("unidad", "unidadmedida", "uom", "um"),
+    "descuento": ("descuento", "dto", "discount"),
+    "cantidad_minima": ("cantidadminima", "minimo", "moq", "cantmin"),
+}
+
+
+def importar_tarifas_proveedor(id_proveedor, ruta, *, mapeo=None, unidad_defecto="unidad",
+                               id_empresa=None) -> dict:
+    """Importa las tarifas de UN proveedor desde un fichero, REUTILIZANDO los lectores del Importador
+    Maestro (`importacion.leer` → CSV/TSV/Excel/JSON/Parquet/BMECAT/EDIFACT-PRICAT). Cada fila válida da de
+    alta una tarifa (`set_precio_negociado`); como la tabla es versionada, la bolsa mostrará la más
+    reciente. `mapeo` opcional = {destino: nombre_columna}; si falta, se autodetectan nombres canónicos
+    (código/precio/unidad/descuento/cantidad_minima). Devuelve {total, importadas, errores}."""
+    from src.services.importacion.lectores import leer
+    from src.services.importacion.modelo import _norm, parse_precio
+    try:
+        filas, _cols = leer(ruta)
+    except Exception as e:
+        logger.error("importar_tarifas_proveedor: leer %s: %s", ruta, e)
+        return {"total": 0, "importadas": 0, "errores": 1, "error": str(e)[:200]}
+
+    mapeo = mapeo or {}
+
+    def _col(destino, fila):
+        if destino in mapeo and mapeo[destino] in fila:
+            return fila.get(mapeo[destino])
+        objetivo = _SINONIMOS_TARIFA.get(destino, ())
+        for k, v in fila.items():
+            if _norm(str(k)) in objetivo:
+                return v
+        return None
+
+    total = importadas = errores = 0
+    for fila in filas:
+        total += 1
+        try:
+            cod = str(_col("codigo", fila) or "").strip().upper()
+            precio = parse_precio(_col("precio", fila))
+            if not cod or precio is None:
+                errores += 1
+                continue
+            uni = _col("unidad", fila) or unidad_defecto
+            dto = parse_precio(_col("descuento", fila)) or 0
+            qmin = str(_col("cantidad_minima", fila) or "").strip()
+            pid = set_precio_negociado(id_proveedor, cod, float(precio), unidad_medida=uni,
+                                       descuento=float(dto or 0),
+                                       cantidad_minima=int(qmin) if qmin.isdigit() else 1,
+                                       id_empresa=id_empresa)
+            importadas += 1 if pid else 0
+            errores += 0 if pid else 1
+        except Exception as e:
+            logger.debug("importar_tarifas_proveedor fila: %s", e)
+            errores += 1
+    _audit("PROV_TARIFAS_IMPORT", f"{id_proveedor}:{importadas}/{total}", "proveedor_precios_negociados")
+    return {"total": total, "importadas": importadas, "errores": errores}
 
 
 # ── Renovaciones automáticas (job del Scheduler existente) ──────────────────

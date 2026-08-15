@@ -13,8 +13,8 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QFrame,
-                             QHBoxLayout, QLabel, QPushButton, QStackedWidget,
+from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+                             QFrame, QHBoxLayout, QLabel, QPushButton, QStackedWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.db import compras as C
@@ -171,6 +171,8 @@ class ComprasWindow(QWidget):
             form.addWidget(x)
         form.addWidget(_btn(tr("compras.nuevo", default="NUEVO"), self._nuevo_proveedor, primary=True))
         form.addWidget(_btn(tr("compras.guardar", default="GUARDAR"), self._guardar_proveedor, primary=True))
+        form.addWidget(_btn(tr("compras.import_tarifas", default="📥  IMPORTAR TARIFAS"),
+                            self._importar_tarifas, primary=True))
         ly.addLayout(form)
         self.tbl_prov = _tabla(["ID", tr("compras.razon", default="Razón social"), "CIF/NIF",
                                 "Email", "Teléfono", tr("compras.estado", default="Estado")])
@@ -199,6 +201,28 @@ class ComprasWindow(QWidget):
             self.in_prov_tel.setText(self.tbl_prov.item(row, 4).text())
         except Exception:
             self._prov_sel = None
+
+    def _importar_tarifas(self):
+        """Importa la lista de precios del proveedor SELECCIONADO desde un fichero (reutiliza el
+        Importador Maestro: CSV/Excel/JSON/PRICAT/BMECAT). Alimenta la bolsa de proveedores."""
+        if not getattr(self, "_prov_sel", None):
+            _aviso(self, tr("compras.proveedores", default="Proveedores"),
+                   tr("compras.sel_prov_tarifa",
+                      default="Selecciona un proveedor en la tabla antes de importar sus tarifas."),
+                   "warning")
+            return
+        ruta, _ = QFileDialog.getOpenFileName(
+            self, tr("compras.import_tarifas", default="Importar tarifas"), "",
+            "Tarifas (*.csv *.tsv *.txt *.xlsx *.json *.jsonl *.xml *.edi *.txt);;Todos (*.*)")
+        if not ruta:
+            return
+        from src.services.compras import proveedores_pro as PP
+        r = PP.importar_tarifas_proveedor(self._prov_sel, ruta)
+        _aviso(self, tr("compras.import_tarifas", default="Importar tarifas"),
+               tr("compras.import_tarifas_ok",
+                  default="Importadas {i} de {t} tarifas (errores: {e}).",
+                  i=r.get("importadas", 0), t=r.get("total", 0), e=r.get("errores", 0)),
+               "success" if r.get("errores", 0) == 0 else "warning")
 
     def _guardar_proveedor(self):
         razon = self.in_prov_razon.text().strip()
