@@ -34,6 +34,15 @@ def _emp(id_empresa=None):
         return fuentes.emp(id_empresa)
 
 
+def _tid(valor):
+    """Coacciona id_tienda a INT (migr 0196): None/'' = sin tienda (NULL, consulta null-safe con <=>);
+    el resto (código 'ALMC' incluido) al entero canónico (código no numérico → 0)."""
+    if valor is None or valor == "":
+        return None
+    from src.db.empresa import tienda_actual_id_int
+    return tienda_actual_id_int(valor)
+
+
 def _audit(accion, detalle, tabla="tpv_tickets_aparcados"):
     try:
         from src.db.conexion import log_auditoria
@@ -58,7 +67,7 @@ def aparcar_ticket(lineas, *, total=0, referencia=None, cliente=None, id_tienda=
         with obtener_conexion() as c, c.cursor() as cur:
             cur.execute("INSERT INTO tpv_tickets_aparcados (id_empresa, id_tienda, caja, referencia, "
                         "cliente, lineas, total, usuario) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (emp, id_tienda, int(caja or 1), referencia, cliente,
+                        (emp, _tid(id_tienda), int(caja or 1), referencia, cliente,
                          json.dumps(lineas, ensure_ascii=False, default=str), float(total or 0), usuario))
             tid = cur.lastrowid
             c.commit()
@@ -77,7 +86,7 @@ def tickets_aparcados(id_empresa=None, *, id_tienda=None, caja=None) -> list:
             q = "SELECT * FROM tpv_tickets_aparcados WHERE id_empresa<=>%s AND estado='APARCADO'"
             p = [emp]
             if id_tienda is not None:
-                q += " AND id_tienda<=>%s"; p.append(id_tienda)
+                q += " AND id_tienda<=>%s"; p.append(_tid(id_tienda))
             if caja is not None:
                 q += " AND caja=%s"; p.append(int(caja))
             q += " ORDER BY creado DESC"
