@@ -1,0 +1,43 @@
+# Dependabot — actualizaciones automáticas de dependencias + alertas de seguridad.
+# Abre PRs (que pasan por la CI) cuando hay versiones nuevas o vulnerabilidades conocidas.
+# Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates
+version: 2
+updates:
+  # Dependencias Python (runtime + desarrollo).
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Madrid"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencias"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+    # Agrupar en un solo PR para reducir ruido; las de seguridad se abren aparte igualmente.
+    groups:
+      python-runtime:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Acciones de GitHub usadas en los workflows de CI.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Madrid"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencias"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
