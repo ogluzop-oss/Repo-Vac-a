@@ -6159,6 +6159,116 @@ class _CantidadDialog(QDialog):
             pass
 
 
+class _CantidadMultipleDialog(QDialog):
+    """Pide la CANTIDAD de CADA producto seleccionado (multiselección del TPV Bakery). Una fila por
+    producto con pasos +/–; al aceptar, `cantidades` = {codigo: unidades}."""
+
+    def __init__(self, productos, parent=None):
+        super().__init__(parent)
+        self.cantidades = {p["codigo"]: 1 for p in productos}
+        self._labels = {}
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(500)
+        self.setMaximumHeight(660)
+        main = QVBoxLayout(self); main.setContentsMargins(0, 0, 0, 0)
+        cont = QFrame()
+        cont.setStyleSheet(f"QFrame{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
+        main.addWidget(cont)
+        ly = QVBoxLayout(cont); ly.setContentsMargins(18, 16, 18, 16); ly.setSpacing(10)
+        ly.addWidget(_lbl(tr("tpv.qty_multi_title", default="Cantidades"), bold=True, size=16, color=_CIAN))
+        ly.addWidget(_lbl(tr("tpv.qty_multi_sub",
+                              default="Indica las unidades de cada producto seleccionado."),
+                          size=12, color=_TEXT2))
+
+        from src.gui.foundation import tokens as _tok
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"QScrollArea{{background:{_BG};border:none;}}" + _tok.qss_scrollbar())
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        inner = QWidget(); inner.setStyleSheet(f"background:{_BG};")
+        col = QVBoxLayout(inner); col.setContentsMargins(2, 2, 2, 2); col.setSpacing(8)
+        for p in productos:
+            col.addWidget(self._fila(p))
+        col.addStretch()
+        scroll.setWidget(inner)
+        ly.addWidget(scroll, 1)
+
+        self._lbl_total = _lbl("", bold=True, size=13, color=_VERDE)
+        self._actualizar_total()
+        ly.addWidget(self._lbl_total)
+
+        fila = QHBoxLayout(); fila.setSpacing(8)
+        bc = QPushButton(tr("common.cancel", default="Cancelar")); bc.setMinimumHeight(46)
+        bc.setCursor(Qt.CursorShape.PointingHandCursor); bc.clicked.connect(self.reject)
+        bc.setStyleSheet(f"QPushButton{{background:transparent;color:{_TEXT2};border:2px solid {_BORDE};"
+                         f"border-radius:10px;font-weight:800;}}"
+                         f"QPushButton:hover{{border-color:{_ROJO};color:{_ROJO};}}")
+        ba = QPushButton("✔  " + tr("tpv.qty_add", default="Añadir")); ba.setMinimumHeight(46)
+        ba.setCursor(Qt.CursorShape.PointingHandCursor); ba.clicked.connect(self.accept)
+        ba.setStyleSheet(f"QPushButton{{background:{_VERDE};color:#0B1118;border:none;border-radius:10px;"
+                         f"font-weight:900;}}QPushButton:hover{{background:#FFFFFF;}}")
+        fila.addWidget(bc); fila.addWidget(ba)
+        ly.addLayout(fila)
+
+    def _fila(self, p):
+        cod = p["codigo"]
+        f = QFrame()
+        f.setStyleSheet(f"QFrame{{background:{_BG2};border:1px solid {_BORDE};border-radius:10px;}}")
+        h = QHBoxLayout(f); h.setContentsMargins(12, 8, 12, 8); h.setSpacing(8)
+        emoji = str(p.get("emoji") or "").strip()
+        txt = f"{emoji}  {p['nombre']}" if emoji else str(p["nombre"])
+        lbl = _lbl(txt, bold=True, size=13, color=_TEXT); lbl.setWordWrap(True)
+        h.addWidget(lbl, 1)
+        h.addWidget(_lbl(divisas.formatear(p["precio"]), size=12, color=_TEXT2))
+        h.addWidget(self._stepper("–", lambda _=False, c=cod: self._paso(c, -1)))
+        # Cantidad TAPPABLE: abre el teclado numérico táctil (_CantidadDialog) para introducir un valor
+        # exacto (útil para cantidades grandes). Los pasos +/– cubren el ajuste fino.
+        bq = QPushButton("1"); bq.setFixedWidth(52); bq.setMinimumHeight(44)
+        bq.setCursor(Qt.CursorShape.PointingHandCursor)
+        bq.setStyleSheet(f"QPushButton{{background:transparent;color:{_VERDE};border:none;"
+                         f"font-family:'Segoe UI';font-weight:900;font-size:18px;}}"
+                         f"QPushButton:hover{{color:{_CIAN};}}")
+        bq.clicked.connect(lambda _=False, c=cod, nom=str(p["nombre"]), pr=float(p["precio"]):
+                           self._editar_cantidad(c, nom, pr))
+        self._labels[cod] = bq
+        h.addWidget(bq)
+        h.addWidget(self._stepper("+", lambda _=False, c=cod: self._paso(c, +1)))
+        return f
+
+    def _stepper(self, txt, cb):
+        b = QPushButton(txt); b.setFixedSize(48, 44); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setStyleSheet(f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};"
+                        f"border-radius:9px;font-size:20px;font-weight:900;}}"
+                        f"QPushButton:hover{{background:{_CIAN};color:#0B1118;}}")
+        b.clicked.connect(cb)
+        return b
+
+    def _paso(self, cod, d):
+        self.cantidades[cod] = max(1, min(999, self.cantidades.get(cod, 1) + d))
+        self._labels[cod].setText(str(self.cantidades[cod]))
+        self._actualizar_total()
+
+    def _editar_cantidad(self, cod, nombre, precio):
+        dlg = _CantidadDialog(nombre, precio, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.cantidad >= 1:
+            self.cantidades[cod] = min(999, int(dlg.cantidad))
+            self._labels[cod].setText(str(self.cantidades[cod]))
+            self._actualizar_total()
+
+    def _actualizar_total(self):
+        n = sum(self.cantidades.values())
+        self._lbl_total.setText(tr("tpv.qty_multi_total", default="Total: {n} unidades", n=n))
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        try:
+            p = self.parent().frameGeometry()
+            self.move(p.center().x() - self.width() // 2, p.center().y() - self.height() // 2)
+        except Exception:
+            pass
+
+
 class _EmojiPickerPopup(QFrame):
     """Desplegable de emojis: rejilla de 4 columnas y 4 filas VISIBLES; el resto se navega con la scrollbar
     (estándar de la app). Mantiene TODOS los emojis sin abrirse a pantalla completa."""
@@ -6474,6 +6584,9 @@ class _RejillaProductosBakery(QDialog):
         self._fam_actual = self._FAMILIAS[0]
         self._por_familia = self._cargar()
         self._botones_fam = {}
+        # Multiselección: código → {codigo,nombre,precio,emoji}; y código → botón (para re-estilar).
+        self._seleccion = {}
+        self._botones_prod = {}
         self._build()
 
     def _cargar(self) -> dict:
@@ -6537,7 +6650,20 @@ class _RejillaProductosBakery(QDialog):
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         ly.addWidget(self._scroll, 1)
+
+        # Pie: botón para sumar al carrito TODOS los productos seleccionados (multiselección).
+        pie = QHBoxLayout(); pie.addStretch()
+        self._btn_sumar = QPushButton()
+        self._btn_sumar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_sumar.setMinimumHeight(52)
+        self._btn_sumar.setMinimumWidth(280)
+        self._btn_sumar.clicked.connect(self._sumar_seleccion)
+        pie.addWidget(self._btn_sumar)
+        pie.addStretch()
+        ly.addLayout(pie)
+
         self._sel_familia(self._fam_actual)
+        self._actualizar_boton_sumar()
 
     def _sel_familia(self, fam):
         self._fam_actual = fam
@@ -6554,6 +6680,7 @@ class _RejillaProductosBakery(QDialog):
         grid = QGridLayout(cont); grid.setSpacing(10)
         grid.setContentsMargins(2, 2, 2, 2)
         prods = self._por_familia.get(self._fam_actual, [])
+        self._botones_prod = {}   # se recrean los botones de la familia visible
         if not prods:
             grid.addWidget(_lbl(tr("tpv.bakery_grid_empty",
                                    default="No hay productos en esta familia todavía."),
@@ -6565,24 +6692,93 @@ class _RejillaProductosBakery(QDialog):
             grid.setColumnStretch(c, 1)
         self._scroll.setWidget(cont)
 
+    def _estilo_prod(self, seleccionado: bool) -> str:
+        if seleccionado:   # resaltado: fondo cian tenue + borde grueso (marca visual de selección)
+            return (f"QPushButton{{background:{_CIAN};color:#0B1118;border:3px solid {_VERDE};"
+                    f"border-radius:12px;font-family:'Segoe UI';font-weight:900;font-size:14px;padding:6px;}}")
+        return (f"QPushButton{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};border-radius:12px;"
+                f"font-family:'Segoe UI';font-weight:800;font-size:14px;padding:6px;}}"
+                f"QPushButton:hover{{border-color:{_CIAN};color:{_CIAN};}}")
+
     def _btn_producto(self, p):
-        nombre = str(p.get("nombre") or p.get("codigo") or "—")
+        codigo = p.get("codigo")
+        nombre = str(p.get("nombre") or codigo or "—")
         precio = float(p.get("precio") or 0)
         emoji = str(p.get("emoji") or "").strip()
         disp = _nombre_boton_producto(nombre)
-        etiqueta = (f"{emoji}\n{disp}\n{divisas.formatear(precio)}" if emoji
-                    else f"{disp}\n{divisas.formatear(precio)}")
+        marca = "✔ " if codigo in self._seleccion else ""
+        etiqueta = (f"{marca}{emoji}\n{disp}\n{divisas.formatear(precio)}" if emoji
+                    else f"{marca}{disp}\n{divisas.formatear(precio)}")
         b = QPushButton(etiqueta)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setMinimumSize(190, 92)
-        b.setStyleSheet(
-            f"QPushButton{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};border-radius:12px;"
-            f"font-family:'Segoe UI';font-weight:800;font-size:14px;padding:6px;}}"
-            f"QPushButton:hover{{border-color:{_CIAN};color:{_CIAN};}}"
-            f"QPushButton:pressed{{background:{_CIAN};color:#0B1118;}}")
-        b.clicked.connect(lambda _=False, cod=p.get("codigo"), nom=nombre, pr=precio:
-                          self._añadir(cod, nom, pr))
+        b.setStyleSheet(self._estilo_prod(codigo in self._seleccion))
+        b.clicked.connect(lambda _=False, prod=dict(p): self._toggle(prod))
+        if codigo is not None:
+            self._botones_prod[codigo] = b
         return b
+
+    def _toggle(self, p):
+        """Marca/desmarca un producto (multiselección). No añade nada al carrito hasta 'Sumar al carrito'."""
+        codigo = p.get("codigo")
+        if codigo is None:
+            return
+        if codigo in self._seleccion:
+            del self._seleccion[codigo]
+        else:
+            self._seleccion[codigo] = {"codigo": codigo,
+                                       "nombre": str(p.get("nombre") or codigo or "—"),
+                                       "precio": float(p.get("precio") or 0),
+                                       "emoji": str(p.get("emoji") or "").strip()}
+        # Re-estilar solo el botón afectado (si está en la familia visible) y refrescar su etiqueta.
+        b = self._botones_prod.get(codigo)
+        if b is not None:
+            sel = codigo in self._seleccion
+            b.setStyleSheet(self._estilo_prod(sel))
+            txt = b.text().lstrip("✔ ")
+            b.setText(("✔ " + txt) if sel else txt)
+        self._actualizar_boton_sumar()
+
+    def _actualizar_boton_sumar(self):
+        n = len(self._seleccion)
+        self._btn_sumar.setEnabled(n > 0)
+        self._btn_sumar.setText(
+            tr("tpv.bakery_add_selected_n", default="🛒  Sumar al carrito ({n})", n=n) if n
+            else tr("tpv.bakery_add_selected_0", default="🛒  Sumar al carrito"))
+        activo = n > 0
+        self._btn_sumar.setStyleSheet(
+            f"QPushButton{{background:{_VERDE if activo else _BG2};color:{'#0B1118' if activo else _TEXT2};"
+            f"border:2px solid {_VERDE if activo else _BORDE};border-radius:12px;font-family:'Segoe UI';"
+            f"font-weight:900;font-size:16px;padding:0 18px;}}"
+            f"QPushButton:hover{{background:{_VERDE};color:#0B1118;}}"
+            f"QPushButton:disabled{{color:{_TEXT2};border-color:{_BORDE};background:{_BG2};}}")
+
+    def _sumar_seleccion(self):
+        """Abre el diálogo de cantidades para TODOS los productos seleccionados y los suma al carrito."""
+        if not self._seleccion:
+            return
+        productos = list(self._seleccion.values())
+        dlg = _CantidadMultipleDialog(productos, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        añadidos = 0
+        for prod in productos:
+            q = int(dlg.cantidades.get(prod["codigo"], 0) or 0)
+            if q < 1:
+                continue
+            try:
+                self._tpv._add_extra(prod["codigo"], prod["nombre"], prod["precio"],
+                                     seccion="BAKERY", cantidad=q)
+                añadidos += 1
+            except Exception as e:
+                logger.error("rejilla bakery sumar selección: %s", e)
+        # Limpiar selección y refrescar la rejilla (la ventana permanece abierta para seguir vendiendo).
+        self._seleccion = {}
+        self._render_productos()
+        self._actualizar_boton_sumar()
+        if añadidos:
+            self._lbl_feedback.setText(
+                tr("tpv.bakery_added_selected", default="Añadidos {n} productos al carrito", n=añadidos))
 
     def _abrir_gestion_productos(self):
         """Abre el gestor de productos de la familia ACTUAL (asignar productos de la BD, precio y familia).
@@ -6595,18 +6791,6 @@ class _RejillaProductosBakery(QDialog):
         _GestionProductosFamiliaDialog(self._fam_actual, emp, parent=self).exec()
         self._por_familia = self._cargar()
         self._render_productos()
-
-    def _añadir(self, codigo, nombre, precio):
-        # Al pulsar un producto se pide la CANTIDAD (teclado táctil) antes de sumarlo a la compra.
-        dlg = _CantidadDialog(nombre, precio, parent=self)
-        if dlg.exec() != QDialog.DialogCode.Accepted or dlg.cantidad < 1:
-            return
-        try:
-            self._tpv._add_extra(codigo, nombre, precio, seccion="BAKERY", cantidad=dlg.cantidad)
-            self._lbl_feedback.setText(tr("tpv.bakery_added_n", default="Añadido: {n} ×{q}",
-                                          n=nombre, q=dlg.cantidad))
-        except Exception as e:
-            logger.error("rejilla bakery añadir: %s", e)
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -7491,37 +7675,44 @@ class TPVWindow(QWidget):
         }
         self.btn_retener.setEnabled(False)
 
-        grid_acc.addWidget(self.btn_bascula, 0, 0)
-        # Segmentación por edición: la báscula (venta a granel) solo aplica a supermercado;
-        # en retail/farmacia/textil/bakery se oculta (en textil se sustituye por variantes talla/color).
+        # Rejilla de acciones ADAPTATIVA por edición: se construye la lista ORDENADA de botones VISIBLES
+        # y se recolocan sin huecos (reflow). Así, al ocultar un botón en una edición, no queda el hueco
+        # vacío tan feo — los demás se recolocan. Reutiliza foundation.layout.reflow_grid.
+        acciones = []
+        # (Posición 1) báscula (venta a granel, solo supermercado) o, en Bakery, lanzador de la rejilla de
+        # productos por familia; si la edición no usa ninguna, simplemente se omite (sin hueco).
+        _mostrar_bascula = True
         try:
             from src.services import verticales
-            if not verticales.visible("tpv.bascula"):
-                self.btn_bascula.setVisible(False)
-                # Bakery: venta rápida por UNIDAD → en el hueco de la báscula, un lanzador de la rejilla de
-                # productos con botones grandes por familia (Dulce/Salado/Bebidas).
-                if verticales.edicion() == "BAKERY":
-                    self.btn_prod_bakery, _lpb = self._btn_accion_card(
-                        "🧁", tr("tpv.bakery_products", default="Productos"), _CIAN,
-                        self._abrir_rejilla_bakery, grande=True)
-                    grid_acc.addWidget(self.btn_prod_bakery, 0, 0)
+            _mostrar_bascula = verticales.visible("tpv.bascula")
         except Exception:
-            pass
-        grid_acc.addWidget(self.btn_retener, 0, 1)
-        grid_acc.addWidget(self.btn_recuperar, 0, 2)
-        grid_acc.addWidget(self.btn_bolsa_g, 1, 0)
-        grid_acc.addWidget(self.btn_bolsa_p, 1, 1)
-        grid_acc.addWidget(self.btn_sobre_p, 1, 2)
-        grid_acc.addWidget(self.btn_sobre_g, 2, 0)
-        grid_acc.addWidget(self.btn_tarjeta, 2, 1)
-        # Segmentación por edición: la tarjeta regalo no se usa en panadería → se oculta en Bakery.
+            verticales = None
+        if _mostrar_bascula:
+            acciones.append(self.btn_bascula)
+        else:
+            self.btn_bascula.setVisible(False)
+            if verticales is not None and verticales.edicion() == "BAKERY":
+                self.btn_prod_bakery, _lpb = self._btn_accion_card(
+                    "🧁", tr("tpv.bakery_products", default="Productos"), _CIAN,
+                    self._abrir_rejilla_bakery, grande=True)
+                acciones.append(self.btn_prod_bakery)
+        acciones += [self.btn_retener, self.btn_recuperar,
+                     self.btn_bolsa_g, self.btn_bolsa_p, self.btn_sobre_p, self.btn_sobre_g]
+        # La tarjeta regalo no se usa en panadería → se oculta en Bakery (y no deja hueco).
+        _mostrar_tarjeta = True
         try:
-            from src.services import verticales
-            if not verticales.visible("tpv.tarjeta_regalo"):
-                self.btn_tarjeta.setVisible(False)
+            from src.services import verticales as _vv
+            _mostrar_tarjeta = _vv.visible("tpv.tarjeta_regalo")
         except Exception:
             pass
-        grid_acc.addWidget(self._btn_vaciar, 2, 2)
+        if _mostrar_tarjeta:
+            acciones.append(self.btn_tarjeta)
+        else:
+            self.btn_tarjeta.setVisible(False)
+        acciones.append(self._btn_vaciar)
+
+        from src.gui.foundation.layout import reflow_grid
+        reflow_grid(grid_acc, acciones, cols=3)
         cl2.addLayout(grid_acc)
 
         # Fila inferior: CLIENTES (tarjeta estilo menú principal) + ACCIONES AVANZADAS

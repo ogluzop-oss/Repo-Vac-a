@@ -266,7 +266,7 @@ def cadena_z_valida(id_empresa=None, id_tienda="") -> bool:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT numero, fecha, total_cobrado, hash_audit FROM cierres_z "
                         "WHERE id_empresa=%s AND id_tienda=%s ORDER BY numero",
-                        (id_empresa, id_tienda or ""))
+                        (id_empresa, _tid(id_tienda)))
             for r in _filas_a_dicts(cur, cur.fetchall()):
                 esperado = _hash(r["numero"], _fecha_str(r["fecha"]), r["total_cobrado"], prev)
                 if r.get("hash_audit") and r["hash_audit"] != esperado:
