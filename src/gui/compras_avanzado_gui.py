@@ -110,7 +110,7 @@ class ComprasAvanzadoWindow(QWidget):
             f.addWidget(ww)
         f.addWidget(_btn("Devolver", self._devolver, primary=True))
         ly.addLayout(f)
-        self.tbl_dev = _tabla(["id", "Proveedor", "Total", "Estado", "Fecha"])
+        self.tbl_dev = _tabla(["ID", "Proveedor", "Total", "Estado", "Fecha"])
         ly.addWidget(self.tbl_dev)
         self._carga_dev()
         return w
@@ -145,7 +145,7 @@ class ComprasAvanzadoWindow(QWidget):
     # ── Incidencias ───────────────────────────────────────────────────────────
     def _tab_incidencias(self):
         w = QWidget(); ly = QVBoxLayout(w)
-        self.tbl_inc = _tabla(["id", "Tipo", "Artículo", "Cantidad", "Estado", "Fecha"])
+        self.tbl_inc = _tabla(["ID", "Tipo", "Artículo", "Cantidad", "Estado", "Fecha"])
         ly.addWidget(self.tbl_inc)
         ly.addWidget(_btn("🔄  Actualizar", self._carga_inc, primary=True))
         self._carga_inc()

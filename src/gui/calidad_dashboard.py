@@ -95,10 +95,10 @@ class CalidadDashboardWindow(QWidget):
         root.addWidget(self.lbl)
         self.tabs = QTabWidget()
 
-        self.tbl_insp = _tabla(["ID", "Fase", "Artículo", "Inspecc.", "Rechaz.", "Resultado"])
-        self.tbl_nc = _tabla(["ID", "Código", "Origen", "Severidad", "Estado"])
-        self.tbl_capa = _tabla(["ID", "Tipo", "NC", "Estado"])
-        self.tbl_aud = _tabla(["ID", "Código", "Tipo", "Estado", "Resultado"])
+        self.tbl_insp = _tabla(["ID", "Fase", "Artículo", "Inspecc.", "Rechaz.", "Resultado", "Fecha"])
+        self.tbl_nc = _tabla(["ID", "Código", "Origen", "Severidad", "Estado", "Fecha"])
+        self.tbl_capa = _tabla(["ID", "Tipo", "NC", "Estado", "Fecha"])
+        self.tbl_aud = _tabla(["ID", "Código", "Tipo", "Estado", "Resultado", "Fecha"])
         self.tbl_kpi = _tabla(["KPI", "Valor"])
 
         # Inspecciones (con acción de alta = flujo de recepción/calidad en compras).
@@ -138,29 +138,32 @@ class CalidadDashboardWindow(QWidget):
         try:
             from src.services.calidad import (analitica, auditorias, capa, inspecciones,
                                               no_conformidades)
+            def _f(v):
+                return str(v)[:16] if v is not None else ""
             ins = inspecciones.listar(id_empresa=eid)
             self.tbl_insp.setRowCount(len(ins))
             for i, x in enumerate(ins):
                 for j, v in enumerate([x.get("id"), x.get("fase"), x.get("articulo"),
                                        x.get("cantidad_inspeccionada"), x.get("cantidad_rechazada"),
-                                       x.get("resultado")]):
+                                       x.get("resultado"), _f(x.get("fecha"))]):
                     self.tbl_insp.setItem(i, j, _it(v))
             ncs = no_conformidades.listar(id_empresa=eid)
             self.tbl_nc.setRowCount(len(ncs))
             for i, x in enumerate(ncs):
                 for j, v in enumerate([x.get("id"), x.get("codigo"), x.get("origen"),
-                                       x.get("severidad"), x.get("estado")]):
+                                       x.get("severidad"), x.get("estado"), _f(x.get("fecha_apertura"))]):
                     self.tbl_nc.setItem(i, j, _it(v))
             cps = capa.listar(id_empresa=eid)
             self.tbl_capa.setRowCount(len(cps))
             for i, x in enumerate(cps):
-                for j, v in enumerate([x.get("id"), x.get("tipo"), x.get("id_nc"), x.get("estado")]):
+                for j, v in enumerate([x.get("id"), x.get("tipo"), x.get("id_nc"), x.get("estado"),
+                                       _f(x.get("creado_en"))]):
                     self.tbl_capa.setItem(i, j, _it(v))
             auds = auditorias.listar(id_empresa=eid)
             self.tbl_aud.setRowCount(len(auds))
             for i, x in enumerate(auds):
                 for j, v in enumerate([x.get("id"), x.get("codigo"), x.get("tipo"),
-                                       x.get("estado"), x.get("resultado")]):
+                                       x.get("estado"), x.get("resultado"), _f(x.get("fecha_plan"))]):
                     self.tbl_aud.setItem(i, j, _it(v))
             k = analitica.kpis(id_empresa=eid)
             self.tbl_kpi.setRowCount(len(k))
