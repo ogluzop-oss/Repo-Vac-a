@@ -24,6 +24,15 @@ def _empresa(id_empresa=None):
         return None
 
 
+def _tid(valor):
+    """Coacciona `id_tienda` a la convención INT unificada (migr 0192): None/'' = TODAS las tiendas
+    (NULL); cualquier otro valor (código 'ALMC' incluido) al entero canónico (código no numérico → 0)."""
+    if valor is None or valor == "":
+        return None
+    from src.db.empresa import tienda_actual_id_int
+    return tienda_actual_id_int(valor)
+
+
 def crear_regla(nombre, tipo, params, ajuste_tipo="pct", ajuste_valor=0, prioridad=0,
                 id_tienda=None, id_empresa=None):
     nombre = (nombre or "").strip()
@@ -35,7 +44,7 @@ def crear_regla(nombre, tipo, params, ajuste_tipo="pct", ajuste_valor=0, priorid
             cur.execute(
                 "INSERT INTO precio_reglas (id_empresa,id_tienda,nombre,tipo,params,ajuste_tipo,"
                 "ajuste_valor,prioridad) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                (_empresa(id_empresa), (id_tienda or ""), nombre, tipo, pj, ajuste_tipo,
+                (_empresa(id_empresa), _tid(id_tienda), nombre, tipo, pj, ajuste_tipo,
                  float(ajuste_valor), int(prioridad)))
             return cur.lastrowid
     except Exception as e:
@@ -51,8 +60,9 @@ def listar_reglas(id_empresa=None, solo_activas=False, id_tienda=None):
             if solo_activas:
                 q += " AND activo=1"
             if id_tienda is not None:
-                q += " AND (id_tienda=%s OR id_tienda='' OR id_tienda IS NULL)"
-                params.append(id_tienda)
+                # NULL = regla global (todas las tiendas); si no, la tienda concreta.
+                q += " AND (id_tienda=%s OR id_tienda IS NULL)"
+                params.append(_tid(id_tienda))
             q += " ORDER BY prioridad DESC, id"
             cur.execute(q, tuple(params))
             return _filas_a_dicts(cur, cur.fetchall())
@@ -79,6 +89,8 @@ def actualizar_regla(id_regla, id_empresa=None, **campos):
     datos = {k: v for k, v in campos.items() if k in permitidos}
     if "params" in datos and isinstance(datos["params"], (dict, list)):
         datos["params"] = json.dumps(datos["params"])
+    if "id_tienda" in datos:
+        datos["id_tienda"] = _tid(datos["id_tienda"])   # convención INT/NULL (migr 0192)
     if not datos:
         return False
     try:
