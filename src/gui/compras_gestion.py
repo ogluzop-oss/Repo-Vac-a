@@ -227,12 +227,104 @@ class ComprasWindow(QWidget):
         fila.addStretch(1)
         fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_pedidos, primary=True))
         ly.addLayout(fila)
+
+        # ── BOLSA DE PROVEEDORES: comparar el precio de un artículo entre proveedores ──
+        lbl_b = QLabel("🔎  " + tr("compras.bolsa_titulo",
+                                    default="Bolsa de proveedores · precio del artículo por proveedor"))
+        lbl_b.setStyleSheet(f"color:{_CIAN};font-weight:800;font-size:14px;padding-top:2px;")
+        ly.addWidget(lbl_b)
+        bfila = QHBoxLayout()
+        self.in_bolsa_art = _inp(tr("compras.bolsa_articulo", default="Código de artículo…"))
+        bfila.addWidget(self.in_bolsa_art, 1)
+        try:
+            _provs = P.listar_proveedores(estado="activo")
+        except Exception:
+            _provs = []
+        self.cmb_bolsa_prov = _combo(
+            [(tr("compras.bolsa_todos", default="Todos los proveedores"), None)]
+            + [(p.get("razon_social"), p.get("id_proveedor")) for p in _provs])
+        bfila.addWidget(self.cmb_bolsa_prov)
+        self.cmb_bolsa_orden = _combo([
+            (tr("compras.bolsa_precio_asc", default="Precio ↑ (más barato)"), ("precio", False)),
+            (tr("compras.bolsa_precio_desc", default="Precio ↓ (más caro)"), ("precio", True)),
+            (tr("compras.bolsa_por_prov", default="Por proveedor"), ("proveedor", False))])
+        bfila.addWidget(self.cmb_bolsa_orden)
+        bfila.addWidget(_btn(tr("compras.bolsa_buscar", default="BUSCAR"), self._buscar_bolsa, primary=True))
+        ly.addLayout(bfila)
+        self.tbl_bolsa = _tabla([tr("compras.proveedor", default="Proveedor"),
+                                 tr("compras.precio", default="Precio"),
+                                 tr("compras.descuento", default="Dto %"),
+                                 tr("compras.precio_neto", default="Precio neto"),
+                                 tr("compras.unidad", default="Unidad"),
+                                 tr("compras.cant_min", default="Cant. mín.")])
+        ly.addWidget(self.tbl_bolsa, 1)
+        afila = QHBoxLayout()
+        self.in_bolsa_cant = _inp(tr("compras.cantidad", default="Cantidad"), w=120)
+        self.in_bolsa_cant.setText("1")
+        afila.addWidget(self.in_bolsa_cant)
+        afila.addWidget(_btn("➕  " + tr("compras.bolsa_add", default="AÑADIR A PEDIDO"),
+                             self._bolsa_add_pedido, primary=True))
+        afila.addStretch(1)
+        ly.addLayout(afila)
+
+        # ── Pedidos (histórico + cola de BORRADOR pendientes de tramitar) ──
+        lbl_p = QLabel("🧾  " + tr("compras.pedidos_titulo", default="Pedidos"))
+        lbl_p.setStyleSheet(f"color:{_CIAN};font-weight:800;font-size:14px;padding-top:2px;")
+        ly.addWidget(lbl_p)
         self.tbl_ped = _tabla(["ID", tr("compras.numero", default="Número"),
                                tr("compras.proveedor", default="Proveedor"),
                                tr("compras.estado", default="Estado"),
                                tr("compras.total", default="Total"), tr("compras.fecha", default="Fecha")])
         ly.addWidget(self.tbl_ped, 1)
         return w
+
+    # ── Bolsa de proveedores ─────────────────────────────────────────────────
+    def _buscar_bolsa(self):
+        """Busca un artículo y muestra las tarifas VIGENTES de cada proveedor (bolsa)."""
+        cod = (self.in_bolsa_art.text() or "").strip().upper()
+        self.tbl_bolsa.setRowCount(0)
+        self._bolsa_rows = []
+        if not cod:
+            return
+        self._bolsa_cod = cod
+        from src.services.compras import proveedores_pro as PP
+        orden, desc = self.cmb_bolsa_orden.currentData() or ("precio", False)
+        self._bolsa_rows = PP.bolsa_precios(cod, id_proveedor=self.cmb_bolsa_prov.currentData(),
+                                            orden=orden, descendente=desc)
+        for r in self._bolsa_rows:
+            row = self.tbl_bolsa.rowCount(); self.tbl_bolsa.insertRow(row)
+            vals = [r.get("proveedor"),
+                    f"{float(r.get('precio') or 0):.2f} {r.get('divisa') or ''}".strip(),
+                    f"{float(r.get('descuento') or 0):.0f}",
+                    f"{float(r.get('precio_neto') or 0):.2f}",
+                    r.get("unidad_medida"), r.get("cantidad_minima")]
+            for c, v in enumerate(vals):
+                self.tbl_bolsa.setItem(row, c, QTableWidgetItem("" if v is None else str(v)))
+        if not self._bolsa_rows:
+            _aviso(self, tr("compras.bolsa_titulo", default="Bolsa"),
+                   tr("compras.bolsa_vacia",
+                      default="Ningún proveedor tiene tarifa vigente para ese artículo."), "info")
+
+    def _bolsa_add_pedido(self):
+        """Crea un pedido BORRADOR con la tarifa seleccionada de la bolsa (se suma a la cola)."""
+        r = self.tbl_bolsa.currentRow()
+        if r < 0 or r >= len(getattr(self, "_bolsa_rows", []) or []):
+            _aviso(self, tr("compras.bolsa_titulo", default="Bolsa"),
+                   tr("compras.bolsa_sel", default="Selecciona una tarifa de la tabla."), "warning")
+            return
+        fila = self._bolsa_rows[r]
+        try:
+            cant = max(1, int(self.in_bolsa_cant.text() or 1))
+        except ValueError:
+            cant = 1
+        precio = float(fila.get("precio_neto") or fila.get("precio") or 0)
+        lineas = [{"codigo": self._bolsa_cod, "cantidad": cant, "precio_unitario": precio,
+                   "descripcion": f"{self._bolsa_cod} · {fila.get('unidad_medida')}"}]
+        pid = self.crear_pedido(int(fila["id_proveedor"]), lineas)
+        if pid:
+            _aviso(self, tr("compras.bolsa_titulo", default="Bolsa"),
+                   tr("compras.bolsa_ok", default="Pedido BORRADOR creado para {p} ({n}×{c}).",
+                      p=fila.get("proveedor"), n=cant, c=self._bolsa_cod), "success")
 
     def _load_pedidos(self):
         filas = C.historico_pedidos()
