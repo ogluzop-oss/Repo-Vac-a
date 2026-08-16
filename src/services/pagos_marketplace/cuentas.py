@@ -157,42 +157,35 @@ def crear_onboarding(tipo_parte, id_parte, *, divisa="EUR", id_empresa=None, ema
     emp = _emp(id_empresa)
     tp = _norm_parte(tipo_parte)
     div = (divisa or "EUR").upper()
-    prov = _adaptador_marketplace(emp)
-    if prov is not None:
-        try:
-            res = prov.crear_cuenta_conectada(tipo_parte=tp, id_parte=id_parte, divisa=div, email=email,
-                                              id_empresa=emp)
-            if res.get("ok"):
-                registrar_token(tp, id_parte, res.get("account_id"), psp=res.get("psp", "stripe"),
-                                status=res.get("status", "pending"), divisa=div,
-                                onboarding_url=res.get("onboarding_url"), id_empresa=emp)
-                return {"ok": True, "account_id": res.get("account_id"),
-                        "onboarding_url": res.get("onboarding_url"), "status": res.get("status", "pending"),
-                        "modo": "live" if not getattr(prov, "es_test", lambda: True)() else "test"}
-            logger.info("crear_onboarding: adaptador devolvió error: %s", res.get("mensaje"))
-        except Exception as e:
-            logger.warning("crear_onboarding (adaptador): %s", e)
-
-    # Degradado: provisión simulada (sin credenciales / sin adaptador). No custodia nada real.
-    import uuid
-    account_id = f"acct_sim_{uuid.uuid4().hex[:16]}"
-    registrar_token(tp, id_parte, account_id, psp="simulado", status="pending", divisa=div,
-                    onboarding_url=None, id_empresa=emp)
-    return {"ok": True, "account_id": account_id, "onboarding_url": None, "status": "pending",
-            "modo": "simulado",
-            "mensaje": "PSP no configurado: cuenta conectada en modo simulado (sin custodia real de fondos)."}
-
-
-def _adaptador_marketplace(id_empresa):
-    """Devuelve el adaptador de pasarela con capacidades de marketplace (Connect), o None si no existe/config.
-    F1 registrará `PasarelaMarketplace`; hasta entonces esto devuelve None y `crear_onboarding` degrada."""
+    from src.services.pagos_marketplace import psp
+    prov = psp.adaptador(emp)
     try:
-        from src.db import pagos as pagos_db
-        from src.services.tpv.pagos.factory import pasarela_para
-        pasarela = pasarela_para(pagos_db.obtener_config(id_empresa))
-        # Solo sirve si implementa la interfaz de marketplace (F1) y está configurada.
-        if hasattr(pasarela, "crear_cuenta_conectada") and pasarela.configurado():
-            return pasarela
+        res = prov.crear_cuenta_conectada(tipo_parte=tp, id_parte=id_parte, divisa=div, email=email,
+                                          id_empresa=emp)
     except Exception as e:
-        logger.debug("_adaptador_marketplace: %s", e)
-    return None
+        logger.warning("crear_onboarding (adaptador): %s", e)
+        res = {"ok": False, "mensaje": str(e)}
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("mensaje", "No se pudo crear la cuenta conectada.")}
+    registrar_token(tp, id_parte, res.get("account_id"), psp=res.get("psp", "stripe"),
+                    status=res.get("status", "pending"), divisa=div,
+                    onboarding_url=res.get("onboarding_url"), id_empresa=emp)
+    return {"ok": True, "account_id": res.get("account_id"), "onboarding_url": res.get("onboarding_url"),
+            "status": res.get("status", "pending"), "modo": prov.modo()}
+
+
+def refrescar_estado(tipo_parte, id_parte, id_empresa=None) -> dict:
+    """Consulta el estado KYB actual en el PSP y lo sincroniza (para un botón 'Actualizar' o tras el KYB).
+    Devuelve el resumen actualizado o {ok:False}."""
+    emp = _emp(id_empresa)
+    res = resumen(tipo_parte, id_parte, emp)
+    if not res or not res.get("account_id"):
+        return {"ok": False, "error": "La parte no ha conectado cobros todavía."}
+    from src.services.pagos_marketplace import psp
+    est = psp.adaptador(emp).estado_cuenta(res["account_id"])
+    if est.get("ok"):
+        sincronizar_estado(res["account_id"], status=est.get("status"),
+                           payouts_enabled=est.get("payouts_enabled"),
+                           charges_enabled=est.get("charges_enabled"),
+                           banco=est.get("banco"), ultimos4=est.get("ultimos4"))
+    return {"ok": bool(est.get("ok")), "resumen": resumen(tipo_parte, id_parte, emp)}
