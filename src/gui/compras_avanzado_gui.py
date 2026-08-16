@@ -83,12 +83,18 @@ class ComprasAvanzadoWindow(QWidget):
 
     def _homolog(self, estado):
         pid = self.cmb_prov.currentData()
-        if pid and C.set_homologacion_estado(pid, estado, self._emp()):
+        if not pid:
+            QMessageBox.information(self, "Homologación",
+                                    "Selecciona un proveedor antes de realizar esta acción.")
+            return
+        if C.set_homologacion_estado(pid, estado, self._emp()):
             self._refresca_cond()
 
     def _set_descuento(self):
         pid = self.cmb_prov.currentData()
         if not pid:
+            QMessageBox.information(self, "Homologación",
+                                    "Selecciona un proveedor antes de editar su descuento.")
             return
         val, ok = QInputDialog.getDouble(self, "Descuento", "Descuento %:", 0, 0, 100, 2)
         if ok:

@@ -2,9 +2,11 @@
 Portal de proveedor — lado EMPRESA (embebido en el módulo Proveedores).
 
 Orquesta `services.compras.portal` (la lógica vive allí; esta capa es solo interfaz). Pestañas:
-- Proveedores conectados: invitar / ver enlace / revocar / regenerar token + estado de conexión.
-- RFQ / Subasta inversa: crear peticiones de precio, ver ofertas y adjudicar (crea el pedido real).
+- Proveedores conectados: invitar / ver enlace / revocar / regenerar token + publicar en el mercado.
+- Invitaciones pendientes: proveedores invitados que aún no han entrado.
 - Mensajería: conversación empresa↔proveedor.
+(Las subastas/RFQ viven en la BOLSA UNIFICADA de la pestaña Pedidos: tarifas fijas + ofertas en vivo,
+Comprar ya / Pujar.)
 
 DEGRADABLE: funciona en local aunque el enlace remoto no esté desplegado; muestra el modo actual.
 Reutiliza los helpers visuales de `catalogo_gestion` (coherencia con el resto del módulo de compras).
@@ -17,7 +19,7 @@ from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QTabl
                              QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import proveedores as P
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo,
+from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_cargando, _btn_x, _combo,
                                       _dialogo_frameless, _inp, _tabla)
 from src.services.compras import portal
 
@@ -96,16 +98,16 @@ class PortalProveedorWindow(QWidget):
         self.in_email_inv = _inp("Email del proveedor (opcional)")
         fila.addWidget(QLabel("Proveedor:")); fila.addWidget(self.cmb_prov_inv, 1)
         fila.addWidget(self.in_email_inv, 1)
-        fila.addWidget(_btn("✉  Invitar", self._invitar, primary=True))
+        fila.addWidget(_btn("✉️  Invitar", self._invitar, primary=True))
         ly.addLayout(fila)
         bar = QHBoxLayout()
-        bar.addWidget(_btn("✉  Enviar invitación", self._enviar_correo, primary=True))
+        bar.addWidget(_btn("✉️  Enviar invitación", self._enviar_correo, primary=True))
         bar.addWidget(_btn("🔑  Ver enlace", self._ver_enlace, primary=True))
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
         bar.addWidget(_btn("🏷️  Publicar en el mercado", self._publicar_mercado, primary=True))
         bar.addWidget(_btn("Revocar", self._revocar, danger=True))
         bar.addStretch()
-        bar.addWidget(_btn("🔄  Actualizar", self._cargar_cuentas, primary=True))
+        bar.addWidget(_btn_cargando("🔄  Actualizar", self._cargar_cuentas))
         ly.addLayout(bar)
         self.tbl_cuentas = _tabla(["ID", "Proveedor", "Email", "Estado", "Última conexión"])
         ly.addWidget(self.tbl_cuentas)
@@ -214,9 +216,9 @@ class PortalProveedorWindow(QWidget):
         info.setStyleSheet(f"color:{_DIM};font-size:12px;")
         ly.addWidget(info)
         bar = QHBoxLayout()
-        bar.addWidget(_btn("✉  Reenviar invitación", self._reenviar_pendiente, primary=True))
+        bar.addWidget(_btn("✉️  Reenviar invitación", self._reenviar_pendiente, primary=True))
         bar.addStretch()
-        bar.addWidget(_btn("🔄  Actualizar", self._cargar_pendientes, primary=True))
+        bar.addWidget(_btn_cargando("🔄  Actualizar", self._cargar_pendientes))
         ly.addLayout(bar)
         self.tbl_pend = _tabla(["Proveedor", "Email", "Invitado el"])
         ly.addWidget(self.tbl_pend)
@@ -247,7 +249,7 @@ class PortalProveedorWindow(QWidget):
         self.cmb_prov_msg = _combo(self._provs() or [("(sin proveedores)", None)])
         self.cmb_prov_msg.currentIndexChanged.connect(lambda *_: self._cargar_hilo())
         fila.addWidget(QLabel("Proveedor:")); fila.addWidget(self.cmb_prov_msg, 1)
-        fila.addWidget(_btn("🔄  Actualizar", self._cargar_hilo, primary=True))
+        fila.addWidget(_btn_cargando("🔄  Actualizar", self._cargar_hilo))
         ly.addLayout(fila)
         self.txt_hilo = QPlainTextEdit(); self.txt_hilo.setReadOnly(True)
         self.txt_hilo.setStyleSheet(f"QPlainTextEdit{{background:#0D1117;color:{_TEXT};"
