@@ -89,8 +89,8 @@ def resolver_token(token) -> dict | None:
         return None
     try:
         with _conn() as c, c.cursor() as cur:
-            cur.execute("SELECT id, nombre, divisa, estado, tipo_comercio FROM lonja_vendedores "
-                        "WHERE token=%s", (token,))
+            cur.execute("SELECT id, nombre, divisa, estado, tipo_comercio, iban_mascara "
+                        "FROM lonja_vendedores WHERE token=%s", (token,))
             r = _uno(cur)
         if not r or r.get("estado") != "activo":
             return None

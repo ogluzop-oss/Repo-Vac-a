@@ -49,7 +49,19 @@ def registrar(bp):
     def lv_me():
         return jsonify({"id": _vid(), "nombre": g.vendedor.get("nombre"),
                         "divisa": g.vendedor.get("divisa"),
-                        "tipo_comercio": g.vendedor.get("tipo_comercio")})
+                        "tipo_comercio": g.vendedor.get("tipo_comercio"),
+                        "iban_mascara": g.vendedor.get("iban_mascara")})
+
+    @bp.put("/lonja-vendedor/cuenta")
+    @requiere_vendedor
+    def lv_cuenta():
+        # El vendedor registra su cuenta bancaria (IBAN) para cobrar sus ventas del mercado.
+        from src.services.compras import cobro_servicio as CS
+        b = request.get_json(silent=True) or {}
+        if not b.get("iban"):
+            return jsonify({"error": "iban requerido"}), 400
+        res = CS.set_cuenta_vendedor(_vid(), b["iban"])
+        return (jsonify(res), 200 if res.get("ok") else 400)
 
     @bp.put("/lonja-vendedor/tipo-comercio")
     @requiere_vendedor
