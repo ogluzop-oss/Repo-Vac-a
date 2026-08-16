@@ -104,6 +104,7 @@ class PortalProveedorWindow(QWidget):
         bar.addWidget(_btn("✉️  Enviar invitación", self._enviar_correo, primary=True))
         bar.addWidget(_btn("🔑  Ver enlace", self._ver_enlace, primary=True))
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
+        bar.addWidget(_btn("💳  Cuenta bancaria", self._cuenta_bancaria, primary=True))
         bar.addWidget(_btn("🏷️  Publicar en el mercado", self._publicar_mercado, primary=True))
         bar.addWidget(_btn("Revocar", self._revocar, danger=True))
         bar.addStretch()
@@ -176,6 +177,21 @@ class PortalProveedorWindow(QWidget):
             _aviso(self, "Portal", "Selecciona un proveedor de la tabla.", "warning"); return
         if portal.revocar(pid, self._emp()):
             self._cargar_cuentas()
+
+    def _cuenta_bancaria(self):
+        """Registra la cuenta bancaria (IBAN) del proveedor seleccionado (para operar y cobrar)."""
+        pid = self._cuenta_sel()
+        if not pid:
+            _aviso(self, "Cuenta bancaria", "Selecciona un proveedor de la tabla.", "warning"); return
+        from src.services.compras import cobro_servicio as CS
+        actual = CS.cuenta_proveedor(pid, self._emp()) or {}
+        dlg = _DialogoCuenta(actual, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.iban:
+            res = CS.set_cuenta_proveedor(pid, dlg.iban, titular=dlg.titular, id_empresa=self._emp())
+            if res.get("ok"):
+                _aviso(self, "Cuenta bancaria", f"Cuenta guardada: {res['iban_mascara']}", "success")
+            else:
+                _aviso(self, "Cuenta bancaria", res.get("error", "IBAN no válido."), "error")
 
     def _cuenta_sel_nombre(self):
         r = self.tbl_cuentas.currentRow()
@@ -340,6 +356,37 @@ def _divisas_soportadas():
     except Exception:
         pass
     return [("EUR", "EUR"), ("USD", "USD"), ("GBP", "GBP")]
+
+
+class _DialogoCuenta(QDialog):
+    """Registra la cuenta bancaria (IBAN) del proveedor (frameless). Muestra la máscara actual si la hay."""
+
+    def __init__(self, actual, parent=None):
+        super().__init__(parent)
+        self.iban = None; self.titular = None
+        v = _dialogo_frameless(self, titulo="Cuenta bancaria del proveedor", ancho=440)
+        if actual.get("iban_mascara"):
+            lab = QLabel(f"Cuenta actual: {actual['iban_mascara']}")
+            lab.setStyleSheet(f"color:{_TEXT};background:transparent;font-size:12px;font-weight:700;")
+            v.addWidget(lab)
+        self.in_iban = _inp("IBAN")
+        self.in_tit = _inp("Titular (opcional)")
+        if actual.get("titular_cuenta"):
+            self.in_tit.setText(actual["titular_cuenta"])
+        for etq, wdg in (("IBAN", self.in_iban), ("Titular", self.in_tit)):
+            cap = QLabel(etq); cap.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+            v.addWidget(cap); v.addWidget(wdg)
+        row = QHBoxLayout(); row.addStretch(1)
+        row.addWidget(_btn("Cancelar", self.reject))
+        row.addWidget(_btn("Guardar", self._ok, primary=True))
+        v.addLayout(row)
+
+    def _ok(self):
+        iban = (self.in_iban.text() or "").strip()
+        if iban:
+            self.iban = iban
+            self.titular = (self.in_tit.text() or "").strip() or None
+            self.accept()
 
 
 class _DialogoPublicarMercado(QDialog):

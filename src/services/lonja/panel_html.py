@@ -58,6 +58,10 @@ _HTML = r"""<!doctype html>
      </div>
    </div>
    <div class="card">
+     <h3>Mi cuenta bancaria (IBAN)</h3>
+     <div class="row"><input id="iban" placeholder="IBAN" style="flex:1"><button onclick="guardarCuenta()">Guardar</button><span class="who" id="ibanmask"></span></div>
+   </div>
+   <div class="card">
      <h3>Publicar artículo en el mercado</h3>
      <div class="row">
        <input id="p_cod" placeholder="Código" size="10">
@@ -102,11 +106,18 @@ async function entrar(){
   if(r.j.divisa){document.getElementById("divisa").value=r.j.divisa;}
   const tc=(r.j.tipo_comercio||"").split(",");
   document.querySelectorAll("#tcbox input").forEach(i=>{i.checked=tc.includes(i.value);});
+  if(r.j.iban_mascara){document.getElementById("ibanmask").textContent=r.j.iban_mascara;}
   document.getElementById("login").classList.add("hide");
   document.getElementById("app").classList.remove("hide");
   cargar();
 }
 function salir(){TOKEN="";document.getElementById("app").classList.add("hide");document.getElementById("login").classList.remove("hide");}
+
+async function guardarCuenta(){const v=document.getElementById("iban").value.trim();
+  if(!v){out("Indica un IBAN.",true);return;}
+  const r=await api("PUT","/cuenta",{iban:v});
+  out(r.ok?"Cuenta guardada.":((r.j&&r.j.error)||"IBAN no válido."),!r.ok);
+  if(r.ok&&r.j.iban_mascara){document.getElementById("ibanmask").textContent=r.j.iban_mascara;document.getElementById("iban").value="";}}
 
 function tiposMarcados(){return [...document.querySelectorAll("#tcbox input:checked")].map(i=>i.value);}
 async function guardarTipo(){const r=await api("PUT","/tipo-comercio",{tipo_comercio:tiposMarcados()});
