@@ -27,6 +27,9 @@ _AISLAMIENTO_REVISADO = {
     "solicitudes_traspaso_items", "recetas_lineas", "obrador_partes_lineas",
     # plataforma global (no son datos de un tenant)
     "cloud_feature_flags", "saas_regiones", "ioc_grupos_empresariales",
+    # Lonja B2B: MERCADO COMPARTIDO entre empresas (por diseño no aislado por tenant; el vendedor y los
+    # listados son visibles por todas las compradoras). Las pujas/transacciones SÍ registran la empresa.
+    "lonja_vendedores", "lonja_listados", "lonja_tipos_cambio",
 }
 
 
