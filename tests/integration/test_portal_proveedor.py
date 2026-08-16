@@ -153,6 +153,59 @@ def test_panel_html_autocontenido():
     assert "<html" in html and "X-Portal-Token" in html and "/panel" in html
 
 
+def test_registrar_plantilla_en_catalogo(db, fab):
+    from src.services.ccp import templates as TPL
+    emp = fab.empresa("EMP plantilla")
+
+    def _cl():
+        _limpia(db, emp)
+        with db.obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ccp_plantillas WHERE id_empresa=%s", (emp,))
+            cur.execute("DELETE FROM ccp_plantillas_versiones WHERE id_empresa=%s", (emp,))
+            conn.commit()
+    fab.al_limpiar(_cl)
+
+    pid = portal.registrar_plantilla(id_empresa=emp)
+    assert pid
+    codigos = [p["codigo"] for p in TPL.listar_plantillas(emp)]
+    assert "invitacion_portal_proveedor" in codigos
+    # La plantilla del catálogo renderiza los placeholders {{ }} con las variables.
+    asunto, cuerpo = TPL.render("invitacion_portal_proveedor",
+                                {"proveedor": "ACME", "empresa": "MiTienda", "token": "TOK9",
+                                 "enlace": "http://x/panel"}, id_empresa=emp)
+    assert "MiTienda" in asunto and "ACME" in cuerpo and "TOK9" in cuerpo
+
+
+def test_job_invitaciones_sin_aceptar(db, fab):
+    from src.services import scheduler
+    from src.services.compras.portal import jobs
+
+    emp = fab.empresa("EMP job inv")
+
+    def _cl():
+        _limpia(db, emp)
+        with db.obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM scheduler_jobs WHERE id_empresa=%s", (emp,))
+            conn.commit()
+    fab.al_limpiar(_cl)
+
+    prov = PROV.crear_proveedor("Prov Job", id_empresa=emp)
+    inv = portal.invitar_proveedor(prov, id_empresa=emp)
+
+    # Invitado y sin conexión → cuenta pendiente; el job la resume.
+    pend = portal.invitaciones_pendientes(id_empresa=emp)
+    assert any(int(x["id_proveedor"]) == prov for x in pend)
+    assert jobs._job_avisar_invitaciones(id_empresa=emp) == "invitaciones_pendientes=1"
+
+    # El proveedor entra al portal → deja de estar pendiente.
+    portal.marcar_conexion(inv["token"])
+    assert portal.invitaciones_pendientes(id_empresa=emp) == []
+
+    # El registrador cablea el callable del job en el Scheduler existente.
+    portal.registrar_jobs_portal(id_empresa=emp)
+    assert "portal_invitaciones_pendientes" in scheduler.REGISTRO
+
+
 def test_scorecard_reutiliza_evaluacion(db, fab):
     emp = fab.empresa("EMP portal score")
     fab.al_limpiar(lambda: _limpia(db, emp))

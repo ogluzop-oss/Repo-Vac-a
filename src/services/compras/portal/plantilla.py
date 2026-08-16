@@ -6,6 +6,36 @@ cuerpo HTML + cuerpo texto, con los datos del proveedor/empresa y el enlace de a
 """
 
 
+# Código de la plantilla en el catálogo corporativo (ccp_plantillas). Los placeholders usan la sintaxis
+# del render CCP: {{ proveedor }} / {{ empresa }} / {{ token }} / {{ enlace }}.
+CODIGO_PLANTILLA = "invitacion_portal_proveedor"
+
+
+def plantilla_catalogo() -> dict:
+    """Asunto + cuerpo HTML de la plantilla de invitación CON placeholders `{{ }}`, para registrarla en
+    el catálogo de plantillas de la empresa (editable por el usuario). Mantiene el mismo diseño que
+    `render_invitacion`."""
+    asunto = "{{ empresa }} te invita a su Portal de Proveedor"
+    cuerpo = (
+        "<div style=\"font-family:Segoe UI,Arial,sans-serif;color:#0D1117;max-width:560px\">"
+        "<h2 style=\"color:#0A7\">Portal de Proveedor</h2>"
+        "<p>Hola <b>{{ proveedor }}</b>:</p>"
+        "<p><b>{{ empresa }}</b> usa Smart Manager para gestionar sus compras y te invita a su "
+        "<b>Portal de Proveedor</b>, donde podrás mantener tus <b>tarifas</b> y <b>stock</b>, recibir "
+        "los <b>pedidos</b> y marcar su estado, participar en <b>peticiones de precio (RFQ)</b> y "
+        "comunicarte con el equipo de compras.</p>"
+        "<p>Tu <b>token de acceso</b>:</p>"
+        "<p style=\"background:#F2F4F7;border-radius:8px;padding:10px;font-family:monospace;"
+        "word-break:break-all\">{{ token }}</p>"
+        "<p><a href=\"{{ enlace }}\" style=\"background:#00A98F;color:#fff;text-decoration:none;"
+        "padding:10px 18px;border-radius:8px;display:inline-block\">Entrar al portal</a></p>"
+        "<p style=\"color:#667085;font-size:12px\">{{ enlace }}</p>"
+        "<p style=\"color:#667085;font-size:12px\">Si no esperabas esta invitación, ignora este mensaje.</p>"
+        "<p>Un saludo,<br>Equipo de compras de <b>{{ empresa }}</b></p>"
+        "</div>")
+    return {"codigo": CODIGO_PLANTILLA, "asunto": asunto, "cuerpo": cuerpo}
+
+
 def enlace_panel(token, url_base=None) -> str:
     """URL del panel web del proveedor con su token. `url_base` = host donde se despliegue el backend
     (vacío hasta producción)."""
