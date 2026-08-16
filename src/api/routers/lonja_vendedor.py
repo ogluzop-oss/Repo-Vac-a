@@ -36,6 +36,14 @@ def registrar(bp):
     def _vid():
         return g.vendedor["id"]
 
+    @bp.get("/lonja-vendedor/panel")
+    def lv_panel():
+        # Página del panel web del vendedor (SPA autocontenida). Pública: la autentican los endpoints
+        # (X-Lonja-Token). Preparada para el día del despliegue; funciona en local igualmente.
+        from flask import Response
+        from src.services.lonja.panel_html import panel_html
+        return Response(panel_html(), mimetype="text/html")
+
     @bp.get("/lonja-vendedor/me")
     @requiere_vendedor
     def lv_me():
