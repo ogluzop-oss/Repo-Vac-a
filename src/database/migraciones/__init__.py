@@ -205,4 +205,5 @@ MODULOS = [
     "0196_id_tienda_int_tpv",
     "0197_precios_proveedor_unidad_medida",
     "0198_portal_proveedor",
+    "0199_lonja",
 ]
