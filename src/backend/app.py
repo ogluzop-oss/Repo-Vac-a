@@ -59,6 +59,21 @@ def crear_app():
         http = int(res.pop("http", 200))
         return jsonify(res), http
 
+    # Webhooks de MARKETPLACE (Stripe Connect): sincroniza cuentas conectadas (KYB) y el estado de
+    # escrow de las transacciones de la Lonja. Endpoint separado (dominio distinto al checkout).
+    @app.post("/webhooks/pagos/connect/<id_empresa>")
+    def webhook_connect(id_empresa):
+        from src.services.pagos_marketplace.webhooks import procesar_webhook_connect
+        cuerpo = request.get_data() or b""
+        cabeceras = dict(request.headers)
+        try:
+            res = procesar_webhook_connect(cabeceras, cuerpo, id_empresa=id_empresa)
+        except Exception:
+            logger.exception("Error procesando webhook Connect /%s", id_empresa)
+            return jsonify({"ok": False, "mensaje": "error interno"}), 500
+        http = int(res.pop("http", 200))
+        return jsonify(res), http
+
     # Tienda online propia (Escenario B): storefront dinámico por empresa.
     try:
         from src.backend.storefront import crear_blueprint

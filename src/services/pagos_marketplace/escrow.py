@@ -40,6 +40,46 @@ def estado(id_transaccion) -> str | None:
     return (t or {}).get("estado_pago")
 
 
+# ── Sincronización dirigida por webhook (local, SIN llamar al PSP) ─────────────
+_TERMINALES = ("FUNDS_RELEASED", "REFUNDED")
+
+
+def tx_por_payment_ref(payment_ref) -> dict | None:
+    """Localiza la transacción por la referencia de pago del PSP (la usa el webhook Connect)."""
+    if not payment_ref:
+        return None
+    with _conn() as c, c.cursor() as cur:
+        cur.execute("SELECT * FROM lonja_transacciones WHERE psp_payment_ref=%s LIMIT 1", (payment_ref,))
+        return _uno(cur)
+
+
+def set_estado_local(id_transaccion, nuevo, *, transfer_ref=None, motivo="webhook") -> dict:
+    """Fija el estado de pago desde un webhook (el PSP ya ejecutó la operación real). Idempotente y
+    seguro ante desorden: no revierte estados terminales (FUNDS_RELEASED/REFUNDED)."""
+    if nuevo not in ESTADOS:
+        return {"ok": False, "error": "estado_invalido"}
+    with _tx() as conn, conn.cursor() as cur:
+        cur.execute("SELECT estado_pago FROM lonja_transacciones WHERE id=%s FOR UPDATE", (id_transaccion,))
+        t = _uno(cur)
+        if not t:
+            return {"ok": False, "error": "transaccion_no_encontrada"}
+        actual = t.get("estado_pago")
+        if actual == nuevo:
+            return {"ok": True, "idempotente": True, "estado_pago": nuevo}
+        if actual in _TERMINALES:
+            return {"ok": True, "ignorado": True, "estado_pago": actual}
+        sets, params = ["estado_pago=%s"], [nuevo]
+        if nuevo == "FUNDS_RELEASED":
+            sets.append("released_en=NOW()")
+        if transfer_ref:
+            sets.append("psp_transfer_ref=%s"); params.append(transfer_ref)
+        params.append(id_transaccion)
+        cur.execute("UPDATE lonja_transacciones SET " + ", ".join(sets) + " WHERE id=%s", tuple(params))
+    _audit(f"ESCROW_WEBHOOK_{nuevo}", f"tx={id_transaccion} {actual}->{nuevo} ({motivo})",
+           tabla="lonja_transacciones")
+    return {"ok": True, "estado_pago": nuevo}
+
+
 def _adaptador(id_empresa):
     from src.services.pagos_marketplace import psp
     return psp.adaptador(id_empresa)
