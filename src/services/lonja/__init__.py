@@ -16,7 +16,9 @@ from .vendedores import (alta_vendedor, set_divisa, obtener as obtener_vendedor,
 from .listados import publicar, listar as listar_listados, obtener as obtener_listado, retirar
 from .transacciones import (adjudicar, comprar_directo, mejor_puja, pujar, transacciones_de)
 from .mercado import bolsa_unificada, divisa_referencia
-from .jobs import cerrar_subastas_vencidas, registrar_jobs_lonja, subastas_vencidas
+from .jobs import (cerrar_subastas_vencidas, registrar_jobs_lonja, subastas_por_vencer,
+                   subastas_vencidas)
+from .listados import DURACION_DEFECTO_HORAS
 from .panel_html import panel_html
 
 __all__ = [
@@ -26,6 +28,6 @@ __all__ = [
     "publicar", "listar_listados", "obtener_listado", "retirar",
     "comprar_directo", "pujar", "adjudicar", "mejor_puja", "transacciones_de",
     "bolsa_unificada", "divisa_referencia",
-    "cerrar_subastas_vencidas", "subastas_vencidas", "registrar_jobs_lonja",
-    "panel_html",
+    "cerrar_subastas_vencidas", "subastas_vencidas", "subastas_por_vencer", "registrar_jobs_lonja",
+    "panel_html", "DURACION_DEFECTO_HORAS",
 ]

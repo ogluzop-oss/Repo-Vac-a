@@ -134,10 +134,14 @@ def pujar(id_listado, id_empresa, importe, *, divisa=None) -> dict:
             cur.execute("SELECT id, id_empresa, importe, divisa FROM lonja_pujas WHERE id_listado=%s "
                         "AND estado='pujada' ORDER BY importe DESC LIMIT 1", (id_listado,))
             mejor = _uno(cur)
+            incremento = float(l.get("incremento_minimo") or 0)
             if mejor:
                 mejor_ref = _d.convertir(float(mejor["importe"]), mejor["divisa"], l["divisa"])
                 if importe_ref <= mejor_ref:
                     return {"ok": False, "error": "no_mejora", "mejor": mejor_ref}
+                if importe_ref < mejor_ref + incremento:
+                    return {"ok": False, "error": "incremento_insuficiente",
+                            "minimo": round(mejor_ref + incremento, 4)}
                 cur.execute("UPDATE lonja_pujas SET estado='superada' WHERE id_listado=%s AND estado='pujada'",
                             (id_listado,))
                 prev_emp = mejor["id_empresa"]
@@ -180,6 +184,14 @@ def adjudicar(id_listado, *, id_puja=None, usuario=None) -> dict:
             puja = _uno(cur)
             if not puja:
                 return {"ok": False, "error": "sin_pujas"}
+            # Precio de reserva: si la mejor puja no lo alcanza, NO se adjudica (queda desierta).
+            reserva = l.get("precio_reserva")
+            if reserva not in (None, ""):
+                from . import divisa as _d
+                puja_ref = _d.convertir(float(puja["importe"]), puja["divisa"], l["divisa"])
+                if puja_ref < float(reserva):
+                    return {"ok": False, "error": "reserva_no_alcanzada",
+                            "reserva": float(reserva), "mejor": puja_ref}
             cur.execute("UPDATE lonja_pujas SET estado=CASE WHEN id=%s THEN 'ganadora' ELSE 'rechazada' END "
                         "WHERE id_listado=%s AND estado IN ('pujada','superada')", (puja["id"], id_listado))
             cur.execute("UPDATE lonja_listados SET estado='adjudicado', cantidad_disponible=0 WHERE id=%s",

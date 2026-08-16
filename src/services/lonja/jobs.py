@@ -23,12 +23,20 @@ def subastas_vencidas() -> list:
 
 
 def cerrar_subastas_vencidas() -> dict:
-    adjudicadas = cerradas = 0
+    adjudicadas = cerradas = desiertas = 0
     for lid in subastas_vencidas():
         try:
             if _t.mejor_puja(lid):
-                if _t.adjudicar(lid).get("ok"):
+                res = _t.adjudicar(lid)
+                if res.get("ok"):
                     adjudicadas += 1
+                elif res.get("error") == "reserva_no_alcanzada":
+                    # Hubo pujas pero ninguna alcanzó el precio de reserva → desierta.
+                    with _conn() as c, c.cursor() as cur:
+                        cur.execute("UPDATE lonja_listados SET estado='desierta' WHERE id=%s "
+                                    "AND estado='activo'", (lid,))
+                        desiertas += 1 if cur.rowcount > 0 else 0
+                        c.commit()
             else:
                 with _conn() as c, c.cursor() as cur:
                     cur.execute("UPDATE lonja_listados SET estado='cerrado' WHERE id=%s AND estado='activo'",
@@ -37,12 +45,34 @@ def cerrar_subastas_vencidas() -> dict:
                     c.commit()
         except Exception as e:
             logger.debug("cerrar subasta %s: %s", lid, e)
-    return {"adjudicadas": adjudicadas, "cerradas": cerradas}
+    return {"adjudicadas": adjudicadas, "cerradas": cerradas, "desiertas": desiertas}
+
+
+def subastas_por_vencer(minutos=30) -> list:
+    """Subastas ACTIVAS que caducan en los próximos `minutos` (para avisar de "por vencer")."""
+    try:
+        with _conn() as c, c.cursor() as cur:
+            cur.execute("SELECT id, id_vendedor, codigo_articulo, fecha_limite FROM lonja_listados "
+                        "WHERE estado='activo' AND permite_puja=1 AND fecha_limite IS NOT NULL "
+                        "AND fecha_limite > NOW() AND fecha_limite <= (NOW() + INTERVAL %s MINUTE)",
+                        (int(minutos),))
+            return _filas(cur)
+    except Exception as e:
+        logger.error("subastas_por_vencer: %s", e)
+        return []
 
 
 def _job_cierre_subastas(id_empresa=None) -> str:
     r = cerrar_subastas_vencidas()
-    return f"adjudicadas={r['adjudicadas']} cerradas={r['cerradas']}"
+    # Aviso "por vencer" a los vendedores con subastas a punto de caducar.
+    try:
+        from . import avisos as _av
+        for s in subastas_por_vencer(30):
+            _av.avisar_vendedor(s["id_vendedor"], "LONJA_POR_VENCER",
+                                f"listado={s['id']} caduca={s.get('fecha_limite')}")
+    except Exception:
+        pass
+    return f"adjudicadas={r['adjudicadas']} cerradas={r['cerradas']} desiertas={r['desiertas']}"
 
 
 def registrar_jobs_lonja(id_empresa=None):

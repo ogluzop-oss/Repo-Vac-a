@@ -199,7 +199,9 @@ class PortalProveedorWindow(QWidget):
             _aviso(self, "Mercado", "No se pudo crear el vendedor de la Lonja.", "error"); return
         lid = lonja.publicar(vid, d["codigo"], d["precio"], divisa=d["divisa"],
                              puja_minima=d["puja_minima"], cantidad=d["cantidad"],
-                             unidad_medida=d["unidad"])
+                             unidad_medida=d["unidad"], duracion_horas=d.get("duracion_horas"),
+                             precio_reserva=d.get("precio_reserva"),
+                             incremento_minimo=d.get("incremento_minimo", 0))
         if lid:
             _aviso(self, "Mercado",
                    f"Publicado en el mercado: {d['codigo']} · {d['precio']:.2f} {d['divisa']} "
@@ -355,9 +357,14 @@ class _DialogoPublicarMercado(QDialog):
         self.in_cant = _inp("Cantidad disponible"); self.in_cant.setText("1")
         self.cmb_uni = _combo([("unidad", "unidad"), ("caja", "caja"), ("palé", "pale"), ("kg", "kg")])
         self.cmb_uni.setMinimumWidth(120); self.cmb_uni.view().setMinimumWidth(120)
+        self.in_dur = _inp("Duración de la subasta (horas)"); self.in_dur.setText("24")
+        self.in_res = _inp("Precio de reserva (opcional)")
+        self.in_inc = _inp("Incremento mínimo de puja"); self.in_inc.setText("0")
         for etq, wdg in (("Artículo", self.in_cod), ("Divisa", self.cmb_div),
                          ("Precio (compra directa)", self.in_precio), ("Puja mínima", self.in_pmin),
-                         ("Cantidad", self.in_cant), ("Unidad", self.cmb_uni)):
+                         ("Cantidad", self.in_cant), ("Unidad", self.cmb_uni),
+                         ("Duración subasta (h)", self.in_dur), ("Precio de reserva (opc.)", self.in_res),
+                         ("Incremento mínimo", self.in_inc)):
             cap = QLabel(etq); cap.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
             v.addWidget(cap); v.addWidget(wdg)
         row = QHBoxLayout(); row.addStretch(1)
@@ -376,7 +383,10 @@ class _DialogoPublicarMercado(QDialog):
         precio = _f(self.in_precio); cant = _f(self.in_cant, 1)
         if not cod or precio <= 0 or cant <= 0:
             return
+        res_txt = (self.in_res.text() or "").strip()
         self.datos = {"codigo": cod, "divisa": self.cmb_div.currentData(), "precio": precio,
                       "puja_minima": _f(self.in_pmin), "cantidad": cant,
-                      "unidad": self.cmb_uni.currentData()}
+                      "unidad": self.cmb_uni.currentData(),
+                      "duracion_horas": _f(self.in_dur, 24), "incremento_minimo": _f(self.in_inc),
+                      "precio_reserva": (_f(self.in_res) if res_txt else None)}
         self.accept()
