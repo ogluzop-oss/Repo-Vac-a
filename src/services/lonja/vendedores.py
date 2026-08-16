@@ -123,6 +123,22 @@ def vendedor_de_proveedor(id_empresa, id_proveedor, *, nombre=None, divisa="EUR"
         return None
 
 
+def token_de_proveedor(id_empresa, id_proveedor, *, nombre=None) -> str | None:
+    """Puente proveedor→vendedor: asegura el vendedor de la Lonja del proveedor y devuelve su token, para
+    que el MISMO panel del proveedor pueda operar también en el mercado (unificación proveedor↔vendedor)."""
+    vid = vendedor_de_proveedor(id_empresa, id_proveedor, nombre=nombre)
+    if not vid:
+        return None
+    try:
+        with _conn() as c, c.cursor() as cur:
+            cur.execute("SELECT token FROM lonja_vendedores WHERE id=%s", (vid,))
+            r = _uno(cur)
+        return r["token"] if r else None
+    except Exception as e:
+        logger.error("token_de_proveedor: %s", e)
+        return None
+
+
 def listar(id_empresa_origen=None) -> list:
     cond, params = [], []
     if id_empresa_origen:
