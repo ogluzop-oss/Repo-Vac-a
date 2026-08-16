@@ -17,6 +17,7 @@ from .listados import publicar, listar as listar_listados, obtener as obtener_li
 from .transacciones import (adjudicar, comprar_directo, mejor_puja, pujar, transacciones_de)
 from .mercado import bolsa_unificada, divisa_referencia
 from .jobs import cerrar_subastas_vencidas, registrar_jobs_lonja, subastas_vencidas
+from .panel_html import panel_html
 
 __all__ = [
     "convertir", "set_tasa", "tasa", "tasas",
@@ -26,4 +27,5 @@ __all__ = [
     "comprar_directo", "pujar", "adjudicar", "mejor_puja", "transacciones_de",
     "bolsa_unificada", "divisa_referencia",
     "cerrar_subastas_vencidas", "subastas_vencidas", "registrar_jobs_lonja",
+    "panel_html",
 ]

@@ -49,3 +49,11 @@ def test_lonja_vendedor_api(db, fab, cliente):
     # Retirar el listado.
     assert cliente.delete(f"/api/v1/lonja-vendedor/listados/{lid}", headers=_h(tok)).status_code == 200
     assert lonja.obtener_listado(lid)["estado"] == "retirado"
+
+
+def test_panel_vendedor_html(db, cliente):
+    # El panel web del vendedor se sirve (público; lo autentican los endpoints con el token).
+    from src.services import lonja
+    assert "<html" in lonja.panel_html() and "X-Lonja-Token" in lonja.panel_html()
+    pg = cliente.get("/api/v1/lonja-vendedor/panel")
+    assert pg.status_code == 200 and b"Portal del Vendedor" in pg.data
