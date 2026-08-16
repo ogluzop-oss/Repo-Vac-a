@@ -15,7 +15,7 @@ Reutiliza los helpers visuales de `catalogo_gestion` (coherencia con el resto de
 import logging
 import os
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QTableWidgetItem,
                              QTabWidget, QVBoxLayout, QWidget)
@@ -38,6 +38,7 @@ def _btn_carta(txt, slot):
         ic = QIcon(_CARTA_PNG)
         if not ic.isNull():
             b.setIcon(ic)
+            b.setIconSize(QSize(26, 20))
     except Exception:
         pass
     return b

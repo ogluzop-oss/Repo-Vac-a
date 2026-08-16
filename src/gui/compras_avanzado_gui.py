@@ -8,17 +8,60 @@ tocar el flujo principal proveedor→pedido→recepción→factura. Multiempresa
 
 import logging
 
-from PyQt6.QtWidgets import (QHBoxLayout, QInputDialog, QLabel, QMessageBox,
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QMessageBox,
                              QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import compras as C, proveedores as P
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo, _inp, _tabla)
+from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo,
+                                      _dialogo_frameless, _inp, _tabla)
+
+try:
+    from assets.estilo_global import mostrar_mensaje
+except Exception:  # pragma: no cover
+    mostrar_mensaje = None
 
 logger = logging.getLogger("compras.avanzado.gui")
 
 
-def _it(v):
-    return QTableWidgetItem("" if v is None else str(v))
+def _it(v, centro=False):
+    it = QTableWidgetItem("" if v is None else str(v))
+    if centro:
+        it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+    return it
+
+
+class _DialogoDescuento(QDialog):
+    """Editor de descuento frameless (sin barra de Windows, esquinas redondeadas, botones propios)."""
+
+    def __init__(self, actual=0.0, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(440, 250)
+        v = _dialogo_frameless(self, titulo="Editar descuento", ancho=440)
+        lab = QLabel("Descuento (%)")
+        lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+        v.addWidget(lab)
+        self.inp = _inp("0,00")
+        try:
+            self.inp.setText(f"{float(actual or 0):g}".replace(".", ","))
+        except Exception:
+            self.inp.setText("0")
+        self.inp.selectAll()
+        v.addWidget(self.inp)
+        v.addStretch()
+        bar = QHBoxLayout()
+        bar.addWidget(_btn("Cancelar", self.reject))
+        bar.addWidget(_btn("Aceptar", self.accept, primary=True))
+        v.addLayout(bar)
+
+    def valor(self):
+        """Devuelve el porcentaje (0–100) o None si no es válido."""
+        txt = (self.inp.text() or "").strip().replace(",", ".")
+        try:
+            val = float(txt)
+        except ValueError:
+            return None
+        return val if 0 <= val <= 100 else None
 
 
 class ComprasAvanzadoWindow(QWidget):
@@ -50,6 +93,31 @@ class ComprasAvanzadoWindow(QWidget):
         except Exception:
             return None
 
+    def _aviso(self, titulo, mensaje, nivel="info"):
+        """Feedback unificado (usa el diálogo estilizado de la app; degrada a QMessageBox)."""
+        if mostrar_mensaje is not None:
+            try:
+                mostrar_mensaje(self, titulo, mensaje, nivel=nivel)
+                return
+            except Exception:
+                pass
+        (QMessageBox.information if nivel in ("info", "success") else QMessageBox.warning)(
+            self, titulo, mensaje)
+
+    def _tabla_kv(self):
+        """Tabla de 2 columnas (Parámetro · Valor) centrada, con el estilo estándar de la app."""
+        t = _tabla(["Parámetro", "Valor"])
+        t.setMaximumWidth(560)
+        t.setMaximumHeight(280)
+        return t
+
+    @staticmethod
+    def _llenar_kv(tabla, filas):
+        tabla.setRowCount(len(filas))
+        for i, (k, val) in enumerate(filas):
+            tabla.setItem(i, 0, _it(k, centro=True))
+            tabla.setItem(i, 1, _it(val, centro=True))
+
     def _provs(self):
         return [(f"{p['razon_social']} ({p.get('cif_nif') or ''})", p["id_proveedor"])
                 for p in P.listar_proveedores(self._emp())]
@@ -66,8 +134,9 @@ class ComprasAvanzadoWindow(QWidget):
         b.addWidget(_btn("Bloquear", lambda: self._homolog("bloqueado"), danger=True))
         b.addStretch()
         ly.addLayout(b)
-        self.lbl_cond = QLabel(""); self.lbl_cond.setStyleSheet(f"color:{_TEXT};")
-        ly.addWidget(self.lbl_cond)
+        self.tbl_cond = self._tabla_kv()
+        fila = QHBoxLayout(); fila.addStretch(); fila.addWidget(self.tbl_cond); fila.addStretch()
+        ly.addLayout(fila); ly.addStretch()
         self.cmb_prov.currentIndexChanged.connect(self._refresca_cond)
         self._refresca_cond()
         return w
@@ -75,31 +144,61 @@ class ComprasAvanzadoWindow(QWidget):
     def _refresca_cond(self):
         pid = self.cmb_prov.currentData()
         if not pid:
-            self.lbl_cond.setText(""); return
+            self.tbl_cond.setRowCount(0); return
         c = P.condiciones_comerciales(pid, self._emp())
-        self.lbl_cond.setText(f"Descuento {c.get('descuento')}% · plazo pago {c.get('plazo_pago')}d · "
-                              f"lead time {c.get('lead_time_dias')}d · homologado {c.get('homologado')} · "
-                              f"bloqueado {c.get('bloqueado')}")
+        self._llenar_kv(self.tbl_cond, [
+            ("Descuento", f"{c.get('descuento')} %"),
+            ("Plazo de pago", f"{c.get('plazo_pago')} días"),
+            ("Lead time", f"{c.get('lead_time_dias')} días"),
+            ("Homologado", "Sí" if c.get("homologado") else "No"),
+            ("Bloqueado", "Sí" if c.get("bloqueado") else "No"),
+        ])
 
     def _homolog(self, estado):
         pid = self.cmb_prov.currentData()
         if not pid:
-            QMessageBox.information(self, "Homologación",
-                                    "Selecciona un proveedor antes de realizar esta acción.")
+            self._aviso("Homologación", "Selecciona un proveedor antes de realizar esta acción.", "info")
             return
-        if C.set_homologacion_estado(pid, estado, self._emp()):
+        etiquetas = {"aprobado": ("homologado (aprobado)", "success"),
+                     "suspendido": ("suspendido", "warning"),
+                     "bloqueado": ("bloqueado", "warning")}
+        txt, nivel = etiquetas.get(estado, (estado, "info"))
+        try:
+            ok = C.set_homologacion_estado(pid, estado, self._emp())
+        except Exception as e:
+            logger.exception("set_homologacion_estado")
+            self._aviso("Homologación", f"No se pudo actualizar el estado: {e}", "error")
+            return
+        if ok:
             self._refresca_cond()
+            self._aviso("Homologación", f"Proveedor {txt} correctamente.", nivel)
+        else:
+            self._aviso("Homologación", "No se pudo actualizar el estado del proveedor.", "error")
 
     def _set_descuento(self):
         pid = self.cmb_prov.currentData()
         if not pid:
-            QMessageBox.information(self, "Homologación",
-                                    "Selecciona un proveedor antes de editar su descuento.")
+            self._aviso("Descuento", "Selecciona un proveedor antes de editar su descuento.", "info")
             return
-        val, ok = QInputDialog.getDouble(self, "Descuento", "Descuento %:", 0, 0, 100, 2)
-        if ok:
+        try:
+            actual = float(P.condiciones_comerciales(pid, self._emp()).get("descuento") or 0)
+        except Exception:
+            actual = 0.0
+        dlg = _DialogoDescuento(actual, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        val = dlg.valor()
+        if val is None:
+            self._aviso("Descuento", "Introduce un porcentaje válido (entre 0 y 100).", "warning")
+            return
+        try:
             P.actualizar_proveedor(pid, id_empresa=self._emp(), descuento=val)
-            self._refresca_cond()
+        except Exception as e:
+            logger.exception("actualizar_descuento")
+            self._aviso("Descuento", f"No se pudo guardar el descuento: {e}", "error")
+            return
+        self._refresca_cond()
+        self._aviso("Descuento", f"Descuento actualizado a {val:g} %.", "success")
 
     # ── Devoluciones ──────────────────────────────────────────────────────────
     def _tab_devoluciones(self):
@@ -171,16 +270,28 @@ class ComprasAvanzadoWindow(QWidget):
         self.cmb_prov_eval = _combo(self._provs() or [("(sin proveedores)", None)])
         ly.addWidget(self.cmb_prov_eval)
         ly.addWidget(_btn("Evaluar proveedor", self._kpis, primary=True))
-        self.lbl_kpis = QLabel(""); self.lbl_kpis.setStyleSheet(f"color:{_TEXT};font-weight:700;")
-        ly.addWidget(self.lbl_kpis)
+        self.tbl_kpis = self._tabla_kv()
+        fila = QHBoxLayout(); fila.addStretch(); fila.addWidget(self.tbl_kpis); fila.addStretch()
+        ly.addLayout(fila); ly.addStretch()
         return w
 
     def _kpis(self):
         pid = self.cmb_prov_eval.currentData()
         if not pid:
+            self._aviso("Evaluación", "Selecciona un proveedor antes de evaluarlo.", "info")
             return
-        k = C.calcular_kpis_proveedor(pid, self._emp())
-        self.lbl_kpis.setText(f"Valoración global: {k['valoracion_global']} · incidencias "
-                              f"{k['incidencias']} · rechazos {k['rechazos']} · devoluciones "
-                              f"{k['devoluciones']} · pedidos recibidos {k['pedidos_recibidos']}")
+        try:
+            k = C.calcular_kpis_proveedor(pid, self._emp())
+        except Exception as e:
+            logger.exception("calcular_kpis_proveedor")
+            self._aviso("Evaluación", f"No se pudo calcular la evaluación: {e}", "error")
+            return
+        self._llenar_kv(self.tbl_kpis, [
+            ("Valoración global", str(k["valoracion_global"])),
+            ("Incidencias", str(k["incidencias"])),
+            ("Rechazos", str(k["rechazos"])),
+            ("Devoluciones", str(k["devoluciones"])),
+            ("Pedidos recibidos", str(k["pedidos_recibidos"])),
+        ])
         C.registrar_evaluacion(pid, id_empresa=self._emp())
+        self._aviso("Evaluación", "Evaluación calculada y registrada.", "success")
