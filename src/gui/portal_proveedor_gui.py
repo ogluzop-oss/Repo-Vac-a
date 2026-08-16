@@ -15,7 +15,7 @@ Reutiliza los helpers visuales de `catalogo_gestion` (coherencia con el resto de
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QTableWidgetItem,
+from PyQt6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QTableWidgetItem,
                              QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import proveedores as P
@@ -194,7 +194,8 @@ class PortalProveedorWindow(QWidget):
             return
         from src.services import lonja
         d = dlg.datos
-        vid = lonja.vendedor_de_proveedor(self._emp(), pid, nombre=nombre, divisa=d["divisa"])
+        vid = lonja.vendedor_de_proveedor(self._emp(), pid, nombre=nombre, divisa=d["divisa"],
+                                          tipo_comercio=d.get("tipo_comercio"))
         if not vid:
             _aviso(self, "Mercado", "No se pudo crear el vendedor de la Lonja.", "error"); return
         lid = lonja.publicar(vid, d["codigo"], d["precio"], divisa=d["divisa"],
@@ -360,6 +361,14 @@ class _DialogoPublicarMercado(QDialog):
         self.in_dur = _inp("Duración de la subasta (horas)"); self.in_dur.setText("24")
         self.in_res = _inp("Precio de reserva (opcional)")
         self.in_inc = _inp("Incremento mínimo de puja"); self.in_inc.setText("0")
+        # Tipo de comercio al que suministra (gating por edición). Vacío = todas.
+        self._tc_chks = []
+        tcrow = QHBoxLayout()
+        for cod_tc, etq_tc in (("SUPERMARKET", "Supermercado"), ("RETAIL", "Retail"),
+                               ("PHARMACY", "Farmacia"), ("TEXTIL", "Textil"), ("BAKERY", "Panadería")):
+            ch = QCheckBox(etq_tc); ch.setProperty("tc", cod_tc)
+            ch.setStyleSheet(f"color:{_TEXT};font-size:11px;")
+            self._tc_chks.append(ch); tcrow.addWidget(ch)
         for etq, wdg in (("Artículo", self.in_cod), ("Divisa", self.cmb_div),
                          ("Precio (compra directa)", self.in_precio), ("Puja mínima", self.in_pmin),
                          ("Cantidad", self.in_cant), ("Unidad", self.cmb_uni),
@@ -367,6 +376,9 @@ class _DialogoPublicarMercado(QDialog):
                          ("Incremento mínimo", self.in_inc)):
             cap = QLabel(etq); cap.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
             v.addWidget(cap); v.addWidget(wdg)
+        tccap = QLabel("Tipo de comercio (vacío = todas las ediciones)")
+        tccap.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+        v.addWidget(tccap); v.addLayout(tcrow)
         row = QHBoxLayout(); row.addStretch(1)
         row.addWidget(_btn("Cancelar", self.reject))
         row.addWidget(_btn("Publicar", self._ok, primary=True))
@@ -384,9 +396,11 @@ class _DialogoPublicarMercado(QDialog):
         if not cod or precio <= 0 or cant <= 0:
             return
         res_txt = (self.in_res.text() or "").strip()
+        tipos = [c.property("tc") for c in self._tc_chks if c.isChecked()]
         self.datos = {"codigo": cod, "divisa": self.cmb_div.currentData(), "precio": precio,
                       "puja_minima": _f(self.in_pmin), "cantidad": cant,
                       "unidad": self.cmb_uni.currentData(),
                       "duracion_horas": _f(self.in_dur, 24), "incremento_minimo": _f(self.in_inc),
-                      "precio_reserva": (_f(self.in_res) if res_txt else None)}
+                      "precio_reserva": (_f(self.in_res) if res_txt else None),
+                      "tipo_comercio": tipos}
         self.accept()

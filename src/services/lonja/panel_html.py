@@ -38,6 +38,18 @@ _HTML = r"""<!doctype html>
  </div>
  <div id="app" class="hide">
    <div class="card">
+     <h3>¿A qué tipos de comercio suministras?</h3>
+     <div class="row" id="tcbox">
+       <label class="chk"><input type="checkbox" value="SUPERMARKET"> Supermercado</label>
+       <label class="chk"><input type="checkbox" value="RETAIL"> Retail</label>
+       <label class="chk"><input type="checkbox" value="PHARMACY"> Farmacia</label>
+       <label class="chk"><input type="checkbox" value="TEXTIL"> Textil</label>
+       <label class="chk"><input type="checkbox" value="BAKERY"> Panadería</label>
+       <button onclick="guardarTipo()">Guardar</button>
+       <span class="who">Tus productos solo aparecerán en estas ediciones (vacío = todas).</span>
+     </div>
+   </div>
+   <div class="card">
      <h3>Mi divisa de referencia</h3>
      <div class="row">
        <select id="divisa"><option>EUR</option><option>USD</option><option>GBP</option><option>MXN</option><option>ARS</option><option>BRL</option><option>COP</option><option>CLP</option></select>
@@ -88,11 +100,17 @@ async function entrar(){
   if(!r.ok){document.getElementById("loginmsg").innerHTML='<div class="msg err">Token no válido.</div>';return;}
   document.getElementById("who").textContent="· "+(r.j.nombre||"")+" ("+(r.j.divisa||"")+")";
   if(r.j.divisa){document.getElementById("divisa").value=r.j.divisa;}
+  const tc=(r.j.tipo_comercio||"").split(",");
+  document.querySelectorAll("#tcbox input").forEach(i=>{i.checked=tc.includes(i.value);});
   document.getElementById("login").classList.add("hide");
   document.getElementById("app").classList.remove("hide");
   cargar();
 }
 function salir(){TOKEN="";document.getElementById("app").classList.add("hide");document.getElementById("login").classList.remove("hide");}
+
+function tiposMarcados(){return [...document.querySelectorAll("#tcbox input:checked")].map(i=>i.value);}
+async function guardarTipo(){const r=await api("PUT","/tipo-comercio",{tipo_comercio:tiposMarcados()});
+  out(r.ok?"Tipo de comercio guardado.":"Error.",!r.ok);}
 
 async function guardarDivisa(){const d=document.getElementById("divisa").value;
   const r=await api("PUT","/divisa",{divisa:d}); out(r.ok?"Divisa guardada.":"Error.",!r.ok);

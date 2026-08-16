@@ -32,6 +32,12 @@ def test_lonja_vendedor_api(db, fab, cliente):
     # Sin token → 401.
     assert cliente.get("/api/v1/lonja-vendedor/me").status_code == 401
 
+    # Tipo de comercio (se define ANTES que la divisa en el onboarding).
+    assert cliente.put("/api/v1/lonja-vendedor/tipo-comercio", headers=_h(tok),
+                       json={"tipo_comercio": ["PHARMACY", "BAKERY"]}).status_code == 200
+    assert cliente.get("/api/v1/lonja-vendedor/me", headers=_h(tok)).get_json()["tipo_comercio"] \
+        == "PHARMACY,BAKERY"
+
     # /me y cambio de DIVISA (el vendedor define su moneda de referencia).
     assert cliente.get("/api/v1/lonja-vendedor/me", headers=_h(tok)).get_json()["divisa"] == "EUR"
     assert cliente.put("/api/v1/lonja-vendedor/divisa", headers=_h(tok),

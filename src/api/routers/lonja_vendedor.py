@@ -48,7 +48,16 @@ def registrar(bp):
     @requiere_vendedor
     def lv_me():
         return jsonify({"id": _vid(), "nombre": g.vendedor.get("nombre"),
-                        "divisa": g.vendedor.get("divisa")})
+                        "divisa": g.vendedor.get("divisa"),
+                        "tipo_comercio": g.vendedor.get("tipo_comercio")})
+
+    @bp.put("/lonja-vendedor/tipo-comercio")
+    @requiere_vendedor
+    def lv_tipo_comercio():
+        # El vendedor define a qué tipos de comercio suministra ANTES de la divisa (onboarding).
+        b = request.get_json(silent=True) or {}
+        ok = lonja.set_tipo_comercio(_vid(), b.get("tipo_comercio"))
+        return (jsonify({"ok": ok}), 200 if ok else 500)
 
     @bp.put("/lonja-vendedor/divisa")
     @requiere_vendedor

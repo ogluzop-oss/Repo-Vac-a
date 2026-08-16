@@ -157,6 +157,39 @@ def test_precio_reserva_desierta(db, fab):
     assert lonja.obtener_listado(lid)["estado"] == "desierta"
 
 
+def test_gating_tipo_comercio(db, fab):
+    from src.services.lonja import listados as L
+    v_ph = lonja.alta_vendedor("Pharma SA", divisa="EUR", tipo_comercio=["PHARMACY"])
+    v_all = lonja.alta_vendedor("Todos SA", divisa="EUR")            # tipo_comercio None → todas
+    v_bad = lonja.alta_vendedor("Bad SA", tipo_comercio=["FOO"])     # inválido → None
+    vids = [v_ph["id"], v_all["id"], v_bad["id"]]
+
+    def _cl():
+        with db.obtener_conexion() as conn, conn.cursor() as cur:
+            for vid in vids:
+                cur.execute("DELETE FROM lonja_listados WHERE id_vendedor=%s", (vid,))
+                cur.execute("DELETE FROM lonja_vendedores WHERE id=%s", (vid,))
+            conn.commit()
+    fab.al_limpiar(_cl)
+
+    assert v_bad["tipo_comercio"] is None                            # normalización descarta inválidos
+    lonja.publicar(v_ph["id"], "TC-1", 5.0, permite_puja=False, cantidad=3)
+    lonja.publicar(v_all["id"], "TC-1", 6.0, permite_puja=False, cantidad=3)
+
+    # Edición PHARMACY → el de farmacia + el que suministra a todos.
+    ph = {r["id_vendedor"] for r in L.listar("TC-1", vertical="PHARMACY")}
+    assert ph == {v_ph["id"], v_all["id"]}
+    # Edición TEXTIL → solo el que suministra a todos (el de farmacia queda fuera).
+    tx = {r["id_vendedor"] for r in L.listar("TC-1", vertical="TEXTIL")}
+    assert tx == {v_all["id"]}
+    # Sin gating (vertical=None) → ambos.
+    assert len(L.listar("TC-1")) == 2
+
+    # set_tipo_comercio actualiza la lista CSV.
+    lonja.set_tipo_comercio(v_ph["id"], ["PHARMACY", "BAKERY"])
+    assert lonja.obtener_vendedor(v_ph["id"])["tipo_comercio"] == "PHARMACY,BAKERY"
+
+
 def test_conversion_divisa():
     # 1 USD = 0.90 EUR; convertir 100 USD → 90 EUR y viceversa.
     lonja.set_tasa("USD", 0.90)

@@ -58,8 +58,9 @@ def obtener(id_listado) -> dict | None:
         return None
 
 
-def listar(codigo_articulo=None, *, id_vendedor=None, solo_activos=True) -> list:
-    """Listados del mercado (todas las compradoras ven lo mismo). Filtrable por artículo/vendedor."""
+def listar(codigo_articulo=None, *, id_vendedor=None, solo_activos=True, vertical=None) -> list:
+    """Listados del mercado. Filtrable por artículo/vendedor. Si `vertical` (edición) se indica, SOLO
+    devuelve listados de vendedores que suministran a esa edición (tipo_comercio vacío = todas)."""
     cond, params = [], []
     if codigo_articulo:
         cond.append("l.codigo_articulo=%s"); params.append(str(codigo_articulo).strip().upper())
@@ -67,6 +68,9 @@ def listar(codigo_articulo=None, *, id_vendedor=None, solo_activos=True) -> list
         cond.append("l.id_vendedor=%s"); params.append(id_vendedor)
     if solo_activos:
         cond.append("l.estado='activo'")
+    if vertical:   # gating por edición: el vendedor debe suministrar a esta edición (o a todas)
+        cond.append("(v.tipo_comercio IS NULL OR v.tipo_comercio='' OR FIND_IN_SET(%s, v.tipo_comercio))")
+        params.append(str(vertical).strip().upper())
     q = ("SELECT l.id, l.id_vendedor, v.nombre AS vendedor, l.codigo_articulo, l.descripcion, l.precio, "
          "l.divisa, l.puja_minima, l.unidad_medida, l.cantidad_disponible, l.permite_compra_directa, "
          "l.permite_puja, l.estado, l.fecha_limite, l.precio_reserva, l.incremento_minimo, l.creado_en "

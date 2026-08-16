@@ -208,4 +208,5 @@ MODULOS = [
     "0199_lonja",
     "0200_lonja_subasta",
     "0201_cancelaciones",
+    "0202_lonja_tipo_comercio",
 ]
