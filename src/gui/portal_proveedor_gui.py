@@ -214,6 +214,8 @@ class PortalProveedorWindow(QWidget):
         self.in_rfq_cod = _inp("Código de artículo"); self.in_rfq_cod.setFixedWidth(180)
         self.in_rfq_cant = _inp("Cantidad"); self.in_rfq_cant.setFixedWidth(110)
         self.cmb_rfq_uni = _combo([("unidad", "unidad"), ("caja", "caja"), ("palé", "pale"), ("kg", "kg")])
+        self.cmb_rfq_uni.setMinimumWidth(120)          # que no se corte "unidad"
+        self.cmb_rfq_uni.view().setMinimumWidth(120)   # y tampoco en el desplegable
         for x in (QLabel("Artículo:"), self.in_rfq_cod, self.in_rfq_cant, self.cmb_rfq_uni):
             fila.addWidget(x)
         fila.addWidget(_btn("➕  Crear RFQ", self._crear_rfq, primary=True))
