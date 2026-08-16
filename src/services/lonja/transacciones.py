@@ -114,6 +114,13 @@ def pujar(id_listado, id_empresa, importe, *, divisa=None) -> dict:
     try:
         from . import divisa as _d
         from . import avisos as _av
+        # Strike system: una empresa que cancela demasiado tiene la puja pausada.
+        try:
+            from src.services.compras import cancelaciones as _canc
+            if _canc.bloqueado_por_strikes(id_empresa):
+                return {"ok": False, "error": "bloqueado_por_cancelaciones"}
+        except Exception:
+            pass
         prev_emp = None; extendido = False
         with _tx() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM lonja_listados WHERE id=%s FOR UPDATE", (id_listado,))
