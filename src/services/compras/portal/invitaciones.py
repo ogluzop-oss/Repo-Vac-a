@@ -32,16 +32,32 @@ def _datos_proveedor(id_proveedor, id_empresa):
         return f"Proveedor {id_proveedor}", None
 
 
+def registrar_plantilla(id_empresa=None) -> int | None:
+    """Registra (o actualiza) la plantilla de invitación en el catálogo de plantillas de la empresa
+    (`ccp_plantillas`), en estado 'produccion'. Idempotente. Así el usuario puede verla/editarla en el
+    gestor de plantillas y `ccp.enviar_comunicacion(plantilla=...)` la usa. Best-effort."""
+    emp = _emp(id_empresa)
+    try:
+        from src.services.ccp import templates as _tpl
+        tp = _plantilla.plantilla_catalogo()
+        return _tpl.crear_plantilla(tp["codigo"], tp["asunto"], tp["cuerpo"], id_empresa=emp,
+                                    categoria="general", idioma="es", formato="html", estado="produccion")
+    except Exception as e:
+        logger.debug("registrar_plantilla invitacion: %s", e)
+        return None
+
+
 def render_invitacion(id_proveedor, *, url_base=None, id_empresa=None) -> dict:
     """Solo renderiza la invitación (sin enviar): asegura el token y devuelve asunto/cuerpo/enlace."""
     emp = _emp(id_empresa)
     inv = _cuentas.invitar_proveedor(id_proveedor, id_empresa=emp) or {}
     token = inv.get("token", "")
     nombre, email = _datos_proveedor(id_proveedor, emp)
+    empresa = _nombre_empresa(emp)
     url_base = url_base or os.getenv("PORTAL_PROVEEDOR_URL")
-    r = _plantilla.render_invitacion(proveedor=nombre, empresa=_nombre_empresa(emp), token=token,
-                                     url_base=url_base)
-    r.update({"email": email, "token": token, "enlace": _plantilla.enlace_panel(token, url_base)})
+    r = _plantilla.render_invitacion(proveedor=nombre, empresa=empresa, token=token, url_base=url_base)
+    r.update({"email": email, "token": token, "enlace": _plantilla.enlace_panel(token, url_base),
+              "proveedor_nombre": nombre, "empresa_nombre": empresa})
     return r
 
 
@@ -56,10 +72,17 @@ def enviar_invitacion(id_proveedor, *, email=None, url_base=None, id_empresa=Non
     if not destino:
         salida.update({"ok": False, "error": "sin_email"})
         return salida
+    # Asegura la plantilla en el catálogo corporativo (idempotente) para poder usarla y editarla.
+    registrar_plantilla(emp)
+    variables = {"proveedor": r.get("proveedor_nombre") or "", "empresa": r.get("empresa_nombre") or "",
+                 "token": r["token"], "enlace": r["enlace"]}
     try:
         from src.services import ccp
+        # Prefiere la plantilla del catálogo (plantilla=CODIGO + variables); el asunto/cuerpo en código
+        # quedan como fallback si la plantilla no renderizase.
         res = ccp.enviar_comunicacion(id_empresa=emp, destinatario=destino, asunto=r["asunto"],
                                       cuerpo=r["cuerpo_html"], canal="email", usuario=usuario,
+                                      plantilla=_plantilla.CODIGO_PLANTILLA, variables=variables,
                                       metadatos={"tipo": "invitacion_portal_proveedor",
                                                  "id_proveedor": id_proveedor})
         salida["com_id"] = getattr(res, "com_id", None) or getattr(res, "id", None)

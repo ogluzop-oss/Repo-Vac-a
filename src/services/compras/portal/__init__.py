@@ -21,8 +21,9 @@ from .rfq import (adjudicar_rfq, crear_rfq, listar_rfq, obtener_rfq, ofertas_de_
 from .mensajes import enviar_mensaje, hilo, marcar_leido, no_leidos
 from .scorecard import scorecard
 from .tarifas import listar_tarifas, subir_tarifa
-from .invitaciones import enviar_invitacion, render_invitacion
+from .invitaciones import enviar_invitacion, registrar_plantilla, render_invitacion
 from .panel_html import panel_html
+from .jobs import invitaciones_pendientes, registrar_jobs_portal
 
 __all__ = [
     "portal_activo", "modo",
@@ -34,5 +35,6 @@ __all__ = [
     "adjudicar_rfq",
     "enviar_mensaje", "hilo", "marcar_leido", "no_leidos",
     "scorecard", "listar_tarifas", "subir_tarifa",
-    "render_invitacion", "enviar_invitacion", "panel_html",
+    "render_invitacion", "enviar_invitacion", "registrar_plantilla", "panel_html",
+    "invitaciones_pendientes", "registrar_jobs_portal",
 ]
