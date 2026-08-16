@@ -105,10 +105,11 @@ class ComprasAvanzadoWindow(QWidget):
             self, titulo, mensaje)
 
     def _tabla_kv(self):
-        """Tabla de 2 columnas (Parámetro · Valor) centrada, con el estilo estándar de la app."""
+        """Tabla de 2 columnas (Parámetro · Valor) centrada, con el estilo estándar de la app.
+        Altura holgada para que los ~5 parámetros se vean sin scrollbar."""
         t = _tabla(["Parámetro", "Valor"])
-        t.setMaximumWidth(560)
-        t.setMaximumHeight(280)
+        t.setMinimumWidth(440); t.setMaximumWidth(560)
+        t.setMinimumHeight(290); t.setMaximumHeight(330)
         return t
 
     @staticmethod
@@ -135,6 +136,7 @@ class ComprasAvanzadoWindow(QWidget):
         b.addStretch()
         ly.addLayout(b)
         self.tbl_cond = self._tabla_kv()
+        ly.addSpacing(48)
         fila = QHBoxLayout(); fila.addStretch(); fila.addWidget(self.tbl_cond); fila.addStretch()
         ly.addLayout(fila); ly.addStretch()
         self.cmb_prov.currentIndexChanged.connect(self._refresca_cond)
@@ -271,6 +273,7 @@ class ComprasAvanzadoWindow(QWidget):
         ly.addWidget(self.cmb_prov_eval)
         ly.addWidget(_btn("Evaluar proveedor", self._kpis, primary=True))
         self.tbl_kpis = self._tabla_kv()
+        ly.addSpacing(48)
         fila = QHBoxLayout(); fila.addStretch(); fila.addWidget(self.tbl_kpis); fila.addStretch()
         ly.addLayout(fila); ly.addStretch()
         return w

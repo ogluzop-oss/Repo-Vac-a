@@ -28,9 +28,24 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _dialogo_frameless, _tabla
+
+try:
+    from assets.estilo_global import mostrar_mensaje
+except Exception:  # pragma: no cover
+    mostrar_mensaje = None
 
 logger = logging.getLogger("gui.calidad")
+
+
+def _dlg_body(dialog, titulo, ancho):
+    """Cabecera frameless común (sin barra de Windows, esquinas redondeadas) + QFormLayout listo.
+    Devuelve (body_vbox, form). Los QLabel del formulario se colorean vía stylesheet del diálogo."""
+    dialog.setStyleSheet("QLabel{color:#E6EDF3;background:transparent;font-weight:700;}")
+    v = _dialogo_frameless(dialog, titulo=titulo, ancho=ancho)
+    form = QFormLayout(); form.setSpacing(10)
+    v.addLayout(form)
+    return v, form
 
 
 def _it(v):
@@ -178,6 +193,20 @@ class CalidadDashboardWindow(QWidget):
     def _set(self, msg):
         self.lbl.setText(msg)
 
+    def _aviso(self, titulo, mensaje, nivel="info"):
+        """Feedback emergente (éxito/aviso/error) para que los botones no parezcan 'muertos'.
+        Actualiza también la barra de estado superior."""
+        self.lbl.setText(mensaje)
+        if mostrar_mensaje is not None:
+            try:
+                mostrar_mensaje(self, titulo, mensaje, nivel=nivel)
+                return
+            except Exception:
+                pass
+        from PyQt6.QtWidgets import QMessageBox
+        (QMessageBox.information if nivel in ("info", "success") else QMessageBox.warning)(
+            self, titulo, mensaje)
+
     def _sel_id(self, tabla):
         row = tabla.currentRow()
         if row < 0:
@@ -191,71 +220,85 @@ class CalidadDashboardWindow(QWidget):
     # ── Inspecciones ──────────────────────────────────────────────────────────
     def _nueva_inspeccion(self):
         if not _puede(self.usuario, "inspecciones.crear"):
-            self._set("Permiso requerido: inspecciones.crear"); return
+            self._aviso("Inspección", "Permiso requerido: inspecciones.crear", "warning"); return
         dlg = _NuevaInspeccionDialog((self.usuario or {}).get("id"), self)
         if dlg.exec() and dlg.resultado:
             from src.services.calidad import inspecciones
             r = inspecciones.registrar_inspeccion(id_empresa=_empresa(), **dlg.resultado)
+            self._load()
             if r.get("ok"):
                 nc = r.get("no_conformidad")
-                self._set(f"Inspección {r['inspeccion']} registrada." +
-                          (f" NC generada automáticamente: {nc}" if nc else ""))
+                self._aviso("Inspección",
+                            f"Inspección {r['inspeccion']} registrada." +
+                            (f"\nNC generada automáticamente: {nc}" if nc else ""),
+                            "success")
             else:
-                self._set(f"Error: {r.get('error')}")
-            self._load()
+                self._aviso("Inspección", f"No se pudo registrar: {r.get('error')}", "error")
 
     # ── No Conformidades ──────────────────────────────────────────────────────
     def _nueva_nc(self):
         if not _puede(self.usuario, "nc.crear"):
-            self._set("Permiso requerido: nc.crear"); return
+            self._aviso("No conformidad", "Permiso requerido: nc.crear", "warning"); return
         dlg = _NuevaNCDialog(self)
         if dlg.exec() and dlg.resultado:
             from src.services.calidad import no_conformidades
             nid = no_conformidades.abrir(id_empresa=_empresa(),
                                          responsable=(self.usuario or {}).get("id"), **dlg.resultado)
-            self._set(f"NC abierta: {nid}" if nid else "No se pudo abrir la NC.")
             self._load()
+            if nid:
+                self._aviso("No conformidad", f"NC abierta correctamente (ID {nid}).", "success")
+            else:
+                self._aviso("No conformidad", "No se pudo abrir la NC.", "error")
 
     def _nc_estado(self, nuevo):
         if not _puede(self.usuario, "calidad.admin"):
-            self._set("Permiso requerido: calidad.admin"); return
+            self._aviso("No conformidad", "Permiso requerido: calidad.admin", "warning"); return
         nid = self._sel_id(self.tbl_nc)
         if not nid:
-            self._set("Selecciona una NC."); return
+            self._aviso("No conformidad", "Selecciona una NC en la tabla.", "info"); return
         from src.services.calidad import no_conformidades
         r = no_conformidades.cambiar_estado(nid, nuevo, id_empresa=_empresa())
-        self._set(f"NC {nid} → {r.get('estado')}" if r.get("ok") else f"NC {nid}: {r.get('error')}")
         self._load()
+        if r.get("ok"):
+            self._aviso("No conformidad", f"NC {nid} actualizada a «{r.get('estado')}».", "success")
+        else:
+            self._aviso("No conformidad", f"NC {nid}: {r.get('error')}", "error")
 
     # ── CAPA ──────────────────────────────────────────────────────────────────
     def _nueva_capa(self):
         if not _puede(self.usuario, "calidad.admin"):
-            self._set("Permiso requerido: calidad.admin"); return
+            self._aviso("CAPA", "Permiso requerido: calidad.admin", "warning"); return
         dlg = _NuevaCAPADialog(self)
         if dlg.exec() and dlg.resultado:
             from src.services.calidad import capa
             cid = capa.crear_accion(id_empresa=_empresa(),
                                     responsable=(self.usuario or {}).get("id"), **dlg.resultado)
-            self._set(f"Acción CAPA creada: {cid}" if cid else "No se pudo crear la acción.")
             self._load()
+            if cid:
+                self._aviso("CAPA", f"Acción CAPA creada correctamente (ID {cid}).", "success")
+            else:
+                self._aviso("CAPA", "No se pudo crear la acción CAPA.", "error")
 
     def _capa_estado(self, estado):
         if not _puede(self.usuario, "calidad.admin"):
-            self._set("Permiso requerido: calidad.admin"); return
+            self._aviso("CAPA", "Permiso requerido: calidad.admin", "warning"); return
         cid = self._sel_id(self.tbl_capa)
         if not cid:
-            self._set("Selecciona una acción CAPA."); return
+            self._aviso("CAPA", "Selecciona una acción CAPA en la tabla.", "info"); return
         from src.services.calidad import capa
         r = capa.cambiar_estado(cid, estado, id_empresa=_empresa())
-        self._set(f"CAPA {cid} → {r.get('estado')}" if r.get("ok") else f"CAPA {cid}: {r.get('error')}")
         self._load()
+        if r.get("ok"):
+            self._aviso("CAPA", f"CAPA {cid} actualizada a «{r.get('estado')}».", "success")
+        else:
+            self._aviso("CAPA", f"CAPA {cid}: {r.get('error')}", "error")
 
     def _capa_cerrar(self):
         if not _puede(self.usuario, "calidad.admin"):
-            self._set("Permiso requerido: calidad.admin"); return
+            self._aviso("CAPA", "Permiso requerido: calidad.admin", "warning"); return
         cid = self._sel_id(self.tbl_capa)
         if not cid:
-            self._set("Selecciona una acción CAPA."); return
+            self._aviso("CAPA", "Selecciona una acción CAPA en la tabla.", "info"); return
         from PyQt6.QtWidgets import QInputDialog
         efi, ok = QInputDialog.getItem(self, "Cerrar CAPA", "Eficacia verificada:",
                                        ["eficaz", "no_eficaz", "pendiente"], 0, False)
@@ -263,8 +306,11 @@ class CalidadDashboardWindow(QWidget):
             return
         from src.services.calidad import capa
         r = capa.cambiar_estado(cid, "cerrada", eficacia=efi, id_empresa=_empresa())
-        self._set(f"CAPA {cid} cerrada (eficacia: {efi})" if r.get("ok") else f"CAPA {cid}: {r.get('error')}")
         self._load()
+        if r.get("ok"):
+            self._aviso("CAPA", f"CAPA {cid} cerrada (eficacia: {efi}).", "success")
+        else:
+            self._aviso("CAPA", f"CAPA {cid}: {r.get('error')}", "error")
 
 
 class _NuevaInspeccionDialog(QDialog):
@@ -273,9 +319,8 @@ class _NuevaInspeccionDialog(QDialog):
     def __init__(self, inspector, parent=None):
         super().__init__(parent)
         self.resultado = None
-        self.setWindowTitle("Nueva inspección de calidad")
-        self.setStyleSheet(f"background:{_BG};color:#E6EDF3;")
-        f = QFormLayout(self)
+        self.setFixedSize(620, 620)
+        v, f = _dlg_body(self, "Nueva inspección de calidad", ancho=620)
         self.cb_fase = _combo(["recepcion", "produccion", "final"])
         self.in_art = QLineEdit(); self.in_art.setPlaceholderText("Código de artículo")
         self.in_lote = QLineEdit(); self.in_lote.setPlaceholderText("(opcional) ID lote")
@@ -284,6 +329,9 @@ class _NuevaInspeccionDialog(QDialog):
         self.sp_rech = QSpinBox(); self.sp_rech.setRange(0, 10_000_000)
         self.cb_res = _combo(["aceptada", "rechazada", "condicional", "pendiente"])
         self._inspector = inspector
+        for wdg in (self.cb_fase, self.in_art, self.in_lote, self.in_prov,
+                    self.sp_insp, self.sp_rech, self.cb_res):
+            wdg.setMinimumHeight(34)
         f.addRow("Fase:", self.cb_fase)
         f.addRow("Artículo:", self.in_art)
         f.addRow("Lote:", self.in_lote)
@@ -291,10 +339,11 @@ class _NuevaInspeccionDialog(QDialog):
         f.addRow("Cantidad inspeccionada:", self.sp_insp)
         f.addRow("Cantidad rechazada:", self.sp_rech)
         f.addRow("Resultado:", self.cb_res)
+        v.addStretch()
         row = QHBoxLayout()
-        row.addWidget(_btn("Registrar", self._ok, primary=True))
         row.addWidget(_btn("Cancelar", self.reject))
-        f.addRow(row)
+        row.addWidget(_btn("Registrar", self._ok, primary=True))
+        v.addLayout(row)
 
     def _ok(self):
         art = self.in_art.text().strip()
@@ -326,21 +375,23 @@ class _NuevaNCDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.resultado = None
-        self.setWindowTitle("Nueva No Conformidad")
-        self.setStyleSheet(f"background:{_BG};color:#E6EDF3;")
-        f = QFormLayout(self)
+        self.setFixedSize(580, 460)
+        v, f = _dlg_body(self, "Nueva No Conformidad", ancho=580)
         self.in_desc = QLineEdit(); self.in_desc.setPlaceholderText("Descripción de la no conformidad")
         self.cb_origen = _combo(["interna", "recepcion", "produccion", "cliente", "proveedor"])
         self.cb_sev = _combo(["baja", "media", "alta", "critica"])
         self.in_art = QLineEdit(); self.in_art.setPlaceholderText("(opcional) artículo")
+        for wdg in (self.in_desc, self.cb_origen, self.cb_sev, self.in_art):
+            wdg.setMinimumHeight(34)
         f.addRow("Descripción:", self.in_desc)
         f.addRow("Origen:", self.cb_origen)
         f.addRow("Severidad:", self.cb_sev)
         f.addRow("Artículo:", self.in_art)
+        v.addStretch()
         row = QHBoxLayout()
-        row.addWidget(_btn("Abrir NC", self._ok, primary=True))
         row.addWidget(_btn("Cancelar", self.reject))
-        f.addRow(row)
+        row.addWidget(_btn("Abrir NC", self._ok, primary=True))
+        v.addLayout(row)
 
     def _ok(self):
         desc = self.in_desc.text().strip()
@@ -358,19 +409,21 @@ class _NuevaCAPADialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.resultado = None
-        self.setWindowTitle("Nueva acción correctiva / preventiva (CAPA)")
-        self.setStyleSheet(f"background:{_BG};color:#E6EDF3;")
-        f = QFormLayout(self)
+        self.setFixedSize(580, 420)
+        v, f = _dlg_body(self, "Nueva acción correctiva / preventiva (CAPA)", ancho=580)
         self.in_desc = QLineEdit(); self.in_desc.setPlaceholderText("Descripción de la acción")
         self.cb_tipo = _combo(["correctiva", "preventiva"])
         self.in_nc = QLineEdit(); self.in_nc.setPlaceholderText("(opcional) ID de NC asociada")
+        for wdg in (self.in_desc, self.cb_tipo, self.in_nc):
+            wdg.setMinimumHeight(34)
         f.addRow("Descripción:", self.in_desc)
         f.addRow("Tipo:", self.cb_tipo)
         f.addRow("NC asociada:", self.in_nc)
+        v.addStretch()
         row = QHBoxLayout()
-        row.addWidget(_btn("Crear", self._ok, primary=True))
         row.addWidget(_btn("Cancelar", self.reject))
-        f.addRow(row)
+        row.addWidget(_btn("Crear", self._ok, primary=True))
+        v.addLayout(row)
 
     def _ok(self):
         desc = self.in_desc.text().strip()

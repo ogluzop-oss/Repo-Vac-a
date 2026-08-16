@@ -123,7 +123,9 @@ class PortalProveedorWindow(QWidget):
         # siguientes rellenan el hueco.
         bar.addWidget(_btn("🔑  Ver enlace", self._ver_enlace, primary=True))
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
-        bar.addWidget(_btn("💳  Cuenta bancaria", self._cuenta_bancaria, primary=True))
+        # "Cuenta bancaria" se retira: el alta directa de IBAN no es la vía correcta para un marketplace
+        # B2B con fondos de terceros. La captación/custodia de fondos debe delegarse a un PSP regulado
+        # (Stripe Connect / Mangopay / Adyen) con onboarding KYC/KYB, escrow y payouts — ver roadmap.
         bar.addWidget(_btn("🏷️  Publicar en el mercado", self._publicar_mercado, primary=True))
         bar.addWidget(_btn("Revocar", self._revocar, danger=True))
         bar.addStretch()
