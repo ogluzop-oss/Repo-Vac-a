@@ -250,12 +250,9 @@ class ComprasWindow(QWidget):
         self._carrito = []   # artículos en cola (carrito de compra, en memoria)
         fila = QHBoxLayout()
         fila.addWidget(_btn(tr("compras.nuevo_pedido", default="NUEVO PEDIDO"), self._dlg_nuevo_pedido, primary=True))
-        fila.addWidget(_btn(tr("compras.enviar", default="ENVIAR"), self._enviar_carrito_sel, primary=True))
         fila.addWidget(_btn(tr("compras.desde_reab", default="DESDE REPOSICIÓN"), self._desde_reab, primary=True))
         fila.addWidget(_btn(tr("compras.tramitar_todos", default="TRAMITAR TODOS"),
                             self._tramitar_todos, primary=True))
-        # CANCELAR va DETRÁS de "Tramitar todos": retira el artículo seleccionado de la cola.
-        fila.addWidget(_btn(tr("compras.cancelar", default="CANCELAR"), self._quitar_carrito_sel, danger=True))
         fila.addStretch(1)
         fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_pedidos))
         ly.addLayout(fila)
@@ -284,6 +281,14 @@ class ComprasWindow(QWidget):
         bfila.addWidget(self.cmb_bolsa_orden)
         bfila.addWidget(_btn(tr("compras.bolsa_buscar", default="BUSCAR"), self._buscar_bolsa, primary=True))
         ly.addLayout(bfila)
+        # Acciones sobre la tabla: JUSTO ENCIMA de la bolsa (bajo el buscador).
+        mbar = QHBoxLayout()
+        mbar.addWidget(_btn("🛒  " + tr("compras.comprar_ya", default="COMPRAR YA"),
+                            self._comprar_ya, primary=True))
+        mbar.addWidget(_btn("🔨  " + tr("compras.pujar", default="PUJAR OFERTA"),
+                            self._pujar_oferta, primary=True))
+        mbar.addStretch(1)
+        ly.addLayout(mbar)
         # Tabla UNIFICADA: tarifas fijas (tuyas) + ofertas en vivo del mercado (Lonja), clasificadas por
         # ORIGEN, con precio en divisa original + convertido a tu divisa de referencia.
         self.tbl_bolsa = _tabla([tr("compras.origen", default="Origen"),
@@ -297,26 +302,21 @@ class ComprasWindow(QWidget):
         # Doble clic → comprar ya (tarifa: a la cola; en vivo: compra directa del mercado).
         self.tbl_bolsa.cellDoubleClicked.connect(self._bolsa_doble_clic)
         ly.addWidget(self.tbl_bolsa, 1)
-        mbar = QHBoxLayout()
-        mbar.addWidget(_btn("🛒  " + tr("compras.comprar_ya", default="COMPRAR YA"),
-                            self._comprar_ya, primary=True))
-        mbar.addWidget(_btn("🔨  " + tr("compras.pujar", default="PUJAR OFERTA"),
-                            self._pujar_oferta, primary=True))
-        hint = QLabel(tr("compras.bolsa_hint2",
-                         default="Tarifa = tu precio negociado (Comprar ya = añadir a la cola). En vivo = "
-                                 "mercado compartido (Comprar ya = compra directa; Pujar = subasta)."))
-        hint.setStyleSheet(f"color:{_DIM};font-size:11px;")
-        mbar.addWidget(hint, 1)
-        ly.addLayout(mbar)
 
         # ── Carrito: ARTÍCULOS EN COLA (se agrupan por proveedor al tramitar) ──
+        colabar = QHBoxLayout()
         lbl_p = QLabel("🛒  " + tr("compras.cola_titulo", default="Artículos en cola"))
         lbl_p.setStyleSheet(f"color:{_CIAN};font-weight:800;font-size:14px;padding-top:2px;")
-        ly.addWidget(lbl_p)
+        colabar.addWidget(lbl_p); colabar.addStretch(1)
+        # CANCELAR justo ENCIMA de la lista: cancela los artículos MARCADOS (casillas de la derecha).
+        colabar.addWidget(_btn(tr("compras.cancelar", default="CANCELAR"), self._cancelar_seleccionados,
+                               danger=True))
+        ly.addLayout(colabar)
         self.tbl_carrito = _tabla([tr("compras.articulo", default="Artículo"),
                                    tr("compras.precio", default="Precio"),
                                    tr("compras.cantidad", default="Cantidad"),
-                                   tr("compras.precio_total", default="Precio total")])
+                                   tr("compras.precio_total", default="Precio total"),
+                                   tr("compras.sel", default="✓")])
         # Doble clic en un artículo de la cola → editar cantidad (con confirmación).
         self.tbl_carrito.cellDoubleClicked.connect(self._carrito_doble_clic)
         ly.addWidget(self.tbl_carrito, 1)
@@ -462,7 +462,8 @@ class ComprasWindow(QWidget):
         self._render_carrito()
 
     def _render_carrito(self):
-        """Pinta la cola como un carrito: artículo · precio · cantidad · precio total + fila TOTAL."""
+        """Pinta la cola como un carrito: artículo · precio · cantidad · precio total · ✓ + fila TOTAL.
+        La última columna lleva una casilla por fila para poder cancelar VARIOS a la vez."""
         t = getattr(self, "tbl_carrito", None)
         if t is None:
             return
@@ -474,6 +475,11 @@ class ComprasWindow(QWidget):
             art = f"{it['codigo']} · {it.get('proveedor') or ''} ({it.get('unidad') or 'unidad'})"
             for c, v in enumerate([art, f"{float(it['precio']):.2f}", str(it["cantidad"]), f"{pt:.2f}"]):
                 t.setItem(r, c, QTableWidgetItem(v))
+            chk = QTableWidgetItem()
+            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk.setCheckState(Qt.CheckState.Unchecked)
+            chk.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            t.setItem(r, 4, chk)
         # Fila TOTAL (resaltada) con el precio total de todos los artículos.
         r = t.rowCount(); t.insertRow(r)
         neg = QFont(); neg.setBold(True)
@@ -483,7 +489,7 @@ class ComprasWindow(QWidget):
             cel.setFont(neg); cel.setForeground(QColor(_CIAN))
         t.setItem(r, 0, celda_tot)
         t.setItem(r, 1, QTableWidgetItem("")); t.setItem(r, 2, QTableWidgetItem(""))
-        t.setItem(r, 3, celda_val)
+        t.setItem(r, 3, celda_val); t.setItem(r, 4, QTableWidgetItem(""))
 
     def _load_pedidos(self):
         """Al entrar en Pedidos / pulsar ACTUALIZAR: repinta la cola (carrito, en memoria)."""
@@ -496,6 +502,8 @@ class ComprasWindow(QWidget):
 
     def _carrito_doble_clic(self, fila_idx, _col):
         """Doble clic en un artículo de la cola → editar cantidad (con confirmación)."""
+        if _col == 4:   # columna de la casilla ✓ → no abrir el editor de cantidad
+            return
         if not (0 <= fila_idx < len(self._carrito)):
             return
         it = self._carrito[fila_idx]
@@ -508,19 +516,27 @@ class ComprasWindow(QWidget):
                 it["cantidad"] = dlg.cantidad
                 self._render_carrito()
 
-    def _quitar_carrito_sel(self):
-        """CANCELAR: retira de la cola el artículo seleccionado (con confirmación)."""
-        idx = self._carrito_sel_idx()
-        if idx is None:
+    def _cancelar_seleccionados(self):
+        """CANCELAR: retira de la cola TODOS los artículos MARCADOS con la casilla (con una confirmación)."""
+        t = getattr(self, "tbl_carrito", None)
+        marcados = []
+        if t is not None:
+            for r in range(min(t.rowCount(), len(self._carrito))):
+                cel = t.item(r, 4)
+                if cel is not None and cel.checkState() == Qt.CheckState.Checked:
+                    marcados.append(r)
+        if not marcados:
             _aviso(self, tr("compras.cola_titulo", default="Artículos en cola"),
-                   tr("compras.cola_sel", default="Selecciona un artículo de la cola."), "warning")
+                   tr("compras.cola_sel_multi",
+                      default="Marca con la casilla ✓ los artículos que quieras cancelar."), "warning")
             return
-        it = self._carrito[idx]
-        if _confirmar(self, tr("compras.retirar", default="Retirar de la cola"),
-                      tr("compras.retirar_msg", default="¿Retirar {c} ({p}) de la cola?",
-                         c=it["codigo"], p=it.get("proveedor") or "")):
-            del self._carrito[idx]
-            self._render_carrito()
+        if not _confirmar(self, tr("compras.retirar", default="Cancelar de la cola"),
+                          tr("compras.retirar_multi",
+                             default="¿Cancelar {n} artículo(s) marcado(s) de la cola?", n=len(marcados))):
+            return
+        for r in sorted(marcados, reverse=True):
+            del self._carrito[r]
+        self._render_carrito()
 
     def _tramitar_lineas(self, items):
         """Agrupa artículos por proveedor y crea+envía un pedido por proveedor. Devuelve nº de pedidos."""
@@ -600,17 +616,23 @@ class ComprasWindow(QWidget):
             self._render_carrito()
 
     def _desde_reab(self):
-        """DESDE REPOSICIÓN: genera el pedido con las propuestas de reposición y lo tramita
-        (queda ENVIADO) para que aparezca directamente en la pestaña Recepciones."""
-        pid = C.crear_pedido_desde_propuestas()
-        if pid:
-            C.enviar_pedido(pid)
-            self._load_recepciones()
-            _aviso(self, "Compras",
-                   tr("compras.reab_ok",
-                      default="Pedido de reposición enviado. Puedes verlo en la pestaña Recepciones."))
-        else:
-            _aviso(self, "Compras", tr("compras.reab_vacio", default="No hay propuestas pendientes."), "warning")
+        """DESDE REPOSICIÓN: NO genera un pedido automáticamente. Muestra la lista de propuestas de
+        reposición (artículos bajo mínimos) para que el usuario decida cuáles comprar/pujar; al elegir
+        uno, se busca en la bolsa unificada."""
+        try:
+            from src.db import reabastecimiento as R
+            props = R.listar_propuestas(estados=("pendiente",))
+        except Exception as e:
+            logger.error("listar propuestas reposición: %s", e)
+            props = []
+        if not props:
+            _aviso(self, "Compras", tr("compras.reab_vacio", default="No hay propuestas de reposición."),
+                   "info")
+            return
+        dlg = _DialogoReposicion(props, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.codigo:
+            self.in_bolsa_art.setText(dlg.codigo)
+            self._buscar_bolsa()
 
     # ── Sección Recepciones ──────────────────────────────────────────────────
     def _page_recepciones(self):
@@ -802,6 +824,44 @@ class _DialogoCantidad(QDialog):
         if c > 0:
             self.cantidad = c
             self.accept()
+
+
+class _DialogoReposicion(QDialog):
+    """Lista de propuestas de reposición (artículos bajo mínimos). El usuario elige uno para buscarlo en
+    la bolsa unificada y decidir si comprar o pujar (frameless)."""
+
+    def __init__(self, propuestas, parent=None):
+        super().__init__(parent)
+        self.codigo = None
+        self._props = propuestas
+        v = _dialogo_frameless(self, titulo=tr("compras.desde_reab", default="Propuestas de reposición"),
+                               ancho=620)
+        info = QLabel(tr("compras.reab_info",
+                         default="Artículos bajo mínimos. Elige uno y pulsa «Buscar en la bolsa» para "
+                                 "decidir si comprarlo o pujar por él."))
+        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+        info.setWordWrap(True)
+        v.addWidget(info)
+        self.tbl = _tabla(["Código", "Artículo", "Sugerido", "Stock", "Objetivo"])
+        for p in propuestas:
+            r = self.tbl.rowCount(); self.tbl.insertRow(r)
+            for c, val in enumerate([p.get("codigo"), p.get("nombre"), p.get("cantidad"),
+                                     p.get("stock_actual"), p.get("stock_objetivo")]):
+                self.tbl.setItem(r, c, QTableWidgetItem("" if val is None else str(val)))
+        self.tbl.cellDoubleClicked.connect(lambda *_: self._ok())
+        v.addWidget(self.tbl)
+        row = QHBoxLayout(); row.addStretch(1)
+        row.addWidget(_btn(tr("compras.cerrar", default="Cerrar"), self.reject))
+        row.addWidget(_btn("🔎  " + tr("compras.reab_buscar", default="Buscar en la bolsa"),
+                           self._ok, primary=True))
+        v.addLayout(row)
+
+    def _ok(self):
+        r = self.tbl.currentRow()
+        if 0 <= r < len(self._props):
+            self.codigo = str(self._props[r].get("codigo") or "").strip().upper()
+            if self.codigo:
+                self.accept()
 
 
 class _DialogoPuja(QDialog):
