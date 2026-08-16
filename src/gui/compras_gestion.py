@@ -641,6 +641,9 @@ class ComprasWindow(QWidget):
         fila.addWidget(QLabel(tr("compras.pedidos_recep", default="Pedidos pendientes de recibir")))
         fila.addStretch(1)
         fila.addWidget(_btn(tr("compras.recibir_todo", default="RECIBIR TODO"), self._recibir_sel, primary=True))
+        # Cancelar un pedido YA tramitado aplicando la política de cancelación.
+        fila.addWidget(_btn(tr("compras.cancelar_pedido", default="❌  CANCELAR PEDIDO"),
+                            self._cancelar_recepcion_sel, danger=True))
         fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_recepciones))
         ly.addLayout(fila)
         # "Estado prov." = seguimiento que el proveedor reporta desde el Portal (bidireccional).
@@ -651,6 +654,41 @@ class ComprasWindow(QWidget):
                                tr("compras.total", default="Total"), tr("compras.fecha", default="Fecha")])
         ly.addWidget(self.tbl_rec, 1)
         return w
+
+    def _cancelar_recepcion_sel(self):
+        """Cancela el pedido tramitado seleccionado APLICANDO la política de cancelación
+        (tipo de producto × estado × origen: gratuita / recargo / bloqueo / vinculante)."""
+        r = self.tbl_rec.currentRow()
+        if r < 0:
+            _aviso(self, tr("compras.cancelar_pedido", default="Cancelar pedido"),
+                   tr("compras.sel_pedido", default="Selecciona un pedido de la tabla."), "warning")
+            return
+        try:
+            pid = int(self.tbl_rec.item(r, 0).text())
+        except Exception:
+            return
+        from src.services.compras import cancelaciones as CANC
+        pol = CANC.evaluar(pid)
+        if not pol["puede_cancelar"]:
+            _aviso(self, tr("compras.cancelar_pedido", default="Cancelar pedido"), pol["motivo"], "warning")
+            return
+        extra = (tr("compras.recargo_aviso", default=" Se aplicará un recargo del {r:.0f}%.",
+                    r=pol["recargo_pct"]) if pol["recargo_pct"] > 0 else "")
+        if not _confirmar(self, tr("compras.cancelar_pedido", default="Cancelar pedido"),
+                          tr("compras.cancelar_pedido_msg",
+                             default="¿Cancelar el pedido {p}? {m}{e}", p=pid, m=pol["motivo"], e=extra)):
+            return
+        res = CANC.cancelar_pedido(pid, usuario=self.usuario.get("nombre"))
+        if res["ok"]:
+            msg = tr("compras.cancelado_ok", default="Pedido cancelado.")
+            if res["recargo_pct"] > 0:
+                msg += tr("compras.recargo_aplicado", default=" Recargo aplicado: {r:.0f}%.",
+                          r=res["recargo_pct"])
+            _aviso(self, tr("compras.cancelar_pedido", default="Cancelar pedido"), msg, "success")
+            self._load_recepciones()
+        else:
+            _aviso(self, tr("compras.cancelar_pedido", default="Cancelar pedido"),
+                   res["politica"]["motivo"], "error")
 
     def _load_recepciones(self):
         filas = [p for p in C.historico_pedidos() if p["estado"] in ("ENVIADO", "PARCIAL")]
