@@ -80,6 +80,10 @@ def test_portal_api_flujo_proveedor(db, fab, cliente):
                         json={"cuerpo": "Pedido en preparación"}).status_code == 200
     assert portal.no_leidos(emp, autor="proveedor") == 1
 
+    # El panel web del proveedor se sirve (público; lo autentican los endpoints con el token).
+    pg = cliente.get("/api/v1/portal-proveedor/panel")
+    assert pg.status_code == 200 and b"Portal de Proveedor" in pg.data
+
     # Token revocado → 401.
     portal.revocar(prov, emp)
     assert cliente.get("/api/v1/portal-proveedor/me", headers=_h(tok)).status_code == 401

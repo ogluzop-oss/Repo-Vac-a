@@ -127,6 +127,32 @@ def test_mensajeria_bidireccional(db, fab):
     assert portal.no_leidos(emp, autor="proveedor") == 0
 
 
+def test_invitacion_render_y_envio_degradable(db, fab):
+    emp = fab.empresa("EMP portal inv")
+    fab.al_limpiar(lambda: _limpia(db, emp))
+    prov = PROV.crear_proveedor("Prov Inv", email="prov.inv@correo.com", id_empresa=emp)
+
+    # Render: asegura token y compone el correo (asunto + cuerpo con el token + enlace del panel).
+    r = portal.render_invitacion(prov, url_base="https://demo.smartmanager", id_empresa=emp)
+    assert r["token"] and r["asunto"] and r["token"] in r["cuerpo_texto"]
+    assert "/api/v1/portal-proveedor/panel?token=" in r["enlace"]
+    assert r["email"] == "prov.inv@correo.com"
+
+    # Envío degradable: con email presente devuelve el contenido (enviado o preparado, sin romper).
+    e = portal.enviar_invitacion(prov, id_empresa=emp)
+    assert e["email"] == "prov.inv@correo.com" and e["token"] == r["token"] and "enviado" in e
+
+    # Sin email: no envía, pero devuelve el contenido para compartir manualmente.
+    prov2 = PROV.crear_proveedor("Prov Sin Email", id_empresa=emp)
+    e2 = portal.enviar_invitacion(prov2, id_empresa=emp)
+    assert e2["ok"] is False and e2["error"] == "sin_email" and e2["token"]
+
+
+def test_panel_html_autocontenido():
+    html = portal.panel_html()
+    assert "<html" in html and "X-Portal-Token" in html and "/panel" in html
+
+
 def test_scorecard_reutiliza_evaluacion(db, fab):
     emp = fab.empresa("EMP portal score")
     fab.al_limpiar(lambda: _limpia(db, emp))

@@ -50,6 +50,14 @@ def registrar(bp):
     def _prov():
         return g.portal["id_proveedor"]
 
+    @bp.get("/portal-proveedor/panel")
+    def panel():
+        # Página del panel web del proveedor (SPA autocontenida). Pública: la autentican los endpoints
+        # (X-Portal-Token). Preparada para el día del despliegue; funciona en local igualmente.
+        from flask import Response
+        from src.services.compras.portal.panel_html import panel_html
+        return Response(panel_html(), mimetype="text/html")
+
     @bp.get("/portal-proveedor/me")
     @requiere_proveedor
     def me():
