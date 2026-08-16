@@ -206,6 +206,27 @@ def test_job_invitaciones_sin_aceptar(db, fab):
     assert "portal_invitaciones_pendientes" in scheduler.REGISTRO
 
 
+def test_job_activo_por_defecto(db, fab):
+    """El job es LIGERO: tras sincronizar el catálogo queda ACTIVO por defecto (sin opt-in)."""
+    from src.services import scheduler_registry
+    emp = fab.empresa("EMP job activo")
+
+    def _cl():
+        with db.obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM scheduler_jobs WHERE id_empresa=%s", (emp,))
+            conn.commit()
+    fab.al_limpiar(_cl)
+
+    scheduler_registry.sincronizar(emp)
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT activo FROM scheduler_jobs WHERE id_empresa=%s AND codigo=%s",
+                    (emp, "portal_invitaciones_pendientes"))
+        row = cur.fetchone()
+    assert row is not None
+    activo = row[0] if not isinstance(row, dict) else list(row.values())[0]
+    assert int(activo) == 1
+
+
 def test_scorecard_reutiliza_evaluacion(db, fab):
     emp = fab.empresa("EMP portal score")
     fab.al_limpiar(lambda: _limpia(db, emp))
