@@ -211,4 +211,5 @@ MODULOS = [
     "0202_lonja_tipo_comercio",
     "0203_cuentas_cobro",
     "0204_psp_cuentas_conectadas",
+    "0205_lonja_escrow",
 ]
