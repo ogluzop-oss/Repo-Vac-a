@@ -202,7 +202,7 @@ def bolsa_precios(codigo_articulo, *, id_proveedor=None, unidad_medida=None, ord
                 "COALESCE(p.razon_social, CONCAT('Proveedor ', pn.id_proveedor)) AS proveedor, "
                 "pn.precio, pn.descuento, "
                 "ROUND(pn.precio * (1 - COALESCE(pn.descuento,0)/100), 4) AS precio_neto, "
-                "pn.divisa, pn.unidad_medida, pn.cantidad_minima "
+                "pn.divisa, pn.unidad_medida, pn.cantidad_minima, pn.creada AS fecha "
                 "FROM proveedor_precios_negociados pn "
                 "LEFT JOIN proveedores p ON p.id_proveedor = pn.id_proveedor "
                 "WHERE " + " AND ".join(cond) + f" ORDER BY {col} {dir_}, proveedor ASC",

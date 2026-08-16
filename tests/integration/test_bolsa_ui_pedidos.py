@@ -1,8 +1,9 @@
-"""Bolsa de proveedores · UI en Pedidos (Fase 1 · paso 2).
+"""Bolsa de proveedores · UI en Pedidos (carrito de artículos en cola).
 
-Verifica el flujo: buscar un artículo → tabla-bolsa con proveedores/precio ordenada por precio → añadir la
-tarifa seleccionada a un pedido BORRADOR (cola). Qt offscreen; `db`. Se fija la empresa activa para que el
-tenant de la UI coincida con los datos sembrados.
+Verifica el flujo nuevo: buscar un artículo → tabla-bolsa con proveedores/precio ordenada por precio →
+añadir la tarifa a la COLA (carrito en memoria) con su cantidad → tramitar toda la cola, que crea y ENVÍA
+los pedidos (agrupados por proveedor) para que aparezcan en Recepciones. Qt offscreen; `db`. Se fija la
+empresa activa para que el tenant de la UI coincida con los datos sembrados.
 """
 
 import pytest
@@ -15,7 +16,7 @@ pytestmark = pytest.mark.db
 _app = QApplication.instance() or QApplication([])
 
 
-def test_bolsa_buscar_y_anadir_a_pedido(db, fab, monkeypatch):
+def test_bolsa_carrito_y_tramitar(db, fab, monkeypatch):
     from src.db import empresa as EMP
     from src.db import proveedores as PROV
     from src.db import compras as C
@@ -25,7 +26,8 @@ def test_bolsa_buscar_y_anadir_a_pedido(db, fab, monkeypatch):
     emp = fab.empresa("EMP bolsa UI")
     prev = EMP.empresa_actual_id()
     EMP.set_empresa_actual(emp)
-    monkeypatch.setattr(CG, "_aviso", lambda *a, **k: None)   # sin modales bloqueantes
+    monkeypatch.setattr(CG, "_aviso", lambda *a, **k: None)      # sin modales bloqueantes
+    monkeypatch.setattr(CG, "_confirmar", lambda *a, **k: True)  # confirma sin diálogo
 
     def _cleanup():
         with db.obtener_conexion() as conn, conn.cursor() as cur:
@@ -52,14 +54,18 @@ def test_bolsa_buscar_y_anadir_a_pedido(db, fab, monkeypatch):
     assert w.tbl_bolsa.item(0, 0).text() == "Barato SL"       # el más barato arriba
     assert w.tbl_bolsa.item(0, 3).text() == "6.00"             # precio neto
 
-    # Añadir la tarifa seleccionada (la más barata) a un pedido BORRADOR.
-    w.tbl_bolsa.setCurrentCell(0, 0)
-    w.in_bolsa_cant.setText("4")
-    w._bolsa_add_pedido()
+    # Añadir la tarifa más barata a la COLA con cantidad 4 (equivale al doble clic → popup cantidad).
+    w._agregar_carrito(w._bolsa_rows[0], 4)
+    assert len(w._carrito) == 1 and w._carrito[0]["cantidad"] == 4
+    # La tabla del carrito muestra la línea del artículo + la fila TOTAL (6.00 × 4 = 24.00).
+    assert w.tbl_carrito.rowCount() == 2
+    assert w.tbl_carrito.item(1, 3).text() == "24.00"
 
-    pedidos = C.listar_pedidos(id_empresa=emp, estado="BORRADOR", id_proveedor=p_barato)
+    # Tramitar toda la cola → crea y ENVÍA el pedido (aparece en Recepciones); la cola se vacía.
+    w._tramitar_todos()
+    assert w._carrito == []
+    pedidos = C.listar_pedidos(id_empresa=emp, estado="ENVIADO", id_proveedor=p_barato)
     assert len(pedidos) == 1
     ped = C.obtener_pedido(pedidos[0]["id_pedido"], id_empresa=emp)
-    assert ped and ped["estado"] == "BORRADOR"
     lineas = ped.get("lineas") or []
     assert any(l.get("codigo_articulo") == "ARTUI" and int(l.get("cantidad")) == 4 for l in lineas)
