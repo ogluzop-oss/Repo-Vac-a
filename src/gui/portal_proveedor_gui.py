@@ -61,8 +61,9 @@ class PortalProveedorWindow(QWidget):
         tabs = QTabWidget()
         tabs.addTab(self._tab_conectados(), "Proveedores conectados")
         tabs.addTab(self._tab_pendientes(), "Invitaciones pendientes")
-        tabs.addTab(self._tab_rfq(), "RFQ / Subasta")
         tabs.addTab(self._tab_mensajes(), "Mensajería")
+        # La antigua pestaña "RFQ / Subasta" se retiró: las subastas viven ahora en la BOLSA UNIFICADA
+        # de la pestaña Pedidos (mercado Lonja: tarifas fijas + ofertas en vivo, Comprar ya / Pujar).
         root.addWidget(tabs)
         self._refrescar_modo()
         self._cargar_cuentas()   # también refresca la pestaña de pendientes
@@ -101,6 +102,7 @@ class PortalProveedorWindow(QWidget):
         bar.addWidget(_btn("✉  Enviar invitación", self._enviar_correo, primary=True))
         bar.addWidget(_btn("🔑  Ver enlace", self._ver_enlace, primary=True))
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
+        bar.addWidget(_btn("🏷️  Publicar en el mercado", self._publicar_mercado, primary=True))
         bar.addWidget(_btn("Revocar", self._revocar, danger=True))
         bar.addStretch()
         bar.addWidget(_btn("🔄  Actualizar", self._cargar_cuentas, primary=True))
@@ -173,6 +175,37 @@ class PortalProveedorWindow(QWidget):
         if portal.revocar(pid, self._emp()):
             self._cargar_cuentas()
 
+    def _cuenta_sel_nombre(self):
+        r = self.tbl_cuentas.currentRow()
+        it = self.tbl_cuentas.item(r, 1) if r >= 0 else None
+        return it.text() if it else None
+
+    def _publicar_mercado(self):
+        """Publica un artículo del proveedor seleccionado en el MERCADO (Lonja), eligiendo su divisa,
+        precio de compra directa, puja mínima y cantidad. Queda visible para todas las empresas."""
+        pid = self._cuenta_sel()
+        if not pid:
+            _aviso(self, "Mercado", "Selecciona un proveedor de la tabla.", "warning"); return
+        nombre = self._cuenta_sel_nombre() or f"Proveedor {pid}"
+        dlg = _DialogoPublicarMercado(nombre, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.datos:
+            return
+        from src.services import lonja
+        d = dlg.datos
+        vid = lonja.vendedor_de_proveedor(self._emp(), pid, nombre=nombre, divisa=d["divisa"])
+        if not vid:
+            _aviso(self, "Mercado", "No se pudo crear el vendedor de la Lonja.", "error"); return
+        lid = lonja.publicar(vid, d["codigo"], d["precio"], divisa=d["divisa"],
+                             puja_minima=d["puja_minima"], cantidad=d["cantidad"],
+                             unidad_medida=d["unidad"])
+        if lid:
+            _aviso(self, "Mercado",
+                   f"Publicado en el mercado: {d['codigo']} · {d['precio']:.2f} {d['divisa']} "
+                   f"(puja mín. {d['puja_minima']:.2f}). Visible en la bolsa de todas las empresas.",
+                   "success")
+        else:
+            _aviso(self, "Mercado", "No se pudo publicar en el mercado.", "error")
+
     # ── Invitaciones pendientes ───────────────────────────────────────────────
     def _tab_pendientes(self):
         """Registro de proveedores invitados que aún NO han entrado al portal (misma fuente que el job)."""
@@ -206,94 +239,6 @@ class PortalProveedorWindow(QWidget):
         res = portal.enviar_invitacion(pid, id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
         self._mostrar_invitacion(res)
         self._cargar_pendientes()
-
-    # ── RFQ / Subasta inversa ─────────────────────────────────────────────────
-    def _tab_rfq(self):
-        w = QWidget(); ly = QVBoxLayout(w)
-        fila = QHBoxLayout()
-        self.in_rfq_cod = _inp("Código de artículo"); self.in_rfq_cod.setFixedWidth(180)
-        self.in_rfq_cant = _inp("Cantidad"); self.in_rfq_cant.setFixedWidth(110)
-        self.cmb_rfq_uni = _combo([("unidad", "unidad"), ("caja", "caja"), ("palé", "pale"), ("kg", "kg")])
-        self.cmb_rfq_uni.setMinimumWidth(120)          # que no se corte "unidad"
-        self.cmb_rfq_uni.view().setMinimumWidth(120)   # y tampoco en el desplegable
-        for x in (QLabel("Artículo:"), self.in_rfq_cod, self.in_rfq_cant, self.cmb_rfq_uni):
-            fila.addWidget(x)
-        fila.addWidget(_btn("➕  Crear RFQ", self._crear_rfq, primary=True))
-        fila.addStretch()
-        fila.addWidget(_btn("🔄  Actualizar", self._cargar_rfq, primary=True))
-        ly.addLayout(fila)
-        self.tbl_rfq = _tabla(["ID", "Artículo", "Cantidad", "Unidad", "Estado", "Pedido", "Fecha"])
-        self.tbl_rfq.cellClicked.connect(lambda *_: self._cargar_ofertas())
-        ly.addWidget(self.tbl_rfq)
-        ofb = QHBoxLayout()
-        ofb.addWidget(QLabel("Ofertas de la RFQ seleccionada (mejor precio arriba):"))
-        ofb.addStretch()
-        ofb.addWidget(_btn("✓  Adjudicar seleccionada", self._adjudicar, primary=True))
-        ly.addLayout(ofb)
-        self.tbl_ofertas = _tabla(["Proveedor", "Precio", "Unidad", "Plazo (d)", "Estado", "Fecha"])
-        ly.addWidget(self.tbl_ofertas)
-        self._cargar_rfq()
-        return w
-
-    def _crear_rfq(self):
-        cod = (self.in_rfq_cod.text() or "").strip().upper()
-        try:
-            cant = float(self.in_rfq_cant.text() or 0)
-        except ValueError:
-            cant = 0
-        if not cod or cant <= 0:
-            _aviso(self, "RFQ", "Indica un artículo y una cantidad válida.", "warning"); return
-        rid = portal.crear_rfq(cod, cant, unidad_medida=self.cmb_rfq_uni.currentData(),
-                               creado_por=self.usuario.get("nombre"), id_empresa=self._emp())
-        if rid:
-            self.in_rfq_cod.clear(); self.in_rfq_cant.clear()
-            self._cargar_rfq()
-
-    def _cargar_rfq(self):
-        data = portal.listar_rfq(id_empresa=self._emp())
-        self.tbl_rfq.setRowCount(len(data))
-        for i, d in enumerate(data):
-            for j, v in enumerate([d.get("id"), d.get("codigo_articulo"), d.get("cantidad"),
-                                   d.get("unidad_medida"), d.get("estado"),
-                                   d.get("id_pedido_adjudicado"), str(d.get("creado_en") or "")[:16]]):
-                self.tbl_rfq.setItem(i, j, _it(v))
-        self.tbl_ofertas.setRowCount(0)
-
-    def _rfq_sel(self):
-        r = self.tbl_rfq.currentRow()
-        if r < 0:
-            return None
-        try:
-            return int(self.tbl_rfq.item(r, 0).text())
-        except Exception:
-            return None
-
-    def _cargar_ofertas(self):
-        rid = self._rfq_sel()
-        self.tbl_ofertas.setRowCount(0)
-        if not rid:
-            return
-        self._ofertas = portal.ofertas_de_rfq(rid, self._emp())
-        self.tbl_ofertas.setRowCount(len(self._ofertas))
-        for i, o in enumerate(self._ofertas):
-            for j, v in enumerate([o.get("proveedor"), o.get("precio"), o.get("unidad_medida"),
-                                   o.get("plazo_dias"), o.get("estado"), str(o.get("creado_en") or "")[:16]]):
-                self.tbl_ofertas.setItem(i, j, _it(v))
-
-    def _adjudicar(self):
-        rid = self._rfq_sel()
-        r = self.tbl_ofertas.currentRow()
-        ofertas = getattr(self, "_ofertas", []) or []
-        if not rid or r < 0 or r >= len(ofertas):
-            _aviso(self, "RFQ", "Selecciona una RFQ y una oferta.", "warning"); return
-        idp = ofertas[r]["id_proveedor"]
-        res = portal.adjudicar_rfq(rid, idp, id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
-        if res.get("ok"):
-            _aviso(self, "RFQ", f"Adjudicada. Pedido {res['id_pedido']} enviado (ver Recepciones).",
-                   "success")
-            self._cargar_rfq()
-        else:
-            _aviso(self, "RFQ", f"No se pudo adjudicar: {res.get('error')}", "error")
 
     # ── Mensajería ────────────────────────────────────────────────────────────
     def _tab_mensajes(self):
@@ -379,3 +324,57 @@ class _DialogoInvitacion(QDialog):
         campo = _inp(""); campo.setText(str(valor)); campo.setReadOnly(True); campo.setCursorPosition(0)
         l.addWidget(cap); l.addWidget(campo)
         return w
+
+
+def _divisas_soportadas():
+    try:
+        from src.utils import divisas
+        ms = list(divisas.monedas_soportadas() or [])
+        if ms:
+            return [(str(m), str(m)) for m in ms]
+    except Exception:
+        pass
+    return [("EUR", "EUR"), ("USD", "USD"), ("GBP", "GBP")]
+
+
+class _DialogoPublicarMercado(QDialog):
+    """Publica un artículo del proveedor en la Lonja: divisa, precio de compra directa, puja mínima,
+    cantidad y unidad (frameless, esquinas redondeadas)."""
+
+    def __init__(self, nombre_proveedor, parent=None):
+        super().__init__(parent)
+        self.datos = None
+        v = _dialogo_frameless(self, titulo=f"Publicar en el mercado · {nombre_proveedor}", ancho=460)
+        self.in_cod = _inp("Código de artículo")
+        self.cmb_div = _combo(_divisas_soportadas())
+        self.cmb_div.setMinimumWidth(120); self.cmb_div.view().setMinimumWidth(120)
+        self.in_precio = _inp("Precio (compra directa)")
+        self.in_pmin = _inp("Puja mínima")
+        self.in_cant = _inp("Cantidad disponible"); self.in_cant.setText("1")
+        self.cmb_uni = _combo([("unidad", "unidad"), ("caja", "caja"), ("palé", "pale"), ("kg", "kg")])
+        self.cmb_uni.setMinimumWidth(120); self.cmb_uni.view().setMinimumWidth(120)
+        for etq, wdg in (("Artículo", self.in_cod), ("Divisa", self.cmb_div),
+                         ("Precio (compra directa)", self.in_precio), ("Puja mínima", self.in_pmin),
+                         ("Cantidad", self.in_cant), ("Unidad", self.cmb_uni)):
+            cap = QLabel(etq); cap.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+            v.addWidget(cap); v.addWidget(wdg)
+        row = QHBoxLayout(); row.addStretch(1)
+        row.addWidget(_btn("Cancelar", self.reject))
+        row.addWidget(_btn("Publicar", self._ok, primary=True))
+        v.addLayout(row)
+
+    def _ok(self):
+        cod = (self.in_cod.text() or "").strip().upper()
+
+        def _f(le, d=0.0):
+            try:
+                return float((le.text() or "").replace(",", "."))
+            except ValueError:
+                return d
+        precio = _f(self.in_precio); cant = _f(self.in_cant, 1)
+        if not cod or precio <= 0 or cant <= 0:
+            return
+        self.datos = {"codigo": cod, "divisa": self.cmb_div.currentData(), "precio": precio,
+                      "puja_minima": _f(self.in_pmin), "cantidad": cant,
+                      "unidad": self.cmb_uni.currentData()}
+        self.accept()

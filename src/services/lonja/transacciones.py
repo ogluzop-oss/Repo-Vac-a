@@ -100,12 +100,21 @@ def mejor_puja(id_listado) -> dict | None:
         return None
 
 
+# Ventana de ANTI-SNIPING (minutos): si entra una puja válida a menos de este margen del cierre, se
+# extiende el cierre para que nadie gane pujando en el último segundo.
+ANTISNIPING_MIN = 5
+
+
 def pujar(id_listado, id_empresa, importe, *, divisa=None) -> dict:
-    """Registra una puja de una empresa compradora. Debe ser ≥ puja mínima y mejorar la mejor puja actual
-    (comparación en la divisa del listado). La puja anterior queda 'superada'."""
+    """Registra una puja de una empresa compradora. Debe ser ≥ puja mínima, mejorar la mejor puja actual
+    (comparación en la divisa del listado) y la subasta no puede estar vencida. La puja anterior queda
+    'superada' (y se avisa a quien pierde el liderato); ANTI-SNIPING: si falta poco para el cierre, se
+    extiende. Avisa al vendedor de la nueva puja."""
     importe = float(importe or 0)
     try:
         from . import divisa as _d
+        from . import avisos as _av
+        prev_emp = None; extendido = False
         with _tx() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM lonja_listados WHERE id=%s FOR UPDATE", (id_listado,))
             l = _uno(cur)
@@ -113,12 +122,17 @@ def pujar(id_listado, id_empresa, importe, *, divisa=None) -> dict:
                 return {"ok": False, "error": "listado_no_disponible"}
             if not int(l["permite_puja"]):
                 return {"ok": False, "error": "puja_no_permitida"}
+            # Subasta vencida (fecha_limite ya pasada) → no se admiten pujas.
+            cur.execute("SELECT (fecha_limite IS NOT NULL AND fecha_limite < NOW()) AS vencida "
+                        "FROM lonja_listados WHERE id=%s", (id_listado,))
+            if int((_uno(cur) or {}).get("vencida") or 0):
+                return {"ok": False, "error": "subasta_cerrada"}
             div = str(divisa or l["divisa"]).upper()[:8]
             importe_ref = _d.convertir(importe, div, l["divisa"])
             if importe_ref < float(l["puja_minima"]):
                 return {"ok": False, "error": "por_debajo_minima", "minima": float(l["puja_minima"])}
-            cur.execute("SELECT id, importe, divisa FROM lonja_pujas WHERE id_listado=%s AND estado='pujada' "
-                        "ORDER BY importe DESC LIMIT 1", (id_listado,))
+            cur.execute("SELECT id, id_empresa, importe, divisa FROM lonja_pujas WHERE id_listado=%s "
+                        "AND estado='pujada' ORDER BY importe DESC LIMIT 1", (id_listado,))
             mejor = _uno(cur)
             if mejor:
                 mejor_ref = _d.convertir(float(mejor["importe"]), mejor["divisa"], l["divisa"])
@@ -126,11 +140,24 @@ def pujar(id_listado, id_empresa, importe, *, divisa=None) -> dict:
                     return {"ok": False, "error": "no_mejora", "mejor": mejor_ref}
                 cur.execute("UPDATE lonja_pujas SET estado='superada' WHERE id_listado=%s AND estado='pujada'",
                             (id_listado,))
+                prev_emp = mejor["id_empresa"]
             cur.execute("INSERT INTO lonja_pujas (id_listado, id_empresa, importe, divisa) "
                         "VALUES (%s,%s,%s,%s)", (id_listado, id_empresa, importe, div))
             pid = cur.lastrowid
+            # ANTI-SNIPING: si el cierre está dentro de la ventana, se extiende.
+            cur.execute("UPDATE lonja_listados SET fecha_limite=DATE_ADD(NOW(), INTERVAL %s MINUTE) "
+                        "WHERE id=%s AND fecha_limite IS NOT NULL "
+                        "AND fecha_limite <= DATE_ADD(NOW(), INTERVAL %s MINUTE)",
+                        (ANTISNIPING_MIN, id_listado, ANTISNIPING_MIN))
+            extendido = cur.rowcount > 0
+            id_vendedor = l["id_vendedor"]
         _audit("LONJA_PUJA", f"listado={id_listado} emp={id_empresa} importe={importe}{div}", "lonja_pujas")
-        return {"ok": True, "id_puja": pid}
+        # Avisos (fuera del bloqueo): a quien pierde el liderato y al vendedor.
+        if prev_emp and prev_emp != id_empresa:
+            _av.avisar_empresa(prev_emp, "lonja_superado", "Te han superado en una subasta",
+                               f"Otra empresa ha mejorado tu puja en el listado {id_listado}.")
+        _av.avisar_vendedor(id_vendedor, "LONJA_PUJA_NUEVA", f"listado={id_listado} importe={importe}{div}")
+        return {"ok": True, "id_puja": pid, "extendido": extendido}
     except Exception as e:
         logger.error("pujar: %s", e)
         return {"ok": False, "error": str(e)[:120]}
@@ -167,6 +194,15 @@ def adjudicar(id_listado, *, id_puja=None, usuario=None) -> dict:
         pid = _pedido_comprador(ganadora, l, float(l["cantidad"]), float(puja["importe"]), usuario)
         _fijar_pedido(tid, pid)
         _audit("LONJA_ADJUDICA", f"listado={id_listado} ganadora={ganadora} tx={tid}", "lonja_transacciones")
+        try:
+            from . import avisos as _av
+            _av.avisar_empresa(ganadora, "lonja_adjudicada", "Has ganado una subasta",
+                               f"Se te ha adjudicado el listado {id_listado}. El pedido está en Recepciones.",
+                               prioridad="alta")
+            _av.avisar_vendedor(l["id_vendedor"], "LONJA_ADJUDICADA",
+                                f"listado={id_listado} ganadora={ganadora}")
+        except Exception:
+            pass
         return {"ok": True, "id_transaccion": tid, "id_pedido": pid, "id_empresa_ganadora": ganadora}
     except Exception as e:
         logger.error("adjudicar: %s", e)

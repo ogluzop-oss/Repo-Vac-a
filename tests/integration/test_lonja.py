@@ -123,3 +123,53 @@ def test_conversion_divisa():
     assert lonja.tasa("EUR") == 1.0
     assert lonja.convertir(100, "USD", "EUR") == 90.0
     assert lonja.convertir(90, "EUR", "USD") == 100.0
+
+
+def test_antisniping_extiende_cierre(db, fab):
+    import datetime as dt
+    emp = fab.empresa("EMP snipe")
+    ven = lonja.alta_vendedor("Snipe SA", divisa="EUR")
+    fab.al_limpiar(lambda: _limpia(db, emp, emp, [ven["id"]]))
+    limite = dt.datetime.now() + dt.timedelta(minutes=3)
+    lid = lonja.publicar(ven["id"], "SNI-1", 10.0, puja_minima=10.0, cantidad=5, fecha_limite=limite)
+    r = lonja.pujar(lid, emp, 11.0)
+    assert r["ok"] and r["extendido"] is True
+    # El cierre se ha extendido más allá del límite original (nadie gana pujando en el último segundo).
+    assert lonja.obtener_listado(lid)["fecha_limite"] > limite
+
+
+def test_puja_en_subasta_vencida_rechazada(db, fab):
+    import datetime as dt
+    emp = fab.empresa("EMP venc")
+    ven = lonja.alta_vendedor("Venc SA", divisa="EUR")
+    fab.al_limpiar(lambda: _limpia(db, emp, emp, [ven["id"]]))
+    lid = lonja.publicar(ven["id"], "VE-1", 4.0, puja_minima=4.0, cantidad=1,
+                         fecha_limite=dt.datetime.now() - dt.timedelta(minutes=1))
+    assert lonja.pujar(lid, emp, 5.0)["error"] == "subasta_cerrada"
+
+
+def test_job_cierre_adjudica_y_cierra(db, fab):
+    import datetime as dt
+    emp_a = fab.empresa("EMP cj A")
+    emp_b = fab.empresa("EMP cj B")
+    ven = lonja.alta_vendedor("Cierre SA", divisa="EUR")
+    fab.al_limpiar(lambda: _limpia(db, emp_a, emp_b, [ven["id"]]))
+    # Subasta con pujas; luego se fuerza el vencimiento.
+    lid = lonja.publicar(ven["id"], "CJ-1", 5.0, puja_minima=5.0, cantidad=3,
+                         fecha_limite=dt.datetime.now() + dt.timedelta(minutes=10))
+    lonja.pujar(lid, emp_a, 5.5)
+    lonja.pujar(lid, emp_b, 6.0)
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE lonja_listados SET fecha_limite=DATE_SUB(NOW(), INTERVAL 1 MINUTE) WHERE id=%s",
+                    (lid,))
+        conn.commit()
+    # Subasta vencida SIN pujas.
+    lid2 = lonja.publicar(ven["id"], "CJ-2", 7.0, puja_minima=7.0, cantidad=2,
+                          fecha_limite=dt.datetime.now() - dt.timedelta(minutes=1))
+
+    res = lonja.cerrar_subastas_vencidas()
+    assert res["adjudicadas"] >= 1 and res["cerradas"] >= 1
+    assert lonja.obtener_listado(lid)["estado"] == "adjudicado"     # adjudicada a la mejor puja (emp_b)
+    assert lonja.obtener_listado(lid2)["estado"] == "cerrado"       # sin pujas → cerrada
+    # La ganadora (emp_b) tiene su pedido real generado.
+    assert any(t["id_empresa"] == emp_b for t in lonja.transacciones_de(id_listado=lid))

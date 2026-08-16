@@ -67,6 +67,24 @@ def resolver_token(token) -> dict | None:
         return None
 
 
+def vendedor_de_proveedor(id_empresa, id_proveedor, *, nombre=None, divisa="EUR") -> int | None:
+    """Devuelve el id del vendedor de la Lonja vinculado a un proveedor de una empresa; lo crea si no
+    existe (puente empresa↔mercado). Idempotente por (id_empresa_origen, id_proveedor_origen)."""
+    try:
+        with _conn() as c, c.cursor() as cur:
+            cur.execute("SELECT id FROM lonja_vendedores WHERE id_empresa_origen=%s "
+                        "AND id_proveedor_origen=%s", (id_empresa, id_proveedor))
+            r = _uno(cur)
+        if r:
+            return r["id"]
+        inv = alta_vendedor(nombre or f"Proveedor {id_proveedor}", divisa=divisa,
+                            id_empresa_origen=id_empresa, id_proveedor_origen=id_proveedor)
+        return inv["id"] if inv else None
+    except Exception as e:
+        logger.error("vendedor_de_proveedor: %s", e)
+        return None
+
+
 def listar(id_empresa_origen=None) -> list:
     cond, params = [], []
     if id_empresa_origen:
