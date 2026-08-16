@@ -197,4 +197,12 @@ MODULOS = [
     "0187_familia_restringida",
     "0188_transporte",
     "0190_articulos_emoji",
+    "0191_ubicaciones_impresion_metros",
+    "0192_id_tienda_int_precio_reglas",
+    "0193_id_tienda_int_esl",
+    "0194_id_tienda_int_autocobro",
+    "0195_id_tienda_int_rrhh",
+    "0196_id_tienda_int_tpv",
+    "0197_precios_proveedor_unidad_medida",
+    "0198_portal_proveedor",
 ]
