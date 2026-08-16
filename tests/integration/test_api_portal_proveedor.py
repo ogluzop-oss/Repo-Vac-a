@@ -22,6 +22,7 @@ def _limpia(db, emp):
                     "ON p.id_pedido=l.id_pedido WHERE p.id_empresa=%s", (emp,))
         cur.execute("DELETE FROM compras_pedidos WHERE id_empresa=%s", (emp,))
         cur.execute("DELETE FROM proveedores WHERE id_empresa=%s", (emp,))
+        cur.execute("DELETE FROM lonja_vendedores WHERE id_empresa_origen=%s", (emp,))
         conn.commit()
 
 
@@ -80,9 +81,15 @@ def test_portal_api_flujo_proveedor(db, fab, cliente):
                         json={"cuerpo": "Pedido en preparación"}).status_code == 200
     assert portal.no_leidos(emp, autor="proveedor") == 1
 
-    # El panel web del proveedor se sirve (público; lo autentican los endpoints con el token).
+    # Puente proveedor↔vendedor: el portal devuelve el token de la Lonja del proveedor (unificación).
+    lt = cliente.get("/api/v1/portal-proveedor/lonja-token", headers=_h(tok))
+    assert lt.status_code == 200 and lt.get_json()["token"]
+    from src.services import lonja as _lonja
+    assert _lonja.resolver_token(lt.get_json()["token"]) is not None
+
+    # El panel UNIFICADO del suministrador se sirve y trae portal + mercado (Lonja) en uno.
     pg = cliente.get("/api/v1/portal-proveedor/panel")
-    assert pg.status_code == 200 and b"Portal de Proveedor" in pg.data
+    assert pg.status_code == 200 and b"X-Lonja-Token" in pg.data and b"Mercado" in pg.data
 
     # Token revocado → 401.
     portal.revocar(prov, emp)

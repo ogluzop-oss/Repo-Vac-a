@@ -58,6 +58,19 @@ def registrar(bp):
         from src.services.compras.portal.panel_html import panel_html
         return Response(panel_html(), mimetype="text/html")
 
+    @bp.get("/portal-proveedor/lonja-token")
+    @requiere_proveedor
+    def lonja_token():
+        # Puente: devuelve el token del vendedor de la Lonja del proveedor (lo crea si no existe), para que
+        # el MISMO panel del proveedor opere también en el mercado (unificación proveedor↔vendedor).
+        from src.services import lonja
+        try:
+            from src.db.proveedores import obtener_proveedor
+            nombre = (obtener_proveedor(_prov(), _emp()) or {}).get("razon_social")
+        except Exception:
+            nombre = None
+        return jsonify({"token": lonja.token_de_proveedor(_emp(), _prov(), nombre=nombre)})
+
     @bp.get("/portal-proveedor/me")
     @requiere_proveedor
     def me():

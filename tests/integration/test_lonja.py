@@ -190,6 +190,21 @@ def test_gating_tipo_comercio(db, fab):
     assert lonja.obtener_vendedor(v_ph["id"])["tipo_comercio"] == "PHARMACY,BAKERY"
 
 
+def test_token_de_proveedor_puente(db, fab):
+    emp = fab.empresa("EMP puente")
+
+    def _cl():
+        with db.obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM lonja_vendedores WHERE id_empresa_origen=%s", (emp,))
+            conn.commit()
+    fab.al_limpiar(_cl)
+    # El puente asegura el vendedor del proveedor y devuelve su token (idempotente → mismo token).
+    t1 = lonja.token_de_proveedor(emp, 999, nombre="Prov 999")
+    t2 = lonja.token_de_proveedor(emp, 999)
+    assert t1 and t1 == t2
+    assert lonja.resolver_token(t1) is not None   # el token resuelve a un vendedor de la Lonja
+
+
 def test_conversion_divisa():
     # 1 USD = 0.90 EUR; convertir 100 USD → 90 EUR y viceversa.
     lonja.set_tasa("USD", 0.90)
