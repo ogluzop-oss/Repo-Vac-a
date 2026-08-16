@@ -170,7 +170,7 @@ class ComprasAvanzadoWindow(QWidget):
         w = QWidget(); ly = QVBoxLayout(w)
         self.cmb_prov_eval = _combo(self._provs() or [("(sin proveedores)", None)])
         ly.addWidget(self.cmb_prov_eval)
-        ly.addWidget(_btn("Calcular KPIs", self._kpis, primary=True))
+        ly.addWidget(_btn("Evaluar proveedor", self._kpis, primary=True))
         self.lbl_kpis = QLabel(""); self.lbl_kpis.setStyleSheet(f"color:{_TEXT};font-weight:700;")
         ly.addWidget(self.lbl_kpis)
         return w
