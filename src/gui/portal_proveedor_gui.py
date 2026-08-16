@@ -13,8 +13,10 @@ Reutiliza los helpers visuales de `catalogo_gestion` (coherencia con el resto de
 """
 
 import logging
+import os
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QTableWidgetItem,
                              QTabWidget, QVBoxLayout, QWidget)
 
@@ -24,6 +26,21 @@ from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_cargan
 from src.services.compras import portal
 
 logger = logging.getLogger("gui.portal_proveedor")
+
+# Icono de carta (imagen) para los botones de invitación (en vez del emoji ✉️).
+_CARTA_PNG = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                          "assets", "emoji carta.png")
+
+
+def _btn_carta(txt, slot):
+    b = _btn(txt, slot, primary=True)
+    try:
+        ic = QIcon(_CARTA_PNG)
+        if not ic.isNull():
+            b.setIcon(ic)
+    except Exception:
+        pass
+    return b
 
 try:
     from assets.estilo_global import mostrar_mensaje
@@ -98,10 +115,11 @@ class PortalProveedorWindow(QWidget):
         self.in_email_inv = _inp("Email del proveedor (opcional)")
         fila.addWidget(QLabel("Proveedor:")); fila.addWidget(self.cmb_prov_inv, 1)
         fila.addWidget(self.in_email_inv, 1)
-        fila.addWidget(_btn("✉️  Invitar", self._invitar, primary=True))
+        fila.addWidget(_btn_carta("Invitar", self._invitar))
         ly.addLayout(fila)
         bar = QHBoxLayout()
-        bar.addWidget(_btn("✉️  Enviar invitación", self._enviar_correo, primary=True))
+        # "Enviar invitación" se retira (redundante con "Invitar" y "Reenviar invitación"); los botones
+        # siguientes rellenan el hueco.
         bar.addWidget(_btn("🔑  Ver enlace", self._ver_enlace, primary=True))
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
         bar.addWidget(_btn("💳  Cuenta bancaria", self._cuenta_bancaria, primary=True))
@@ -218,7 +236,8 @@ class PortalProveedorWindow(QWidget):
                              puja_minima=d["puja_minima"], cantidad=d["cantidad"],
                              unidad_medida=d["unidad"], duracion_horas=d.get("duracion_horas"),
                              precio_reserva=d.get("precio_reserva"),
-                             incremento_minimo=d.get("incremento_minimo", 0))
+                             incremento_minimo=d.get("incremento_minimo", 0),
+                             permite_puja=d.get("permite_puja", True))
         if lid:
             _aviso(self, "Mercado",
                    f"Publicado en el mercado: {d['codigo']} · {d['precio']:.2f} {d['divisa']} "
@@ -235,7 +254,7 @@ class PortalProveedorWindow(QWidget):
         info.setStyleSheet(f"color:{_DIM};font-size:12px;")
         ly.addWidget(info)
         bar = QHBoxLayout()
-        bar.addWidget(_btn("✉️  Reenviar invitación", self._reenviar_pendiente, primary=True))
+        bar.addWidget(_btn_carta("Reenviar invitación", self._reenviar_pendiente))
         bar.addStretch()
         bar.addWidget(_btn_cargando("🔄  Actualizar", self._cargar_pendientes))
         ly.addLayout(bar)
@@ -358,6 +377,15 @@ def _divisas_soportadas():
     return [("EUR", "EUR"), ("USD", "USD"), ("GBP", "GBP")]
 
 
+def _subastas_on() -> bool:
+    """Las subastas (pujas) solo están disponibles en las ediciones Supermarket/Retail."""
+    try:
+        from src.services import verticales
+        return verticales.visible("compras.subastas")
+    except Exception:
+        return True
+
+
 class _DialogoCuenta(QDialog):
     """Registra la cuenta bancaria (IBAN) del proveedor (frameless). Muestra la máscara actual si la hay."""
 
@@ -416,11 +444,15 @@ class _DialogoPublicarMercado(QDialog):
             ch = QCheckBox(etq_tc); ch.setProperty("tc", cod_tc)
             ch.setStyleSheet(f"color:{_TEXT};font-size:11px;")
             self._tc_chks.append(ch); tcrow.addWidget(ch)
-        for etq, wdg in (("Artículo", self.in_cod), ("Divisa", self.cmb_div),
-                         ("Precio (compra directa)", self.in_precio), ("Puja mínima", self.in_pmin),
-                         ("Cantidad", self.in_cant), ("Unidad", self.cmb_uni),
-                         ("Duración subasta (h)", self.in_dur), ("Precio de reserva (opc.)", self.in_res),
-                         ("Incremento mínimo", self.in_inc)):
+        # Campos de SUBASTA (puja mínima, duración, reserva, incremento) solo si la edición los permite.
+        self._subastas = _subastas_on()
+        campos = [("Artículo", self.in_cod), ("Divisa", self.cmb_div),
+                  ("Precio (compra directa)", self.in_precio), ("Cantidad", self.in_cant),
+                  ("Unidad", self.cmb_uni)]
+        if self._subastas:
+            campos += [("Puja mínima", self.in_pmin), ("Duración subasta (h)", self.in_dur),
+                       ("Precio de reserva (opc.)", self.in_res), ("Incremento mínimo", self.in_inc)]
+        for etq, wdg in campos:
             cap = QLabel(etq); cap.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
             v.addWidget(cap); v.addWidget(wdg)
         tccap = QLabel("Tipo de comercio (vacío = todas las ediciones)")
@@ -442,12 +474,16 @@ class _DialogoPublicarMercado(QDialog):
         precio = _f(self.in_precio); cant = _f(self.in_cant, 1)
         if not cod or precio <= 0 or cant <= 0:
             return
-        res_txt = (self.in_res.text() or "").strip()
         tipos = [c.property("tc") for c in self._tc_chks if c.isChecked()]
+        if self._subastas:
+            res_txt = (self.in_res.text() or "").strip()
+            puja_minima = _f(self.in_pmin); duracion = _f(self.in_dur, 24)
+            incremento = _f(self.in_inc); reserva = (_f(self.in_res) if res_txt else None)
+            permite_puja = True
+        else:   # sin subastas → solo compra directa
+            puja_minima = 0; duracion = None; incremento = 0; reserva = None; permite_puja = False
         self.datos = {"codigo": cod, "divisa": self.cmb_div.currentData(), "precio": precio,
-                      "puja_minima": _f(self.in_pmin), "cantidad": cant,
-                      "unidad": self.cmb_uni.currentData(),
-                      "duracion_horas": _f(self.in_dur, 24), "incremento_minimo": _f(self.in_inc),
-                      "precio_reserva": (_f(self.in_res) if res_txt else None),
-                      "tipo_comercio": tipos}
+                      "puja_minima": puja_minima, "cantidad": cant, "unidad": self.cmb_uni.currentData(),
+                      "duracion_horas": duracion, "incremento_minimo": incremento,
+                      "precio_reserva": reserva, "permite_puja": permite_puja, "tipo_comercio": tipos}
         self.accept()

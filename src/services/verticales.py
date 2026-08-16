@@ -41,6 +41,7 @@ FUNCIONES = {
     # Funciones BASE (R8) — capacidades transversales, NO ediciones; visibles en las versiones que corresponden.
     "transporte.reparto": "Reparto · Flota y rutas de reparto",
     "distribucion.expedicion": "Distribución · Pedidos, picking y expediciones (B2B)",
+    "compras.subastas": "Compras · Subastas del mercado (pujas)",
 }
 
 # MATRIZ (fuente de verdad). Solo se listan las DIFERENCIAS respecto a la base (todo VISIBLE por defecto).
@@ -74,6 +75,9 @@ _REGLAS = {
     # Distribución mayorista B2B (venta a clientes → picking → expedición): solo en comercio general con
     # almacén → Supermarket, Retail y Textil. Oculta en Pharmacy y Bakery.
     "distribucion.expedicion": {"PHARMACY": "oculto", "BAKERY": "oculto"},
+    # Subastas del mercado (pujas): SOLO comercio general de gran volumen → Supermarket y Retail. En
+    # Pharmacy/Textil/Bakery se ocultan (el resto del módulo de proveedores sigue disponible en todas).
+    "compras.subastas": {"PHARMACY": "oculto", "TEXTIL": "oculto", "BAKERY": "oculto"},
 }
 
 

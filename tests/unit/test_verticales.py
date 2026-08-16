@@ -29,6 +29,15 @@ def test_bascula_segmentada_por_vertical():
     assert V.sustituto("tpv.bascula", vertical="TEXTIL") == "productos.tallas"
 
 
+def test_subastas_solo_supermarket_y_retail():
+    # Las subastas (pujas) del mercado solo en comercio general de volumen.
+    assert V.visible("compras.subastas", vertical="SUPERMARKET") is True
+    assert V.visible("compras.subastas", vertical="RETAIL") is True
+    assert V.visible("compras.subastas", vertical="PHARMACY") is False
+    assert V.visible("compras.subastas", vertical="TEXTIL") is False
+    assert V.visible("compras.subastas", vertical="BAKERY") is False
+
+
 def test_funciones_exclusivas():
     assert V.visible("pharmacy.recetas", vertical="PHARMACY") is True
     assert V.visible("pharmacy.recetas", vertical="RETAIL") is False

@@ -14,7 +14,7 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout,
+from PyQt6.QtWidgets import (QDialog, QFormLayout,
                              QFrame, QHBoxLayout, QLabel, QPushButton, QStackedWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -285,8 +285,10 @@ class ComprasWindow(QWidget):
         mbar = QHBoxLayout()
         mbar.addWidget(_btn("🛒  " + tr("compras.comprar_ya", default="COMPRAR YA"),
                             self._comprar_ya, primary=True))
-        mbar.addWidget(_btn("🔨  " + tr("compras.pujar", default="PUJAR OFERTA"),
-                            self._pujar_oferta, primary=True))
+        # Las SUBASTAS (pujas) solo están disponibles en Supermarket y Retail (gating por edición).
+        if self._subastas_visibles():
+            mbar.addWidget(_btn("🔨  " + tr("compras.pujar", default="PUJAR OFERTA"),
+                                self._pujar_oferta, primary=True))
         mbar.addStretch(1)
         ly.addLayout(mbar)
         # Tabla UNIFICADA: tarifas fijas (tuyas) + ofertas en vivo del mercado (Lonja), clasificadas por
@@ -329,6 +331,15 @@ class ComprasWindow(QWidget):
             return empresa_actual_id()
         except Exception:
             return None
+
+    @staticmethod
+    def _subastas_visibles() -> bool:
+        """Las subastas (pujas) solo se muestran en las ediciones Supermarket/Retail."""
+        try:
+            from src.services import verticales
+            return verticales.visible("compras.subastas")
+        except Exception:
+            return True
 
     def _buscar_bolsa(self):
         """Busca un artículo y muestra, clasificadas por origen, las TARIFAS fijas de tus proveedores y
@@ -941,23 +952,28 @@ class _DialogoPuja(QDialog):
 class _DialogoPedido(QDialog):
     def __init__(self, proveedores, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(tr("compras.nuevo_pedido", default="Nuevo pedido"))
         self.id_proveedor = None; self.lineas = []
         self._provs = proveedores
-        ly = QVBoxLayout(self)
+        # Frameless (sin barra de Windows), esquinas redondeadas, fondo uniforme y más grande.
+        self.setFixedSize(640, 720)
+        v = _dialogo_frameless(self, titulo=tr("compras.nuevo_pedido", default="Nuevo pedido"), ancho=640)
+        cap = QLabel(tr("compras.proveedor", default="Proveedor"))
+        cap.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+        v.addWidget(cap)
         self.cb = _combo([(p["razon_social"], p["id_proveedor"]) for p in proveedores])
-        ly.addWidget(QLabel(tr("compras.proveedor", default="Proveedor"))); ly.addWidget(self.cb)
+        v.addWidget(self.cb)
         form = QFormLayout()
         self.in_cod = _inp("Código"); self.in_desc = _inp("Descripción")
         self.in_cant = _inp("Cantidad"); self.in_precio = _inp("Precio ud.")
         form.addRow("Código", self.in_cod); form.addRow("Descripción", self.in_desc)
         form.addRow("Cantidad", self.in_cant); form.addRow("Precio ud.", self.in_precio)
-        ly.addLayout(form)
-        self.tbl = _tabla(["Código", "Cant.", "Precio"]); ly.addWidget(self.tbl)
-        ly.addWidget(_btn(tr("compras.add_linea", default="AÑADIR LÍNEA"), self._add))
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(self._ok); bb.rejected.connect(self.reject)
-        ly.addWidget(bb)
+        v.addLayout(form)
+        self.tbl = _tabla(["Código", "Cant.", "Precio"]); v.addWidget(self.tbl, 1)
+        v.addWidget(_btn(tr("compras.add_linea", default="AÑADIR LÍNEA"), self._add))
+        row = QHBoxLayout(); row.addStretch(1)
+        row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), self.reject))
+        row.addWidget(_btn(tr("compras.aceptar", default="Aceptar"), self._ok, primary=True))
+        v.addLayout(row)
 
     def _add(self):
         try:
@@ -987,18 +1003,20 @@ class _DialogoPedido(QDialog):
 class _DialogoFactura(QDialog):
     def __init__(self, proveedores, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(tr("compras.nueva_factura", default="Nueva factura"))
         self.id_proveedor = None; self.numero = None; self.base = 0.0; self.iva = 0.0
         self._provs = proveedores
-        ly = QVBoxLayout(self); form = QFormLayout()
+        self.setFixedSize(520, 380)
+        v = _dialogo_frameless(self, titulo=tr("compras.nueva_factura", default="Nueva factura"), ancho=520)
+        form = QFormLayout()
         self.cb = _combo([(p["razon_social"], p["id_proveedor"]) for p in proveedores])
         self.in_num = _inp("Nº factura"); self.in_base = _inp("Base"); self.in_iva = _inp("IVA")
         form.addRow(tr("compras.proveedor", default="Proveedor"), self.cb)
         form.addRow("Nº factura", self.in_num); form.addRow("Base", self.in_base); form.addRow("IVA", self.in_iva)
-        ly.addLayout(form)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(self._ok); bb.rejected.connect(self.reject)
-        ly.addWidget(bb)
+        v.addLayout(form); v.addStretch(1)
+        row = QHBoxLayout(); row.addStretch(1)
+        row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), self.reject))
+        row.addWidget(_btn(tr("compras.aceptar", default="Aceptar"), self._ok, primary=True))
+        v.addLayout(row)
 
     def _ok(self):
         i = self.cb.currentIndex()
