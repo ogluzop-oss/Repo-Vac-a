@@ -59,6 +59,7 @@ class ComprasWindow(QWidget):
         ("fac", "🧾", "Facturas"),
         ("inf", "📊", "Informes"),
         ("avz", "🤝", "Avanzado"),
+        ("portal", "🔗", "Portal proveedor"),
         ("cal", "🔬", "Calidad"),
     ]
 
@@ -81,6 +82,7 @@ class ComprasWindow(QWidget):
         self.stack.addWidget(self._page_facturas())
         self.stack.addWidget(self._page_informes())
         self.stack.addWidget(self._page_avanzado())
+        self.stack.addWidget(self._page_portal())     # portal de proveedor (enlace bidireccional)
         self.stack.addWidget(self._page_calidad())   # dominio calidad (dashboard embebido)
         rcol.addWidget(self.stack, 1)
         root.addWidget(right, 1)
@@ -141,7 +143,7 @@ class ComprasWindow(QWidget):
         # Recarga perezosa de la sección.
         [self._load_proveedores, self._load_pedidos, self._load_recepciones,
          self._load_facturas, lambda: self._cargar_informe(), lambda: None,
-         lambda: None][idx]()   # Avanzado y Calidad cargan sus propios datos
+         lambda: None, lambda: None][idx]()   # Avanzado, Portal y Calidad cargan sus propios datos
 
     def _volver_menu(self):
         if callable(self._volver):
@@ -154,6 +156,17 @@ class ComprasWindow(QWidget):
             return ComprasAvanzadoWindow(callback_vuelta=None, usuario=self.usuario, main=self)
         except Exception as e:
             logger.error("embed Compras avanzado: %s", e)
+            return QWidget()
+
+    def _page_portal(self):
+        """Portal de proveedor (enlace bidireccional empresa↔proveedor) embebido. Disponible en todas
+        las versiones; la lógica vive en `services.compras.portal`."""
+        try:
+            from src.gui.portal_proveedor_gui import PortalProveedorWindow
+            self._portal_win = PortalProveedorWindow(callback_vuelta=None, usuario=self.usuario, main=self)
+            return self._portal_win
+        except Exception as e:
+            logger.error("embed Portal proveedor: %s", e)
             return QWidget()
 
     def _page_calidad(self):
@@ -513,16 +526,27 @@ class ComprasWindow(QWidget):
         fila.addWidget(_btn(tr("compras.recibir_todo", default="RECIBIR TODO"), self._recibir_sel, primary=True))
         fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_recepciones, primary=True))
         ly.addLayout(fila)
+        # "Estado prov." = seguimiento que el proveedor reporta desde el Portal (bidireccional).
         self.tbl_rec = _tabla(["ID", tr("compras.numero", default="Número"),
                                tr("compras.proveedor", default="Proveedor"),
-                               tr("compras.estado", default="Estado"), tr("compras.total", default="Total"),
-                               tr("compras.fecha", default="Fecha")])
+                               tr("compras.estado", default="Estado"),
+                               tr("compras.estado_prov", default="Estado prov."),
+                               tr("compras.total", default="Total"), tr("compras.fecha", default="Fecha")])
         ly.addWidget(self.tbl_rec, 1)
         return w
 
     def _load_recepciones(self):
         filas = [p for p in C.historico_pedidos() if p["estado"] in ("ENVIADO", "PARCIAL")]
-        self._fill(self.tbl_rec, filas, ("id_pedido", "numero", "proveedor", "estado", "total", "fecha"))
+        # Estado reportado por el proveedor desde el Portal (si lo hay), por pedido.
+        try:
+            from src.services.compras import portal
+            segui = portal.estados_pedidos(ids=[p["id_pedido"] for p in filas] or None)
+        except Exception:
+            segui = {}
+        for p in filas:
+            p["estado_prov"] = segui.get(p["id_pedido"], "—")
+        self._fill(self.tbl_rec, filas,
+                   ("id_pedido", "numero", "proveedor", "estado", "estado_prov", "total", "fecha"))
 
     def recibir_pedido(self, id_pedido):
         """Recibe TODO lo pendiente del pedido. Núcleo testeable."""
