@@ -60,11 +60,12 @@ class PortalProveedorWindow(QWidget):
 
         tabs = QTabWidget()
         tabs.addTab(self._tab_conectados(), "Proveedores conectados")
+        tabs.addTab(self._tab_pendientes(), "Invitaciones pendientes")
         tabs.addTab(self._tab_rfq(), "RFQ / Subasta")
         tabs.addTab(self._tab_mensajes(), "Mensajería")
         root.addWidget(tabs)
         self._refrescar_modo()
-        self._cargar_cuentas()
+        self._cargar_cuentas()   # también refresca la pestaña de pendientes
 
     def _emp(self):
         try:
@@ -115,6 +116,8 @@ class PortalProveedorWindow(QWidget):
             for j, v in enumerate([d.get("id_proveedor"), d.get("proveedor"), d.get("email"),
                                    d.get("estado"), str(d.get("ultima_conexion") or "")[:16]]):
                 self.tbl_cuentas.setItem(i, j, _it(v))
+        if hasattr(self, "tbl_pend"):   # mantiene sincronizada la pestaña de pendientes
+            self._cargar_pendientes()
 
     def _cuenta_sel(self):
         r = self.tbl_cuentas.currentRow()
@@ -169,6 +172,40 @@ class PortalProveedorWindow(QWidget):
             _aviso(self, "Portal", "Selecciona un proveedor de la tabla.", "warning"); return
         if portal.revocar(pid, self._emp()):
             self._cargar_cuentas()
+
+    # ── Invitaciones pendientes ───────────────────────────────────────────────
+    def _tab_pendientes(self):
+        """Registro de proveedores invitados que aún NO han entrado al portal (misma fuente que el job)."""
+        w = QWidget(); ly = QVBoxLayout(w)
+        info = QLabel("Proveedores invitados que todavía no han aceptado (no han entrado al portal).")
+        info.setStyleSheet(f"color:{_DIM};font-size:12px;")
+        ly.addWidget(info)
+        bar = QHBoxLayout()
+        bar.addWidget(_btn("✉  Reenviar invitación", self._reenviar_pendiente, primary=True))
+        bar.addStretch()
+        bar.addWidget(_btn("🔄  Actualizar", self._cargar_pendientes, primary=True))
+        ly.addLayout(bar)
+        self.tbl_pend = _tabla(["Proveedor", "Email", "Invitado el"])
+        ly.addWidget(self.tbl_pend)
+        return w
+
+    def _cargar_pendientes(self):
+        self._pend_rows = portal.invitaciones_pendientes(id_empresa=self._emp())
+        self.tbl_pend.setRowCount(len(self._pend_rows))
+        for i, d in enumerate(self._pend_rows):
+            for j, v in enumerate([d.get("proveedor"), d.get("email"),
+                                   str(d.get("creado_en") or "")[:16]]):
+                self.tbl_pend.setItem(i, j, _it(v))
+
+    def _reenviar_pendiente(self):
+        r = self.tbl_pend.currentRow()
+        rows = getattr(self, "_pend_rows", []) or []
+        if r < 0 or r >= len(rows):
+            _aviso(self, "Portal", "Selecciona una invitación pendiente.", "warning"); return
+        pid = rows[r].get("id_proveedor")
+        res = portal.enviar_invitacion(pid, id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
+        self._mostrar_invitacion(res)
+        self._cargar_pendientes()
 
     # ── RFQ / Subasta inversa ─────────────────────────────────────────────────
     def _tab_rfq(self):
