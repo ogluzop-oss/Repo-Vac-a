@@ -47,12 +47,14 @@ def test_bolsa_carrito_y_tramitar(db, fab, monkeypatch):
 
     w = CG.ComprasWindow(usuario={"nombre": "Tester"})
 
-    # Buscar en la bolsa → dos filas, ordenadas por precio (más barato primero).
+    # Buscar en la bolsa unificada → dos tarifas, ordenadas por precio (más barato primero).
+    # Columnas: [Origen, Proveedor, Precio, Divisa, Precio ref., Puja mín., Disponible, Unidad].
     w.in_bolsa_art.setText("ARTUI")
     w._buscar_bolsa()
     assert w.tbl_bolsa.rowCount() == 2
-    assert w.tbl_bolsa.item(0, 0).text() == "Barato SL"       # el más barato arriba
-    assert w.tbl_bolsa.item(0, 3).text() == "6.00"             # precio neto
+    assert w.tbl_bolsa.item(0, 0).text() == "Tarifa"          # origen
+    assert w.tbl_bolsa.item(0, 1).text() == "Barato SL"       # el más barato arriba
+    assert w.tbl_bolsa.item(0, 2).text() == "6.00"            # precio (neto)
 
     # Añadir la tarifa más barata a la COLA con cantidad 4 (equivale al doble clic → popup cantidad).
     w._agregar_carrito(w._bolsa_rows[0], 4)
