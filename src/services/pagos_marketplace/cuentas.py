@@ -102,6 +102,30 @@ def resumen(tipo_parte, id_parte, id_empresa=None) -> dict | None:
         return None
 
 
+def account_conectado(tipo_parte, id_parte, id_empresa=None) -> dict | None:
+    """Cuenta conectada de una parte (token + flags de cobro), para operar pagos. El VENDEDOR de la Lonja
+    es cross-tenant (global), así que NO se filtra por empresa; empresa/proveedor sí van por empresa."""
+    tp = _norm_parte(tipo_parte)
+    cond, params = ["tipo_parte=%s", "id_parte=%s"], [tp, int(id_parte or 0)]
+    if tp != "vendedor":
+        cond.insert(0, "id_empresa=%s"); params.insert(0, _emp(id_empresa))
+    try:
+        with _conn() as c, c.cursor() as cur:
+            cur.execute("SELECT account_id, psp, status, payouts_enabled, charges_enabled, divisa "
+                        "FROM psp_cuentas_conectadas WHERE " + " AND ".join(cond)
+                        + " ORDER BY id DESC LIMIT 1", tuple(params))
+            r = _filas(cur)
+        if not r:
+            return None
+        d = r[0]
+        d["payouts_enabled"] = bool(d.get("payouts_enabled"))
+        d["charges_enabled"] = bool(d.get("charges_enabled"))
+        return d
+    except Exception as e:
+        logger.error("account_conectado: %s", e)
+        return None
+
+
 def cuenta_por_account_id(account_id) -> dict | None:
     """Localiza la fila por el token del PSP (lo usa el webhook `account.updated`)."""
     if not account_id:
