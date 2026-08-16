@@ -44,9 +44,16 @@ def bolsa_unificada(codigo_articulo, *, id_empresa=None, divisa_ref=None) -> dic
             })
     except Exception as e:
         logger.debug("bolsa_unificada tarifas: %s", e)
-    # 2) Ofertas en vivo de la Lonja (mercado compartido entre empresas).
+    # 2) Ofertas en vivo de la Lonja (mercado compartido), GATEADAS por la edición activa: solo se ven
+    #    listados de vendedores que suministran a este tipo de comercio (o a todos).
     try:
-        for l in _l.listar(cod):
+        vertical = None
+        try:
+            from src.services import verticales
+            vertical = verticales.vertical_actual(id_empresa)
+        except Exception:
+            vertical = None
+        for l in _l.listar(cod, vertical=vertical):
             precio = float(l.get("precio") or 0)
             div = (l.get("divisa") or "EUR")
             pmin = float(l.get("puja_minima") or 0)
