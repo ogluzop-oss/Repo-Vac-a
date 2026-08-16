@@ -78,6 +78,25 @@ def _btn(txt, slot=None, primary=False, danger=False) -> QPushButton:
     return b
 
 
+def _btn_cargando(txt, slot=None, primary=True, danger=False, cargando="⏳  Actualizando…"):
+    """Botón que al pulsarse muestra un estado de carga (`⏳  Actualizando…`), se deshabilita, ejecuta
+    `slot` y restaura su aspecto. Pensado para los botones de 'Actualizar'."""
+    b = _btn(txt, None, primary=primary, danger=danger)
+
+    def _run():
+        orig = b.text()
+        b.setText(cargando); b.setEnabled(False)
+        try:
+            from PyQt6.QtWidgets import QApplication
+            QApplication.processEvents()   # fuerza el repintado del estado de carga
+            if slot:
+                slot()
+        finally:
+            b.setText(orig); b.setEnabled(True)
+    b.clicked.connect(_run)
+    return b
+
+
 def _btn_x(slot=None) -> QPushButton:
     """Botón rojo 'X' para cerrar/volver (mismo estilo que la X de 'Devolución de ticket')."""
     b = QPushButton("✕"); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFixedSize(50, 44)

@@ -20,8 +20,8 @@ from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout,
 
 from src.db import compras as C
 from src.db import proveedores as P
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _SIDEBAR, _TEXT, _btn, _btn_salir_sidebar,
-                                      _combo, _dialogo_frameless, _inp, _tabla)
+from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _SIDEBAR, _TEXT, _btn, _btn_cargando,
+                                      _btn_salir_sidebar, _combo, _dialogo_frameless, _inp, _tabla)
 from src.utils.i18n import tr
 
 logger = logging.getLogger("gui.compras")
@@ -257,7 +257,7 @@ class ComprasWindow(QWidget):
         # CANCELAR va DETRÁS de "Tramitar todos": retira el artículo seleccionado de la cola.
         fila.addWidget(_btn(tr("compras.cancelar", default="CANCELAR"), self._quitar_carrito_sel, danger=True))
         fila.addStretch(1)
-        fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_pedidos, primary=True))
+        fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_pedidos))
         ly.addLayout(fila)
 
         # ── BOLSA DE PROVEEDORES: comparar el precio de un artículo entre proveedores ──
@@ -619,7 +619,7 @@ class ComprasWindow(QWidget):
         fila.addWidget(QLabel(tr("compras.pedidos_recep", default="Pedidos pendientes de recibir")))
         fila.addStretch(1)
         fila.addWidget(_btn(tr("compras.recibir_todo", default="RECIBIR TODO"), self._recibir_sel, primary=True))
-        fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_recepciones, primary=True))
+        fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_recepciones))
         ly.addLayout(fila)
         # "Estado prov." = seguimiento que el proveedor reporta desde el Portal (bidireccional).
         self.tbl_rec = _tabla(["ID", tr("compras.numero", default="Número"),
@@ -674,7 +674,7 @@ class ComprasWindow(QWidget):
         fila.addWidget(_btn(tr("compras.nueva_factura", default="NUEVA FACTURA"), self._dlg_nueva_factura, primary=True))
         fila.addWidget(_btn(tr("compras.validar", default="VALIDAR"), self._validar_factura_sel, primary=True))
         fila.addStretch(1)
-        fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_facturas, primary=True))
+        fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_facturas))
         ly.addLayout(fila)
         self.tbl_fac = _tabla(["ID", tr("compras.numero", default="Nº factura"),
                                tr("compras.pedido", default="Pedido"),
@@ -729,7 +729,7 @@ class ComprasWindow(QWidget):
         ])
         self.cb_informe.currentIndexChanged.connect(lambda _i: self._cargar_informe())
         fila.addWidget(self.cb_informe, 1)
-        fila.addWidget(_btn(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._cargar_informe, primary=True))
+        fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._cargar_informe))
         ly.addLayout(fila)
         self.tbl_inf = _tabla(["", "", "", ""])
         ly.addWidget(self.tbl_inf, 1)
@@ -847,7 +847,7 @@ class _DialogoPedido(QDialog):
         self.id_proveedor = None; self.lineas = []
         self._provs = proveedores
         ly = QVBoxLayout(self)
-        self.cb = _combo([p["razon_social"] for p in proveedores])
+        self.cb = _combo([(p["razon_social"], p["id_proveedor"]) for p in proveedores])
         ly.addWidget(QLabel(tr("compras.proveedor", default="Proveedor"))); ly.addWidget(self.cb)
         form = QFormLayout()
         self.in_cod = _inp("Código"); self.in_desc = _inp("Descripción")
@@ -893,7 +893,7 @@ class _DialogoFactura(QDialog):
         self.id_proveedor = None; self.numero = None; self.base = 0.0; self.iva = 0.0
         self._provs = proveedores
         ly = QVBoxLayout(self); form = QFormLayout()
-        self.cb = _combo([p["razon_social"] for p in proveedores])
+        self.cb = _combo([(p["razon_social"], p["id_proveedor"]) for p in proveedores])
         self.in_num = _inp("Nº factura"); self.in_base = _inp("Base"); self.in_iva = _inp("IVA")
         form.addRow(tr("compras.proveedor", default="Proveedor"), self.cb)
         form.addRow("Nº factura", self.in_num); form.addRow("Base", self.in_base); form.addRow("IVA", self.in_iva)
