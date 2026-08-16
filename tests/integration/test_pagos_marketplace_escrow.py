@@ -76,6 +76,28 @@ def test_disputa_y_reembolso(db, fab):
     assert ESC.liberar(tx)["ok"] is False
 
 
+def test_sync_local_por_webhook(db, fab):
+    """set_estado_local (dirigido por webhook Connect): localiza por payment_ref, es idempotente y no
+    revierte estados terminales."""
+    emp = fab.empresa("EMP escrow webhook")
+    vendedor = 8804
+    fab.al_limpiar(lambda: _limpia(db, emp, [tx], vendedor))
+    CU.registrar_token("vendedor", vendedor, "acct_v4", status="verified", payouts_enabled=True,
+                       id_empresa=PLATAFORMA)
+    tx = _nuevo_tx(db, emp, vendedor)
+    held = ESC.iniciar_retencion(tx, comision_pct=0)
+    ref = held["payment_ref"]
+
+    # Localiza por referencia de pago.
+    assert ESC.tx_por_payment_ref(ref)["id"] == tx
+    # Webhook confirma liberación → FUNDS_RELEASED; repetir es idempotente.
+    assert ESC.set_estado_local(tx, "FUNDS_RELEASED", transfer_ref="tr_x")["estado_pago"] == "FUNDS_RELEASED"
+    assert ESC.set_estado_local(tx, "FUNDS_RELEASED")["idempotente"] is True
+    # No revierte un estado terminal (llega un evento tardío/desordenado).
+    r = ESC.set_estado_local(tx, "FUNDS_HELD")
+    assert r.get("ignorado") is True and ESC.estado(tx) == "FUNDS_RELEASED"
+
+
 def test_guard_vendedor_sin_cobros(db, fab):
     emp = fab.empresa("EMP escrow guard")
     vendedor = 8803   # sin cuenta conectada
