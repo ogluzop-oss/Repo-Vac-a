@@ -50,7 +50,17 @@ def _cifrar_iban(iban):
 
 
 # ── Cuentas bancarias de proveedores / vendedores ────────────────────────────
+# DEPRECADO (Marketplace + Pagos, F0): la captura directa de IBAN — aunque cifrado — NO es el modelo
+# correcto para un marketplace B2B con fondos de terceros (implica custodia y licencia de entidad de pago).
+# La vía correcta es el modelo TOKENIZADO del PSP regulado: `services.pagos_marketplace.cuentas`
+# (`crear_onboarding` → onboarding KYB hospedado del PSP; se guarda solo el token opaco + metadatos).
+# Estas funciones se conservan un ciclo por compatibilidad; NO deben cablearse a UI nueva.
+import warnings as _warnings
+
+
 def set_cuenta_proveedor(id_proveedor, iban, *, titular=None, id_empresa=None) -> dict:
+    _warnings.warn("set_cuenta_proveedor está deprecado; usa services.pagos_marketplace.cuentas "
+                   "(modelo tokenizado del PSP).", DeprecationWarning, stacklevel=2)
     emp = _emp(id_empresa)
     try:
         cif, mask = _cifrar_iban(iban)
@@ -81,6 +91,8 @@ def cuenta_proveedor(id_proveedor, id_empresa=None) -> dict | None:
 
 
 def set_cuenta_vendedor(id_vendedor, iban) -> dict:
+    _warnings.warn("set_cuenta_vendedor está deprecado; usa services.pagos_marketplace.cuentas "
+                   "(modelo tokenizado del PSP).", DeprecationWarning, stacklevel=2)
     try:
         cif, mask = _cifrar_iban(iban)
     except ValueError as e:
