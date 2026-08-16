@@ -97,6 +97,7 @@ class PortalProveedorWindow(QWidget):
         fila.addWidget(_btn("✉  Invitar", self._invitar, primary=True))
         ly.addLayout(fila)
         bar = QHBoxLayout()
+        bar.addWidget(_btn("✉  Enviar invitación", self._enviar_correo, primary=True))
         bar.addWidget(_btn("🔑  Ver enlace", self._ver_enlace, primary=True))
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
         bar.addWidget(_btn("Revocar", self._revocar, danger=True))
@@ -125,26 +126,33 @@ class PortalProveedorWindow(QWidget):
             return None
 
     def _invitar(self):
+        """Invita al proveedor y ENVÍA (o prepara) el correo de invitación."""
         pid = self.cmb_prov_inv.currentData()
         if not pid:
             _aviso(self, "Portal", "Selecciona un proveedor.", "warning"); return
-        inv = portal.invitar_proveedor(pid, email=self.in_email_inv.text().strip() or None,
-                                       id_empresa=self._emp())
+        res = portal.enviar_invitacion(pid, email=self.in_email_inv.text().strip() or None,
+                                       id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
         self._cargar_cuentas()
-        if inv:
-            self._mostrar_enlace(inv.get("token"))
+        self._mostrar_invitacion(res)
+
+    def _enviar_correo(self):
+        """Reenvía el correo de invitación al proveedor seleccionado."""
+        pid = self._cuenta_sel()
+        if not pid:
+            _aviso(self, "Portal", "Selecciona un proveedor de la tabla.", "warning"); return
+        res = portal.enviar_invitacion(pid, id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
+        self._mostrar_invitacion(res)
 
     def _ver_enlace(self):
         pid = self._cuenta_sel()
         if not pid:
             _aviso(self, "Portal", "Selecciona un proveedor de la tabla.", "warning"); return
-        inv = portal.invitar_proveedor(pid, id_empresa=self._emp())   # idempotente: recupera el token
-        self._mostrar_enlace(inv.get("token") if inv else None)
+        self._mostrar_invitacion(portal.render_invitacion(pid, id_empresa=self._emp()))
 
-    def _mostrar_enlace(self, token):
-        if not token:
-            _aviso(self, "Portal", "No se pudo obtener el enlace.", "error"); return
-        _DialogoEnlace(token, self).exec()
+    def _mostrar_invitacion(self, res):
+        if not res or not res.get("token"):
+            _aviso(self, "Portal", "No se pudo preparar la invitación.", "error"); return
+        _DialogoInvitacion(res, self).exec()
 
     def _regenerar(self):
         pid = self._cuenta_sel()
@@ -153,7 +161,7 @@ class PortalProveedorWindow(QWidget):
         tok = portal.regenerar_token(pid, id_empresa=self._emp())
         self._cargar_cuentas()
         if tok:
-            self._mostrar_enlace(tok)
+            self._mostrar_invitacion(portal.render_invitacion(pid, id_empresa=self._emp()))
 
     def _revocar(self):
         pid = self._cuenta_sel()
@@ -289,22 +297,46 @@ class PortalProveedorWindow(QWidget):
             self._cargar_hilo()
 
 
-class _DialogoEnlace(QDialog):
-    """Muestra el token/enlace de acceso del proveedor (frameless, esquinas redondeadas)."""
+class _DialogoInvitacion(QDialog):
+    """Muestra la invitación al proveedor: token, enlace del panel, estado del correo y vista previa
+    del mensaje (frameless, esquinas redondeadas)."""
 
-    def __init__(self, token, parent=None):
+    def __init__(self, res, parent=None):
         super().__init__(parent)
-        v = _dialogo_frameless(self, titulo="Enlace de acceso del proveedor", ancho=520)
-        info = QLabel("Comparte este token con el proveedor para que acceda a su portal.\n"
-                      "El enlace remoto se activará el día de producción (ahora en modo local).")
-        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:12px;")
-        info.setWordWrap(True)
-        v.addWidget(info)
-        campo = _inp("")
-        campo.setText(token)
-        campo.setReadOnly(True)
-        campo.setCursorPosition(0)
-        v.addWidget(campo)
+        v = _dialogo_frameless(self, titulo="Invitación al proveedor", ancho=560)
+        # Estado del correo (enviado / preparado / sin email).
+        if res.get("enviado"):
+            estado = f"✅ Correo enviado a {res.get('email')}"
+        elif res.get("error") == "sin_email":
+            estado = "⚠ El proveedor no tiene email: comparte el token/enlace manualmente."
+        elif "enviado" in res:
+            estado = f"📝 Correo preparado (sin canal configurado). Destinatario: {res.get('email') or '—'}"
+        else:
+            estado = "Comparte este token/enlace con el proveedor."
+        lbl_est = QLabel(estado)
+        lbl_est.setStyleSheet(f"color:{_TEXT};background:transparent;font-size:12px;font-weight:700;")
+        lbl_est.setWordWrap(True)
+        v.addWidget(lbl_est)
+
+        v.addWidget(self._campo("Token de acceso", res.get("token", "")))
+        v.addWidget(self._campo("Enlace del panel web", res.get("enlace", "")))
+
+        prev = QPlainTextEdit()
+        prev.setReadOnly(True)
+        prev.setPlainText(res.get("cuerpo") or res.get("cuerpo_texto") or "")
+        prev.setFixedHeight(180)
+        prev.setStyleSheet(f"QPlainTextEdit{{background:#0D1117;color:{_DIM};border:2px solid {_DIM};"
+                           f"border-radius:8px;padding:8px;font-size:11px;}}")
+        v.addWidget(QLabel("Vista previa del correo:"))
+        v.addWidget(prev)
+
         row = QHBoxLayout(); row.addStretch(1)
         row.addWidget(_btn("Cerrar", self.accept, primary=True))
         v.addLayout(row)
+
+    def _campo(self, etiqueta, valor):
+        w = QWidget(); l = QVBoxLayout(w); l.setContentsMargins(0, 0, 0, 0); l.setSpacing(3)
+        cap = QLabel(etiqueta); cap.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+        campo = _inp(""); campo.setText(str(valor)); campo.setReadOnly(True); campo.setCursorPosition(0)
+        l.addWidget(cap); l.addWidget(campo)
+        return w
