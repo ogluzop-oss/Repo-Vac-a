@@ -117,6 +117,46 @@ def test_bolsa_unificada_mezcla_tarifa_y_lonja(db, fab):
     assert lonja_row["puja_minima"] == 3.8
 
 
+def test_subasta_caduca_por_defecto(db, fab):
+    import datetime as dt
+    emp = fab.empresa("EMP dur")
+    ven = lonja.alta_vendedor("Dur SA", divisa="EUR")
+    fab.al_limpiar(lambda: _limpia(db, emp, emp, [ven["id"]]))
+    # Sin fecha_limite explícita → CADUCA por la duración por defecto (~24 h).
+    lid = lonja.publicar(ven["id"], "DUR-1", 10.0, puja_minima=10.0, cantidad=5)
+    l = lonja.obtener_listado(lid)
+    assert l["fecha_limite"] is not None
+    horas = (l["fecha_limite"] - dt.datetime.now()).total_seconds() / 3600
+    assert 23 < horas < 25
+
+
+def test_incremento_minimo(db, fab):
+    emp_a = fab.empresa("EMP inc A")
+    emp_b = fab.empresa("EMP inc B")
+    ven = lonja.alta_vendedor("Inc SA", divisa="EUR")
+    fab.al_limpiar(lambda: _limpia(db, emp_a, emp_b, [ven["id"]]))
+    lid = lonja.publicar(ven["id"], "INC-1", 10.0, puja_minima=5.0, cantidad=5, incremento_minimo=1.0)
+    assert lonja.pujar(lid, emp_a, 5.0)["ok"]
+    assert lonja.pujar(lid, emp_b, 5.5)["error"] == "incremento_insuficiente"   # 5.5 < 5 + 1
+    assert lonja.pujar(lid, emp_b, 6.0)["ok"]
+
+
+def test_precio_reserva_desierta(db, fab):
+    emp = fab.empresa("EMP res")
+    ven = lonja.alta_vendedor("Res SA", divisa="EUR")
+    fab.al_limpiar(lambda: _limpia(db, emp, emp, [ven["id"]]))
+    lid = lonja.publicar(ven["id"], "RES-1", 20.0, puja_minima=5.0, cantidad=1, precio_reserva=10.0)
+    lonja.pujar(lid, emp, 8.0)   # por debajo del precio de reserva
+    assert lonja.adjudicar(lid)["error"] == "reserva_no_alcanzada"
+    # Al cerrar la subasta vencida sin alcanzar reserva → queda 'desierta'.
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE lonja_listados SET fecha_limite=DATE_SUB(NOW(), INTERVAL 1 MINUTE) WHERE id=%s",
+                    (lid,))
+        conn.commit()
+    lonja.cerrar_subastas_vencidas()
+    assert lonja.obtener_listado(lid)["estado"] == "desierta"
+
+
 def test_conversion_divisa():
     # 1 USD = 0.90 EUR; convertir 100 USD → 90 EUR y viceversa.
     lonja.set_tasa("USD", 0.90)

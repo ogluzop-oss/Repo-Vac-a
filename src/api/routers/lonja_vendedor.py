@@ -75,7 +75,9 @@ def registrar(bp):
                              cantidad=b.get("cantidad", 1), unidad_medida=b.get("unidad_medida", "unidad"),
                              descripcion=b.get("descripcion"),
                              permite_compra_directa=b.get("permite_compra_directa", True),
-                             permite_puja=b.get("permite_puja", True), fecha_limite=b.get("fecha_limite"))
+                             permite_puja=b.get("permite_puja", True), fecha_limite=b.get("fecha_limite"),
+                             duracion_horas=b.get("duracion_horas"), precio_reserva=b.get("precio_reserva"),
+                             incremento_minimo=b.get("incremento_minimo", 0))
         return (jsonify({"ok": bool(lid), "id": lid}), 200 if lid else 500)
 
     @bp.delete("/lonja-vendedor/listados/<int:id_listado>")

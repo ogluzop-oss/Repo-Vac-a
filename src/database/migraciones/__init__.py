@@ -206,4 +206,5 @@ MODULOS = [
     "0197_precios_proveedor_unidad_medida",
     "0198_portal_proveedor",
     "0199_lonja",
+    "0200_lonja_subasta",
 ]

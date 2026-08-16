@@ -55,6 +55,11 @@ _HTML = r"""<!doctype html>
        <select id="p_uni"><option>unidad</option><option>caja</option><option>pale</option><option>kg</option></select>
      </div>
      <div class="row">
+       <input id="p_dur" placeholder="Duración subasta (h)" size="8" value="24">
+       <input id="p_res" placeholder="Precio de reserva (opc.)" size="10">
+       <input id="p_inc" placeholder="Incremento mínimo" size="8" value="0">
+     </div>
+     <div class="row">
        <label class="chk"><input type="checkbox" id="p_cd" checked> Permitir compra directa</label>
        <label class="chk"><input type="checkbox" id="p_pj" checked> Permitir pujas</label>
        <button onclick="publicar()">Publicar</button>
@@ -99,6 +104,9 @@ async function publicar(){
     puja_minima:parseFloat(document.getElementById("p_min").value)||0,
     cantidad:parseFloat(document.getElementById("p_cant").value)||1,
     unidad_medida:document.getElementById("p_uni").value,
+    duracion_horas:parseFloat(document.getElementById("p_dur").value)||24,
+    precio_reserva:(document.getElementById("p_res").value!==""?parseFloat(document.getElementById("p_res").value):null),
+    incremento_minimo:parseFloat(document.getElementById("p_inc").value)||0,
     permite_compra_directa:document.getElementById("p_cd").checked,
     permite_puja:document.getElementById("p_pj").checked};
   if(!b.codigo||!(b.precio>0)){out("Indica código y precio.",true);return;}
