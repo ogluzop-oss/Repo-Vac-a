@@ -88,6 +88,35 @@ def test_adjudicacion_genera_pedido(db, fab):
     assert lonja.obtener_listado(lid)["estado"] == "adjudicado"
 
 
+def test_bolsa_unificada_mezcla_tarifa_y_lonja(db, fab):
+    from src.services.compras import proveedores_pro as PP
+    from src.db import proveedores as PROV
+    emp = fab.empresa("EMP unif")
+    prov = PROV.crear_proveedor("Prov Tarifa", id_empresa=emp)
+    ven = lonja.alta_vendedor("Vendedor Lonja", divisa="EUR")
+
+    def _cl():
+        with db.obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM proveedor_precios_negociados WHERE id_empresa=%s", (emp,))
+            cur.execute("DELETE FROM proveedores WHERE id_empresa=%s", (emp,))
+            cur.execute("DELETE FROM lonja_listados WHERE id_vendedor=%s", (ven["id"],))
+            cur.execute("DELETE FROM lonja_vendedores WHERE id=%s", (ven["id"],))
+            conn.commit()
+    fab.al_limpiar(_cl)
+
+    PP.set_precio_negociado(prov, "UNIF-1", 4.0, unidad_medida="unidad", id_empresa=emp)
+    lonja.publicar(ven["id"], "UNIF-1", 3.5, puja_minima=3.8, cantidad=20)
+
+    res = lonja.bolsa_unificada("UNIF-1", id_empresa=emp)
+    origenes = {f["origen"] for f in res["filas"]}
+    assert origenes == {"tarifa", "lonja"}                      # ambas clasificadas
+    # La oferta en vivo (3.5) sale por delante de la tarifa (4.0) al ordenar por precio de referencia.
+    assert res["filas"][0]["origen"] == "lonja" and res["filas"][0]["precio"] == 3.5
+    lonja_row = res["filas"][0]
+    assert lonja_row["compra_directa"] and lonja_row["puja"] and lonja_row["disponible"] == 20
+    assert lonja_row["puja_minima"] == 3.8
+
+
 def test_conversion_divisa():
     # 1 USD = 0.90 EUR; convertir 100 USD → 90 EUR y viceversa.
     lonja.set_tasa("USD", 0.90)
