@@ -10,12 +10,21 @@ Reutiliza los helpers visuales de `catalogo_gestion` y `mostrar_mensaje`. Ningun
 
 import logging
 
-from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QTableWidgetItem, QVBoxLayout)
+from PyQt6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QTableWidgetItem,
+                             QVBoxLayout)
 
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _dialogo_frameless, _inp, _tabla)
 from src.services.pagos_marketplace import operaciones as OP
 
 logger = logging.getLogger("gui.pagos_marketplace")
+
+
+def _puede(usuario, permiso) -> bool:
+    try:
+        from src.services import autorizacion
+        return autorizacion.puede(usuario or {}, permiso)
+    except Exception:
+        return False
 
 try:
     from assets.estilo_global import mostrar_mensaje
@@ -109,6 +118,8 @@ class EscrowPagosDialog(QDialog):
         cab = QHBoxLayout()
         cab.addWidget(_btn("💳  Cobros de mi empresa (KYB)", self._cobros_empresa, primary=True))
         cab.addStretch()
+        if _puede(self.usuario, "pagos.pasarela.configurar"):
+            cab.addWidget(_btn("⚙  Credenciales de la plataforma", self._credenciales_plataforma))
         v.addLayout(cab)
         self.tbl = _tabla(["ID", "Vendedor", "Importe", "Divisa", "Estado de pago", "Comisión"])
         v.addWidget(self.tbl, 1)
@@ -126,6 +137,10 @@ class EscrowPagosDialog(QDialog):
     def _cobros_empresa(self):
         """KYB de la cuenta de cobros de la PROPIA empresa (para recibir sus ventas del mercado)."""
         ConectarCobrosDialog("empresa", 0, "Mi empresa", self).exec()
+
+    def _credenciales_plataforma(self):
+        """Admin: alta de las credenciales Connect de la plataforma (RBAC + step-up en el diálogo)."""
+        PlataformaCobrosDialog(self.usuario, self).exec()
 
     def _cargar(self):
         filas = OP.transacciones((self.usuario or {}).get("id_empresa"))
@@ -194,6 +209,99 @@ class EscrowPagosDialog(QDialog):
         if not tid:
             _aviso(self, "Escrow", "Selecciona una transacción.", "info"); return
         LedgerDialog(tid, self).exec()
+
+
+class PlataformaCobrosDialog(QDialog):
+    """Admin: credenciales Connect de la PLATAFORMA (Stripe). Write-only: nunca muestra la clave guardada.
+    Exige permiso `pagos.pasarela.configurar` + step-up MFA para guardar."""
+
+    def __init__(self, usuario=None, parent=None):
+        super().__init__(parent)
+        self.usuario = usuario or {}
+        self.setFixedSize(600, 520)
+        v = _dialogo_frameless(self, titulo="Credenciales Connect de la plataforma (admin)", ancho=600)
+
+        self.lbl_estado = QLabel("")
+        self.lbl_estado.setStyleSheet(f"color:{_TEXT};background:transparent;font-size:13px;")
+        self.lbl_estado.setWordWrap(True)
+        v.addWidget(self.lbl_estado)
+
+        def _fila(texto):
+            lab = QLabel(texto); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+            v.addWidget(lab)
+
+        _fila("Stripe secret key (sk_live_… / sk_test_…)")
+        self.in_key = _inp("Se guarda cifrada · déjalo vacío para no cambiarla")
+        self.in_key.setEchoMode(QLineEdit.EchoMode.Password)
+        v.addWidget(self.in_key)
+
+        _fila("Connect webhook secret (whsec_…)")
+        self.in_whsec = _inp("Se guarda cifrado · déjalo vacío para no cambiarlo")
+        self.in_whsec.setEchoMode(QLineEdit.EchoMode.Password)
+        v.addWidget(self.in_whsec)
+
+        fila = QHBoxLayout()
+        lab_m = QLabel("Modo"); lab_m.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+        self.cmb_modo = QComboBox(); self.cmb_modo.addItems(["test", "live"])
+        self.cmb_modo.setFixedHeight(34)
+        lab_c = QLabel("Comisión %"); lab_c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+        self.in_com = _inp("0"); self.in_com.setFixedWidth(90)
+        fila.addWidget(lab_m); fila.addWidget(self.cmb_modo, 1)
+        fila.addSpacing(16); fila.addWidget(lab_c); fila.addWidget(self.in_com)
+        v.addLayout(fila)
+
+        nota = QLabel("Las credenciales son de la CUENTA de la plataforma (el operador), no de una empresa. "
+                      "Nunca se muestran una vez guardadas. Si están fijadas por variables de entorno, "
+                      "estas tienen prioridad y el formulario no surtirá efecto.")
+        nota.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+        nota.setWordWrap(True)
+        v.addWidget(nota)
+        v.addStretch()
+
+        bar = QHBoxLayout()
+        bar.addWidget(_btn("Guardar credenciales", self._guardar, primary=True))
+        bar.addStretch()
+        bar.addWidget(_btn("Cerrar", self.reject))
+        v.addLayout(bar)
+        self._pintar()
+
+    def _pintar(self):
+        from src.services.pagos_marketplace import psp
+        e = psp.estado_plataforma()
+        self.cmb_modo.setCurrentText(e.get("modo") or "test")
+        self.in_com.setText(f"{e.get('comision_pct', 0):g}")
+        origen = "variables de entorno" if e.get("origen") == "env" else "guardadas en la app"
+        estado = "✓ configurada" if e.get("configurada") else "— sin configurar"
+        whk = "✓" if e.get("webhook_configurado") else "—"
+        self.lbl_estado.setText(f"Estado: <b>{estado}</b> · webhook: <b>{whk}</b> · modo: "
+                                f"<b>{e.get('modo')}</b> · origen: <b>{origen}</b>")
+
+    def _guardar(self):
+        if not _puede(self.usuario, "pagos.pasarela.configurar"):
+            _aviso(self, "Credenciales", "Permiso requerido: pagos.pasarela.configurar", "warning"); return
+        # Acción crítica: step-up MFA (después de RBAC), como el resto de configuración de pasarela.
+        try:
+            from src.gui.mfa_gui import step_up_sesion
+            if not step_up_sesion("pagos.pasarela.configurar", parent=self):
+                _aviso(self, "Credenciales", "Verificación MFA requerida para guardar credenciales.",
+                       "warning"); return
+        except Exception as e:
+            logger.debug("step_up_sesion: %s", e)
+        try:
+            com = float((self.in_com.text() or "0").replace(",", ".") or 0)
+        except ValueError:
+            _aviso(self, "Credenciales", "Comisión % no válida.", "warning"); return
+        from src.services.pagos_marketplace import psp
+        ok = psp.guardar_config_plataforma(
+            api_key=(self.in_key.text().strip() or None),
+            webhook_secret=(self.in_whsec.text().strip() or None),
+            modo=self.cmb_modo.currentText(), comision_pct=com)
+        if ok:
+            self.in_key.clear(); self.in_whsec.clear()   # write-only: no retener en el formulario
+            _aviso(self, "Credenciales", "Credenciales de la plataforma guardadas (cifradas).", "success")
+            self._pintar()
+        else:
+            _aviso(self, "Credenciales", "No se pudieron guardar las credenciales.", "error")
 
 
 class LedgerDialog(QDialog):
