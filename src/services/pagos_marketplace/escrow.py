@@ -77,7 +77,16 @@ def set_estado_local(id_transaccion, nuevo, *, transfer_ref=None, motivo="webhoo
         cur.execute("UPDATE lonja_transacciones SET " + ", ".join(sets) + " WHERE id=%s", tuple(params))
     _audit(f"ESCROW_WEBHOOK_{nuevo}", f"tx={id_transaccion} {actual}->{nuevo} ({motivo})",
            tabla="lonja_transacciones")
+    if nuevo in ledger_tipos():
+        _ledger(id_transaccion, nuevo, transfer_ref=transfer_ref, payload={"motivo": motivo})
+    if nuevo == "FUNDS_RELEASED":
+        _contabilizar_comision(id_transaccion)
     return {"ok": True, "estado_pago": nuevo}
+
+
+def ledger_tipos():
+    from src.services.pagos_marketplace.ledger import TIPOS
+    return TIPOS
 
 
 def _adaptador(id_empresa):
@@ -87,6 +96,24 @@ def _adaptador(id_empresa):
 
 def _idem(t) -> str:
     return t.get("idem_key_pago") or f"lonja-tx-{t['id']}"
+
+
+def _ledger(id_transaccion, tipo, **kw):
+    """Anota el movimiento en el ledger inmutable (append-only). Degradable."""
+    try:
+        from src.services.pagos_marketplace import ledger
+        ledger.registrar(id_transaccion, tipo, **kw)
+    except Exception as e:
+        logger.debug("_ledger(%s,%s): %s", id_transaccion, tipo, e)
+
+
+def _contabilizar_comision(id_transaccion):
+    """Contabiliza la comisión de la plataforma (solo al liberar). Degradable, idempotente."""
+    try:
+        from src.services.pagos_marketplace import contabilizacion
+        contabilizacion.contabilizar_comision(id_transaccion)
+    except Exception as e:
+        logger.debug("_contabilizar_comision(%s): %s", id_transaccion, e)
 
 
 # ── Inicio de la retención (escrow) ──────────────────────────────────────────
@@ -131,6 +158,8 @@ def iniciar_retencion(id_transaccion, *, comision_pct=None, usuario=None) -> dic
                     (res.get("payment_ref"), comision, idem, t["id"]))
     _audit("ESCROW_HELD", f"tx={t['id']} ref={res.get('payment_ref')} comision={comision}",
            tabla="lonja_transacciones")
+    _ledger(t["id"], "FUNDS_HELD", importe=importe, comision=comision,
+            payment_ref=res.get("payment_ref"), divisa=t.get("divisa") or "EUR", id_empresa=emp)
     return {"ok": True, "estado_pago": "FUNDS_HELD", "payment_ref": res.get("payment_ref"),
             "comision": comision, "modo": _adaptador(emp).modo()}
 
@@ -168,8 +197,10 @@ def marcar_en_preparacion(id_transaccion) -> dict:
 def abrir_disputa(id_transaccion, motivo=None) -> dict:
     r = _transicion_simple(id_transaccion, "IN_DISPUTE",
                            ("FUNDS_HELD", "IN_FULFILLMENT", "DELIVERY_CONFIRMED"), "ESCROW_DISPUTE")
-    if r.get("ok") and motivo:
-        _audit("ESCROW_DISPUTE_MOTIVO", f"tx={id_transaccion}: {motivo}", tabla="lonja_transacciones")
+    if r.get("ok") and not r.get("idempotente"):
+        if motivo:
+            _audit("ESCROW_DISPUTE_MOTIVO", f"tx={id_transaccion}: {motivo}", tabla="lonja_transacciones")
+        _ledger(id_transaccion, "IN_DISPUTE", payload={"motivo": motivo} if motivo else None)
     return r
 
 
@@ -205,6 +236,10 @@ def liberar(id_transaccion) -> dict:
                     "released_en=NOW() WHERE id=%s", (res.get("transfer_ref"), t["id"]))
     _audit("ESCROW_RELEASED", f"tx={t['id']} transfer={res.get('transfer_ref')}",
            tabla="lonja_transacciones")
+    _ledger(t["id"], "FUNDS_RELEASED", transfer_ref=res.get("transfer_ref"),
+            comision=float(t.get("comision_importe") or 0), divisa=t.get("divisa") or "EUR",
+            id_empresa=t["id_empresa"])
+    _contabilizar_comision(t["id"])
     return {"ok": True, "estado_pago": "FUNDS_RELEASED", "transfer_ref": res.get("transfer_ref")}
 
 
@@ -230,4 +265,5 @@ def reembolsar(id_transaccion, *, importe=None) -> dict:
             return {"ok": True, "idempotente": True, "estado_pago": "REFUNDED"}
         cur.execute("UPDATE lonja_transacciones SET estado_pago='REFUNDED' WHERE id=%s", (t["id"],))
     _audit("ESCROW_REFUNDED", f"tx={t['id']} refund={res.get('refund_ref')}", tabla="lonja_transacciones")
+    _ledger(t["id"], "REFUNDED", divisa=t.get("divisa") or "EUR", id_empresa=t["id_empresa"])
     return {"ok": True, "estado_pago": "REFUNDED", "refund_ref": res.get("refund_ref")}
