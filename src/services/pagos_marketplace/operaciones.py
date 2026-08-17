@@ -83,3 +83,9 @@ def ledger(id_transaccion) -> list:
     """Historial inmutable de movimientos de una transacción (para el visor de la UI)."""
     from src.services.pagos_marketplace import ledger as L
     return L.libro(id_transaccion)
+
+
+def emitir_iban_virtual(id_transaccion) -> dict:
+    """Solicita al PSP un IBAN virtual para cobrar la transacción por transferencia y lo vincula."""
+    from src.services.pagos_marketplace import conciliacion
+    return conciliacion.emitir_iban_virtual(id_transaccion)

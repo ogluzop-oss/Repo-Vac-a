@@ -28,11 +28,12 @@ logger = logging.getLogger("pagos_marketplace.webhooks")
 def procesar_webhook_connect(headers, body, id_empresa=None) -> dict:
     """Punto de entrada (independiente del transporte). Devuelve {ok, http, accion, duplicado, mensaje}."""
     id_empresa = id_empresa or EMPRESA_DEFAULT_ID
-    from src.db import pagos as pagos_db
     from src.db import pagos_webhooks as wlog
+    from src.services.pagos_marketplace import psp
     from src.services.tpv.pagos.webhooks.stripe import verificar_firma_stripe
 
-    cfg = pagos_db.obtener_config(id_empresa) or {}
+    # El webhook de Connect es de PLATAFORMA (una sola cuenta Stripe del operador), no por empresa.
+    cfg = psp.config_plataforma() or {}
     secret = cfg.get("webhook_secret_connect") or cfg.get("webhook_secret") or ""
     ok, ev = verificar_firma_stripe(headers or {}, body or b"", secret)
     if not ok:

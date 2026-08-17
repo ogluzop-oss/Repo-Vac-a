@@ -106,6 +106,10 @@ class EscrowPagosDialog(QDialog):
         self.usuario = usuario or {}
         self.setFixedSize(920, 600)
         v = _dialogo_frameless(self, titulo="Pagos del mercado · Escrow", ancho=920)
+        cab = QHBoxLayout()
+        cab.addWidget(_btn("💳  Cobros de mi empresa (KYB)", self._cobros_empresa, primary=True))
+        cab.addStretch()
+        v.addLayout(cab)
         self.tbl = _tabla(["ID", "Vendedor", "Importe", "Divisa", "Estado de pago", "Comisión"])
         v.addWidget(self.tbl, 1)
         bar = QHBoxLayout()
@@ -118,6 +122,10 @@ class EscrowPagosDialog(QDialog):
         bar.addWidget(_btn("Cerrar", self.reject))
         v.addLayout(bar)
         self._cargar()
+
+    def _cobros_empresa(self):
+        """KYB de la cuenta de cobros de la PROPIA empresa (para recibir sus ventas del mercado)."""
+        ConectarCobrosDialog("empresa", 0, "Mi empresa", self).exec()
 
     def _cargar(self):
         filas = OP.transacciones((self.usuario or {}).get("id_empresa"))
