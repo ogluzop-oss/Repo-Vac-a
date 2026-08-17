@@ -57,9 +57,9 @@ def test_lonja_vendedor_api(db, fab, cliente):
     assert lonja.obtener_listado(lid)["estado"] == "retirado"
 
 
-def test_panel_vendedor_html(db, cliente):
-    # El panel web del vendedor se sirve (público; lo autentican los endpoints con el token).
-    from src.services import lonja
-    assert "<html" in lonja.panel_html() and "X-Lonja-Token" in lonja.panel_html()
+def test_panel_vendedor_redirige_al_portal_unificado(db, cliente):
+    # Portal UNIFICADO (proveedor = vendedor): /lonja-vendedor/panel redirige al panel del proveedor,
+    # que además opera el mercado. El standalone queda deprecado.
     pg = cliente.get("/api/v1/lonja-vendedor/panel")
-    assert pg.status_code == 200 and b"Portal del Vendedor" in pg.data
+    assert pg.status_code == 302
+    assert "/portal-proveedor/panel" in (pg.headers.get("Location") or "")

@@ -38,11 +38,14 @@ def registrar(bp):
 
     @bp.get("/lonja-vendedor/panel")
     def lv_panel():
-        # Página del panel web del vendedor (SPA autocontenida). Pública: la autentican los endpoints
-        # (X-Lonja-Token). Preparada para el día del despliegue; funciona en local igualmente.
-        from flask import Response
-        from src.services.lonja.panel_html import panel_html
-        return Response(panel_html(), mimetype="text/html")
+        # Portal UNIFICADO (proveedor = vendedor): hay UNA sola página, la del proveedor, que además opera
+        # el mercado (Lonja) vía el puente de token. Se redirige a ella (el panel standalone queda deprecado).
+        from flask import redirect
+        base = request.path.rsplit("/lonja-vendedor/panel", 1)[0]
+        destino = base + "/portal-proveedor/panel"
+        if request.query_string:
+            destino += "?" + request.query_string.decode()
+        return redirect(destino, code=302)
 
     @bp.get("/lonja-vendedor/me")
     @requiere_vendedor
@@ -52,16 +55,20 @@ def registrar(bp):
                         "tipo_comercio": g.vendedor.get("tipo_comercio"),
                         "iban_mascara": g.vendedor.get("iban_mascara")})
 
-    @bp.put("/lonja-vendedor/cuenta")
+    @bp.post("/lonja-vendedor/cobros/onboarding")
     @requiere_vendedor
-    def lv_cuenta():
-        # El vendedor registra su cuenta bancaria (IBAN) para cobrar sus ventas del mercado.
-        from src.services.compras import cobro_servicio as CS
-        b = request.get_json(silent=True) or {}
-        if not b.get("iban"):
-            return jsonify({"error": "iban requerido"}), 400
-        res = CS.set_cuenta_vendedor(_vid(), b["iban"])
-        return (jsonify(res), 200 if res.get("ok") else 400)
+    def lv_cobros_onboarding():
+        # KYB: inicia el onboarding de cobros del vendedor en el PSP (modelo tokenizado, sin IBAN en claro).
+        from src.services.pagos_marketplace import operaciones as OP
+        r = OP.conectar_cobros("vendedor", _vid())
+        return (jsonify(r), 200 if r.get("ok") else 400)
+
+    @bp.get("/lonja-vendedor/cobros/estado")
+    @requiere_vendedor
+    def lv_cobros_estado():
+        # Estado de cobros del vendedor (banco/últimos4/estado KYB/payouts) para la UI del portal.
+        from src.services.pagos_marketplace import operaciones as OP
+        return jsonify(OP.estado_cobros("vendedor", _vid()) or {})
 
     @bp.put("/lonja-vendedor/tipo-comercio")
     @requiere_vendedor

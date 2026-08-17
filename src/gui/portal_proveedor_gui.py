@@ -123,12 +123,9 @@ class PortalProveedorWindow(QWidget):
         # siguientes rellenan el hueco.
         bar.addWidget(_btn("🔑  Ver enlace", self._ver_enlace, primary=True))
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
-        # Vía correcta para cobros (sustituye al antiguo alta directa de IBAN): onboarding KYB delegado en
-        # un PSP regulado (Stripe Connect). Smart Manager solo guarda el token + banco/últimos4.
-        bar.addWidget(_btn("💳  Conectar cobros (KYB)", self._conectar_cobros, primary=True))
-        # "Pagos del mercado" (escrow del COMPRADOR) se movió a la pestaña Pedidos: es una acción de la
-        # empresa compradora, no de gestión de proveedores.
-        bar.addWidget(_btn("🏷️  Publicar en el mercado", self._publicar_mercado, primary=True))
+        # "Publicar en el mercado" y "Conectar cobros (KYB)" son acciones del PROVEEDOR → viven en su
+        # PORTAL WEB (el proveedor las autogestiona). "Pagos del mercado" (escrow del comprador) está en
+        # Pedidos. Aquí (gestión de proveedores por la empresa) solo quedan invitar/enlace/token/revocar.
         bar.addWidget(_btn("Revocar", self._revocar, danger=True))
         bar.addStretch()
         bar.addWidget(_btn_cargando("🔄  Actualizar", self._cargar_cuentas))
@@ -164,7 +161,21 @@ class PortalProveedorWindow(QWidget):
         res = portal.enviar_invitacion(pid, email=self.in_email_inv.text().strip() or None,
                                        id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
         self._cargar_cuentas()
-        self._mostrar_invitacion(res)
+        self._mostrar_invitacion(self._con_onboarding(pid, res))
+
+    def _con_onboarding(self, pid, res):
+        """2-en-1: al invitar, además genera el enlace de onboarding KYB de cobros del proveedor, para
+        que la invitación incluya tanto el acceso al portal como el enlace para conectar sus cobros."""
+        try:
+            from src.services.pagos_marketplace import operaciones as OP
+            r = OP.conectar_cobros("proveedor", pid, id_empresa=self._emp())
+            if r.get("ok"):
+                res = dict(res or {})
+                res["onboarding_url"] = r.get("onboarding_url") or ""
+                res["onboarding_modo"] = r.get("modo")
+        except Exception as e:
+            logger.debug("_con_onboarding: %s", e)
+        return res
 
     def _enviar_correo(self):
         """Reenvía el correo de invitación al proveedor seleccionado."""
@@ -172,7 +183,7 @@ class PortalProveedorWindow(QWidget):
         if not pid:
             _aviso(self, "Portal", "Selecciona un proveedor de la tabla.", "warning"); return
         res = portal.enviar_invitacion(pid, id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
-        self._mostrar_invitacion(res)
+        self._mostrar_invitacion(self._con_onboarding(pid, res))
 
     def _ver_enlace(self):
         pid = self._cuenta_sel()
@@ -307,7 +318,7 @@ class PortalProveedorWindow(QWidget):
             _aviso(self, "Portal", "Selecciona una invitación pendiente.", "warning"); return
         pid = rows[r].get("id_proveedor")
         res = portal.enviar_invitacion(pid, id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
-        self._mostrar_invitacion(res)
+        self._mostrar_invitacion(self._con_onboarding(pid, res))
         self._cargar_pendientes()
 
     # ── Mensajería ────────────────────────────────────────────────────────────
@@ -374,6 +385,8 @@ class _DialogoInvitacion(QDialog):
 
         v.addWidget(self._campo("Token de acceso", res.get("token", "")))
         v.addWidget(self._campo("Enlace del panel web", res.get("enlace", "")))
+        if res.get("onboarding_url"):
+            v.addWidget(self._campo("Enlace de onboarding de cobros (KYB)", res.get("onboarding_url")))
 
         prev = QPlainTextEdit()
         prev.setReadOnly(True)

@@ -34,7 +34,7 @@ _HTML = r"""<!doctype html>
  .hilo{background:#0D1117;border:2px solid var(--cy);border-radius:10px;padding:10px;min-height:120px;white-space:pre-wrap;font-size:13px}
  label.chk{display:inline-flex;gap:6px;align-items:center;font-size:13px;color:var(--dim)} b{color:var(--cy)}
 </style></head><body>
-<header><h1>🔗 Portal del Suministrador</h1><span class="modo" id="modo"></span></header>
+<header><h1>🔗 Portal del Proveedor</h1><span class="modo" id="modo"></span></header>
 <div class="wrap">
  <div id="login" class="card">
    <p>Introduce tu <b>token de acceso</b> (lo recibiste en el correo de invitación):</p>
@@ -92,8 +92,10 @@ _HTML = r"""<!doctype html>
      <div class="row"><b>Divisa:</b>
        <select id="mdiv"><option>EUR</option><option>USD</option><option>GBP</option><option>MXN</option><option>BRL</option></select>
        <button onclick="guardarDivisaL()">Guardar</button></div>
-     <div class="row"><b>Cuenta (IBAN):</b><input id="miban" placeholder="IBAN">
-       <button onclick="guardarCuentaL()">Guardar</button><span class="modo" id="mibanmask"></span></div>
+     <div class="row"><b>Cobros (KYB):</b>
+       <button onclick="conectarCobros()">Conectar cobros</button>
+       <span class="modo" id="mkyb">sin conectar</span></div>
+     <div class="row"><a id="kyblink" href="#" target="_blank" style="display:none;color:var(--cy)">Abrir onboarding del PSP ↗</a></div>
      <h4>Publicar artículo / subasta</h4>
      <div class="row">
        <input id="l_cod" placeholder="Código" size="10"><input id="l_prec" placeholder="Precio" size="7">
@@ -118,6 +120,7 @@ _HTML = r"""<!doctype html>
 const BASE = location.pathname.replace(/\/panel.*$/, "");
 const LBASE = BASE.replace("portal-proveedor", "lonja-vendedor");
 let TOKEN = new URLSearchParams(location.search).get("token") || "";
+let TAB0 = new URLSearchParams(location.search).get("tab") || "";   // deep-link opcional a una pestaña
 let LTOKEN = "";
 function H(){return {"X-Portal-Token":TOKEN,"Content-Type":"application/json"};}
 function HL(){return {"X-Lonja-Token":LTOKEN,"Content-Type":"application/json"};}
@@ -137,7 +140,7 @@ async function entrar(){
   const lt=await api("GET","/lonja-token"); LTOKEN=(lt.j&&lt.j.token)||"";   // puente proveedor→vendedor
   document.getElementById("login").classList.add("hide");
   document.getElementById("app").classList.remove("hide");
-  ir("tarifas");
+  ir(TAB0 || "tarifas");
 }
 function salir(){TOKEN="";LTOKEN="";document.getElementById("app").classList.add("hide");document.getElementById("login").classList.remove("hide");}
 function ir(t){
@@ -179,8 +182,8 @@ async function cargarMercado(){
     if(me.j.divisa)document.getElementById("mdiv").value=me.j.divisa;
     const tc=((me.j.tipo_comercio)||"").split(",");
     document.querySelectorAll("#mtc input").forEach(i=>{i.checked=tc.includes(i.value);});
-    document.getElementById("mibanmask").textContent=me.j.iban_mascara||"";
   }
+  estadoCobros();
   const r=await apiL("GET","/listados");const d=(r.j&&r.j.data)||[];
   let h="<table><tr><th>ID</th><th>Artículo</th><th>Precio</th><th>Divisa</th><th>Puja mín.</th><th>Disp.</th><th>Estado</th><th></th></tr>";
   for(const x of d){h+="<tr><td>"+esc(x.id)+"</td><td>"+esc(x.codigo_articulo)+"</td><td>"+esc(x.precio)+"</td><td>"+esc(x.divisa)+"</td>"+
@@ -191,9 +194,16 @@ async function cargarMercado(){
 function mtcMarcados(){return [...document.querySelectorAll("#mtc input:checked")].map(i=>i.value);}
 async function guardarTipoL(){const r=await apiL("PUT","/tipo-comercio",{tipo_comercio:mtcMarcados()});out(r.ok?"Tipo de comercio guardado.":"Error.",!r.ok);}
 async function guardarDivisaL(){const r=await apiL("PUT","/divisa",{divisa:document.getElementById("mdiv").value});out(r.ok?"Divisa guardada.":"Error.",!r.ok);}
-async function guardarCuentaL(){const v=document.getElementById("miban").value.trim();if(!v){out("Indica un IBAN.",true);return;}
-  const r=await apiL("PUT","/cuenta",{iban:v});out(r.ok?"Cuenta guardada.":((r.j&&r.j.error)||"IBAN no válido."),!r.ok);
-  if(r.ok&&r.j.iban_mascara){document.getElementById("mibanmask").textContent=r.j.iban_mascara;document.getElementById("miban").value="";}}
+async function estadoCobros(){const r=await apiL("GET","/cobros/estado");const e=r.j||{};
+  const el=document.getElementById("mkyb");
+  if(e&&e.account_id){el.textContent=(e.etiqueta||"cuenta")+" · "+(e.status||"pending")+(e.payouts_enabled?" · payouts ✓":"");}
+  else{el.textContent="sin conectar";}
+  const a=document.getElementById("kyblink");
+  if(e&&e.onboarding_url){a.href=e.onboarding_url;a.style.display="";}else{a.style.display="none";}}
+async function conectarCobros(){const r=await apiL("POST","/cobros/onboarding");
+  if(!r.ok){out("No se pudo iniciar el onboarding de cobros.",true);return;}
+  out((r.j&&r.j.onboarding_url)?"Onboarding creado: abre el enlace para completar el KYB.":"Cuenta creada en modo simulado (sin PSP configurado).",false);
+  estadoCobros();}
 async function publicarL(){const b={codigo:document.getElementById("l_cod").value.trim(),
   precio:parseFloat(document.getElementById("l_prec").value),puja_minima:parseFloat(document.getElementById("l_min").value)||0,
   cantidad:parseFloat(document.getElementById("l_cant").value)||1,unidad_medida:document.getElementById("l_uni").value,
