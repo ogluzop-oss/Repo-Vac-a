@@ -791,6 +791,11 @@ def ensure_schema(force: bool = False):
                 cur.execute(
                     "ALTER TABLE pasarela_config "
                     "ADD COLUMN IF NOT EXISTS webhook_secret VARCHAR(255) DEFAULT NULL")
+                # Comisión de la plataforma para el marketplace (solo aplica a la fila reservada de
+                # plataforma; 0 en el resto). Marketplace + Pagos.
+                cur.execute(
+                    "ALTER TABLE pasarela_config "
+                    "ADD COLUMN IF NOT EXISTS comision_pct DECIMAL(6,3) NOT NULL DEFAULT 0")
                 # Registro de WEBHOOKS de pago: idempotencia/anti-duplicado y
                 # trazabilidad. UNIQUE(empresa,proveedor,evento) evita reprocesar.
                 cur.execute(f"""

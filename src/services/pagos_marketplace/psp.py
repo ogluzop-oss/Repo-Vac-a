@@ -47,16 +47,26 @@ def config_plataforma() -> dict:
         return {}
 
 
-def guardar_config_plataforma(*, api_key=None, webhook_secret=None, modo=None) -> bool:
+def guardar_config_plataforma(*, api_key=None, webhook_secret=None, modo=None, comision_pct=None) -> bool:
     """Guarda (cifrado) las credenciales Connect de la plataforma en la fila reservada. Admin/superadmin."""
     try:
         from src.db import pagos as pagos_db
         return pagos_db.guardar_config(proveedor="stripe_connect", api_key=api_key,
                                        webhook_secret=webhook_secret, modo=modo,
-                                       id_empresa=TENANT_PLATAFORMA)
+                                       comision_pct=comision_pct, id_empresa=TENANT_PLATAFORMA)
     except Exception as e:
         logger.error("guardar_config_plataforma: %s", e)
         return False
+
+
+def estado_plataforma() -> dict:
+    """Estado NO sensible para la UI de admin: si está configurada, modo, comisión y origen. Nunca la clave."""
+    cfg = config_plataforma() or {}
+    return {"configurada": bool(cfg.get("api_key")),
+            "webhook_configurado": bool(cfg.get("webhook_secret") or cfg.get("webhook_secret_connect")),
+            "modo": cfg.get("modo") or "test",
+            "comision_pct": float(cfg.get("comision_pct") or 0),
+            "origen": cfg.get("origen") or "pasarela_config"}
 
 
 def adaptador(id_empresa=None, config=None):
