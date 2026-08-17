@@ -249,10 +249,12 @@ def _enviar_smtp(c: dict, destinatario, asunto, cuerpo, adjuntos) -> tuple[bool,
         if not host:
             return False, "SMTP no configurado en el buzón."
         mime = _construir_mime(c["direccion"], destinatario, asunto, cuerpo, adjuntos)
+        from src.utils import cripto
+        pwd = cripto.descifrar_seguro(c.get("smtp_password")) or c.get("smtp_password") or ""
         with smtplib.SMTP(host, port, timeout=20) as s:
             s.starttls()
             if c.get("smtp_usuario"):
-                s.login(c["smtp_usuario"], c.get("smtp_password") or "")
+                s.login(c["smtp_usuario"], pwd)
             s.sendmail(c["direccion"], [destinatario], mime.as_string())
         return True, f"Enviado por SMTP a {destinatario}."
     except Exception as e:
