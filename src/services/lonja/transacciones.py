@@ -48,6 +48,18 @@ def _fijar_pedido(id_transaccion, id_pedido):
         logger.debug("_fijar_pedido: %s", e)
 
 
+def _intentar_escrow(id_transaccion):
+    """Inicia la retención de fondos (escrow) de la transacción recién creada. BEST-EFFORT y degradable:
+    si el vendedor no tiene cobros conectados (o el PSP no está), NO rompe la compra (queda sin escrow)."""
+    try:
+        from src.services.pagos_marketplace import escrow
+        r = escrow.iniciar_retencion(id_transaccion)
+        if not r.get("ok"):
+            logger.info("escrow no iniciado (tx=%s): %s", id_transaccion, r.get("error"))
+    except Exception as e:
+        logger.debug("_intentar_escrow(%s): %s", id_transaccion, e)
+
+
 def comprar_directo(id_listado, id_empresa, cantidad=1, *, clave_idem=None, usuario=None) -> dict:
     """Compra directa al precio del listado. ATÓMICA (bloqueo de fila) e IDEMPOTENTE (clave_idem).
     El primero que llega se lo lleva; no hay doble venta."""
@@ -81,6 +93,7 @@ def comprar_directo(id_listado, id_empresa, cantidad=1, *, clave_idem=None, usua
             tid = cur.lastrowid
         pid = _pedido_comprador(id_empresa, l, cantidad, float(l["precio"]), usuario)
         _fijar_pedido(tid, pid)
+        _intentar_escrow(tid)
         _audit("LONJA_COMPRA", f"listado={id_listado} emp={id_empresa} tx={tid}", "lonja_transacciones")
         return {"ok": True, "id_transaccion": tid, "id_pedido": pid}
     except Exception as e:
@@ -212,6 +225,7 @@ def adjudicar(id_listado, *, id_puja=None, usuario=None) -> dict:
             ganadora = puja["id_empresa"]
         pid = _pedido_comprador(ganadora, l, float(l["cantidad"]), float(puja["importe"]), usuario)
         _fijar_pedido(tid, pid)
+        _intentar_escrow(tid)
         _audit("LONJA_ADJUDICA", f"listado={id_listado} ganadora={ganadora} tx={tid}", "lonja_transacciones")
         try:
             from . import avisos as _av

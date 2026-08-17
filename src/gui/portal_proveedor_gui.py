@@ -123,9 +123,10 @@ class PortalProveedorWindow(QWidget):
         # siguientes rellenan el hueco.
         bar.addWidget(_btn("🔑  Ver enlace", self._ver_enlace, primary=True))
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
-        # "Cuenta bancaria" se retira: el alta directa de IBAN no es la vía correcta para un marketplace
-        # B2B con fondos de terceros. La captación/custodia de fondos debe delegarse a un PSP regulado
-        # (Stripe Connect / Mangopay / Adyen) con onboarding KYC/KYB, escrow y payouts — ver roadmap.
+        # Vía correcta para cobros (sustituye al antiguo alta directa de IBAN): onboarding KYB delegado en
+        # un PSP regulado (Stripe Connect). Smart Manager solo guarda el token + banco/últimos4.
+        bar.addWidget(_btn("💳  Conectar cobros (KYB)", self._conectar_cobros, primary=True))
+        bar.addWidget(_btn("💶  Pagos del mercado", self._pagos_mercado, primary=True))
         bar.addWidget(_btn("🏷️  Publicar en el mercado", self._publicar_mercado, primary=True))
         bar.addWidget(_btn("Revocar", self._revocar, danger=True))
         bar.addStretch()
@@ -198,6 +199,23 @@ class PortalProveedorWindow(QWidget):
             _aviso(self, "Portal", "Selecciona un proveedor de la tabla.", "warning"); return
         if portal.revocar(pid, self._emp()):
             self._cargar_cuentas()
+
+    def _conectar_cobros(self):
+        """Onboarding KYB del proveedor seleccionado en el PSP (modelo tokenizado, sin IBAN en claro)."""
+        pid = self._cuenta_sel()
+        if not pid:
+            _aviso(self, "Cobros", "Selecciona un proveedor de la tabla.", "warning"); return
+        nombre = ""
+        row = self.tbl_cuentas.currentRow()
+        if row >= 0 and self.tbl_cuentas.item(row, 1):
+            nombre = self.tbl_cuentas.item(row, 1).text()
+        from src.gui.pagos_marketplace_gui import ConectarCobrosDialog
+        ConectarCobrosDialog("proveedor", pid, nombre, self).exec()
+
+    def _pagos_mercado(self):
+        """Panel de pagos/escrow de las transacciones de la Lonja."""
+        from src.gui.pagos_marketplace_gui import EscrowPagosDialog
+        EscrowPagosDialog(getattr(self, "usuario", None) or {}, self).exec()
 
     def _cuenta_bancaria(self):
         """Registra la cuenta bancaria (IBAN) del proveedor seleccionado (para operar y cobrar)."""
