@@ -1030,6 +1030,12 @@ def ensure_schema(force: bool = False):
                         INDEX idx_correo_tienda (id_tienda)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                # Config SMTP del buzón (para proveedor='smtp'): host/puerto/usuario + contraseña CIFRADA.
+                for _col, _ddl in (("smtp_host", "VARCHAR(160) DEFAULT NULL"),
+                                   ("smtp_port", "INT DEFAULT 587"),
+                                   ("smtp_usuario", "VARCHAR(255) DEFAULT NULL"),
+                                   ("smtp_password", "VARCHAR(512) DEFAULT NULL")):
+                    cur.execute(f"ALTER TABLE correos_corporativos ADD COLUMN IF NOT EXISTS {_col} {_ddl}")
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS oauth_tokens (
                         id_token             CHAR(36)     NOT NULL PRIMARY KEY,

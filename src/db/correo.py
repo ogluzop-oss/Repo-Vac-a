@@ -185,6 +185,46 @@ def actualizar_correo(id_correo: str, **campos) -> bool:
         return False
 
 
+def guardar_smtp(id_correo: str, *, host=None, port=None, usuario=None, password=None) -> bool:
+    """Guarda la config SMTP del buzón. La contraseña se cifra en reposo (Fernet). Una password vacía
+    NO borra la existente (para poder editar el resto sin re-teclearla)."""
+    sets, params = [], []
+    if host is not None:
+        sets.append("smtp_host=%s"); params.append((host or "").strip() or None)
+    if port is not None:
+        try:
+            params.append(int(port or 587))
+        except (TypeError, ValueError):
+            params.append(587)
+        sets.append("smtp_port=%s")
+    if usuario is not None:
+        sets.append("smtp_usuario=%s"); params.append((usuario or "").strip() or None)
+    if password:
+        from src.utils import cripto
+        sets.append("smtp_password=%s"); params.append(cripto.cifrar(password))
+    if not sets:
+        return False
+    params.append(id_correo)
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE correos_corporativos SET " + ", ".join(sets) + " WHERE id_correo=%s",
+                        tuple(params))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("guardar_smtp(%s): %s", id_correo, e)
+        return False
+
+
+def buzon_smtp(id_empresa=None) -> dict | None:
+    """Primer buzón SMTP activo de la empresa (el que usará el envío de invitaciones), o None."""
+    for c in listar_correos(id_empresa):
+        if c.get("proveedor") == "smtp":
+            return c
+    return None
+
+
 def marcar_sincronizacion(id_correo: str) -> bool:
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:

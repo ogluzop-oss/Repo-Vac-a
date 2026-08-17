@@ -17,8 +17,8 @@ import os
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QTableWidgetItem,
-                             QTabWidget, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+                             QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import proveedores as P
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_cargando, _btn_x, _combo,
@@ -121,8 +121,10 @@ class PortalProveedorWindow(QWidget):
         bar = QHBoxLayout()
         # "Enviar invitación" se retira (redundante con "Invitar" y "Reenviar invitación"); los botones
         # siguientes rellenan el hueco.
-        bar.addWidget(_btn("🌐  Abrir portal", self._abrir_portal, primary=True))
+        # El portal del proveedor es EXCLUSIVO del proveedor: la empresa NUNCA lo abre. El proveedor accede
+        # solo con el enlace/token que recibe por correo. (Por eso no hay botón para abrirlo desde aquí.)
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
+        bar.addWidget(_btn("✉️  Correo (SMTP)", self._config_smtp, primary=True))
         # "Publicar en el mercado" y "Conectar cobros (KYB)" son acciones del PROVEEDOR → viven en su
         # PORTAL WEB (el proveedor las autogestiona). "Pagos del mercado" (escrow del comprador) está en
         # Pedidos. Aquí (gestión de proveedores por la empresa) solo quedan invitar/enlace/token/revocar.
@@ -187,26 +189,9 @@ class PortalProveedorWindow(QWidget):
         res = portal.enviar_invitacion(pid, id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
         self._aviso_invitacion(res)
 
-    def _abrir_portal(self):
-        """Abre el portal web del proveedor en el navegador, con su token ya puesto (autologin)."""
-        pid = self._cuenta_sel()
-        if not pid:
-            _aviso(self, "Portal", "Selecciona un proveedor de la tabla.", "warning"); return
-        try:
-            tok = (portal.render_invitacion(pid, id_empresa=self._emp()) or {}).get("token")
-        except Exception:
-            tok = None
-        if not tok:
-            _aviso(self, "Portal", "No se pudo obtener el acceso del proveedor.", "error"); return
-        try:
-            from src.main import url_portal_proveedor
-            url = url_portal_proveedor(tok)
-        except Exception:
-            import os as _os
-            url = f"http://127.0.0.1:{_os.environ.get('PORTAL_API_PORT','8099')}/api/v1/portal-proveedor/panel?token={tok}"
-        import webbrowser
-        webbrowser.open(url)
-        _aviso(self, "Portal", "Abriendo el portal del proveedor en el navegador…", "info")
+    def _config_smtp(self):
+        """Configura el buzón de correo (SMTP) que usará el envío automático de invitaciones."""
+        _DialogoCorreoSMTP(self._emp(), self).exec()
 
     def _regenerar(self):
         pid = self._cuenta_sel()
@@ -545,3 +530,70 @@ class _DialogoPublicarMercado(QDialog):
                       "duracion_horas": duracion, "incremento_minimo": incremento,
                       "precio_reserva": reserva, "permite_puja": permite_puja, "tipo_comercio": tipos}
         self.accept()
+
+
+class _DialogoCorreoSMTP(QDialog):
+    """Config del buzón SMTP para el envío automático de correos (invitaciones). La contraseña se guarda
+    CIFRADA y nunca se vuelve a mostrar (write-only). Con Gmail/Outlook usa una 'contraseña de aplicación'."""
+
+    def __init__(self, id_empresa, parent=None):
+        super().__init__(parent)
+        self._emp = id_empresa
+        self.setFixedSize(560, 520)
+        v = _dialogo_frameless(self, titulo="Correo saliente (SMTP)", ancho=560)
+        from src.db import correo as correo_db
+        self._db = correo_db
+        actual = correo_db.buzon_smtp(id_empresa) or {}
+        self._id_correo = actual.get("id_correo")
+
+        def _campo(lbl, valor="", pwd=False):
+            cap = QLabel(lbl); cap.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+            inp = _inp("")
+            if valor:
+                inp.setText(str(valor))
+            if pwd:
+                inp.setEchoMode(QLineEdit.EchoMode.Password)
+            v.addWidget(cap); v.addWidget(inp)
+            return inp
+
+        self.in_dir = _campo("Remitente (correo desde el que se envía)", actual.get("direccion", ""))
+        self.in_host = _campo("Servidor SMTP", actual.get("smtp_host", "") or "smtp.gmail.com")
+        self.in_port = _campo("Puerto", actual.get("smtp_port", "") or 587)
+        self.in_user = _campo("Usuario", actual.get("smtp_usuario", "") or actual.get("direccion", ""))
+        self.in_pass = _campo("Contraseña de aplicación (déjala vacía para no cambiarla)", pwd=True)
+
+        nota = QLabel("Gmail: crea una «contraseña de aplicación» (Cuenta Google → Seguridad → Verificación "
+                      "en 2 pasos → Contraseñas de aplicaciones). Outlook igual. La contraseña se guarda "
+                      "cifrada y no se muestra.")
+        nota.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+        nota.setWordWrap(True)
+        v.addWidget(nota)
+        v.addStretch()
+        bar = QHBoxLayout()
+        bar.addWidget(_btn("Guardar", self._guardar, primary=True))
+        bar.addStretch()
+        bar.addWidget(_btn("Cerrar", self.reject))
+        v.addLayout(bar)
+
+    def _guardar(self):
+        direccion = self.in_dir.text().strip()
+        if "@" not in direccion or "." not in direccion:
+            _aviso(self, "Correo (SMTP)", "Introduce un remitente (correo) válido.", "warning"); return
+        # Buzón: reutiliza el SMTP existente o crea uno nuevo (proveedor='smtp', activo).
+        idc = self._id_correo
+        if not idc:
+            idc = self._db.crear_correo(direccion, proveedor="smtp", id_empresa=self._emp)
+            if not idc:
+                _aviso(self, "Correo (SMTP)", "No se pudo crear el buzón de correo.", "error"); return
+        else:
+            self._db.actualizar_correo(idc, direccion=direccion, proveedor="smtp", estado="activo")
+        ok = self._db.guardar_smtp(idc, host=self.in_host.text().strip(), port=self.in_port.text().strip(),
+                                   usuario=self.in_user.text().strip() or direccion,
+                                   password=self.in_pass.text())
+        if ok:
+            self._id_correo = idc
+            self.in_pass.clear()
+            _aviso(self, "Correo (SMTP)", "Buzón SMTP guardado. Las invitaciones se enviarán por correo.",
+                   "success")
+        else:
+            _aviso(self, "Correo (SMTP)", "No se pudo guardar la configuración SMTP.", "error")
