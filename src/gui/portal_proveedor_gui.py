@@ -121,7 +121,7 @@ class PortalProveedorWindow(QWidget):
         bar = QHBoxLayout()
         # "Enviar invitación" se retira (redundante con "Invitar" y "Reenviar invitación"); los botones
         # siguientes rellenan el hueco.
-        bar.addWidget(_btn("🔑  Ver enlace", self._ver_enlace, primary=True))
+        bar.addWidget(_btn("🌐  Abrir portal", self._abrir_portal, primary=True))
         bar.addWidget(_btn("♻  Regenerar token", self._regenerar, primary=True))
         # "Publicar en el mercado" y "Conectar cobros (KYB)" son acciones del PROVEEDOR → viven en su
         # PORTAL WEB (el proveedor las autogestiona). "Pagos del mercado" (escrow del comprador) está en
@@ -154,47 +154,59 @@ class PortalProveedorWindow(QWidget):
             return None
 
     def _invitar(self):
-        """Invita al proveedor y ENVÍA (o prepara) el correo de invitación."""
+        """Invita al proveedor y ENVÍA el correo de invitación a su email registrado. Muestra un mensaje
+        de éxito/aviso/error (la info del acceso va al PROVEEDOR por correo, no se muestra a la empresa)."""
         pid = self.cmb_prov_inv.currentData()
         if not pid:
-            _aviso(self, "Portal", "Selecciona un proveedor.", "warning"); return
+            _aviso(self, "Portal", "Selecciona un proveedor antes de invitar.", "warning"); return
         res = portal.enviar_invitacion(pid, email=self.in_email_inv.text().strip() or None,
                                        id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
         self._cargar_cuentas()
-        self._mostrar_invitacion(self._con_onboarding(pid, res))
+        self._aviso_invitacion(res)
 
-    def _con_onboarding(self, pid, res):
-        """2-en-1: al invitar, además genera el enlace de onboarding KYB de cobros del proveedor, para
-        que la invitación incluya tanto el acceso al portal como el enlace para conectar sus cobros."""
-        try:
-            from src.services.pagos_marketplace import operaciones as OP
-            r = OP.conectar_cobros("proveedor", pid, id_empresa=self._emp())
-            if r.get("ok"):
-                res = dict(res or {})
-                res["onboarding_url"] = r.get("onboarding_url") or ""
-                res["onboarding_modo"] = r.get("modo")
-        except Exception as e:
-            logger.debug("_con_onboarding: %s", e)
-        return res
+    def _aviso_invitacion(self, res):
+        """Traduce el resultado de enviar_invitacion en un mensaje para la EMPRESA (sin exponer el token)."""
+        if not res:
+            _aviso(self, "Invitación", "No se pudo preparar la invitación.", "error"); return
+        if res.get("enviado"):
+            _aviso(self, "Invitación", f"Invitación enviada al correo del proveedor: {res.get('email')}.",
+                   "success")
+        elif res.get("error") == "sin_email":
+            _aviso(self, "Invitación", "El proveedor no tiene email registrado. Añádelo en la pestaña "
+                   "Proveedores (con el lápiz ✏️) y vuelve a invitar.", "warning")
+        else:
+            _aviso(self, "Invitación", "Invitación preparada, pero el correo NO se ha enviado: falta "
+                   "configurar el buzón de correo (SMTP). Mientras tanto puedes usar «Abrir portal».",
+                   "warning")
 
     def _enviar_correo(self):
-        """Reenvía el correo de invitación al proveedor seleccionado."""
+        """Reenvía la invitación por correo al proveedor seleccionado."""
         pid = self._cuenta_sel()
         if not pid:
             _aviso(self, "Portal", "Selecciona un proveedor de la tabla.", "warning"); return
         res = portal.enviar_invitacion(pid, id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
-        self._mostrar_invitacion(self._con_onboarding(pid, res))
+        self._aviso_invitacion(res)
 
-    def _ver_enlace(self):
+    def _abrir_portal(self):
+        """Abre el portal web del proveedor en el navegador, con su token ya puesto (autologin)."""
         pid = self._cuenta_sel()
         if not pid:
             _aviso(self, "Portal", "Selecciona un proveedor de la tabla.", "warning"); return
-        self._mostrar_invitacion(portal.render_invitacion(pid, id_empresa=self._emp()))
-
-    def _mostrar_invitacion(self, res):
-        if not res or not res.get("token"):
-            _aviso(self, "Portal", "No se pudo preparar la invitación.", "error"); return
-        _DialogoInvitacion(res, self).exec()
+        try:
+            tok = (portal.render_invitacion(pid, id_empresa=self._emp()) or {}).get("token")
+        except Exception:
+            tok = None
+        if not tok:
+            _aviso(self, "Portal", "No se pudo obtener el acceso del proveedor.", "error"); return
+        try:
+            from src.main import url_portal_proveedor
+            url = url_portal_proveedor(tok)
+        except Exception:
+            import os as _os
+            url = f"http://127.0.0.1:{_os.environ.get('PORTAL_API_PORT','8099')}/api/v1/portal-proveedor/panel?token={tok}"
+        import webbrowser
+        webbrowser.open(url)
+        _aviso(self, "Portal", "Abriendo el portal del proveedor en el navegador…", "info")
 
     def _regenerar(self):
         pid = self._cuenta_sel()
@@ -203,7 +215,10 @@ class PortalProveedorWindow(QWidget):
         tok = portal.regenerar_token(pid, id_empresa=self._emp())
         self._cargar_cuentas()
         if tok:
-            self._mostrar_invitacion(portal.render_invitacion(pid, id_empresa=self._emp()))
+            _aviso(self, "Portal", "Token regenerado. El acceso anterior deja de ser válido; usa «Abrir "
+                   "portal» o vuelve a invitar para que el proveedor reciba el nuevo enlace.", "success")
+        else:
+            _aviso(self, "Portal", "No se pudo regenerar el token.", "error")
 
     def _revocar(self):
         pid = self._cuenta_sel()
@@ -318,7 +333,7 @@ class PortalProveedorWindow(QWidget):
             _aviso(self, "Portal", "Selecciona una invitación pendiente.", "warning"); return
         pid = rows[r].get("id_proveedor")
         res = portal.enviar_invitacion(pid, id_empresa=self._emp(), usuario=self.usuario.get("nombre"))
-        self._mostrar_invitacion(self._con_onboarding(pid, res))
+        self._aviso_invitacion(res)
         self._cargar_pendientes()
 
     # ── Mensajería ────────────────────────────────────────────────────────────
