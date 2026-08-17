@@ -52,22 +52,42 @@ def _confirmar(parent, titulo, msg) -> bool:
 
 
 class ComprasWindow(QWidget):
-    _SECCIONES = [
-        ("prov", "🏭", "Proveedores"),
-        ("ped", "📦", "Pedidos"),
-        ("rec", "📥", "Recepciones"),
-        ("fac", "🧾", "Facturas"),
-        ("inf", "📊", "Informes"),
-        ("avz", "🤝", "Avanzado"),
-        ("portal", "🔗", "Portal proveedor"),
-        ("cal", "🔬", "Calidad"),
-    ]
+
+    @staticmethod
+    def _bolsa_visible() -> bool:
+        """Bolsa de proveedores + mercado (Lonja) + Portal proveedor: solo Supermarket/Retail. En las
+        ediciones simples (Bakery/Pharmacy/Textil) el flujo de compras es directo (pedido al proveedor)."""
+        try:
+            from src.services import verticales
+            return verticales.visible("compras.bolsa")
+        except Exception:
+            return True
+
+    def _construir_secciones(self):
+        """Secciones (sidebar + páginas + cargadores) según la edición. En ediciones simples se retira la
+        pestaña Portal proveedor (no hay portal/mercado)."""
+        secs = [
+            ("prov", "🏭", "Proveedores", self._page_proveedores, self._load_proveedores),
+            ("ped", "📦", "Pedidos", self._page_pedidos, self._load_pedidos),
+            ("rec", "📥", "Recepciones", self._page_recepciones, self._load_recepciones),
+            ("fac", "🧾", "Facturas", self._page_facturas, self._load_facturas),
+            ("inf", "📊", "Informes", self._page_informes, self._cargar_informe),
+            ("avz", "🤝", "Avanzado", self._page_avanzado, lambda: None),
+            ("portal", "🔗", "Portal proveedor", self._page_portal, lambda: None),
+            ("cal", "🔬", "Calidad", self._page_calidad, lambda: None),
+        ]
+        if not self._bolsa:
+            secs = [s for s in secs if s[0] != "portal"]
+        return secs
 
     def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None, **_kw):
         super().__init__(parent)
         self._volver = callback_vuelta
         self.usuario = usuario or {}
         self._prov_sel = None
+        self._ped_prov_sel = None
+        self._bolsa = self._bolsa_visible()
+        self._secciones = self._construir_secciones()
         self.setWindowTitle("Smart Manager — " + tr("compras.titulo", default="COMPRAS"))
 
         root = QHBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
@@ -76,14 +96,10 @@ class ComprasWindow(QWidget):
         rcol.setContentsMargins(24, 18, 24, 18); rcol.setSpacing(14)
         rcol.addLayout(self._build_header())
         self.stack = QStackedWidget()
-        self.stack.addWidget(self._page_proveedores())
-        self.stack.addWidget(self._page_pedidos())
-        self.stack.addWidget(self._page_recepciones())
-        self.stack.addWidget(self._page_facturas())
-        self.stack.addWidget(self._page_informes())
-        self.stack.addWidget(self._page_avanzado())
-        self.stack.addWidget(self._page_portal())     # portal de proveedor (enlace bidireccional)
-        self.stack.addWidget(self._page_calidad())   # dominio calidad (dashboard embebido)
+        self._loaders = []
+        for _sid, _ic, _lbl, page_fn, loader_fn in self._secciones:
+            self.stack.addWidget(page_fn())
+            self._loaders.append(loader_fn)
         rcol.addWidget(self.stack, 1)
         root.addWidget(right, 1)
 
@@ -114,7 +130,7 @@ class ComprasWindow(QWidget):
                           "letter-spacing:2px;background:transparent;")
         lay.addWidget(cab)
         self._sb_btns = []
-        for i, (sid, icono, defecto) in enumerate(self._SECCIONES):
+        for i, (sid, icono, defecto, _pf, _lf) in enumerate(self._secciones):
             b = QPushButton(f"   {tr('compras.sec_' + sid, default=defecto)}")   # sin icono
             b.setObjectName("btn_sidebar")   # estilo global (acento, hover swap, sin brillo)
             b.setProperty("lg", "true")      # +2pt (14px) vía QSS global
@@ -140,10 +156,8 @@ class ComprasWindow(QWidget):
         self.stack.setCurrentIndex(idx)
         for i, b in enumerate(self._sb_btns):
             b.setChecked(i == idx)   # estilo via QSS global #btn_sidebar:checked
-        # Recarga perezosa de la sección.
-        [self._load_proveedores, self._load_pedidos, self._load_recepciones,
-         self._load_facturas, lambda: self._cargar_informe(), lambda: None,
-         lambda: None, lambda: None][idx]()   # Avanzado, Portal y Calidad cargan sus propios datos
+        # Recarga perezosa de la sección (cargador asociado en self._secciones).
+        self._loaders[idx]()
 
     def _volver_menu(self):
         if callable(self._volver):
@@ -197,6 +211,7 @@ class ComprasWindow(QWidget):
             form.addWidget(x)
         form.addWidget(_btn(tr("compras.nuevo", default="NUEVO"), self._nuevo_proveedor, primary=True))
         form.addWidget(_btn(tr("compras.guardar", default="GUARDAR"), self._guardar_proveedor, primary=True))
+        form.addWidget(_btn(tr("compras.eliminar", default="ELIMINAR"), self._eliminar_proveedor, danger=True))
         # La importación de tarifas de proveedor se realiza desde el PORTAL DE PROVEEDOR (cada
         # proveedor sube su propia lista de precios), no manualmente desde esta pantalla.
         ly.addLayout(form)
@@ -228,6 +243,37 @@ class ComprasWindow(QWidget):
         except Exception:
             self._prov_sel = None
 
+    def _eliminar_proveedor(self):
+        """Elimina el proveedor seleccionado del registro (con confirmación y mensaje de éxito/error)."""
+        if not self._prov_sel:
+            _aviso(self, tr("compras.proveedores", default="Proveedores"),
+                   tr("compras.sel_prov_eliminar",
+                      default="Selecciona un proveedor de la tabla para eliminarlo."), "info")
+            return
+        razon = self.in_prov_razon.text().strip() or f"#{self._prov_sel}"
+        if not _confirmar(self, tr("compras.eliminar_prov", default="Eliminar proveedor"),
+                          tr("compras.eliminar_prov_conf",
+                             default=f"¿Eliminar definitivamente el proveedor «{razon}» del registro?")):
+            return
+        try:
+            ok = P.eliminar_proveedor(self._prov_sel)
+        except Exception as e:
+            logger.error("eliminar_proveedor: %s", e)
+            _aviso(self, tr("compras.proveedores", default="Proveedores"),
+                   f"No se pudo eliminar: {e}", "error")
+            return
+        if ok:
+            self._prov_sel = None
+            for x in (self.in_prov_razon, self.in_prov_cif, self.in_prov_email, self.in_prov_tel):
+                x.clear()
+            self._load_proveedores()
+            _aviso(self, tr("compras.proveedores", default="Proveedores"),
+                   tr("compras.prov_eliminado", default=f"Proveedor «{razon}» eliminado."), "success")
+        else:
+            _aviso(self, tr("compras.proveedores", default="Proveedores"),
+                   tr("compras.prov_no_eliminado",
+                      default="No se pudo eliminar (¿tiene pedidos/movimientos asociados?)."), "error")
+
     def _guardar_proveedor(self):
         razon = self.in_prov_razon.text().strip()
         if not razon:
@@ -252,8 +298,17 @@ class ComprasWindow(QWidget):
         fila.addWidget(_btn(tr("compras.nuevo_pedido", default="NUEVO PEDIDO"), self._dlg_nuevo_pedido, primary=True))
         fila.addWidget(_btn(tr("compras.desde_reab", default="DESDE REPOSICIÓN"), self._desde_reab, primary=True))
         fila.addStretch(1)
+        if self._bolsa:
+            # Pagos del mercado (escrow, lado COMPRADOR): su sitio es Pedidos, no el Portal de proveedor.
+            fila.addWidget(_btn("💶  " + tr("compras.pagos_mercado", default="PAGOS DEL MERCADO"),
+                                self._pagos_mercado, primary=True))
         fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_pedidos))
         ly.addLayout(fila)
+
+        # En ediciones simples (Bakery/Pharmacy/Textil): flujo directo (pedido bajo encargo al proveedor),
+        # SIN bolsa/mercado, sin filtros de precio, sin cola de subastas.
+        if not self._bolsa:
+            return self._page_pedidos_simple(w, ly)
 
         # ── BOLSA DE PROVEEDORES: comparar el precio de un artículo entre proveedores ──
         lbl_b = QLabel("🔎  " + tr("compras.bolsa_titulo",
@@ -324,6 +379,39 @@ class ComprasWindow(QWidget):
         self.tbl_carrito.cellDoubleClicked.connect(self._carrito_doble_clic)
         ly.addWidget(self.tbl_carrito, 1)
         return w
+
+    def _page_pedidos_simple(self, w, ly):
+        """Pedidos en ediciones simples: selecciona un proveedor REGISTRADO y pídele bajo encargo.
+        Sin bolsa/mercado ni cola de subastas (esa cola solo tiene sentido con el mercado/Lonja)."""
+        lbl = QLabel("🏭  " + tr("compras.prov_sel_titulo",
+                                  default="Proveedores registrados · selecciona uno y pulsa NUEVO PEDIDO"))
+        lbl.setStyleSheet(f"color:{_CIAN};font-weight:800;font-size:14px;padding-top:2px;")
+        ly.addWidget(lbl)
+        bfila = QHBoxLayout()
+        self.in_ped_buscar = _inp(tr("compras.buscar_prov", default="Buscar proveedor…"))
+        bfila.addWidget(self.in_ped_buscar, 1)
+        bfila.addWidget(_btn(tr("compras.buscar", default="BUSCAR"), self._load_pedidos, primary=True))
+        ly.addLayout(bfila)
+        self.tbl_ped_prov = _tabla(["ID", tr("compras.razon", default="Razón social"), "CIF/NIF",
+                                    "Email", "Teléfono", tr("compras.estado", default="Estado")])
+        self.tbl_ped_prov.cellClicked.connect(self._sel_ped_prov)
+        ly.addWidget(self.tbl_ped_prov, 1)
+        return w
+
+    def _sel_ped_prov(self, row, _col):
+        try:
+            self._ped_prov_sel = int(self.tbl_ped_prov.item(row, 0).text())
+        except Exception:
+            self._ped_prov_sel = None
+
+    def _pagos_mercado(self):
+        """Escrow del mercado (lado comprador): confirmar recepción / disputa / liberar / ledger."""
+        try:
+            from src.gui.pagos_marketplace_gui import EscrowPagosDialog
+            EscrowPagosDialog(self.usuario, self).exec()
+        except Exception as e:
+            logger.error("abrir pagos del mercado: %s", e)
+            _aviso(self, "Pagos del mercado", f"No se pudo abrir: {e}", "error")
 
     # ── Bolsa unificada (tarifas fijas + mercado en vivo) ─────────────────────
     def _emp_actual(self):
@@ -504,7 +592,13 @@ class ComprasWindow(QWidget):
         t.setItem(r, 3, celda_val); t.setItem(r, 4, QTableWidgetItem(""))
 
     def _load_pedidos(self):
-        """Al entrar en Pedidos / pulsar ACTUALIZAR: repinta la cola (carrito, en memoria)."""
+        """ACTUALIZAR / entrar en Pedidos. Mercado → repinta la cola; simple → lista proveedores."""
+        if not self._bolsa:
+            texto = (self.in_ped_buscar.text().strip() or None) if hasattr(self, "in_ped_buscar") else None
+            filas = P.listar_proveedores(texto=texto)
+            self._fill(self.tbl_ped_prov, filas, ("id_proveedor", "razon_social", "cif_nif",
+                                                  "email", "telefono", "estado"))
+            return
         self._render_carrito()
 
     def _carrito_sel_idx(self):
@@ -612,11 +706,40 @@ class ComprasWindow(QWidget):
                               usuario=self.usuario.get("nombre"))
 
     def _dlg_nuevo_pedido(self):
-        """NUEVO PEDIDO: alta manual de artículos (proveedor + líneas) que se añaden a la cola."""
+        """NUEVO PEDIDO. Mercado → añade líneas a la cola. Simple → exige un proveedor SELECCIONADO y
+        crea+envía el pedido directamente (bajo encargo, sin cola)."""
         provs = P.listar_proveedores(estado="activo")
         if not provs:
             _aviso(self, "Compras", tr("compras.sin_prov", default="Cree un proveedor primero."), "error")
             return
+
+        if not self._bolsa:
+            if not self._ped_prov_sel:
+                _aviso(self, tr("compras.pedidos", default="Pedidos"),
+                       tr("compras.sel_prov_pedido",
+                          default="Selecciona antes un proveedor de la tabla para iniciar el pedido."), "info")
+                return
+            if not any(p["id_proveedor"] == self._ped_prov_sel for p in provs):
+                _aviso(self, tr("compras.pedidos", default="Pedidos"),
+                       tr("compras.prov_inactivo", default="El proveedor seleccionado ya no está activo."),
+                       "warning")
+                return
+            dlg = _DialogoPedido(provs, self, id_prov_fijo=self._ped_prov_sel)
+            if dlg.exec() == QDialog.DialogCode.Accepted and dlg.lineas:
+                lineas = [{"codigo": ln["codigo"], "descripcion": ln.get("descripcion"),
+                           "cantidad": int(ln["cantidad"]),
+                           "precio_unitario": float(ln.get("precio_unitario") or 0)} for ln in dlg.lineas]
+                pid = C.crear_pedido(id_proveedor=self._ped_prov_sel, lineas=lineas,
+                                     usuario=self.usuario.get("nombre"))
+                if pid and C.enviar_pedido(pid):
+                    _aviso(self, tr("compras.pedidos", default="Pedidos"),
+                           tr("compras.pedido_creado",
+                              default="Pedido creado y enviado. Lo verás en Recepciones."), "success")
+                else:
+                    _aviso(self, tr("compras.pedidos", default="Pedidos"),
+                           tr("compras.pedido_error", default="No se pudo crear el pedido."), "error")
+            return
+
         dlg = _DialogoPedido(provs, self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.lineas:
             prov = next((p for p in provs if p["id_proveedor"] == dlg.id_proveedor), {})
@@ -643,8 +766,11 @@ class ComprasWindow(QWidget):
             return
         dlg = _DialogoReposicion(props, self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.codigo:
-            self.in_bolsa_art.setText(dlg.codigo)
-            self._buscar_bolsa()
+            # En modo mercado, al elegir un artículo se busca en la bolsa. En modo simple no hay bolsa:
+            # "Desde reposición" solo sirve para VER la lista de artículos bajo mínimos.
+            if self._bolsa and hasattr(self, "in_bolsa_art"):
+                self.in_bolsa_art.setText(dlg.codigo)
+                self._buscar_bolsa()
 
     # ── Sección Recepciones ──────────────────────────────────────────────────
     def _page_recepciones(self):
@@ -951,7 +1077,7 @@ class _DialogoPuja(QDialog):
 
 
 class _DialogoPedido(QDialog):
-    def __init__(self, proveedores, parent=None):
+    def __init__(self, proveedores, parent=None, id_prov_fijo=None):
         super().__init__(parent)
         self.id_proveedor = None; self.lineas = []
         self._provs = proveedores
@@ -962,6 +1088,12 @@ class _DialogoPedido(QDialog):
         cap.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
         v.addWidget(cap)
         self.cb = _combo([(p["razon_social"], p["id_proveedor"]) for p in proveedores])
+        if id_prov_fijo is not None:
+            # Modo simple: proveedor ya elegido en la tabla → se fija y se bloquea el desplegable.
+            idx = next((i for i, p in enumerate(proveedores) if p["id_proveedor"] == id_prov_fijo), -1)
+            if idx >= 0:
+                self.cb.setCurrentIndex(idx)
+            self.cb.setEnabled(False)
         v.addWidget(self.cb)
         form = QFormLayout()
         self.in_cod = _inp("Código"); self.in_desc = _inp("Descripción")

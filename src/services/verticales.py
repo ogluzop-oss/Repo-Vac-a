@@ -42,6 +42,7 @@ FUNCIONES = {
     "transporte.reparto": "Reparto · Flota y rutas de reparto",
     "distribucion.expedicion": "Distribución · Pedidos, picking y expediciones (B2B)",
     "compras.subastas": "Compras · Subastas del mercado (pujas)",
+    "compras.bolsa": "Compras · Bolsa de proveedores y mercado (Lonja) + Portal proveedor",
 }
 
 # MATRIZ (fuente de verdad). Solo se listan las DIFERENCIAS respecto a la base (todo VISIBLE por defecto).
@@ -78,6 +79,10 @@ _REGLAS = {
     # Subastas del mercado (pujas): SOLO comercio general de gran volumen → Supermarket y Retail. En
     # Pharmacy/Textil/Bakery se ocultan (el resto del módulo de proveedores sigue disponible en todas).
     "compras.subastas": {"PHARMACY": "oculto", "TEXTIL": "oculto", "BAKERY": "oculto"},
+    # Bolsa de proveedores + mercado (Lonja) + Portal proveedor web: SOLO comercio general de gran volumen
+    # (Supermarket/Retail). En Pharmacy/Textil/Bakery el flujo de compras es SIMPLE (pedido bajo encargo al
+    # proveedor registrado): se oculta la bolsa/mercado, la cola de subastas y la pestaña Portal proveedor.
+    "compras.bolsa": {"PHARMACY": "oculto", "TEXTIL": "oculto", "BAKERY": "oculto"},
 }
 
 

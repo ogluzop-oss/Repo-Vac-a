@@ -58,6 +58,14 @@ def test_supermarket_superset_variantes_sin_flujos_de_nicho():
     assert V.visible("productos.lotes", vertical="SUPERMARKET") is True
 
 
+def test_bolsa_y_portal_solo_supermarket_y_retail():
+    # La bolsa de proveedores + mercado (Lonja) + Portal proveedor = solo comercio general (Super/Retail).
+    for ed in ("SUPERMARKET", "RETAIL"):
+        assert V.visible("compras.bolsa", vertical=ed) is True
+    for ed in ("PHARMACY", "TEXTIL", "BAKERY"):
+        assert V.visible("compras.bolsa", vertical=ed) is False
+
+
 def test_autocobro_solo_supermarket():
     # El autocobro (self-checkout con verificación de edad) es EXCLUSIVO de Supermarket.
     assert V.visible("tpv.autocobro", vertical="SUPERMARKET") is True
