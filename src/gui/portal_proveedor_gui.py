@@ -126,7 +126,8 @@ class PortalProveedorWindow(QWidget):
         # Vía correcta para cobros (sustituye al antiguo alta directa de IBAN): onboarding KYB delegado en
         # un PSP regulado (Stripe Connect). Smart Manager solo guarda el token + banco/últimos4.
         bar.addWidget(_btn("💳  Conectar cobros (KYB)", self._conectar_cobros, primary=True))
-        bar.addWidget(_btn("💶  Pagos del mercado", self._pagos_mercado, primary=True))
+        # "Pagos del mercado" (escrow del COMPRADOR) se movió a la pestaña Pedidos: es una acción de la
+        # empresa compradora, no de gestión de proveedores.
         bar.addWidget(_btn("🏷️  Publicar en el mercado", self._publicar_mercado, primary=True))
         bar.addWidget(_btn("Revocar", self._revocar, danger=True))
         bar.addStretch()

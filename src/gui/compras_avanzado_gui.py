@@ -118,10 +118,10 @@ class ComprasAvanzadoWindow(QWidget):
         for i, (k, val) in enumerate(filas):
             tabla.setItem(i, 0, _it(k, centro=True))
             tabla.setItem(i, 1, _it(val, centro=True))
-        # Ajusta la altura EXACTA al contenido (cabecera + filas + marco) → borde inferior pegado.
-        hcab = tabla.horizontalHeader().sizeHint().height()
-        hfilas = sum(tabla.rowHeight(r) for r in range(len(filas))) or 40
-        tabla.setFixedHeight(hcab + hfilas + 2 * tabla.frameWidth() + 2)
+        # Ajusta la altura EXACTA al contenido → borde inferior a ras de la última fila (sin hueco).
+        # Altura = cabecera + suma real de filas (verticalHeader().length()) + los 2 bordes del marco.
+        hcab = tabla.horizontalHeader().height() or tabla.horizontalHeader().sizeHint().height()
+        tabla.setFixedHeight(hcab + tabla.verticalHeader().length() + 2 * tabla.frameWidth())
 
     def _provs(self):
         return [(f"{p['razon_social']} ({p.get('cif_nif') or ''})", p["id_proveedor"])
