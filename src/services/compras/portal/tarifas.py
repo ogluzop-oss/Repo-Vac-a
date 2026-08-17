@@ -31,6 +31,6 @@ def subir_tarifa(id_proveedor, codigo_articulo, precio, *, unidad_medida="unidad
                  cantidad_minima=1, id_empresa=None):
     """Alta/actualización de una tarifa (el proveedor sube su precio). Reutiliza set_precio_negociado."""
     from src.services.compras.proveedores_pro import set_precio_negociado
-    return set_precio_negociado(id_proveedor, str(codigo_articulo).strip().upper(), precio,
+    return set_precio_negociado(id_proveedor, str(codigo_articulo).strip(), precio,
                                 unidad_medida=unidad_medida, descuento=descuento,
                                 cantidad_minima=cantidad_minima, id_empresa=id_empresa)

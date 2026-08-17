@@ -94,7 +94,7 @@ def set_stock(id_proveedor, codigo_articulo, stock, *, unidad_medida="unidad", i
             cur.execute("INSERT INTO portal_proveedor_stock (id_empresa, id_proveedor, codigo_articulo, "
                         "stock, unidad_medida) VALUES (%s,%s,%s,%s,%s) "
                         "ON DUPLICATE KEY UPDATE stock=VALUES(stock), actualizado_en=NOW()",
-                        (emp, id_proveedor, str(codigo_articulo).strip().upper(), float(stock or 0),
+                        (emp, id_proveedor, str(codigo_articulo).strip(), float(stock or 0),
                          str(unidad_medida or "unidad")))
             c.commit()
         return True
@@ -107,7 +107,7 @@ def stock_de(id_proveedor, codigo_articulo=None, *, id_empresa=None) -> list:
     emp = _emp(id_empresa)
     cond, params = ["id_empresa=%s", "id_proveedor=%s"], [emp, id_proveedor]
     if codigo_articulo:
-        cond.append("codigo_articulo=%s"); params.append(str(codigo_articulo).strip().upper())
+        cond.append("codigo_articulo=%s"); params.append(str(codigo_articulo).strip())
     try:
         with _conn() as c, c.cursor() as cur:
             cur.execute("SELECT codigo_articulo, stock, unidad_medida, actualizado_en "
@@ -126,7 +126,7 @@ def stock_bolsa(codigo_articulo, id_empresa=None) -> dict:
         with _conn() as c, c.cursor() as cur:
             cur.execute("SELECT id_proveedor, SUM(stock) AS stock FROM portal_proveedor_stock "
                         "WHERE id_empresa=%s AND codigo_articulo=%s GROUP BY id_proveedor",
-                        (emp, str(codigo_articulo).strip().upper()))
+                        (emp, str(codigo_articulo).strip()))
             return {r["id_proveedor"]: float(r["stock"] or 0) for r in _filas(cur)}
     except Exception as e:
         logger.error("stock_bolsa: %s", e)

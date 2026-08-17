@@ -11,7 +11,7 @@ blueprint de la API, así funciona en local y por HTTP cuando el backend se desp
 
 _HTML = r"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Portal del Suministrador</title>
+<title>Portal del Proveedor</title>
 <style>
  :root{--bg:#0D1117;--pan:#161B22;--cy:#00FFC6;--tx:#E6EDF3;--dim:#8B949E;--bd:#30363D;--rojo:#F85149}
  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--tx);font-family:Segoe UI,Arial,sans-serif}
@@ -27,7 +27,7 @@ _HTML = r"""<!doctype html>
  .tabs button.on{background:var(--cy);color:#0D1117}
  table{width:100%;border-collapse:collapse;border:2px solid var(--cy);border-radius:10px;overflow:hidden;margin-top:10px}
  th,td{padding:8px;border-bottom:1px solid var(--bd);text-align:left;font-size:13px}
- th{color:var(--cy);font-size:11px} .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+ th{color:var(--cy);font-size:13px} .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
  .card{background:var(--pan);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-top:12px}
  .hide{display:none} .msg{padding:8px 10px;border-radius:8px;margin:8px 0;font-size:13px}
  .ok{background:#00FFC622;color:var(--cy)} .err{background:#F8514922;color:var(--rojo)}
@@ -55,7 +55,7 @@ _HTML = r"""<!doctype html>
    <div id="v-tarifas" class="vista card">
      <h3>Mis tarifas</h3>
      <div class="row">
-       <input id="t_cod" placeholder="Código"><input id="t_prec" placeholder="Precio" size="6">
+       <input id="t_cod" placeholder="Nombre del artículo" size="24"><input id="t_prec" placeholder="Precio" size="6">
        <select id="t_uni"><option>unidad</option><option>caja</option><option>pale</option><option>kg</option></select>
        <input id="t_dto" placeholder="Dto %" size="4">
        <button onclick="subirTarifa()">Guardar precio</button>
@@ -66,7 +66,7 @@ _HTML = r"""<!doctype html>
    <div id="v-stock" class="vista card hide">
      <h3>Stock disponible</h3>
      <div class="row">
-       <input id="s_cod" placeholder="Código"><input id="s_stk" placeholder="Stock" size="6">
+       <input id="s_cod" placeholder="Nombre del artículo" size="24"><input id="s_stk" placeholder="Stock" size="6">
        <select id="s_uni"><option>unidad</option><option>caja</option><option>pale</option><option>kg</option></select>
        <button onclick="subirStock()">Declarar stock</button>
      </div>
@@ -78,17 +78,7 @@ _HTML = r"""<!doctype html>
    </div>
 
    <div id="v-mercado" class="vista card hide">
-     <h3>Mercado (Lonja) · vende y subasta a las empresas</h3>
-     <div class="row"><b>Tipo de comercio:</b>
-       <span id="mtc">
-         <label class="chk"><input type="checkbox" value="SUPERMARKET"> Supermercado</label>
-         <label class="chk"><input type="checkbox" value="RETAIL"> Retail</label>
-         <label class="chk"><input type="checkbox" value="PHARMACY"> Farmacia</label>
-         <label class="chk"><input type="checkbox" value="TEXTIL"> Textil</label>
-         <label class="chk"><input type="checkbox" value="BAKERY"> Panadería</label>
-       </span>
-       <button onclick="guardarTipoL()">Guardar</button>
-     </div>
+     <h3>Mercado · vende y subasta a las empresas</h3>
      <div class="row"><b>Divisa:</b>
        <select id="mdiv"><option>EUR</option><option>USD</option><option>GBP</option><option>MXN</option><option>BRL</option></select>
        <button onclick="guardarDivisaL()">Guardar</button></div>
@@ -103,7 +93,7 @@ _HTML = r"""<!doctype html>
        <select id="l_uni"><option>unidad</option><option>caja</option><option>pale</option><option>kg</option></select>
      </div>
      <div class="row">
-       <input id="l_dur" placeholder="Duración (h)" size="7" value="24"><input id="l_res" placeholder="Reserva (opc.)" size="8">
+       <input id="l_dur" placeholder="Duración (h)" size="7" value="24"><input id="l_res" placeholder="Reserva (opc.)" size="14">
        <input id="l_inc" placeholder="Incremento" size="7" value="0"><button onclick="publicarL()">Publicar</button>
      </div>
      <div id="tbl_listados"></div>
@@ -180,8 +170,6 @@ async function cargarMercado(){
   const me=await apiL("GET","/me");
   if(me.ok&&me.j){
     if(me.j.divisa)document.getElementById("mdiv").value=me.j.divisa;
-    const tc=((me.j.tipo_comercio)||"").split(",");
-    document.querySelectorAll("#mtc input").forEach(i=>{i.checked=tc.includes(i.value);});
   }
   estadoCobros();
   const r=await apiL("GET","/listados");const d=(r.j&&r.j.data)||[];
@@ -191,8 +179,6 @@ async function cargarMercado(){
     "<td>"+(x.estado==="activo"?('<button class="rojo" onclick="retirarL('+x.id+')">Retirar</button>'):"")+"</td></tr>";}
   document.getElementById("tbl_listados").innerHTML=h+"</table>";
 }
-function mtcMarcados(){return [...document.querySelectorAll("#mtc input:checked")].map(i=>i.value);}
-async function guardarTipoL(){const r=await apiL("PUT","/tipo-comercio",{tipo_comercio:mtcMarcados()});out(r.ok?"Tipo de comercio guardado.":"Error.",!r.ok);}
 async function guardarDivisaL(){const r=await apiL("PUT","/divisa",{divisa:document.getElementById("mdiv").value});out(r.ok?"Divisa guardada.":"Error.",!r.ok);}
 async function estadoCobros(){const r=await apiL("GET","/cobros/estado");const e=r.j||{};
   const el=document.getElementById("mkyb");
