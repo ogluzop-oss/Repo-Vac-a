@@ -216,7 +216,8 @@ class ComprasWindow(QWidget):
         # proveedor sube su propia lista de precios), no manualmente desde esta pantalla.
         ly.addLayout(form)
         self.tbl_prov = _tabla(["ID", tr("compras.razon", default="Razón social"), "CIF/NIF",
-                                "Email", "Teléfono", tr("compras.estado", default="Estado")])
+                                "Email", "Teléfono", tr("compras.estado", default="Estado"),
+                                tr("compras.acciones", default="Acciones")])
         self.tbl_prov.cellClicked.connect(self._sel_proveedor)
         ly.addWidget(self.tbl_prov, 1)
         return w
@@ -226,6 +227,43 @@ class ComprasWindow(QWidget):
         filas = P.listar_proveedores(texto=texto)
         self._fill(self.tbl_prov, filas, ("id_proveedor", "razon_social", "cif_nif",
                                           "email", "telefono", "estado"))
+        # Columna "Acciones": lápiz de edición por proveedor.
+        for r in range(self.tbl_prov.rowCount()):
+            b = QPushButton("✏️"); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setToolTip(tr("compras.editar_prov", default="Editar proveedor"))
+            b.setStyleSheet("QPushButton{background:transparent;border:none;font-size:16px;}"
+                            "QPushButton:hover{color:#00FFC6;}")
+            b.clicked.connect(lambda _=False, row=r: self._editar_proveedor(row))
+            self.tbl_prov.setCellWidget(r, 6, b)
+
+    def _editar_proveedor(self, row):
+        """Abre un diálogo para editar el proveedor de la fila. Los cambios se propagan a todas las
+        pantallas (misma BD)."""
+        it = self.tbl_prov.item(row, 0)
+        if not it:
+            return
+        try:
+            pid = int(it.text())
+        except ValueError:
+            return
+        def _txt(c):
+            x = self.tbl_prov.item(row, c)
+            return x.text() if x else ""
+        dlg = _DialogoEditarProveedor({"razon_social": _txt(1), "cif_nif": _txt(2),
+                                       "email": _txt(3), "telefono": _txt(4)}, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.datos:
+            return
+        d = dlg.datos
+        if not d["razon_social"]:
+            _aviso(self, tr("compras.proveedores", default="Proveedores"),
+                   tr("compras.falta_razon", default="La razón social es obligatoria."), "error"); return
+        ok = P.actualizar_proveedor(pid, razon_social=d["razon_social"], cif_nif=d["cif_nif"] or None,
+                                    email=d["email"] or None, telefono=d["telefono"] or None)
+        self._load_proveedores()
+        _aviso(self, tr("compras.proveedores", default="Proveedores"),
+               tr("compras.prov_editado", default="Proveedor actualizado.") if ok
+               else tr("compras.prov_no_editado", default="No se pudo actualizar."),
+               "success" if ok else "error")
 
     def _nuevo_proveedor(self):
         self._prov_sel = None
@@ -1074,6 +1112,34 @@ class _DialogoPuja(QDialog):
         if imp > 0:
             self.importe = imp
             self.accept()
+
+
+class _DialogoEditarProveedor(QDialog):
+    """Edición de un proveedor (frameless). Guarda vía P.actualizar_proveedor (propaga a toda la app)."""
+
+    def __init__(self, datos, parent=None):
+        super().__init__(parent)
+        self.datos = None
+        self.setFixedSize(460, 360)
+        v = _dialogo_frameless(self, titulo=tr("compras.editar_prov", default="Editar proveedor"), ancho=460)
+        self.in_razon = _inp("Razón social"); self.in_razon.setText(datos.get("razon_social", ""))
+        self.in_cif = _inp("CIF/NIF"); self.in_cif.setText(datos.get("cif_nif", ""))
+        self.in_email = _inp("Email"); self.in_email.setText(datos.get("email", ""))
+        self.in_tel = _inp("Teléfono"); self.in_tel.setText(datos.get("telefono", ""))
+        for lab, wdg in [("Razón social", self.in_razon), ("CIF/NIF", self.in_cif),
+                         ("Email", self.in_email), ("Teléfono", self.in_tel)]:
+            cap = QLabel(lab); cap.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+            v.addWidget(cap); v.addWidget(wdg)
+        v.addStretch()
+        row = QHBoxLayout()
+        row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), self.reject))
+        row.addWidget(_btn(tr("compras.guardar", default="Guardar"), self._ok, primary=True))
+        v.addLayout(row)
+
+    def _ok(self):
+        self.datos = {"razon_social": self.in_razon.text().strip(), "cif_nif": self.in_cif.text().strip(),
+                      "email": self.in_email.text().strip(), "telefono": self.in_tel.text().strip()}
+        self.accept()
 
 
 class _DialogoPedido(QDialog):
