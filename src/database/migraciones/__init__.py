@@ -212,4 +212,5 @@ MODULOS = [
     "0203_cuentas_cobro",
     "0204_psp_cuentas_conectadas",
     "0205_lonja_escrow",
+    "0206_pagos_eventos",
 ]
