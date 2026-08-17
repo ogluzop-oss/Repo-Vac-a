@@ -106,10 +106,10 @@ class ComprasAvanzadoWindow(QWidget):
 
     def _tabla_kv(self):
         """Tabla de 2 columnas (Parámetro · Valor) centrada, con el estilo estándar de la app.
-        Altura holgada para que los ~5 parámetros se vean sin scrollbar."""
+        Su altura se ajusta al contenido (ver `_llenar_kv`) para que el borde inferior quede pegado
+        a la última fila (sin espacio vacío)."""
         t = _tabla(["Parámetro", "Valor"])
         t.setMinimumWidth(440); t.setMaximumWidth(560)
-        t.setMinimumHeight(290); t.setMaximumHeight(330)
         return t
 
     @staticmethod
@@ -118,6 +118,10 @@ class ComprasAvanzadoWindow(QWidget):
         for i, (k, val) in enumerate(filas):
             tabla.setItem(i, 0, _it(k, centro=True))
             tabla.setItem(i, 1, _it(val, centro=True))
+        # Ajusta la altura EXACTA al contenido (cabecera + filas + marco) → borde inferior pegado.
+        hcab = tabla.horizontalHeader().sizeHint().height()
+        hfilas = sum(tabla.rowHeight(r) for r in range(len(filas))) or 40
+        tabla.setFixedHeight(hcab + hfilas + 2 * tabla.frameWidth() + 2)
 
     def _provs(self):
         return [(f"{p['razon_social']} ({p.get('cif_nif') or ''})", p["id_proveedor"])

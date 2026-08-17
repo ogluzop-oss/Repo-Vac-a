@@ -251,8 +251,6 @@ class ComprasWindow(QWidget):
         fila = QHBoxLayout()
         fila.addWidget(_btn(tr("compras.nuevo_pedido", default="NUEVO PEDIDO"), self._dlg_nuevo_pedido, primary=True))
         fila.addWidget(_btn(tr("compras.desde_reab", default="DESDE REPOSICIÓN"), self._desde_reab, primary=True))
-        fila.addWidget(_btn(tr("compras.tramitar_todos", default="TRAMITAR TODOS"),
-                            self._tramitar_todos, primary=True))
         fila.addStretch(1)
         fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_pedidos))
         ly.addLayout(fila)
@@ -310,6 +308,9 @@ class ComprasWindow(QWidget):
         lbl_p = QLabel("🛒  " + tr("compras.cola_titulo", default="Artículos en cola"))
         lbl_p.setStyleSheet(f"color:{_CIAN};font-weight:800;font-size:14px;padding-top:2px;")
         colabar.addWidget(lbl_p); colabar.addStretch(1)
+        # TRAMITAR TODOS junto a CANCELAR, sobre la cola: crea/envía los pedidos de toda la cola.
+        colabar.addWidget(_btn(tr("compras.tramitar_todos", default="TRAMITAR TODOS"),
+                               self._tramitar_todos, primary=True))
         # CANCELAR justo ENCIMA de la lista: cancela los artículos MARCADOS (casillas de la derecha).
         colabar.addWidget(_btn(tr("compras.cancelar", default="CANCELAR"), self._cancelar_seleccionados,
                                danger=True))
