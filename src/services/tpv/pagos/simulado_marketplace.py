@@ -53,3 +53,9 @@ class PasarelaMarketplaceSimulada(PasarelaMarketplace):
 
     def reembolsar(self, *, payment_ref, importe=None, idem_key=None, **kw) -> dict:
         return {"ok": True, "refund_ref": f"re_sim_{payment_ref}", "estado": "REFUNDED", "modo": "simulado"}
+
+    def crear_iban_virtual(self, *, account_id=None, referencia=None, importe=None, divisa="EUR",
+                           id_empresa=None, **kw) -> dict:
+        ref = referencia or uuid.uuid4().hex[:12]
+        return {"ok": True, "iban_virtual_ref": f"SIMIBAN{ref.upper()}", "payment_ref": f"pi_sim_{ref}",
+                "modo": "simulado"}

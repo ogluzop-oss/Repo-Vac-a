@@ -165,10 +165,10 @@ def iniciar_retencion(id_transaccion, *, comision_pct=None, usuario=None) -> dic
 
 
 def _comision_pct(id_empresa) -> float:
+    """Comisión de la plataforma (%). Es un ajuste de PLATAFORMA (no de la empresa compradora)."""
     try:
-        from src.db import pagos as pagos_db
-        cfg = pagos_db.obtener_config(id_empresa) or {}
-        return float(cfg.get("comision_pct") or 0)
+        from src.services.pagos_marketplace import psp
+        return float(psp.config_plataforma().get("comision_pct") or 0)
     except Exception:
         return 0.0
 

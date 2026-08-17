@@ -191,3 +191,54 @@ class PasarelaStripeConnect(PasarelaMarketplace):
         except Exception as e:
             logger.warning("reembolsar: %s", e)
             return {"ok": False, "mensaje": str(e)}
+
+    def crear_iban_virtual(self, *, account_id=None, referencia=None, importe=None, divisa="EUR",
+                           id_empresa=None, **kw) -> dict:
+        """IBAN virtual para cobrar por transferencia (Customer Balance / bank transfer de Stripe).
+
+        Crea un Customer y un PaymentIntent con `customer_balance` (transferencia bancaria SEPA) y devuelve
+        el IBAN virtual de las instrucciones de financiación. Best-effort: requiere el método Customer
+        Balance habilitado en la cuenta; degrada limpiamente si no está disponible."""
+        if not self.configurado():
+            return {"ok": False, "mensaje": "Stripe Connect no configurado."}
+        try:
+            requests = self._req()
+        except Exception:
+            return {"ok": False, "mensaje": "requests no disponible."}
+        cur = (divisa or "EUR").lower()
+        amount = int(round(float(importe or 0) * 100))
+        try:
+            rc = requests.post(f"{_API}/customers",
+                               data={"metadata[referencia]": str(referencia or "")},
+                               auth=self._auth(), timeout=25)
+            if rc.status_code not in (200, 201):
+                return {"ok": False, "mensaje": f"Stripe customers {rc.status_code}."}
+            cus = rc.json().get("id")
+            data = {
+                "amount": str(amount), "currency": cur, "customer": cus, "confirm": "true",
+                "payment_method_types[]": "customer_balance",
+                "payment_method_data[type]": "customer_balance",
+                "payment_method_options[customer_balance][funding_type]": "bank_transfer",
+                "payment_method_options[customer_balance][bank_transfer][type]": "eu_bank_transfer",
+                "payment_method_options[customer_balance][bank_transfer][eu_bank_transfer][country]":
+                    (self.config.get("pais") or "ES").upper(),
+            }
+            if referencia:
+                data["metadata[referencia]"] = str(referencia)
+            r = requests.post(f"{_API}/payment_intents", data=data, headers=self._idem(referencia),
+                              auth=self._auth(), timeout=25)
+            if r.status_code not in (200, 201):
+                return {"ok": False, "mensaje": f"Stripe payment_intents {r.status_code}."}
+            j = r.json()
+            instrucciones = (((j.get("next_action") or {}).get("display_bank_transfer_instructions")) or {})
+            direcciones = instrucciones.get("financial_addresses") or []
+            iban = None
+            for a in direcciones:
+                if (a.get("type") == "iban") and a.get("iban"):
+                    iban = a["iban"].get("iban"); break
+            if not iban:
+                return {"ok": False, "mensaje": "Sin IBAN en las instrucciones (¿Customer Balance activo?)."}
+            return {"ok": True, "iban_virtual_ref": iban, "payment_ref": j.get("id")}
+        except Exception as e:
+            logger.warning("crear_iban_virtual: %s", e)
+            return {"ok": False, "mensaje": str(e)}

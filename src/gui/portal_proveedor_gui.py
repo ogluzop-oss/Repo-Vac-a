@@ -264,6 +264,14 @@ class PortalProveedorWindow(QWidget):
                    f"Publicado en el mercado: {d['codigo']} · {d['precio']:.2f} {d['divisa']} "
                    f"(puja mín. {d['puja_minima']:.2f}). Visible en la bolsa de todas las empresas.",
                    "success")
+            # Nudge KYB: para COBRAR sus ventas del mercado, el vendedor necesita cobros conectados.
+            try:
+                from src.services.pagos_marketplace import operaciones as _OP
+                if not _OP.estado_cobros("vendedor", vid):
+                    from src.gui.pagos_marketplace_gui import ConectarCobrosDialog
+                    ConectarCobrosDialog("vendedor", vid, nombre, self).exec()
+            except Exception as e:
+                logger.debug("nudge KYB vendedor: %s", e)
         else:
             _aviso(self, "Mercado", "No se pudo publicar en el mercado.", "error")
 

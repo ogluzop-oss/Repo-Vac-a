@@ -27,12 +27,10 @@ def _firmar(evento: dict, secret=SECRET):
 @pytest.fixture
 def _aislar(monkeypatch):
     """Config con secret Connect + idempotencia en memoria + captura de las acciones despachadas."""
-    import src.db.pagos as pagos_db
     import src.db.pagos_webhooks as wlog
-    from src.services.pagos_marketplace import cuentas, escrow
+    from src.services.pagos_marketplace import cuentas, escrow, psp
 
-    monkeypatch.setattr(pagos_db, "obtener_config",
-                        lambda id_empresa=None: {"webhook_secret_connect": SECRET})
+    monkeypatch.setattr(psp, "config_plataforma", lambda: {"webhook_secret_connect": SECRET})
     vistos = set()
 
     def _reclamar(proveedor, evento_id, **kw):

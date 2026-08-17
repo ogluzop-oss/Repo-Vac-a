@@ -20,6 +20,30 @@ def _conn():
     return obtener_conexion()
 
 
+def emitir_iban_virtual(id_transaccion, id_empresa=None) -> dict:
+    """Solicita al PSP un IBAN virtual para cobrar la transacción por transferencia y lo vincula. Degradable:
+    sin credenciales usa el simulado (IBAN de prueba) para que el flujo de conciliación sea usable."""
+    from src.services.lonja._common import _uno
+    from src.services.pagos_marketplace import psp
+    with _conn() as c, c.cursor() as cur:
+        cur.execute("SELECT id, id_empresa, cantidad, precio_unitario, divisa, iban_virtual_ref "
+                    "FROM lonja_transacciones WHERE id=%s", (id_transaccion,))
+        t = _uno(cur)
+    if not t:
+        return {"ok": False, "error": "transaccion_no_encontrada"}
+    if t.get("iban_virtual_ref"):
+        return {"ok": True, "idempotente": True, "iban_virtual_ref": t["iban_virtual_ref"]}
+    importe = float(t.get("cantidad") or 0) * float(t.get("precio_unitario") or 0)
+    prov = psp.adaptador(t["id_empresa"])
+    res = prov.crear_iban_virtual(referencia=f"lonja_tx_{id_transaccion}", importe=importe,
+                                  divisa=t.get("divisa") or "EUR", id_empresa=t["id_empresa"])
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("mensaje", "psp_error")}
+    ref = res.get("iban_virtual_ref")
+    asignar_iban_virtual(id_transaccion, ref, id_empresa=t["id_empresa"])
+    return {"ok": True, "iban_virtual_ref": ref, "modo": prov.modo()}
+
+
 def asignar_iban_virtual(id_transaccion, referencia, id_empresa=None) -> dict:
     """Vincula una referencia de IBAN virtual a la transacción (para conciliar su transferencia entrante)."""
     if not referencia:
