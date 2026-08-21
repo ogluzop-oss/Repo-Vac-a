@@ -10,7 +10,7 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                             QPushButton, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                             QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import compras as C, proveedores as P
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo,
@@ -157,24 +157,22 @@ class ComprasAvanzadoWindow(QWidget):
         _lbl_seg = QLabel("🔒  Credenciales B2B configuradas y cifradas")
         _lbl_seg.setStyleSheet("color:#3FB950;background:transparent;font-weight:800;font-size:13px;")
         _sg.addWidget(_lbl_seg)
-        _sg.addWidget(_btn("Reemplazar claves", self._reemplazar_claves_b2b))
+        _sg.addWidget(_btn("Reemplazar claves", self._reemplazar_claves_b2b, primary=True))
         _sg.addStretch(1)
         ly.addWidget(self.b2b_seguro)
 
         # (B) Método PRINCIPAL de vinculación (1 clic): cargar archivo de claves + OAuth si procede.
         wiz = QHBoxLayout()
-        wiz.addWidget(_btn("📁  Cargar archivo de claves (.json / .env)", self._cargar_claves_b2b))
+        wiz.addWidget(_btn("📁  Cargar archivo de claves (.json / .env)", self._cargar_claves_b2b,
+                           primary=True))
         self.b2b_oauth_btn = _btn("🔗  Conectar cuenta B2B", self._oauth_b2b, primary=True)
         wiz.addWidget(self.b2b_oauth_btn); wiz.addStretch(1)
         ly.addLayout(wiz)
 
         # (C) Acordeón "Introducir claves manualmente" (oculto por defecto): API Key/Secret.
-        self.b2b_toggle_manual = QPushButton("⚙️  Introducir claves manualmente")
-        self.b2b_toggle_manual.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.b2b_toggle_manual.setStyleSheet(
-            f"QPushButton{{background:transparent;border:none;color:{_DIM};font-weight:700;"
-            f"text-align:left;padding:2px 0;}}QPushButton:hover{{color:{_CIAN};}}")
-        self.b2b_toggle_manual.clicked.connect(self._toggle_manual_b2b)
+        # Botón estándar de la app (fondo oscuro, contorno/texto neón turquesa, hover swap).
+        self.b2b_toggle_manual = _btn("⚙️  Introducir claves manualmente", self._toggle_manual_b2b,
+                                      primary=True)
         trow = QHBoxLayout(); trow.addWidget(self.b2b_toggle_manual); trow.addStretch(1)
         ly.addLayout(trow)
 
@@ -212,9 +210,9 @@ class ComprasAvanzadoWindow(QWidget):
         ly.addLayout(rfila)
         pfila = QHBoxLayout()
         pfila.addWidget(_btn("Margen estándar Supermercado (25% / Alerta 5%)",
-                             lambda: self._preset_reglas(25, 5)))
+                             lambda: self._preset_reglas(25, 5), primary=True))
         pfila.addWidget(_btn("Margen Bakery / Frescos (35% / Alerta 10%)",
-                             lambda: self._preset_reglas(35, 10)))
+                             lambda: self._preset_reglas(35, 10), primary=True))
         pfila.addStretch(1)
         ly.addLayout(pfila)
 
@@ -227,7 +225,7 @@ class ComprasAvanzadoWindow(QWidget):
         nota.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;"); nota.setWordWrap(True)
         ly.addWidget(nota)
         bar = QHBoxLayout()
-        bar.addWidget(_btn("⚡  Probar conexión", self._probar_conexion_b2b))
+        bar.addWidget(_btn("⚡  Probar conexión", self._probar_conexion_b2b, primary=True))
         bar.addWidget(_btn("Guardar configuración", self._guardar_b2b, primary=True))
         bar.addStretch(1)
         ly.addLayout(bar)
