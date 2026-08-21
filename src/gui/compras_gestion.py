@@ -13,14 +13,14 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QBrush, QColor, QFont, QGuiApplication, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (QDialog, QFormLayout,
                              QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QStackedWidget,
-                             QTableWidgetItem, QVBoxLayout, QWidget)
+                             QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from src.db import compras as C
 from src.db import proveedores as P
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _SIDEBAR, _TEXT, _btn, _btn_cargando,
+from src.gui.catalogo_gestion import (_BG, _BORDE, _CIAN, _DIM, _ROJO, _SIDEBAR, _TEXT, _btn, _btn_cargando,
                                       _btn_salir_sidebar, _combo, _dialogo_frameless, _inp, _tabla)
 from src.utils.i18n import tr
 
@@ -49,6 +49,55 @@ def _confirmar(parent, titulo, msg) -> bool:
     if mostrar_confirmacion is not None:
         return bool(mostrar_confirmacion(parent, titulo, msg))
     return True
+
+
+def _pix_ojo(color=_CIAN, relleno=False, size=24) -> QPixmap:
+    """Icono de OJO (visualización/gestión) dibujado en cyan/menta. `relleno=True` = estado hover
+    (almendra rellena + pupila oscura), permitiendo un hover swap nítido que hereda el color del tema."""
+    pm = QPixmap(size, size); pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    col = QColor(color)
+    from PyQt6.QtCore import QRectF, QPointF
+    cx, cy = size / 2.0, size / 2.0
+    w, h = size * 0.86, size * 0.56
+    rect = QRectF(cx - w / 2, cy - h / 2, w, h)
+    p.setPen(QPen(col, 2.0))
+    p.setBrush(QBrush(col) if relleno else Qt.BrushStyle.NoBrush)
+    # Almendra del ojo (dos arcos simétricos formando la forma de ojo).
+    from PyQt6.QtGui import QPainterPath
+    path = QPainterPath()
+    path.moveTo(rect.left(), cy)
+    path.quadTo(cx, rect.top(), rect.right(), cy)
+    path.quadTo(cx, rect.bottom(), rect.left(), cy)
+    p.drawPath(path)
+    # Pupila: oscura sobre relleno, cyan sobre contorno.
+    pupila = QColor(_BG) if relleno else col
+    p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(pupila))
+    r = size * 0.16
+    p.drawEllipse(QPointF(cx, cy), r, r)
+    p.end()
+    return pm
+
+
+class _BotonOjo(QPushButton):
+    """Botón-icono de OJO con hover swap (contorno cyan → almendra rellena) para la columna Acciones."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(34, 30)
+        self.setStyleSheet("QPushButton{background:transparent;border:none;padding:0;}")
+        self._normal = _pix_ojo(_CIAN, relleno=False)
+        self._hover = _pix_ojo(_CIAN, relleno=True)
+        self.setIcon(QIcon(self._normal))
+        self.setIconSize(self._normal.size())
+
+    def enterEvent(self, e):   # noqa: N802 (API Qt)
+        self.setIcon(QIcon(self._hover)); super().enterEvent(e)
+
+    def leaveEvent(self, e):   # noqa: N802 (API Qt)
+        self.setIcon(QIcon(self._normal)); super().leaveEvent(e)
 
 
 class ComprasWindow(QWidget):
@@ -221,14 +270,11 @@ class ComprasWindow(QWidget):
         filas = P.listar_proveedores(texto=texto)
         self._fill(self.tbl_prov, filas, ("id_proveedor", "razon_social", "cif_nif",
                                           "email", "telefono", "estado"))
-        # Columna "Acciones": lápiz de edición (emoji) por proveedor, centrado y completo.
+        # Columna "Acciones": icono de OJO (Ficha del proveedor) por fila, cyan con hover swap.
         for r in range(self.tbl_prov.rowCount()):
-            b = QPushButton("✏️"); b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setFixedSize(34, 30)
-            b.setToolTip(tr("compras.editar_prov", default="Editar proveedor"))
-            b.setStyleSheet("QPushButton{background:transparent;border:none;font-size:14px;padding:0;}"
-                            "QPushButton:hover{background:#1A2230;border-radius:6px;}")
-            b.clicked.connect(lambda _=False, row=r: self._editar_proveedor(row))
+            b = _BotonOjo()
+            b.setToolTip(tr("compras.ficha_prov", default="Ficha del proveedor"))
+            b.clicked.connect(lambda _=False, row=r: self._abrir_ficha_proveedor(row))
             # Fondo opaco del contenedor: tapa el hover de celda global (::item:hover) para que la
             # columna Acciones NO reaccione al pasar el ratón; sólo el botón del lápiz hace hover swap.
             # WA_StyledBackground es obligatorio: un QWidget plano ignora el 'background' de la hoja
@@ -240,9 +286,9 @@ class ComprasWindow(QWidget):
             lay.addWidget(b, 0, Qt.AlignmentFlag.AlignCenter)
             self.tbl_prov.setCellWidget(r, 6, cont)
 
-    def _editar_proveedor(self, row):
-        """Abre un diálogo para editar el proveedor de la fila. Los cambios se propagan a todas las
-        pantallas (misma BD)."""
+    def _abrir_ficha_proveedor(self, row):
+        """Abre la 'Ficha del proveedor' de la fila (gran formato, por pestañas). Al cerrar, refresca la
+        tabla porque los cambios se propagan a toda la app (misma BD)."""
         it = self.tbl_prov.item(row, 0)
         if not it:
             return
@@ -250,24 +296,9 @@ class ComprasWindow(QWidget):
             pid = int(it.text())
         except ValueError:
             return
-        def _txt(c):
-            x = self.tbl_prov.item(row, c)
-            return x.text() if x else ""
-        dlg = _DialogoEditarProveedor({"razon_social": _txt(1), "cif_nif": _txt(2),
-                                       "email": _txt(3), "telefono": _txt(4)}, self)
-        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.datos:
-            return
-        d = dlg.datos
-        if not d["razon_social"]:
-            _aviso(self, tr("compras.proveedores", default="Proveedores"),
-                   tr("compras.falta_razon", default="La razón social es obligatoria."), "error"); return
-        ok = P.actualizar_proveedor(pid, razon_social=d["razon_social"], cif_nif=d["cif_nif"] or None,
-                                    email=d["email"] or None, telefono=d["telefono"] or None)
+        dlg = FichaProveedorDialog(pid, self, id_empresa=self._emp_actual())
+        dlg.exec()
         self._load_proveedores()
-        _aviso(self, tr("compras.proveedores", default="Proveedores"),
-               tr("compras.prov_editado", default="Proveedor actualizado.") if ok
-               else tr("compras.prov_no_editado", default="No se pudo actualizar."),
-               "success" if ok else "error")
 
     def _nuevo_proveedor(self):
         self._prov_sel = None
@@ -1149,31 +1180,422 @@ class _DialogoReposicion(QDialog):
                 self.accept()
 
 
-class _DialogoEditarProveedor(QDialog):
-    """Edición de un proveedor (frameless). Guarda vía P.actualizar_proveedor (propaga a toda la app)."""
+def _cap(txt):
+    lab = QLabel(txt); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:11px;")
+    return lab
 
-    def __init__(self, datos, parent=None):
+
+class FichaProveedorDialog(QDialog):
+    """Ficha COMPLETA del proveedor (gran formato, por pestañas): Datos Generales · Tarifas y Precios
+    Negociados · Condiciones Comerciales y Pago · Historial y Documentos. Solo orquesta interfaz; toda
+    la persistencia va a la BD PERMANENTE (`proveedores` + `proveedor_precios_negociados` + direcciones
+    0008) vía `db/proveedores` y `services/compras/proveedores_pro`, sin tocar otros módulos. Las tarifas
+    guardadas aquí alimentan el origen='tarifa' de la bolsa de Pedidos."""
+
+    _FORMAS_PAGO = ["", "Transferencia", "Recibo domiciliado", "Pagaré", "Confirming", "Efectivo", "Otro"]
+
+    def __init__(self, id_proveedor, parent=None, id_empresa=None):
+        super().__init__(parent)
+        self._pid = id_proveedor
+        self._emp = id_empresa
+        self._prov = P.obtener_proveedor(id_proveedor, id_empresa=id_empresa) or {}
+        self._tarifas = []
+        # Gran formato responsive adaptado al marco general de la app.
+        scr = QGuiApplication.primaryScreen()
+        av = scr.availableGeometry() if scr else None
+        ancho = min(1220, int(av.width() * 0.92)) if av else 1120
+        alto = min(800, int(av.height() * 0.90)) if av else 740
+        self.resize(ancho, alto)
+        v = _dialogo_frameless(self)   # sin título: cabecera propia con X reducida un 25%
+        v.addLayout(self._cabecera())
+        tabs = QTabWidget()
+        tabs.addTab(self._tab_generales(), tr("compras.ficha_generales", default="Datos Generales"))
+        tabs.addTab(self._tab_tarifas(),
+                    tr("compras.ficha_tarifas", default="Tarifas y Precios Negociados"))
+        tabs.addTab(self._tab_condiciones(),
+                    tr("compras.ficha_condiciones", default="Condiciones Comerciales y Pago"))
+        tabs.addTab(self._tab_historial(),
+                    tr("compras.ficha_historial", default="Historial y Documentos"))
+        v.addWidget(tabs, 1)
+        bar = QHBoxLayout(); bar.addStretch(1)
+        bar.addWidget(_btn(tr("compras.cerrar", default="Cerrar"), self.reject))
+        bar.addWidget(_btn(tr("compras.guardar", default="Guardar"), self._guardar, primary=True))
+        v.addLayout(bar)
+        self._cargar_tarifas()
+        self._cargar_historial()
+
+    # ── Cabecera con X reducida (50×44 −25% ≈ 38×33) ─────────────────────────
+    def _cabecera(self):
+        hdr = QHBoxLayout()
+        t = QLabel(tr("compras.ficha_prov", default="Ficha del proveedor"))
+        t.setStyleSheet(f"color:{_CIAN};background:transparent;font-weight:900;font-size:17px;")
+        hdr.addWidget(t)
+        sub = self._prov.get("razon_social") or ""
+        if sub:
+            s = QLabel(f"·  {sub}")
+            s.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:13px;")
+            hdr.addWidget(s)
+        hdr.addStretch(1)
+        x = QPushButton("✕"); x.setCursor(Qt.CursorShape.PointingHandCursor); x.setFixedSize(38, 33)
+        x.setToolTip(tr("compras.cerrar", default="Cerrar"))
+        x.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
+                        f"border-radius:7px;font-weight:900;font-size:14px;}}"
+                        f"QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
+        x.clicked.connect(self.reject)
+        hdr.addWidget(x)
+        return hdr
+
+    # ── a) Datos Generales ────────────────────────────────────────────────────
+    def _tab_generales(self):
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(8)
+        p = self._prov
+        self.f_razon = _inp("Razón social"); self.f_razon.setText(p.get("razon_social") or "")
+        self.f_nombre_com = _inp("Nombre comercial"); self.f_nombre_com.setText(p.get("nombre_comercial") or "")
+        self.f_cif = _inp("CIF/NIF"); self.f_cif.setText(p.get("cif_nif") or "")
+        self.f_estado = _combo([("Activo", "activo"), ("Inactivo", "inactivo")],
+                               actual=(p.get("estado") or "activo"))
+        self.f_email = _inp("Email"); self.f_email.setText(p.get("email") or "")
+        self.f_tel = _inp("Teléfono"); self.f_tel.setText(p.get("telefono") or "")
+        self.f_persona = _inp("Persona de contacto"); self.f_persona.setText(p.get("persona_contacto") or "")
+        self.f_web = _inp("https://…"); self.f_web.setText(p.get("web") or "")
+
+        lbl = QLabel("🏢  " + tr("compras.ficha_identificacion", default="Identificación"))
+        lbl.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:13px;")
+        ly.addWidget(lbl)
+        g1 = QFormLayout(); g1.setHorizontalSpacing(18); g1.setVerticalSpacing(6)
+        g1.addRow(_cap("Razón social"), self.f_razon)
+        g1.addRow(_cap("Nombre comercial"), self.f_nombre_com)
+        g1.addRow(_cap("CIF/NIF"), self.f_cif)
+        g1.addRow(_cap("Estado"), self.f_estado)
+        ly.addLayout(g1)
+
+        lbl2 = QLabel("📇  " + tr("compras.ficha_contacto", default="Contacto principal"))
+        lbl2.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:13px;padding-top:6px;")
+        ly.addWidget(lbl2)
+        g2 = QFormLayout(); g2.setHorizontalSpacing(18); g2.setVerticalSpacing(6)
+        g2.addRow(_cap("Email"), self.f_email)
+        g2.addRow(_cap("Teléfono"), self.f_tel)
+        g2.addRow(_cap("Persona de contacto"), self.f_persona)
+        g2.addRow(_cap("Web"), self.f_web)
+        ly.addLayout(g2)
+
+        lbl3 = QLabel("📍  " + tr("compras.ficha_direcciones", default="Direcciones (fiscal y almacén)"))
+        lbl3.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:13px;padding-top:6px;")
+        ly.addWidget(lbl3)
+        self.tbl_dir = _tabla(["Tipo", "Dirección", "CP", "Municipio", "Provincia", "País"])
+        ly.addWidget(self.tbl_dir, 1)
+        db = QHBoxLayout()
+        db.addWidget(_btn(tr("compras.ficha_add_dir", default="Añadir dirección"),
+                          self._add_direccion, primary=True))
+        db.addStretch(1)
+        ly.addLayout(db)
+        self._cargar_direcciones()
+        return w
+
+    def _cargar_direcciones(self):
+        self.tbl_dir.setRowCount(0)
+        try:
+            dirs = P.listar_direcciones(self._pid)
+        except Exception:
+            dirs = []
+        for d in dirs:
+            r = self.tbl_dir.rowCount(); self.tbl_dir.insertRow(r)
+            for c, k in enumerate(("tipo", "direccion", "cp", "municipio", "provincia", "pais")):
+                self.tbl_dir.setItem(r, c, QTableWidgetItem(str(d.get(k) or "")))
+
+    def _add_direccion(self):
+        dlg = _DialogoDireccion(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.datos:
+            return
+        d = dlg.datos
+        P.agregar_direccion(self._pid, direccion=d.get("direccion"), tipo=d.get("tipo") or "fiscal",
+                            cp=d.get("cp"), municipio=d.get("municipio"), provincia=d.get("provincia"),
+                            pais=d.get("pais") or "España")
+        self._cargar_direcciones()
+
+    # ── b) Tarifas y Precios Negociados ───────────────────────────────────────
+    def _tab_tarifas(self):
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(8)
+        info = QLabel(tr("compras.ficha_tarifas_info",
+                         default="Estas tarifas alimentan automáticamente el origen «tarifa» de la bolsa "
+                                 "en Pedidos."))
+        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;"); info.setWordWrap(True)
+        ly.addWidget(info)
+        self.tbl_tarifas = _tabla(["Código Artículo", "Descripción", "Precio Negociado (€)",
+                                   "Descuento (%)", "Fecha Actualización"])
+        ly.addWidget(self.tbl_tarifas, 1)
+        bar = QHBoxLayout()
+        bar.addWidget(_btn(tr("compras.ficha_add_tarifa", default="Añadir Artículo / Tarifa"),
+                           self._add_tarifa, primary=True))
+        bar.addWidget(_btn(tr("compras.editar", default="Editar"), self._editar_tarifa, primary=True))
+        bar.addWidget(_btn(tr("compras.eliminar", default="Eliminar"), self._eliminar_tarifa, primary=True))
+        bar.addStretch(1)
+        bar.addWidget(_btn("📁  " + tr("compras.ficha_import_tarifas", default="Importar Tarifas (CSV/Excel)"),
+                           self._importar_tarifas, primary=True))
+        ly.addLayout(bar)
+        return w
+
+    def _cargar_tarifas(self):
+        from src.services.compras import proveedores_pro as PP
+        try:
+            self._tarifas = PP.listar_tarifas_proveedor(self._pid, id_empresa=self._emp)
+        except Exception as e:
+            logger.error("cargar tarifas ficha: %s", e); self._tarifas = []
+        self.tbl_tarifas.setRowCount(0)
+        for t in self._tarifas:
+            r = self.tbl_tarifas.rowCount(); self.tbl_tarifas.insertRow(r)
+            fecha = str(t.get("fecha") or "")[:10]
+            vals = [t.get("codigo"), t.get("descripcion"),
+                    f"{float(t.get('precio') or 0):.2f}", f"{float(t.get('descuento') or 0):.0f}", fecha]
+            for c, val in enumerate(vals):
+                self.tbl_tarifas.setItem(r, c, QTableWidgetItem("" if val is None else str(val)))
+
+    def _tarifa_sel(self):
+        r = self.tbl_tarifas.currentRow()
+        return self._tarifas[r] if 0 <= r < len(self._tarifas) else None
+
+    def _add_tarifa(self, _=False, base=None):
+        dlg = _DialogoTarifa(self, base=base)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.datos:
+            return
+        from src.services.compras import proveedores_pro as PP
+        d = dlg.datos
+        PP.set_precio_negociado(self._pid, d["codigo"], d["precio"], descuento=d["descuento"],
+                                unidad_medida=d["unidad"], id_empresa=self._emp)
+        self._cargar_tarifas()
+
+    def _editar_tarifa(self):
+        t = self._tarifa_sel()
+        if not t:
+            _aviso(self, tr("compras.ficha_tarifas", default="Tarifas"),
+                   tr("compras.ficha_sel_tarifa", default="Selecciona una tarifa de la tabla."), "warning")
+            return
+        self._add_tarifa(base={"codigo": t.get("codigo"), "descripcion": t.get("descripcion"),
+                               "precio": t.get("precio"), "descuento": t.get("descuento"),
+                               "unidad": t.get("unidad_medida")})
+
+    def _eliminar_tarifa(self):
+        t = self._tarifa_sel()
+        if not t:
+            _aviso(self, tr("compras.ficha_tarifas", default="Tarifas"),
+                   tr("compras.ficha_sel_tarifa", default="Selecciona una tarifa de la tabla."), "warning")
+            return
+        if not _confirmar(self, tr("compras.eliminar", default="Eliminar"),
+                          tr("compras.ficha_del_tarifa", default="¿Eliminar la tarifa de «{c}»?",
+                             c=t.get("codigo"))):
+            return
+        from src.services.compras import proveedores_pro as PP
+        if PP.eliminar_tarifa(t.get("id"), id_empresa=self._emp):
+            self._cargar_tarifas()
+        else:
+            _aviso(self, tr("compras.ficha_tarifas", default="Tarifas"),
+                   tr("compras.ficha_del_err", default="No se pudo eliminar la tarifa."), "error")
+
+    def _importar_tarifas(self):
+        from PyQt6.QtWidgets import QFileDialog
+        ruta, _ = QFileDialog.getOpenFileName(self, tr("compras.ficha_import_tarifas",
+                                                       default="Importar Tarifas"), "",
+                                              "Tarifas (*.csv *.xlsx *.xls *.json *.tsv);;Todos (*)")
+        if not ruta:
+            return
+        from src.services.compras import proveedores_pro as PP
+        res = PP.importar_tarifas_proveedor(self._pid, ruta, id_empresa=self._emp)
+        self._cargar_tarifas()
+        _aviso(self, tr("compras.ficha_import_tarifas", default="Importar Tarifas"),
+               tr("compras.ficha_import_res",
+                  default="Importadas {i} de {t} tarifas ({e} con error).",
+                  i=res.get("importadas", 0), t=res.get("total", 0), e=res.get("errores", 0)),
+               "success" if res.get("importadas") else "warning")
+
+    # ── c) Condiciones Comerciales y Pago ─────────────────────────────────────
+    def _tab_condiciones(self):
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(8)
+        p = self._prov
+        self.c_forma = _combo([(f or "—", f) for f in self._FORMAS_PAGO], actual=(p.get("forma_pago") or ""))
+        self.c_dias_pago = _inp("0"); self.c_dias_pago.setText(str(p.get("plazo_pago") or ""))
+        self.c_iban = _inp("ES00 0000 0000 0000 0000 0000"); self.c_iban.setText(p.get("iban") or "")
+        self.c_dias_entrega = _inp("0"); self.c_dias_entrega.setText(str(p.get("lead_time_dias") or ""))
+        self.c_pedido_min = _inp("0.00")
+        pm = p.get("pedido_minimo")
+        self.c_pedido_min.setText(f"{float(pm):.2f}" if pm not in (None, "") else "")
+        lbl = QLabel("💳  " + tr("compras.ficha_pago", default="Condiciones de pago y entrega"))
+        lbl.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:13px;")
+        ly.addWidget(lbl)
+        g = QFormLayout(); g.setHorizontalSpacing(18); g.setVerticalSpacing(8)
+        g.addRow(_cap("Forma de pago pactada"), self.c_forma)
+        g.addRow(_cap("Días de pago"), self.c_dias_pago)
+        g.addRow(_cap("IBAN de abono"), self.c_iban)
+        g.addRow(_cap("Días de entrega estimados"), self.c_dias_entrega)
+        g.addRow(_cap("Pedido mínimo (€)"), self.c_pedido_min)
+        ly.addLayout(g)
+        ly.addStretch(1)
+        return w
+
+    # ── d) Historial y Documentos ─────────────────────────────────────────────
+    def _tab_historial(self):
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(8)
+        lp = QLabel("📦  " + tr("compras.ficha_pedidos", default="Histórico de pedidos"))
+        lp.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:13px;")
+        ly.addWidget(lp)
+        self.tbl_hist_ped = _tabla(["Pedido", "Fecha", "Estado", "Total (€)"])
+        ly.addWidget(self.tbl_hist_ped, 1)
+        lf = QLabel("🧾  " + tr("compras.ficha_facturas", default="Facturas emitidas"))
+        lf.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:13px;padding-top:4px;")
+        ly.addWidget(lf)
+        self.tbl_hist_fac = _tabla(["Factura", "Fecha", "Estado", "Total (€)"])
+        ly.addWidget(self.tbl_hist_fac, 1)
+        ln = QLabel("📝  " + tr("compras.ficha_notas", default="Notas internas / incidencias"))
+        ln.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:13px;padding-top:4px;")
+        ly.addWidget(ln)
+        self.n_obs = QTextEdit(); self.n_obs.setPlainText(self._prov.get("observaciones") or "")
+        self.n_obs.setFixedHeight(90)
+        self.n_obs.setStyleSheet(f"QTextEdit{{background:{_BG};color:{_TEXT};border:2px solid {_BORDE};"
+                                 f"border-radius:8px;padding:6px;font-size:12px;}}"
+                                 f"QTextEdit:focus{{border-color:{_CIAN};}}")
+        ly.addWidget(self.n_obs)
+        return w
+
+    def _cargar_historial(self):
+        def _fecha(d):
+            for k in ("fecha", "creado_en", "fecha_pedido", "fecha_factura", "creada"):
+                if d.get(k):
+                    return str(d[k])[:10]
+            return ""
+        try:
+            peds = C.listar_pedidos(id_empresa=self._emp, id_proveedor=self._pid) or []
+        except Exception:
+            peds = []
+        for d in peds:
+            r = self.tbl_hist_ped.rowCount(); self.tbl_hist_ped.insertRow(r)
+            vals = [d.get("id_pedido"), _fecha(d), d.get("estado"),
+                    f"{float(d.get('total') or 0):.2f}"]
+            for c, val in enumerate(vals):
+                self.tbl_hist_ped.setItem(r, c, QTableWidgetItem("" if val is None else str(val)))
+        try:
+            facs = C.listar_facturas(id_empresa=self._emp, id_proveedor=self._pid) or []
+        except Exception:
+            facs = []
+        for d in facs:
+            r = self.tbl_hist_fac.rowCount(); self.tbl_hist_fac.insertRow(r)
+            vals = [d.get("numero_factura") or d.get("id_factura"), _fecha(d), d.get("estado"),
+                    f"{float(d.get('total') or 0):.2f}"]
+            for c, val in enumerate(vals):
+                self.tbl_hist_fac.setItem(r, c, QTableWidgetItem("" if val is None else str(val)))
+
+    # ── Guardado (Datos Generales + Condiciones + notas) ──────────────────────
+    def _guardar(self):
+        razon = self.f_razon.text().strip()
+        if not razon:
+            _aviso(self, tr("compras.proveedores", default="Proveedores"),
+                   tr("compras.falta_razon", default="La razón social es obligatoria."), "error")
+            return
+
+        def _num(txt, entero=False):
+            t = (txt or "").strip().replace(",", ".")
+            if not t:
+                return None
+            try:
+                return int(float(t)) if entero else float(t)
+            except ValueError:
+                return None
+
+        ok = P.actualizar_proveedor(
+            self._pid, id_empresa=self._emp,
+            razon_social=razon,
+            nombre_comercial=self.f_nombre_com.text().strip() or None,
+            cif_nif=self.f_cif.text().strip() or None,
+            estado=self.f_estado.currentData(),
+            email=self.f_email.text().strip() or None,
+            telefono=self.f_tel.text().strip() or None,
+            persona_contacto=self.f_persona.text().strip() or None,
+            web=self.f_web.text().strip() or None,
+            forma_pago=self.c_forma.currentData() or None,
+            plazo_pago=_num(self.c_dias_pago.text(), entero=True),
+            iban=self.c_iban.text().strip() or None,
+            lead_time_dias=_num(self.c_dias_entrega.text(), entero=True),
+            pedido_minimo=_num(self.c_pedido_min.text()),
+            observaciones=self.n_obs.toPlainText().strip() or None)
+        _aviso(self, tr("compras.ficha_prov", default="Ficha del proveedor"),
+               tr("compras.prov_editado", default="Proveedor actualizado.") if ok
+               else tr("compras.prov_no_editado", default="No se pudo actualizar."),
+               "success" if ok else "error")
+        if ok:
+            self.accept()
+
+
+class _DialogoTarifa(QDialog):
+    """Alta/edición de una tarifa de proveedor (código + precio + descuento + unidad)."""
+
+    _UNIDADES = ("unidad", "caja", "pale", "kg")
+
+    def __init__(self, parent=None, base=None):
         super().__init__(parent)
         self.datos = None
-        self.setFixedSize(460, 360)
-        v = _dialogo_frameless(self, titulo=tr("compras.editar_prov", default="Editar proveedor"), ancho=460)
-        self.in_razon = _inp("Razón social"); self.in_razon.setText(datos.get("razon_social", ""))
-        self.in_cif = _inp("CIF/NIF"); self.in_cif.setText(datos.get("cif_nif", ""))
-        self.in_email = _inp("Email"); self.in_email.setText(datos.get("email", ""))
-        self.in_tel = _inp("Teléfono"); self.in_tel.setText(datos.get("telefono", ""))
-        for lab, wdg in [("Razón social", self.in_razon), ("CIF/NIF", self.in_cif),
-                         ("Email", self.in_email), ("Teléfono", self.in_tel)]:
-            cap = QLabel(lab); cap.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
-            v.addWidget(cap); v.addWidget(wdg)
-        v.addStretch()
-        row = QHBoxLayout()
+        base = base or {}
+        self.setFixedSize(440, 340)
+        v = _dialogo_frameless(self, titulo=tr("compras.ficha_add_tarifa", default="Artículo / Tarifa"),
+                               ancho=440)
+        self.in_cod = _inp("Código de artículo"); self.in_cod.setText(str(base.get("codigo") or ""))
+        self.in_precio = _inp("0.00")
+        if base.get("precio") is not None:
+            self.in_precio.setText(f"{float(base['precio']):.2f}")
+        self.in_dto = _inp("0")
+        if base.get("descuento") is not None:
+            self.in_dto.setText(f"{float(base['descuento']):.0f}")
+        self.cb_unidad = _combo([(u.capitalize(), u) for u in self._UNIDADES],
+                                actual=(base.get("unidad") or "unidad"))
+        for lab, wdg in (("Código de artículo", self.in_cod), ("Precio negociado (€)", self.in_precio),
+                         ("Descuento (%)", self.in_dto), ("Unidad de medida", self.cb_unidad)):
+            v.addWidget(_cap(lab)); v.addWidget(wdg)
+        v.addStretch(1)
+        row = QHBoxLayout(); row.addStretch(1)
         row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), self.reject))
         row.addWidget(_btn(tr("compras.guardar", default="Guardar"), self._ok, primary=True))
         v.addLayout(row)
 
     def _ok(self):
-        self.datos = {"razon_social": self.in_razon.text().strip(), "cif_nif": self.in_cif.text().strip(),
-                      "email": self.in_email.text().strip(), "telefono": self.in_tel.text().strip()}
+        cod = self.in_cod.text().strip()
+        try:
+            precio = float((self.in_precio.text() or "0").replace(",", "."))
+            dto = float((self.in_dto.text() or "0").replace(",", "."))
+        except ValueError:
+            return
+        if not cod or precio <= 0:
+            return
+        self.datos = {"codigo": cod, "precio": precio, "descuento": dto,
+                      "unidad": self.cb_unidad.currentData()}
+        self.accept()
+
+
+class _DialogoDireccion(QDialog):
+    """Alta de una dirección de proveedor (fiscal / almacén) sobre las tablas 0008."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.datos = None
+        self.setFixedSize(460, 420)
+        v = _dialogo_frameless(self, titulo=tr("compras.ficha_add_dir", default="Añadir dirección"),
+                               ancho=460)
+        self.cb_tipo = _combo([("Fiscal", "fiscal"), ("Almacén", "almacen"), ("Envío", "envio")])
+        self.in_dir = _inp("Dirección"); self.in_cp = _inp("CP")
+        self.in_mun = _inp("Municipio"); self.in_prov = _inp("Provincia")
+        self.in_pais = _inp("País"); self.in_pais.setText("España")
+        for lab, wdg in (("Tipo", self.cb_tipo), ("Dirección", self.in_dir), ("CP", self.in_cp),
+                         ("Municipio", self.in_mun), ("Provincia", self.in_prov), ("País", self.in_pais)):
+            v.addWidget(_cap(lab)); v.addWidget(wdg)
+        v.addStretch(1)
+        row = QHBoxLayout(); row.addStretch(1)
+        row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), self.reject))
+        row.addWidget(_btn(tr("compras.guardar", default="Guardar"), self._ok, primary=True))
+        v.addLayout(row)
+
+    def _ok(self):
+        if not self.in_dir.text().strip():
+            return
+        self.datos = {"tipo": self.cb_tipo.currentData(), "direccion": self.in_dir.text().strip(),
+                      "cp": self.in_cp.text().strip() or None, "municipio": self.in_mun.text().strip() or None,
+                      "provincia": self.in_prov.text().strip() or None,
+                      "pais": self.in_pais.text().strip() or "España"}
         self.accept()
 
 
