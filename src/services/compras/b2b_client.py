@@ -19,6 +19,34 @@ logger = logging.getLogger("compras.b2b_client")
 # nombre -> clase adaptadora
 _REGISTRO: dict = {}
 
+# Catálogo de PRESETS de plataformas B2B (autocompletado). Cada preset fija el endpoint base y el adaptador
+# técnico ('rest' genérico o 'simulado'); `oauth` marca si la plataforma admite vinculación por OAuth.
+PRESETS = {
+    "consentio": {"label": "Consentio", "endpoint": "https://api.consentio.co/v1",
+                  "adapter": "rest", "oauth": True},
+    "choco":     {"label": "Choco", "endpoint": "https://api.choco.com/v1",
+                  "adapter": "rest", "oauth": True},
+    "prezo":     {"label": "Prezo", "endpoint": "https://api.prezo.io/v1",
+                  "adapter": "rest", "oauth": False},
+    "b2brouter": {"label": "B2Brouter (EDI / Factura electrónica)",
+                  "endpoint": "https://app.b2brouter.net/api", "adapter": "rest", "oauth": False},
+    "haddock":   {"label": "haddock", "endpoint": "https://api.haddock.app/v1",
+                  "adapter": "rest", "oauth": False},
+    "rest":      {"label": "REST Personalizado", "endpoint": "", "adapter": "rest", "oauth": False},
+    "simulado":  {"label": "Simulado (pruebas)", "endpoint": "", "adapter": "simulado", "oauth": False},
+}
+
+
+def preset(nombre) -> dict:
+    return PRESETS.get(nombre or "rest", PRESETS["rest"])
+
+
+def _adapter_de(nombre) -> str:
+    """Adaptador técnico ('rest'/'simulado') de un preset o nombre de conector."""
+    if nombre in _REGISTRO:
+        return nombre
+    return preset(nombre).get("adapter", "rest")
+
 
 def registrar(nombre):
     def deco(clase):
@@ -50,6 +78,12 @@ class ConectorB2B:
         """Despacha la orden. Devuelve {ok, id_externo, estado, mensaje}."""
         return {"ok": False, "id_externo": None, "estado": "no_enviado",
                 "mensaje": "Conector B2B no configurado."}
+
+    def probar(self) -> dict:
+        """Prueba de conexión. Devuelve {ok, n, mensaje}."""
+        if not self.configurado():
+            return {"ok": False, "n": 0, "mensaje": "Faltan credenciales (endpoint / API Key)."}
+        return {"ok": True, "n": 0, "mensaje": "Configurado."}
 
 
 @registrar("rest")
@@ -102,6 +136,28 @@ class ConectorREST(ConectorB2B):
             "ref_externa": x.get("id") or x.get("ref"),
         }
 
+    def probar(self) -> dict:
+        if not self.configurado():
+            return {"ok": False, "n": 0, "mensaje": "Faltan credenciales (endpoint / API Key)."}
+        try:
+            import requests
+        except Exception:
+            return {"ok": False, "n": 0, "mensaje": "requests no disponible."}
+        try:
+            r = requests.get(f"{self.config['endpoint'].rstrip('/')}/catalog",
+                             headers=self._headers(), timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                items = data.get("items", data) if isinstance(data, dict) else data
+                n = len(items or [])
+                return {"ok": True, "n": n, "mensaje": f"Conexión exitosa ({n} artículos detectados)."}
+            if r.status_code in (401, 403):
+                return {"ok": False, "n": 0, "mensaje": "Credenciales incorrectas."}
+            return {"ok": False, "n": 0, "mensaje": f"Servidor no disponible ({r.status_code})."}
+        except Exception as e:
+            logger.debug("probar: %s", e)
+            return {"ok": False, "n": 0, "mensaje": "Credenciales incorrectas o servidor no disponible."}
+
     def enviar_orden_compra(self, payload_pedido: dict) -> dict:
         if not self.configurado():
             return {"ok": False, "id_externo": None, "estado": "no_enviado",
@@ -130,10 +186,19 @@ class ConectorSimulado(ConectorB2B):
     def configurado(self) -> bool:
         return True
 
+    def probar(self) -> dict:
+        return {"ok": True, "n": 0, "mensaje": "Conector simulado (sin datos reales)."}
+
     def enviar_orden_compra(self, payload_pedido: dict) -> dict:
         import uuid
         return {"ok": True, "id_externo": f"SIM-{uuid.uuid4().hex[:10].upper()}",
                 "estado": "simulado", "mensaje": "Orden simulada (sin despacho real)."}
+
+
+def _clase_de(cfg) -> type:
+    """Clase adaptadora para una config (según el preset/proveedor)."""
+    adapter = _adapter_de(cfg.get("proveedor") or "rest")
+    return _REGISTRO.get(adapter) or _REGISTRO.get("rest") or ConectorB2B
 
 
 def _conector(id_empresa=None) -> ConectorB2B:
@@ -144,22 +209,35 @@ def _conector(id_empresa=None) -> ConectorB2B:
     except Exception as e:
         logger.debug("config B2B no disponible: %s", e)
         cfg = {}
-    nombre = (cfg.get("proveedor") or "rest")
-    clase = _REGISTRO.get(nombre) or _REGISTRO.get("rest")
-    inst = clase(cfg) if clase else ConectorB2B(cfg)
+    inst = _clase_de(cfg)(cfg)
     return inst if inst.configurado() else _REGISTRO["simulado"](cfg)
 
 
-# ── API pública (consumida por la GUI de Pedidos) ────────────────────────────
+# ── API pública (consumida por la GUI de Pedidos y Avanzado) ─────────────────
 def disponible(id_empresa=None) -> bool:
     """True si hay un conector B2B realmente configurado (no el simulado)."""
     try:
         from src.db import compras_b2b as cfgdb
         cfg = cfgdb.obtener_config(id_empresa)
-        clase = _REGISTRO.get(cfg.get("proveedor") or "rest") or ConectorB2B
-        return clase(cfg).configurado()
+        return _clase_de(cfg)(cfg).configurado()
     except Exception:
         return False
+
+
+def probar_conexion(config=None, id_empresa=None) -> dict:
+    """Prueba de conexión en tiempo real. Si se pasa `config` (valores del formulario, sin guardar aún) se
+    prueba esa; si no, la config guardada. Devuelve {ok, n, mensaje}."""
+    if config is None:
+        try:
+            from src.db import compras_b2b as cfgdb
+            config = cfgdb.obtener_config(id_empresa)
+        except Exception:
+            config = {}
+    try:
+        return _clase_de(config)(config).probar()
+    except Exception as e:
+        logger.error("probar_conexion: %s", e)
+        return {"ok": False, "n": 0, "mensaje": "No se pudo probar la conexión."}
 
 
 def obtener_catalogo(filtro_articulo=None, proveedor_id=None, id_empresa=None) -> list:

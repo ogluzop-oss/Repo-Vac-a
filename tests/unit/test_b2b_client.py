@@ -37,3 +37,19 @@ def test_disponible_con_config(monkeypatch):
                         lambda id_empresa=None: {"proveedor": "rest", "endpoint": "https://api.x",
                                                  "api_key": "k"})
     assert B2B.disponible("E1") is True
+
+
+def test_presets_catalogo():
+    assert set(B2B.PRESETS) >= {"consentio", "choco", "prezo", "b2brouter", "haddock", "rest", "simulado"}
+    # Los presets de plataforma fijan un endpoint y usan el adaptador REST.
+    assert B2B.preset("consentio")["endpoint"] and B2B._adapter_de("consentio") == "rest"
+    assert B2B.preset("consentio")["oauth"] is True
+    assert B2B._adapter_de("simulado") == "simulado"
+    assert B2B.preset("rest")["endpoint"] == ""   # REST personalizado: el usuario lo escribe
+
+
+def test_probar_conexion():
+    # Simulado → ok. REST sin credenciales → falla (faltan claves), nunca lanza.
+    assert B2B.probar_conexion(config={"proveedor": "simulado"})["ok"] is True
+    r = B2B.probar_conexion(config={"proveedor": "consentio"})
+    assert r["ok"] is False and "credenciales" in r["mensaje"].lower()
