@@ -380,14 +380,16 @@ class ComprasWindow(QWidget):
                             self._add_watchlist, primary=True))
         mbar.addStretch(1)
         ly.addLayout(mbar)
-        # Tabla UNIFICADA: tarifas fijas (tuyas) + ofertas en vivo del mercado (Lonja), clasificadas por
-        # ORIGEN, con precio en divisa original + convertido a tu divisa de referencia.
+        # Tabla UNIFICADA (modelo B2B + Watchlist): tarifas fijas locales (origen='tarifa') + catálogo
+        # remoto del conector B2B (origen='b2b'), clasificadas por ORIGEN, con PVP sugerido por el motor
+        # de precios dinámicos y el % de desvío frente al precio de referencia de mercado.
         self.tbl_bolsa = _tabla([tr("compras.origen", default="Origen"),
                                  tr("compras.proveedor", default="Proveedor"),
                                  tr("compras.precio", default="Precio"),
                                  tr("compras.divisa", default="Divisa"),
                                  tr("compras.precio_ref", default="Precio ref."),
-                                 tr("compras.puja_min", default="Puja mín."),
+                                 tr("compras.pvp_sugerido_col", default="PVP Sugerido"),
+                                 tr("compras.desvio_col", default="Desvío %"),
                                  tr("compras.disponible", default="Disponible"),
                                  tr("compras.unidad", default="Unidad")])
         # Doble clic → comprar ya (tarifa: a la cola; en vivo: compra directa del mercado).
@@ -498,9 +500,9 @@ class ComprasWindow(QWidget):
         ref = self._ref_mercado
         try:
             from src.services.compras import precios_dinamicos as PD
-            umbral = PD._reglas(self._emp_actual())[0]
+            umbral, margen = PD._reglas(self._emp_actual())
         except Exception:
-            PD = None; umbral = 10.0
+            PD = None; umbral, margen = 10.0, 30.0
         verde, rojo = QColor("#3FB950"), QColor("#F85149")
         for r in filas:
             row = self.tbl_bolsa.rowCount(); self.tbl_bolsa.insertRow(row)
@@ -511,15 +513,23 @@ class ComprasWindow(QWidget):
             # Monitor de desvíos (emulación Google Shopping): verde = oportunidad, rojo = incremento.
             desvio = PD.evaluar_desvio(precio, ref, umbral) if PD else "normal"
             flecha = {"oportunidad": "▼ ", "alerta": "▲ "}.get(desvio, "")
+            # PVP sugerido por línea (coste de la fila × margen dinámico) y % de desvío frente a Precio ref.
+            pvp = f"{PD.pvp_sugerido(precio, margen):.2f}" if PD else "—"
+            if ref not in (None, 0):
+                desv_txt = f"{(precio - ref) / ref * 100.0:+.1f}%"
+            else:
+                desv_txt = "—"
+            # Columnas: Origen · Proveedor · Precio · Divisa · Precio ref. · PVP Sugerido · Desvío % ·
+            #           Disponible · Unidad
             vals = [origen, r.get("proveedor"), f"{flecha}{precio:.2f}", r.get("divisa"),
-                    pref, "—", disp, r.get("unidad")]
+                    pref, pvp, desv_txt, disp, r.get("unidad")]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem("" if v is None else str(v))
-                if c == 2 and desvio == "oportunidad":
+                if c in (2, 6) and desvio == "oportunidad":       # Precio y Desvío %: verde si oportunidad
                     it.setForeground(verde)
-                elif c == 2 and desvio == "alerta":
+                elif c in (2, 6) and desvio == "alerta":          # rojo si alerta sobre umbral
                     it.setForeground(rojo)
-                elif r["origen"] == "b2b" and c != 2:
+                elif r["origen"] == "b2b" and c not in (2, 6):
                     it.setForeground(QColor(_CIAN))
                 self.tbl_bolsa.setItem(row, c, it)
         if not filas:
@@ -664,6 +674,10 @@ class ComprasWindow(QWidget):
                                                   "email", "telefono", "estado"))
             return
         self._render_carrito()
+        # ACTUALIZAR refresca EN VIVO la bolsa superior si hay una búsqueda activa: vuelve a leer las
+        # tarifas locales (origen='tarifa') y el catálogo remoto del conector (origen='b2b').
+        if hasattr(self, "in_bolsa_art") and self.in_bolsa_art.text().strip():
+            self._buscar_bolsa()
 
     def _carrito_sel_idx(self):
         """Índice del artículo seleccionado en la cola (la fila TOTAL queda excluida)."""
