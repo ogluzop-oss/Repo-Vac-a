@@ -368,6 +368,8 @@ class ComprasWindow(QWidget):
         mbar = QHBoxLayout()
         mbar.addWidget(_btn("🛒  " + tr("compras.comprar_ya", default="COMPRAR YA"),
                             self._comprar_ya, primary=True))
+        mbar.addWidget(_btn("👁  " + tr("compras.watchlist", default="AÑADIR A WATCHLIST"),
+                            self._add_watchlist, primary=True))
         mbar.addStretch(1)
         ly.addLayout(mbar)
         # Tabla UNIFICADA: tarifas fijas (tuyas) + ofertas en vivo del mercado (Lonja), clasificadas por
@@ -485,35 +487,85 @@ class ComprasWindow(QWidget):
                        reverse=bool(desc))
         self._bolsa_rows = filas
         self._bolsa_ref = "EUR"
+        ref = self._ref_mercado
+        try:
+            from src.services.compras import precios_dinamicos as PD
+            umbral = PD._reglas(self._emp_actual())[0]
+        except Exception:
+            PD = None; umbral = 10.0
+        verde, rojo = QColor("#3FB950"), QColor("#F85149")
         for r in filas:
             row = self.tbl_bolsa.rowCount(); self.tbl_bolsa.insertRow(row)
             origen = "B2B" if r["origen"] == "b2b" else "Tarifa"
-            ref = self._ref_mercado
             pref = f"{ref:.2f} EUR" if ref is not None else "—"
             disp = "—" if r.get("disponible") is None else f"{float(r['disponible']):.0f}"
-            vals = [origen, r.get("proveedor"), f"{float(r.get('precio') or 0):.2f}", r.get("divisa"),
+            precio = float(r.get("precio") or 0)
+            # Monitor de desvíos (emulación Google Shopping): verde = oportunidad, rojo = incremento.
+            desvio = PD.evaluar_desvio(precio, ref, umbral) if PD else "normal"
+            flecha = {"oportunidad": "▼ ", "alerta": "▲ "}.get(desvio, "")
+            vals = [origen, r.get("proveedor"), f"{flecha}{precio:.2f}", r.get("divisa"),
                     pref, "—", disp, r.get("unidad")]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem("" if v is None else str(v))
-                if r["origen"] == "b2b":
+                if c == 2 and desvio == "oportunidad":
+                    it.setForeground(verde)
+                elif c == 2 and desvio == "alerta":
+                    it.setForeground(rojo)
+                elif r["origen"] == "b2b" and c != 2:
                     it.setForeground(QColor(_CIAN))
                 self.tbl_bolsa.setItem(row, c, it)
         if not filas:
             _aviso(self, tr("compras.bolsa_titulo", default="Bolsa"),
                    tr("compras.bolsa_vacia2", default="No hay tarifas ni catálogo B2B para ese artículo."),
                    "info")
+            return
+        # Motor de precios dinámicos: sugerencia de PVP si la variación de coste es significativa.
+        if PD is not None:
+            try:
+                coste = PD.coste_mas_bajo(filas)
+                sug = PD.sugerencia_precio_venta(cod, coste, id_empresa=self._emp_actual())
+                self._sugerencia_pvp(sug)
+            except Exception as e:
+                logger.debug("sugerencia PVP: %s", e)
 
     def _precio_ref_mercado(self, codigo):
-        """Precio de referencia (índice de mercado): último coste de compra del artículo, si existe.
-        Sirve de base para el watchlist / indicadores de desvío (Fase 3)."""
+        """Precio de referencia (índice de mercado) = último coste de compra del artículo (histórico ERP)."""
         try:
-            from src.services.compras import proveedores_pro as PP
-            if hasattr(PP, "ultimo_coste"):
-                v = PP.ultimo_coste(codigo, id_empresa=self._emp_actual())
-                return float(v) if v else None
+            from src.services.compras import precios_dinamicos as PD
+            return PD.precio_referencia(codigo, id_empresa=self._emp_actual())
         except Exception:
-            pass
-        return None
+            return None
+
+    def _sugerencia_pvp(self, sug):
+        """Muestra la sugerencia de PVP del motor de precios dinámicos cuando el coste se desvía."""
+        if not sug or not sug.get("significativo") or not sug.get("coste"):
+            return
+        var = sug.get("variacion_pct")
+        tendencia = ("bajada" if sug.get("desvio") == "oportunidad" else "subida")
+        _aviso(self, tr("compras.pvp_sugerido", default="Precio dinámico"),
+               tr("compras.pvp_msg",
+                  default="Coste más bajo {c:.2f}€ ({t} {v}% vs. ref.). PVP sugerido: {p:.2f}€ "
+                          "(margen {m:.0f}%). Considera actualizar el precio de venta.",
+                  c=float(sug["coste"]), t=tendencia,
+                  v=(abs(var) if var is not None else 0), p=float(sug["pvp_sugerido"]),
+                  m=float(sug["margen_pct"])),
+               "warning" if sug.get("desvio") == "alerta" else "success")
+
+    def _add_watchlist(self):
+        """Añade el artículo buscado a la watchlist de monitorización de coste."""
+        cod = getattr(self, "_bolsa_cod", None)
+        if not cod:
+            _aviso(self, "Watchlist", tr("compras.wl_busca",
+                                         default="Busca un artículo antes de añadirlo a la watchlist."),
+                   "warning")
+            return
+        from src.services.compras import precios_dinamicos as PD
+        if PD.añadir_watchlist(cod, id_empresa=self._emp_actual()):
+            _aviso(self, "Watchlist", tr("compras.wl_ok", default="«{c}» añadido a la watchlist.", c=cod),
+                   "success")
+        else:
+            _aviso(self, "Watchlist", tr("compras.wl_err", default="No se pudo añadir a la watchlist."),
+                   "error")
 
     def _bolsa_sel(self):
         r = self.tbl_bolsa.currentRow()

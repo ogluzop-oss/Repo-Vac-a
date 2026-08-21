@@ -207,4 +207,5 @@ MODULOS = [
     "0201_cancelaciones",
     "0207_desmontaje_ecosistema_proveedores",
     "0208_compras_b2b_config",
+    "0209_compras_watchlist",
 ]
