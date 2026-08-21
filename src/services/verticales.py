@@ -41,8 +41,7 @@ FUNCIONES = {
     # Funciones BASE (R8) — capacidades transversales, NO ediciones; visibles en las versiones que corresponden.
     "transporte.reparto": "Reparto · Flota y rutas de reparto",
     "distribucion.expedicion": "Distribución · Pedidos, picking y expediciones (B2B)",
-    "compras.subastas": "Compras · Subastas del mercado (pujas)",
-    "compras.bolsa": "Compras · Bolsa de proveedores y mercado (Lonja) + Portal proveedor",
+    "compras.bolsa": "Compras · Vista B2B avanzada (bolsa comparativa + catálogo remoto + watchlist)",
 }
 
 # MATRIZ (fuente de verdad). Solo se listan las DIFERENCIAS respecto a la base (todo VISIBLE por defecto).
@@ -78,11 +77,10 @@ _REGLAS = {
     "distribucion.expedicion": {"PHARMACY": "oculto", "BAKERY": "oculto"},
     # Subastas del mercado (pujas): SOLO comercio general de gran volumen → Supermarket y Retail. En
     # Pharmacy/Textil/Bakery se ocultan (el resto del módulo de proveedores sigue disponible en todas).
-    "compras.subastas": {"PHARMACY": "oculto", "TEXTIL": "oculto", "BAKERY": "oculto"},
-    # Bolsa de proveedores + mercado (Lonja) + Portal proveedor web: SOLO comercio general de gran volumen
-    # (Supermarket/Retail). En Pharmacy/Textil/Bakery el flujo de compras es SIMPLE (pedido bajo encargo al
-    # proveedor registrado): se oculta la bolsa/mercado, la cola de subastas y la pestaña Portal proveedor.
-    "compras.bolsa": {"PHARMACY": "oculto", "TEXTIL": "oculto", "BAKERY": "oculto"},
+    # Vista AVANZADA de pedidos B2B (bolsa comparativa tarifas locales + catálogo remoto + watchlist):
+    # SOLO Supermercado y Bakery (alto volumen de aprovisionamiento con proveedores B2B). En Retail,
+    # Pharmacy y Textil se mantiene el flujo de pedidos ESTÁNDAR/simplificado (pedido al proveedor).
+    "compras.bolsa": {"RETAIL": "oculto", "PHARMACY": "oculto", "TEXTIL": "oculto"},
 }
 
 

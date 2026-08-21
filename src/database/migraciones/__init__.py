@@ -206,4 +206,5 @@ MODULOS = [
     "0197_precios_proveedor_unidad_medida",
     "0201_cancelaciones",
     "0207_desmontaje_ecosistema_proveedores",
+    "0208_compras_b2b_config",
 ]

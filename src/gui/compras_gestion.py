@@ -439,8 +439,8 @@ class ComprasWindow(QWidget):
             return None
 
     def _buscar_bolsa(self):
-        """Busca un artículo y muestra las TARIFAS fijas de tus proveedores (origen 'tarifa').
-        (El origen 'b2b' en tiempo real se añade en la Fase 2 del conector B2B.)"""
+        """Unifica en la bolsa: TARIFAS fijas locales (origen 'tarifa', `proveedor_precios_negociados`) +
+        CATÁLOGO REMOTO en tiempo real del conector B2B (origen 'b2b')."""
         cod = (self.in_bolsa_art.text() or "").strip().upper()
         self.tbl_bolsa.setRowCount(0)
         self._bolsa_rows = []
@@ -449,35 +449,71 @@ class ComprasWindow(QWidget):
         self._bolsa_cod = cod
         idp_sel = self.cmb_bolsa_prov.currentData()
         orden, desc = self.cmb_bolsa_orden.currentData() or ("precio", False)
+        filas = []
+        # 1) Tarifas fijas locales.
         try:
             from src.services.compras import proveedores_pro as PP
-            crudas = PP.bolsa_precios(cod, id_proveedor=idp_sel,
+            for t in PP.bolsa_precios(cod, id_proveedor=idp_sel,
                                       orden=("proveedor" if orden == "proveedor" else "precio"),
-                                      id_empresa=self._emp_actual())
+                                      id_empresa=self._emp_actual()):
+                precio = float(t.get("precio_neto") if t.get("precio_neto") is not None
+                               else (t.get("precio") or 0))
+                filas.append({"origen": "tarifa", "proveedor": t.get("proveedor"), "precio": precio,
+                              "divisa": t.get("divisa") or "EUR", "precio_ref": precio, "disponible": None,
+                              "unidad": t.get("unidad_medida"), "id_proveedor": t.get("id_proveedor"),
+                              "codigo": cod, "ref_externa": None})
         except Exception as e:
             logger.error("bolsa_precios: %s", e)
-            crudas = []
-        filas = []
-        for t in crudas:
-            precio = float(t.get("precio_neto") if t.get("precio_neto") is not None else (t.get("precio") or 0))
-            filas.append({"origen": "tarifa", "proveedor": t.get("proveedor"), "precio": precio,
-                          "divisa": t.get("divisa") or "EUR", "precio_ref": precio,
-                          "puja_minima_ref": None, "disponible": None, "unidad": t.get("unidad_medida"),
-                          "id_proveedor": t.get("id_proveedor")})
-        if orden != "proveedor":
+        # 2) Catálogo remoto B2B (tiempo real; degradable si no hay conector configurado).
+        try:
+            from src.services.compras import b2b_client as B2B
+            for x in B2B.obtener_catalogo(cod, id_empresa=self._emp_actual()):
+                precio = float(x.get("precio") or 0)
+                filas.append({"origen": "b2b", "proveedor": x.get("proveedor") or "B2B", "precio": precio,
+                              "divisa": x.get("divisa") or "EUR", "precio_ref": precio,
+                              "disponible": x.get("stock"), "unidad": x.get("unidad"),
+                              "id_proveedor": x.get("proveedor_id"), "codigo": x.get("codigo") or cod,
+                              "ref_externa": x.get("ref_externa"), "nombre": x.get("nombre")})
+        except Exception as e:
+            logger.debug("bolsa b2b: %s", e)
+        # Precio ref. de mercado (Fase 3): índice histórico de compra, para detectar desvíos.
+        self._ref_mercado = self._precio_ref_mercado(cod)
+        if orden == "proveedor":
+            filas.sort(key=lambda f: (f.get("proveedor") or ""))
+        else:
             filas.sort(key=lambda f: (f.get("precio_ref") if f.get("precio_ref") is not None else 1e18),
                        reverse=bool(desc))
         self._bolsa_rows = filas
         self._bolsa_ref = "EUR"
         for r in filas:
             row = self.tbl_bolsa.rowCount(); self.tbl_bolsa.insertRow(row)
-            vals = ["Tarifa", r.get("proveedor"), f"{float(r.get('precio') or 0):.2f}", r.get("divisa"),
-                    f"{float(r.get('precio_ref') or 0):.2f} EUR", "—", "—", r.get("unidad")]
+            origen = "B2B" if r["origen"] == "b2b" else "Tarifa"
+            ref = self._ref_mercado
+            pref = f"{ref:.2f} EUR" if ref is not None else "—"
+            disp = "—" if r.get("disponible") is None else f"{float(r['disponible']):.0f}"
+            vals = [origen, r.get("proveedor"), f"{float(r.get('precio') or 0):.2f}", r.get("divisa"),
+                    pref, "—", disp, r.get("unidad")]
             for c, v in enumerate(vals):
-                self.tbl_bolsa.setItem(row, c, QTableWidgetItem("" if v is None else str(v)))
+                it = QTableWidgetItem("" if v is None else str(v))
+                if r["origen"] == "b2b":
+                    it.setForeground(QColor(_CIAN))
+                self.tbl_bolsa.setItem(row, c, it)
         if not filas:
             _aviso(self, tr("compras.bolsa_titulo", default="Bolsa"),
-                   tr("compras.bolsa_vacia2", default="No hay tarifas para ese artículo."), "info")
+                   tr("compras.bolsa_vacia2", default="No hay tarifas ni catálogo B2B para ese artículo."),
+                   "info")
+
+    def _precio_ref_mercado(self, codigo):
+        """Precio de referencia (índice de mercado): último coste de compra del artículo, si existe.
+        Sirve de base para el watchlist / indicadores de desvío (Fase 3)."""
+        try:
+            from src.services.compras import proveedores_pro as PP
+            if hasattr(PP, "ultimo_coste"):
+                v = PP.ultimo_coste(codigo, id_empresa=self._emp_actual())
+                return float(v) if v else None
+        except Exception:
+            pass
+        return None
 
     def _bolsa_sel(self):
         r = self.tbl_bolsa.currentRow()
@@ -505,22 +541,28 @@ class ComprasWindow(QWidget):
 
     # ── Carrito (artículos en cola) ──────────────────────────────────────────
     def _agregar_carrito(self, fila, cant):
-        """Añade una tarifa a la cola. Si ya está el mismo artículo/proveedor/unidad, suma cantidad."""
+        """Añade la fila (tarifa o b2b) a la cola. Si ya está el mismo artículo/proveedor/origen/unidad,
+        suma cantidad. Las líneas 'b2b' se despachan en paralelo al conector al tramitar."""
+        origen = fila.get("origen") or "tarifa"
+        codigo = fila.get("codigo") or self._bolsa_cod
         idp = fila.get("id_proveedor")
-        if not idp:
+        if origen == "tarifa" and not idp:
             _aviso(self, "Bolsa", tr("compras.solo_tarifa",
-                                     default="Solo las tarifas se añaden a la cola."), "warning")
+                                     default="Esta tarifa no tiene proveedor local asociado."), "warning")
             return
         precio = float(fila.get("precio") or 0)
-        idp = int(idp); uni = fila.get("unidad")
+        idp = int(idp) if idp else None
+        uni = fila.get("unidad")
         for it in self._carrito:
-            if it["codigo"] == self._bolsa_cod and it["id_proveedor"] == idp and it["unidad"] == uni:
+            if (it["codigo"] == codigo and it.get("origen") == origen
+                    and it["id_proveedor"] == idp and it["unidad"] == uni):
                 it["cantidad"] += int(cant)
                 break
         else:
-            self._carrito.append({"codigo": self._bolsa_cod, "id_proveedor": idp,
+            self._carrito.append({"codigo": codigo, "id_proveedor": idp, "origen": origen,
                                   "proveedor": fila.get("proveedor"), "precio": precio,
-                                  "cantidad": int(cant), "unidad": uni})
+                                  "cantidad": int(cant), "unidad": uni,
+                                  "ref_externa": fila.get("ref_externa")})
         self._render_carrito()
 
     def _render_carrito(self):
@@ -607,20 +649,55 @@ class ComprasWindow(QWidget):
         self._render_carrito()
 
     def _tramitar_lineas(self, items):
-        """Agrupa artículos por proveedor y crea+envía un pedido por proveedor. Devuelve nº de pedidos."""
+        """Crea+envía el pedido ERP estándar (agrupado por proveedor). Para las líneas de origen 'b2b',
+        además despacha la orden a la plataforma externa vía b2b_client (en paralelo). Devuelve nº pedidos."""
         from collections import defaultdict
         grupos = defaultdict(list)
         for it in items:
-            grupos[int(it["id_proveedor"])].append(it)
+            idp = it.get("id_proveedor") or self._resolver_proveedor_b2b(it)
+            grupos[int(idp) if idp else 0].append(it)
         n = 0
         for idp, its in grupos.items():
+            if not idp:
+                continue
             lineas = [{"codigo": it["codigo"], "cantidad": int(it["cantidad"]),
                        "precio_unitario": float(it["precio"]),
                        "descripcion": f"{it['codigo']} · {it.get('unidad') or 'unidad'}"} for it in its]
             pid = C.crear_pedido(id_proveedor=idp, lineas=lineas, usuario=self.usuario.get("nombre"))
             if pid and C.enviar_pedido(pid):
                 n += 1
+                b2b_its = [it for it in its if it.get("origen") == "b2b"]
+                if b2b_its:
+                    self._despachar_b2b(pid, idp, b2b_its)
         return n
+
+    def _resolver_proveedor_b2b(self, it):
+        """Resuelve (o crea) un proveedor LOCAL para una línea B2B sin proveedor local, por su nombre."""
+        nombre = (it.get("proveedor") or "Proveedor B2B").strip()
+        try:
+            for p in (P.listar_proveedores(texto=nombre) or []):
+                if (p.get("razon_social") or "").strip().lower() == nombre.lower():
+                    return p["id_proveedor"]
+            return P.crear_proveedor(nombre)
+        except Exception as e:
+            logger.debug("_resolver_proveedor_b2b: %s", e)
+            return None
+
+    def _despachar_b2b(self, id_pedido, id_proveedor, items):
+        """Despacha la orden de compra a la plataforma B2B externa (best-effort; el pedido ERP ya existe)."""
+        try:
+            from src.services.compras import b2b_client as B2B
+            payload = {"pedido_erp": id_pedido, "id_proveedor": id_proveedor,
+                       "lineas": [{"ref_externa": it.get("ref_externa"), "codigo": it.get("codigo"),
+                                   "cantidad": int(it["cantidad"]), "precio": float(it["precio"])}
+                                  for it in items]}
+            res = B2B.enviar_orden_compra(payload, id_empresa=self._emp_actual())
+            if res.get("ok"):
+                logger.info("Orden B2B despachada: %s (pedido ERP %s)", res.get("id_externo"), id_pedido)
+            else:
+                logger.info("Orden B2B no despachada (pedido %s): %s", id_pedido, res.get("mensaje"))
+        except Exception as e:
+            logger.debug("_despachar_b2b: %s", e)
 
     def _tramitar_todos(self):
         """Tramita TODA la cola: crea y envía los pedidos (agrupados por proveedor) → Recepciones."""

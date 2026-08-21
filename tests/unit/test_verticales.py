@@ -29,13 +29,13 @@ def test_bascula_segmentada_por_vertical():
     assert V.sustituto("tpv.bascula", vertical="TEXTIL") == "productos.tallas"
 
 
-def test_subastas_solo_supermarket_y_retail():
-    # Las subastas (pujas) del mercado solo en comercio general de volumen.
-    assert V.visible("compras.subastas", vertical="SUPERMARKET") is True
-    assert V.visible("compras.subastas", vertical="RETAIL") is True
-    assert V.visible("compras.subastas", vertical="PHARMACY") is False
-    assert V.visible("compras.subastas", vertical="TEXTIL") is False
-    assert V.visible("compras.subastas", vertical="BAKERY") is False
+def test_vista_b2b_solo_supermarket_y_bakery():
+    # La vista B2B avanzada de pedidos (bolsa comparativa + catálogo remoto) solo en Supermercado y Bakery.
+    assert V.visible("compras.bolsa", vertical="SUPERMARKET") is True
+    assert V.visible("compras.bolsa", vertical="BAKERY") is True
+    assert V.visible("compras.bolsa", vertical="RETAIL") is False
+    assert V.visible("compras.bolsa", vertical="PHARMACY") is False
+    assert V.visible("compras.bolsa", vertical="TEXTIL") is False
 
 
 def test_funciones_exclusivas():
@@ -56,14 +56,6 @@ def test_supermarket_superset_variantes_sin_flujos_de_nicho():
     # y báscula/granel/lotes siguen visibles (sin limitación de contenido).
     assert V.visible("tpv.bascula", vertical="SUPERMARKET") is True
     assert V.visible("productos.lotes", vertical="SUPERMARKET") is True
-
-
-def test_bolsa_y_portal_solo_supermarket_y_retail():
-    # La bolsa de proveedores + mercado (Lonja) + Portal proveedor = solo comercio general (Super/Retail).
-    for ed in ("SUPERMARKET", "RETAIL"):
-        assert V.visible("compras.bolsa", vertical=ed) is True
-    for ed in ("PHARMACY", "TEXTIL", "BAKERY"):
-        assert V.visible("compras.bolsa", vertical=ed) is False
 
 
 def test_autocobro_solo_supermarket():
