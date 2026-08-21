@@ -132,8 +132,12 @@ class ComprasAvanzadoWindow(QWidget):
         # Preset de plataforma (autocompleta el endpoint) + entorno.
         self.b2b_prov = _combo([(v["label"], k) for k, v in B2B.PRESETS.items()],
                                actual=cfg.get("proveedor"))
+        self.b2b_prov.setMinimumWidth(300)          # que no se corte "B2Brouter (EDI / Factura…)"
+        self.b2b_prov.view().setMinimumWidth(320)   # ancho del desplegable
         self.b2b_entorno = _combo([("Sandbox", "sandbox"), ("Producción", "produccion")],
                                   actual=cfg.get("entorno"))
+        self.b2b_entorno.setMinimumWidth(160)       # que no se corte "Producción"
+        self.b2b_entorno.view().setMinimumWidth(160)
         for lab, wdg in (("Plataforma", self.b2b_prov), ("Entorno", self.b2b_entorno)):
             c = QLabel(lab); c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
             fila.addWidget(c); fila.addWidget(wdg)
@@ -180,7 +184,7 @@ class ComprasAvanzadoWindow(QWidget):
         ly.addLayout(pfila)
 
         self.b2b_badge = QLabel("✓ credenciales configuradas" if cfg.get("api_key") else "— sin credenciales")
-        self.b2b_badge.setStyleSheet(f"color:{_TEXT};background:transparent;font-size:12px;font-weight:700;")
+        self.b2b_badge.setStyleSheet(f"color:{_TEXT};background:transparent;font-size:13px;font-weight:700;")
         ly.addWidget(self.b2b_badge)
         nota = QLabel("Las credenciales se guardan cifradas (Fernet) y no se muestran. Guardar requiere "
                       "permiso de edición de compras.")
@@ -279,7 +283,7 @@ class ComprasAvanzadoWindow(QWidget):
         color = "#3FB950" if ok else "#F85149"
         icono = "🟢" if ok else "🔴"
         self.b2b_badge.setText(f"{icono}  {res.get('mensaje', '')}")
-        self.b2b_badge.setStyleSheet(f"color:{color};background:transparent;font-size:12px;font-weight:700;")
+        self.b2b_badge.setStyleSheet(f"color:{color};background:transparent;font-size:13px;font-weight:700;")
 
     def _probar_conexion_b2b(self):
         """Prueba la conexión con los valores del formulario (o guardados) y pinta el badge de estado."""
