@@ -73,11 +73,8 @@ class ComprasWindow(QWidget):
             ("fac", "🧾", "Facturas", self._page_facturas, self._load_facturas),
             ("inf", "📊", "Informes", self._page_informes, self._cargar_informe),
             ("avz", "🤝", "Avanzado", self._page_avanzado, lambda: None),
-            ("portal", "🔗", "Portal proveedor", self._page_portal, lambda: None),
             ("cal", "🔬", "Calidad", self._page_calidad, lambda: None),
         ]
-        if not self._bolsa:
-            secs = [s for s in secs if s[0] != "portal"]
         return secs
 
     def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None, **_kw):
@@ -170,17 +167,6 @@ class ComprasWindow(QWidget):
             return ComprasAvanzadoWindow(callback_vuelta=None, usuario=self.usuario, main=self)
         except Exception as e:
             logger.error("embed Compras avanzado: %s", e)
-            return QWidget()
-
-    def _page_portal(self):
-        """Portal de proveedor (enlace bidireccional empresa↔proveedor) embebido. Disponible en todas
-        las versiones; la lógica vive en `services.compras.portal`."""
-        try:
-            from src.gui.portal_proveedor_gui import PortalProveedorWindow
-            self._portal_win = PortalProveedorWindow(callback_vuelta=None, usuario=self.usuario, main=self)
-            return self._portal_win
-        except Exception as e:
-            logger.error("embed Portal proveedor: %s", e)
             return QWidget()
 
     def _page_calidad(self):
@@ -346,10 +332,6 @@ class ComprasWindow(QWidget):
         fila.addWidget(_btn(tr("compras.nuevo_pedido", default="NUEVO PEDIDO"), self._dlg_nuevo_pedido, primary=True))
         fila.addWidget(_btn(tr("compras.desde_reab", default="DESDE REPOSICIÓN"), self._desde_reab, primary=True))
         fila.addStretch(1)
-        if self._bolsa:
-            # Pagos del mercado (escrow, lado COMPRADOR): su sitio es Pedidos, no el Portal de proveedor.
-            fila.addWidget(_btn("💶  " + tr("compras.pagos_mercado", default="PAGOS DEL MERCADO"),
-                                self._pagos_mercado, primary=True))
         fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_pedidos))
         ly.addLayout(fila)
 
@@ -386,10 +368,6 @@ class ComprasWindow(QWidget):
         mbar = QHBoxLayout()
         mbar.addWidget(_btn("🛒  " + tr("compras.comprar_ya", default="COMPRAR YA"),
                             self._comprar_ya, primary=True))
-        # Las SUBASTAS (pujas) solo están disponibles en Supermarket y Retail (gating por edición).
-        if self._subastas_visibles():
-            mbar.addWidget(_btn("🔨  " + tr("compras.pujar", default="PUJAR OFERTA"),
-                                self._pujar_oferta, primary=True))
         mbar.addStretch(1)
         ly.addLayout(mbar)
         # Tabla UNIFICADA: tarifas fijas (tuyas) + ofertas en vivo del mercado (Lonja), clasificadas por
@@ -452,16 +430,7 @@ class ComprasWindow(QWidget):
         except Exception:
             self._ped_prov_sel = None
 
-    def _pagos_mercado(self):
-        """Escrow del mercado (lado comprador): confirmar recepción / disputa / liberar / ledger."""
-        try:
-            from src.gui.pagos_marketplace_gui import EscrowPagosDialog
-            EscrowPagosDialog(self.usuario, self).exec()
-        except Exception as e:
-            logger.error("abrir pagos del mercado: %s", e)
-            _aviso(self, "Pagos del mercado", f"No se pudo abrir: {e}", "error")
-
-    # ── Bolsa unificada (tarifas fijas + mercado en vivo) ─────────────────────
+    # ── Bolsa de proveedores (tarifas fijas locales) ──────────────────────────
     def _emp_actual(self):
         try:
             from src.db.empresa import empresa_actual_id
@@ -469,55 +438,46 @@ class ComprasWindow(QWidget):
         except Exception:
             return None
 
-    @staticmethod
-    def _subastas_visibles() -> bool:
-        """Las subastas (pujas) solo se muestran en las ediciones Supermarket/Retail."""
-        try:
-            from src.services import verticales
-            return verticales.visible("compras.subastas")
-        except Exception:
-            return True
-
     def _buscar_bolsa(self):
-        """Busca un artículo y muestra, clasificadas por origen, las TARIFAS fijas de tus proveedores y
-        las OFERTAS EN VIVO del mercado (Lonja), con precio original + convertido a tu divisa."""
+        """Busca un artículo y muestra las TARIFAS fijas de tus proveedores (origen 'tarifa').
+        (El origen 'b2b' en tiempo real se añade en la Fase 2 del conector B2B.)"""
         cod = (self.in_bolsa_art.text() or "").strip().upper()
         self.tbl_bolsa.setRowCount(0)
         self._bolsa_rows = []
         if not cod:
             return
         self._bolsa_cod = cod
-        from src.services import lonja
-        res = lonja.bolsa_unificada(cod, id_empresa=self._emp_actual())
-        ref = res.get("divisa_ref") or "EUR"
-        self._bolsa_ref = ref
-        filas = res.get("filas") or []
         idp_sel = self.cmb_bolsa_prov.currentData()
-        if idp_sel:   # el filtro por proveedor aplica a tus tarifas; el mercado se muestra siempre
-            filas = [f for f in filas if f.get("origen") != "tarifa" or f.get("id_proveedor") == idp_sel]
         orden, desc = self.cmb_bolsa_orden.currentData() or ("precio", False)
-        if orden == "proveedor":
-            filas.sort(key=lambda f: (f.get("proveedor") or ""))
-        else:
+        try:
+            from src.services.compras import proveedores_pro as PP
+            crudas = PP.bolsa_precios(cod, id_proveedor=idp_sel,
+                                      orden=("proveedor" if orden == "proveedor" else "precio"),
+                                      id_empresa=self._emp_actual())
+        except Exception as e:
+            logger.error("bolsa_precios: %s", e)
+            crudas = []
+        filas = []
+        for t in crudas:
+            precio = float(t.get("precio_neto") if t.get("precio_neto") is not None else (t.get("precio") or 0))
+            filas.append({"origen": "tarifa", "proveedor": t.get("proveedor"), "precio": precio,
+                          "divisa": t.get("divisa") or "EUR", "precio_ref": precio,
+                          "puja_minima_ref": None, "disponible": None, "unidad": t.get("unidad_medida"),
+                          "id_proveedor": t.get("id_proveedor")})
+        if orden != "proveedor":
             filas.sort(key=lambda f: (f.get("precio_ref") if f.get("precio_ref") is not None else 1e18),
                        reverse=bool(desc))
         self._bolsa_rows = filas
+        self._bolsa_ref = "EUR"
         for r in filas:
             row = self.tbl_bolsa.rowCount(); self.tbl_bolsa.insertRow(row)
-            origen = "En vivo" if r["origen"] == "lonja" else "Tarifa"
-            pmin = "—" if r.get("puja_minima_ref") is None else f"{r['puja_minima_ref']:.2f} {ref}"
-            disp = "—" if r.get("disponible") is None else f"{r['disponible']:.0f}"
-            vals = [origen, r.get("proveedor"), f"{float(r.get('precio') or 0):.2f}", r.get("divisa"),
-                    f"{float(r.get('precio_ref') or 0):.2f} {ref}", pmin, disp, r.get("unidad")]
+            vals = ["Tarifa", r.get("proveedor"), f"{float(r.get('precio') or 0):.2f}", r.get("divisa"),
+                    f"{float(r.get('precio_ref') or 0):.2f} EUR", "—", "—", r.get("unidad")]
             for c, v in enumerate(vals):
-                it = QTableWidgetItem("" if v is None else str(v))
-                if r["origen"] == "lonja":
-                    it.setForeground(QColor(_CIAN))
-                self.tbl_bolsa.setItem(row, c, it)
+                self.tbl_bolsa.setItem(row, c, QTableWidgetItem("" if v is None else str(v)))
         if not filas:
             _aviso(self, tr("compras.bolsa_titulo", default="Bolsa"),
-                   tr("compras.bolsa_vacia2",
-                      default="No hay tarifas ni ofertas vivas para ese artículo."), "info")
+                   tr("compras.bolsa_vacia2", default="No hay tarifas para ese artículo."), "info")
 
     def _bolsa_sel(self):
         r = self.tbl_bolsa.currentRow()
@@ -525,14 +485,13 @@ class ComprasWindow(QWidget):
         return rows[r] if 0 <= r < len(rows) else None
 
     def _bolsa_doble_clic(self, fila_idx, _col):
-        """Doble clic → comprar ya (según el origen de la fila)."""
+        """Doble clic → comprar ya (añade a la cola)."""
         rows = getattr(self, "_bolsa_rows", []) or []
         if 0 <= fila_idx < len(rows):
             self._comprar_ya()
 
     def _comprar_ya(self):
-        """Tarifa → añade a la cola (pedido a tu proveedor). En vivo → compra directa del mercado
-        (atómica: el primero que llega se lo lleva)."""
+        """Añade la tarifa seleccionada a la cola (pedido a tu proveedor)."""
         fila = self._bolsa_sel()
         if not fila:
             _aviso(self, "Bolsa", tr("compras.bolsa_sel", default="Selecciona una fila de la bolsa."),
@@ -542,52 +501,7 @@ class ComprasWindow(QWidget):
                                f"{self._bolsa_cod} · {fila.get('proveedor')}", 1, self)
         if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.cantidad:
             return
-        if fila["origen"] == "tarifa":
-            self._agregar_carrito(fila, dlg.cantidad)
-            return
-        if not fila.get("compra_directa"):
-            _aviso(self, "Mercado", tr("compras.solo_puja", default="Esta oferta solo admite pujas."),
-                   "info")
-            return
-        if not _confirmar(self, tr("compras.comprar_ya", default="Comprar ya"),
-                          tr("compras.comprar_ya_msg",
-                             default="¿Comprar {n} de {c} a {p} por {pr} {d}? Se crea el pedido al instante.",
-                             n=dlg.cantidad, c=self._bolsa_cod, p=fila.get("proveedor"),
-                             pr=f"{float(fila.get('precio') or 0):.2f}", d=fila.get("divisa"))):
-            return
-        from src.services import lonja
-        res = lonja.comprar_directo(fila["id_listado"], self._emp_actual(), dlg.cantidad,
-                                    usuario=self.usuario.get("nombre"))
-        if res.get("ok"):
-            _aviso(self, tr("compras.comprar_ya", default="Comprar ya"),
-                   tr("compras.comprar_ok", default="Compra realizada. El pedido está en Recepciones."),
-                   "success")
-            self._buscar_bolsa(); self._load_recepciones()
-        else:
-            _aviso(self, tr("compras.comprar_ya", default="Comprar ya"),
-                   tr("compras.comprar_err", default="No se pudo comprar: {e}", e=res.get("error")), "error")
-
-    def _pujar_oferta(self):
-        """Puja por una OFERTA EN VIVO del mercado (subasta)."""
-        fila = self._bolsa_sel()
-        if not fila or fila.get("origen") != "lonja":
-            _aviso(self, "Mercado", tr("compras.sel_viva",
-                                       default="Selecciona una OFERTA EN VIVO para pujar."), "warning")
-            return
-        if not fila.get("puja"):
-            _aviso(self, "Mercado", tr("compras.no_puja", default="Esta oferta no admite pujas."), "info")
-            return
-        dlg = _DialogoPuja(self._bolsa_cod, fila, getattr(self, "_bolsa_ref", "EUR"), self)
-        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.importe:
-            from src.services import lonja
-            res = lonja.pujar(fila["id_listado"], self._emp_actual(), dlg.importe)
-            if res.get("ok"):
-                _aviso(self, tr("compras.pujar", default="Pujar"),
-                       tr("compras.puja_ok", default="Puja registrada."), "success")
-                self._buscar_bolsa()
-            else:
-                _aviso(self, tr("compras.pujar", default="Pujar"),
-                       tr("compras.puja_err", default="Puja rechazada: {e}", e=res.get("error")), "error")
+        self._agregar_carrito(fila, dlg.cantidad)
 
     # ── Carrito (artículos en cola) ──────────────────────────────────────────
     def _agregar_carrito(self, fila, cant):
@@ -878,14 +792,10 @@ class ComprasWindow(QWidget):
 
     def _load_recepciones(self):
         filas = [p for p in C.historico_pedidos() if p["estado"] in ("ENVIADO", "PARCIAL")]
-        # Estado reportado por el proveedor desde el Portal (si lo hay), por pedido.
-        try:
-            from src.services.compras import portal
-            segui = portal.estados_pedidos(ids=[p["id_pedido"] for p in filas] or None)
-        except Exception:
-            segui = {}
+        # (El estado reportado por el proveedor desde el portal externo se retiró; en Fase 2 lo aportará
+        # el conector B2B para las líneas de origen 'b2b'.)
         for p in filas:
-            p["estado_prov"] = segui.get(p["id_pedido"], "—")
+            p["estado_prov"] = "—"
         self._fill(self.tbl_rec, filas,
                    ("id_pedido", "numero", "proveedor", "estado", "estado_prov", "total", "fecha"))
 
@@ -1086,42 +996,6 @@ class _DialogoReposicion(QDialog):
             self.codigo = str(self._props[r].get("codigo") or "").strip().upper()
             if self.codigo:
                 self.accept()
-
-
-class _DialogoPuja(QDialog):
-    """Puja por una oferta en vivo del mercado (frameless). Muestra puja mínima y mejor puja actual."""
-
-    def __init__(self, codigo, fila, divisa_ref="EUR", parent=None):
-        super().__init__(parent)
-        self.importe = None
-        v = _dialogo_frameless(self, titulo=tr("compras.pujar", default="Pujar oferta"), ancho=420)
-        pmin = fila.get("puja_minima")
-        mejor = fila.get("mejor_puja_ref")
-        info = QLabel(
-            f"{codigo} · {fila.get('proveedor')}\n"
-            f"Puja mínima: {('—' if pmin is None else f'{float(pmin):.2f} ' + str(fila.get('divisa') or ''))}\n"
-            f"Mejor puja actual: {('—' if mejor is None else f'{float(mejor):.2f} ' + divisa_ref)}")
-        info.setStyleSheet(f"color:{_TEXT};background:transparent;font-size:12px;font-weight:700;")
-        info.setWordWrap(True)
-        v.addWidget(info)
-        self.in_importe = _inp(tr("compras.importe_puja",
-                                  default=f"Tu puja (en {fila.get('divisa') or 'EUR'})"))
-        self.in_importe.returnPressed.connect(self._ok)
-        v.addWidget(self.in_importe)
-        row = QHBoxLayout(); row.addStretch(1)
-        row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), self.reject))
-        row.addWidget(_btn(tr("compras.pujar", default="Pujar"), self._ok, primary=True))
-        v.addLayout(row)
-        self.in_importe.setFocus()
-
-    def _ok(self):
-        try:
-            imp = float((self.in_importe.text() or "").replace(",", "."))
-        except ValueError:
-            imp = 0
-        if imp > 0:
-            self.importe = imp
-            self.accept()
 
 
 class _DialogoEditarProveedor(QDialog):

@@ -34,15 +34,10 @@ def test_politica_matriz():
 def _limpia(db, emp, vid=None):
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM compras_cancelaciones WHERE id_empresa=%s", (emp,))
-        cur.execute("DELETE FROM portal_pedido_estado WHERE id_empresa=%s", (emp,))
         cur.execute("DELETE l FROM compras_pedidos_lineas l JOIN compras_pedidos p "
                     "ON p.id_pedido=l.id_pedido WHERE p.id_empresa=%s", (emp,))
         cur.execute("DELETE FROM compras_pedidos WHERE id_empresa=%s", (emp,))
         cur.execute("DELETE FROM proveedores WHERE id_empresa=%s", (emp,))
-        if vid:
-            cur.execute("DELETE FROM lonja_pujas WHERE id_empresa=%s", (emp,))
-            cur.execute("DELETE FROM lonja_listados WHERE id_vendedor=%s", (vid,))
-            cur.execute("DELETE FROM lonja_vendedores WHERE id=%s", (vid,))
         conn.commit()
 
 
@@ -64,33 +59,11 @@ def test_cancelar_gratuita_y_registro(db, fab):
     assert CANC.strikes(emp) == 1   # queda registrada
 
 
-def test_bloqueo_bajo_pedido_en_preparacion(db, fab):
-    from src.services.compras import portal
-    emp = fab.empresa("EMP canc2")
-    cod = fab.articulo(id_empresa=emp, stock_total=0)
-    fab.al_limpiar(lambda: _limpia(db, emp))
-    with db.obtener_conexion() as conn, conn.cursor() as cur:
-        cur.execute("UPDATE articulos SET perecibilidad='bajo_pedido' WHERE codigo=%s", (cod,))
-        conn.commit()
-    prov = PROV.crear_proveedor("P2", id_empresa=emp)
-    pid = C.crear_pedido(id_proveedor=prov, id_empresa=emp,
-                         lineas=[{"codigo": cod, "cantidad": 1, "precio_unitario": 1.0}])
-    C.enviar_pedido(pid, emp)
-    portal.actualizar_estado_pedido(pid, "en_reparto", id_empresa=emp)   # → en preparación
-
-    pol = CANC.evaluar(pid, emp)
-    assert pol["estado"] == "en_preparacion" and pol["tipo_producto"] == "bajo_pedido"
-    assert pol["puede_cancelar"] is False and pol["bloqueado"] is True
-    assert CANC.cancelar_pedido(pid, id_empresa=emp)["error"] == "no_permitido"
-    assert C.obtener_pedido(pid, emp)["estado"] != "CANCELADO"           # no se canceló
-
-
-def test_strike_pausa_la_puja(db, fab):
-    from src.services import lonja
+def test_strikes_por_cancelaciones(db, fab):
+    """El strike system se conserva: tras STRIKE_UMBRAL cancelaciones recientes, la empresa queda marcada.
+    (El consumidor 'pausa de puja' vivía en la Lonja, ya retirada.)"""
     emp = fab.empresa("EMP strike")
-    ven = lonja.alta_vendedor("V strike", divisa="EUR")
-    fab.al_limpiar(lambda: _limpia(db, emp, ven["id"]))
-    # Inyecta STRIKE_UMBRAL cancelaciones recientes.
+    fab.al_limpiar(lambda: _limpia(db, emp))
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         for _ in range(CANC.STRIKE_UMBRAL):
             cur.execute("INSERT INTO compras_cancelaciones (id_empresa, id_pedido, tipo_producto, estado, "
@@ -98,5 +71,3 @@ def test_strike_pausa_la_puja(db, fab):
                         (emp,))
         conn.commit()
     assert CANC.bloqueado_por_strikes(emp) is True
-    lid = lonja.publicar(ven["id"], "STK-1", 5.0, puja_minima=5.0, cantidad=5)
-    assert lonja.pujar(lid, emp, 6.0)["error"] == "bloqueado_por_cancelaciones"
