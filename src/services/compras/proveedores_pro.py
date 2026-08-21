@@ -215,6 +215,51 @@ def bolsa_precios(codigo_articulo, *, id_proveedor=None, unidad_medida=None, ord
         return []
 
 
+def listar_tarifas_proveedor(id_proveedor, *, id_empresa=None) -> list:
+    """Tarifas VIGENTES de UN proveedor (la más reciente por artículo+unidad), para la Ficha del
+    proveedor. Devuelve [{id, codigo, descripcion, precio, descuento, precio_neto, divisa,
+    unidad_medida, fecha}]. Reutiliza `proveedor_precios_negociados` (+ `articulos` para el nombre)."""
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute(
+                "SELECT pn.id, pn.codigo_articulo AS codigo, "
+                "COALESCE(a.nombre, '') AS descripcion, pn.precio, pn.descuento, "
+                "ROUND(pn.precio * (1 - COALESCE(pn.descuento,0)/100), 4) AS precio_neto, "
+                "pn.divisa, pn.unidad_medida, pn.creada AS fecha "
+                "FROM proveedor_precios_negociados pn "
+                "LEFT JOIN articulos a ON a.codigo = pn.codigo_articulo AND a.id_empresa<=>pn.id_empresa "
+                "WHERE pn.id_empresa<=>%s AND pn.id_proveedor=%s "
+                "AND pn.id = (SELECT MAX(pn2.id) FROM proveedor_precios_negociados pn2 "
+                "  WHERE pn2.id_empresa<=>pn.id_empresa AND pn2.id_proveedor=pn.id_proveedor "
+                "  AND pn2.codigo_articulo=pn.codigo_articulo AND pn2.unidad_medida=pn.unidad_medida) "
+                "ORDER BY pn.codigo_articulo ASC",
+                (emp, int(id_proveedor)))
+            return _filas(cur)
+    except Exception as e:
+        logger.error("listar_tarifas_proveedor(%s): %s", id_proveedor, e)
+        return []
+
+
+def eliminar_tarifa(id_tarifa, *, id_empresa=None) -> bool:
+    """Elimina una tarifa concreta (fila de `proveedor_precios_negociados`) por su id, dentro del tenant."""
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("DELETE FROM proveedor_precios_negociados WHERE id=%s AND id_empresa<=>%s",
+                        (int(id_tarifa), emp))
+            ok = cur.rowcount > 0
+            c.commit()
+        if ok:
+            _audit("PROV_TARIFA_ELIMINADA", str(id_tarifa), "proveedor_precios_negociados")
+        return ok
+    except Exception as e:
+        logger.error("eliminar_tarifa(%s): %s", id_tarifa, e)
+        return False
+
+
 # Sinónimos de columnas para autodetectar el mapeo al importar tarifas.
 _SINONIMOS_TARIFA = {
     "codigo": ("codigo", "codigoarticulo", "sku", "ean", "referencia", "ref", "articulo"),
