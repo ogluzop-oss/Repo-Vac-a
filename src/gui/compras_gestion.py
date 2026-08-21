@@ -205,13 +205,14 @@ class ComprasWindow(QWidget):
                                 "Email", "Teléfono", tr("compras.estado", default="Estado"),
                                 tr("compras.acciones", default="Acciones")])
         self.tbl_prov.cellClicked.connect(self._sel_proveedor)
-        # Anchos: ID estrecho, Email ocupa el hueco, Acciones fijo; el resto al contenido.
+        # Anchos equilibrados: columnas de tamaño similar y Email un poco más ancha (rellena el resto).
         hh = self.tbl_prov.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed); self.tbl_prov.setColumnWidth(0, 60)
-        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed); self.tbl_prov.setColumnWidth(6, 90)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)     # Email
-        for c in (1, 2, 4, 5):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setStretchLastSection(False)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed); self.tbl_prov.setColumnWidth(0, 60)   # ID
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed); self.tbl_prov.setColumnWidth(6, 80)   # Acciones
+        for c in (1, 2, 4, 5):   # Razón social · CIF/NIF · Teléfono · Estado (todas iguales)
+            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Interactive); self.tbl_prov.setColumnWidth(c, 160)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)   # Email: un poco más ancha (rellena)
         ly.addWidget(self.tbl_prov, 1)
         return w
 
@@ -220,13 +221,13 @@ class ComprasWindow(QWidget):
         filas = P.listar_proveedores(texto=texto)
         self._fill(self.tbl_prov, filas, ("id_proveedor", "razon_social", "cif_nif",
                                           "email", "telefono", "estado"))
-        # Columna "Acciones": lápiz de edición por proveedor (centrado y completo, sin recortes).
+        # Columna "Acciones": lápiz de edición (emoji) por proveedor, centrado y completo.
         for r in range(self.tbl_prov.rowCount()):
-            b = QPushButton("✏"); b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setFixedSize(30, 30)
+            b = QPushButton("✏️"); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFixedSize(34, 30)
             b.setToolTip(tr("compras.editar_prov", default="Editar proveedor"))
-            b.setStyleSheet("QPushButton{background:transparent;border:none;font-size:15px;padding:0;"
-                            "color:#00FFC6;} QPushButton:hover{color:#FFFFFF;}")
+            b.setStyleSheet("QPushButton{background:transparent;border:none;font-size:14px;padding:0;}"
+                            "QPushButton:hover{background:#1A2230;border-radius:6px;}")
             b.clicked.connect(lambda _=False, row=r: self._editar_proveedor(row))
             cont = QWidget(); lay = QHBoxLayout(cont); lay.setContentsMargins(0, 0, 0, 0)
             lay.addWidget(b, 0, Qt.AlignmentFlag.AlignCenter)
