@@ -231,7 +231,10 @@ class ComprasWindow(QWidget):
             b.clicked.connect(lambda _=False, row=r: self._editar_proveedor(row))
             # Fondo opaco del contenedor: tapa el hover de celda global (::item:hover) para que la
             # columna Acciones NO reaccione al pasar el ratón; sólo el botón del lápiz hace hover swap.
+            # WA_StyledBackground es obligatorio: un QWidget plano ignora el 'background' de la hoja
+            # de estilos si no se activa, por lo que sin esto el tinte turquesa se seguía viendo.
             cont = QWidget(); cont.setObjectName("celda_acciones")
+            cont.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             cont.setStyleSheet(f"#celda_acciones{{background:{_BG};}}")
             lay = QHBoxLayout(cont); lay.setContentsMargins(0, 0, 0, 0)
             lay.addWidget(b, 0, Qt.AlignmentFlag.AlignCenter)
