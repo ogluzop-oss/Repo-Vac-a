@@ -13,15 +13,16 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QBrush, QColor, QFont, QGuiApplication, QIcon, QPainter, QPen, QPixmap
+from PyQt6.QtGui import QColor, QFont, QGuiApplication, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (QDialog, QFormLayout,
                              QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QStackedWidget,
                              QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from src.db import compras as C
 from src.db import proveedores as P
-from src.gui.catalogo_gestion import (_BG, _BORDE, _CIAN, _DIM, _ROJO, _SIDEBAR, _TEXT, _btn, _btn_cargando,
-                                      _btn_salir_sidebar, _combo, _dialogo_frameless, _inp, _tabla)
+from src.gui.catalogo_gestion import (_BG, _BG2, _BORDE, _CIAN, _DIM, _ROJO, _SIDEBAR, _TEXT, _btn,
+                                      _btn_cargando, _btn_salir_sidebar, _combo, _dialogo_frameless,
+                                      _inp, _tabla)
 from src.utils.i18n import tr
 
 logger = logging.getLogger("gui.compras")
@@ -51,45 +52,42 @@ def _confirmar(parent, titulo, msg) -> bool:
     return True
 
 
-def _pix_ojo(color=_CIAN, relleno=False, size=24) -> QPixmap:
-    """Icono de OJO (visualización/gestión) dibujado en cyan/menta. `relleno=True` = estado hover
-    (almendra rellena + pupila oscura), permitiendo un hover swap nítido que hereda el color del tema."""
+def _pix_ojo(relleno=False, size=30) -> QPixmap:
+    """Icono de OJO EXACTAMENTE igual al del módulo Documentos (centro_documental): chip redondeado
+    (fondo _BG2 + borde _BORDE) con elipse + pupila; hover = chip relleno cyan + icono oscuro. Mismo
+    trazo (1.7, extremos redondeados) y mismos radios (elipse 8.5×5.2, pupila 2.1)."""
+    from PyQt6.QtCore import QRectF, QPointF
     pm = QPixmap(size, size); pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    col = QColor(color)
-    from PyQt6.QtCore import QRectF, QPointF
+    col = QColor(_CIAN)
+    chip = QRectF(1, 1, size - 2, size - 2)
+    if relleno:                                   # hover swap: chip relleno + icono oscuro
+        p.setPen(QPen(col, 1)); p.setBrush(col); p.drawRoundedRect(chip, 7, 7)
+        icon_col = QColor(_BG)
+    else:
+        p.setPen(QPen(QColor(_BORDE), 1)); p.setBrush(QColor(_BG2)); p.drawRoundedRect(chip, 7, 7)
+        icon_col = col
+    pen = QPen(icon_col); pen.setWidthF(1.7)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen); p.setBrush(Qt.BrushStyle.NoBrush)
     cx, cy = size / 2.0, size / 2.0
-    w, h = size * 0.86, size * 0.56
-    rect = QRectF(cx - w / 2, cy - h / 2, w, h)
-    p.setPen(QPen(col, 2.0))
-    p.setBrush(QBrush(col) if relleno else Qt.BrushStyle.NoBrush)
-    # Almendra del ojo (dos arcos simétricos formando la forma de ojo).
-    from PyQt6.QtGui import QPainterPath
-    path = QPainterPath()
-    path.moveTo(rect.left(), cy)
-    path.quadTo(cx, rect.top(), rect.right(), cy)
-    path.quadTo(cx, rect.bottom(), rect.left(), cy)
-    p.drawPath(path)
-    # Pupila: oscura sobre relleno, cyan sobre contorno.
-    pupila = QColor(_BG) if relleno else col
-    p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(pupila))
-    r = size * 0.16
-    p.drawEllipse(QPointF(cx, cy), r, r)
+    p.drawEllipse(QPointF(cx, cy), 8.5, 5.2)
+    p.setBrush(icon_col); p.drawEllipse(QPointF(cx, cy), 2.1, 2.1)
     p.end()
     return pm
 
 
 class _BotonOjo(QPushButton):
-    """Botón-icono de OJO con hover swap (contorno cyan → almendra rellena) para la columna Acciones."""
+    """Botón-icono de OJO con hover swap idéntico al de Documentos (chip → chip relleno) para Acciones."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedSize(34, 30)
         self.setStyleSheet("QPushButton{background:transparent;border:none;padding:0;}")
-        self._normal = _pix_ojo(_CIAN, relleno=False)
-        self._hover = _pix_ojo(_CIAN, relleno=True)
+        self._normal = _pix_ojo(relleno=False)
+        self._hover = _pix_ojo(relleno=True)
         self.setIcon(QIcon(self._normal))
         self.setIconSize(self._normal.size())
 
@@ -98,6 +96,24 @@ class _BotonOjo(QPushButton):
 
     def leaveEvent(self, e):   # noqa: N802 (API Qt)
         self.setIcon(QIcon(self._normal)); super().leaveEvent(e)
+
+
+def _scroll_neon(inner):
+    """Envuelve un widget en un QScrollArea con la MISMA scrollbar cyan del resto de la app (sin marco
+    propio; el contorno neón lo pone el `::pane` del QTabWidget contenedor)."""
+    from PyQt6.QtWidgets import QScrollArea
+    sa = QScrollArea(); sa.setWidgetResizable(True)
+    sa.setFrameShape(QFrame.Shape.NoFrame)
+    sa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    sa.setWidget(inner)
+    sa.setStyleSheet(
+        "QScrollArea{border:none;background:transparent;}"
+        "QScrollArea>QWidget>QWidget{background:transparent;}"
+        "QScrollBar:vertical{background:transparent;width:16px;margin:0;}"
+        f"QScrollBar::handle:vertical{{background:{_CIAN};min-height:36px;border-radius:5px;margin:3px;}}"
+        "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;width:0;}"
+        "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent;}")
+    return sa
 
 
 class ComprasWindow(QWidget):
@@ -1181,8 +1197,15 @@ class _DialogoReposicion(QDialog):
 
 
 def _cap(txt):
-    lab = QLabel(txt); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:11px;")
+    lab = QLabel(txt); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:12px;")
     return lab
+
+
+def _big(w):
+    """Sube +1pt el texto de un campo de la Ficha (12→13px), sin tocar el estilo global de `_inp`/`_combo`
+    (la última regla del mismo selector gana)."""
+    w.setStyleSheet(w.styleSheet() + "QLineEdit{font-size:13px;}QComboBox{font-size:13px;}")
+    return w
 
 
 class FichaProveedorDialog(QDialog):
@@ -1200,21 +1223,29 @@ class FichaProveedorDialog(QDialog):
         self._emp = id_empresa
         self._prov = P.obtener_proveedor(id_proveedor, id_empresa=id_empresa) or {}
         self._tarifas = []
-        # Gran formato responsive adaptado al marco general de la app.
+        # VENTANA COMPLETA: ocupa toda el área disponible de la pantalla (no se ve la pantalla anterior
+        # de fondo). Se posiciona en el origen del área útil y se fija ese tamaño.
         scr = QGuiApplication.primaryScreen()
         av = scr.availableGeometry() if scr else None
-        ancho = min(1220, int(av.width() * 0.92)) if av else 1120
-        alto = min(800, int(av.height() * 0.90)) if av else 740
-        self.resize(ancho, alto)
-        v = _dialogo_frameless(self)   # sin título: cabecera propia con X reducida un 25%
+        if av is not None:
+            self.setGeometry(av)
+        else:
+            self.resize(1120, 740)
+        v = _dialogo_frameless(self)   # sin título: cabecera propia con X
         v.addLayout(self._cabecera())
         tabs = QTabWidget()
-        tabs.addTab(self._tab_generales(), tr("compras.ficha_generales", default="Datos Generales"))
-        tabs.addTab(self._tab_tarifas(),
+        # Contorno NEÓN turquesa alrededor del contenido de cada sub-pestaña (sustituye la línea gris
+        # del ::pane por defecto, que no casa con el diseño de la app).
+        tabs.setStyleSheet(f"QTabWidget::pane{{border:2px solid {_CIAN};border-radius:12px;top:-1px;"
+                           f"background:{_BG};}}")
+        # Cada pestaña envuelta en scroll (misma scrollbar cyan de la app) para que el contenido no se corte.
+        tabs.addTab(_scroll_neon(self._tab_generales()),
+                    tr("compras.ficha_generales", default="Datos Generales"))
+        tabs.addTab(_scroll_neon(self._tab_tarifas()),
                     tr("compras.ficha_tarifas", default="Tarifas y Precios Negociados"))
-        tabs.addTab(self._tab_condiciones(),
+        tabs.addTab(_scroll_neon(self._tab_condiciones()),
                     tr("compras.ficha_condiciones", default="Condiciones Comerciales y Pago"))
-        tabs.addTab(self._tab_historial(),
+        tabs.addTab(_scroll_neon(self._tab_historial()),
                     tr("compras.ficha_historial", default="Historial y Documentos"))
         v.addWidget(tabs, 1)
         bar = QHBoxLayout(); bar.addStretch(1)
@@ -1224,7 +1255,7 @@ class FichaProveedorDialog(QDialog):
         self._cargar_tarifas()
         self._cargar_historial()
 
-    # ── Cabecera con X reducida (50×44 −25% ≈ 38×33) ─────────────────────────
+    # ── Cabecera con X compacta (algo más alta para que la ✕ no se corte por abajo) ──
     def _cabecera(self):
         hdr = QHBoxLayout()
         t = QLabel(tr("compras.ficha_prov", default="Ficha del proveedor"))
@@ -1236,10 +1267,10 @@ class FichaProveedorDialog(QDialog):
             s.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:13px;")
             hdr.addWidget(s)
         hdr.addStretch(1)
-        x = QPushButton("✕"); x.setCursor(Qt.CursorShape.PointingHandCursor); x.setFixedSize(38, 33)
+        x = QPushButton("✕"); x.setCursor(Qt.CursorShape.PointingHandCursor); x.setFixedSize(40, 40)
         x.setToolTip(tr("compras.cerrar", default="Cerrar"))
         x.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
-                        f"border-radius:7px;font-weight:900;font-size:14px;}}"
+                        f"border-radius:8px;font-weight:900;font-size:15px;padding:0;}}"
                         f"QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
         x.clicked.connect(self.reject)
         hdr.addWidget(x)
@@ -1249,15 +1280,17 @@ class FichaProveedorDialog(QDialog):
     def _tab_generales(self):
         w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(8)
         p = self._prov
-        self.f_razon = _inp("Razón social"); self.f_razon.setText(p.get("razon_social") or "")
-        self.f_nombre_com = _inp("Nombre comercial"); self.f_nombre_com.setText(p.get("nombre_comercial") or "")
-        self.f_cif = _inp("CIF/NIF"); self.f_cif.setText(p.get("cif_nif") or "")
-        self.f_estado = _combo([("Activo", "activo"), ("Inactivo", "inactivo")],
-                               actual=(p.get("estado") or "activo"))
-        self.f_email = _inp("Email"); self.f_email.setText(p.get("email") or "")
-        self.f_tel = _inp("Teléfono"); self.f_tel.setText(p.get("telefono") or "")
-        self.f_persona = _inp("Persona de contacto"); self.f_persona.setText(p.get("persona_contacto") or "")
-        self.f_web = _inp("https://…"); self.f_web.setText(p.get("web") or "")
+        self.f_razon = _big(_inp("Razón social")); self.f_razon.setText(p.get("razon_social") or "")
+        self.f_nombre_com = _big(_inp("Nombre comercial"))
+        self.f_nombre_com.setText(p.get("nombre_comercial") or "")
+        self.f_cif = _big(_inp("CIF/NIF")); self.f_cif.setText(p.get("cif_nif") or "")
+        self.f_estado = _big(_combo([("Activo", "activo"), ("Inactivo", "inactivo")],
+                                    actual=(p.get("estado") or "activo")))
+        self.f_email = _big(_inp("Email")); self.f_email.setText(p.get("email") or "")
+        self.f_tel = _big(_inp("Teléfono")); self.f_tel.setText(p.get("telefono") or "")
+        self.f_persona = _big(_inp("Persona de contacto"))
+        self.f_persona.setText(p.get("persona_contacto") or "")
+        self.f_web = _big(_inp("https://…")); self.f_web.setText(p.get("web") or "")
 
         lbl = QLabel("🏢  " + tr("compras.ficha_identificacion", default="Identificación"))
         lbl.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:13px;")
@@ -1411,11 +1444,12 @@ class FichaProveedorDialog(QDialog):
     def _tab_condiciones(self):
         w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(8)
         p = self._prov
-        self.c_forma = _combo([(f or "—", f) for f in self._FORMAS_PAGO], actual=(p.get("forma_pago") or ""))
-        self.c_dias_pago = _inp("0"); self.c_dias_pago.setText(str(p.get("plazo_pago") or ""))
-        self.c_iban = _inp("ES00 0000 0000 0000 0000 0000"); self.c_iban.setText(p.get("iban") or "")
-        self.c_dias_entrega = _inp("0"); self.c_dias_entrega.setText(str(p.get("lead_time_dias") or ""))
-        self.c_pedido_min = _inp("0.00")
+        self.c_forma = _big(_combo([(f or "—", f) for f in self._FORMAS_PAGO],
+                                   actual=(p.get("forma_pago") or "")))
+        self.c_dias_pago = _big(_inp("0")); self.c_dias_pago.setText(str(p.get("plazo_pago") or ""))
+        self.c_iban = _big(_inp("ES00 0000 0000 0000 0000 0000")); self.c_iban.setText(p.get("iban") or "")
+        self.c_dias_entrega = _big(_inp("0")); self.c_dias_entrega.setText(str(p.get("lead_time_dias") or ""))
+        self.c_pedido_min = _big(_inp("0.00"))
         pm = p.get("pedido_minimo")
         self.c_pedido_min.setText(f"{float(pm):.2f}" if pm not in (None, "") else "")
         lbl = QLabel("💳  " + tr("compras.ficha_pago", default="Condiciones de pago y entrega"))
