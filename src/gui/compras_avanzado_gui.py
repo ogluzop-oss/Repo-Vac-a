@@ -80,6 +80,9 @@ class ComprasAvanzadoWindow(QWidget):
         root.addLayout(cab)
 
         tabs = QTabWidget()
+        # Contorno NEÓN turquesa alrededor del contenido (sustituye la línea gris del ::pane por defecto,
+        # que no casa con el diseño de la app y se veía cortada).
+        tabs.setStyleSheet(f"QTabWidget::pane{{border:2px solid {_CIAN};border-radius:12px;top:-1px;}}")
         tabs.addTab(self._tab_proveedores(), "Proveedores / Homologación")
         tabs.addTab(self._tab_devoluciones(), "Devoluciones")
         tabs.addTab(self._tab_incidencias(), "Incidencias")
