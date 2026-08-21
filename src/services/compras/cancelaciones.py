@@ -126,14 +126,9 @@ def origen_pedido(id_pedido, id_empresa=None) -> str:
 
 
 def estado_politica(id_pedido, id_empresa=None) -> str:
-    """Estado para la política: 'en_preparacion' si el proveedor lo marcó 'en_reparto', si no 'pendiente'."""
-    try:
-        from src.services.compras import portal
-        e = portal.estado_pedido(id_pedido, _emp(id_empresa)) or {}
-        if e.get("estado_proveedor") == "en_reparto":
-            return "en_preparacion"
-    except Exception as e:
-        logger.debug("estado_politica: %s", e)
+    """Estado para la política de cancelación. Por defecto 'pendiente'.
+    (El estado 'en_preparacion' lo reportaba el portal externo del proveedor, ya retirado; en el futuro
+    lo aportará el conector B2B para las líneas de origen 'b2b'.)"""
     return "pendiente"
 
 

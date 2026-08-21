@@ -9,7 +9,7 @@ tocar el flujo principal proveedor→pedido→recepción→factura. Multiempresa
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QMessageBox,
+from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                              QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import compras as C, proveedores as P
@@ -84,6 +84,7 @@ class ComprasAvanzadoWindow(QWidget):
         tabs.addTab(self._tab_devoluciones(), "Devoluciones")
         tabs.addTab(self._tab_incidencias(), "Incidencias")
         tabs.addTab(self._tab_evaluacion(), "Evaluación")
+        tabs.addTab(self._tab_b2b(), "Integración B2B y Reglas de Precios")
         root.addWidget(tabs)
 
     def _emp(self):
@@ -103,6 +104,101 @@ class ComprasAvanzadoWindow(QWidget):
                 pass
         (QMessageBox.information if nivel in ("info", "success") else QMessageBox.warning)(
             self, titulo, mensaje)
+
+    def _puede(self, permiso) -> bool:
+        try:
+            from src.services import autorizacion
+            return autorizacion.puede(self.usuario or {}, permiso, id_empresa=self._emp())
+        except Exception:
+            return True
+
+    # ── Integración B2B y Reglas de Precios ───────────────────────────────────
+    def _tab_b2b(self):
+        """Credenciales del conector B2B + reglas del monitor/motor de precios. Secretos cifrados (Fernet);
+        guardar exige permiso `compras.editar`. Mantiene el tema oscuro/cyan del resto del módulo."""
+        from src.db import compras_b2b as B2BDB
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10)
+        cfg = B2BDB.obtener_config(self._emp())
+
+        def _cap(txt):
+            lab = QLabel(txt); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+            ly.addWidget(lab); return lab
+
+        t = QLabel("🔌  Conector B2B externo (Consentio / Choco / REST)")
+        t.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:14px;")
+        ly.addWidget(t)
+        fila = QHBoxLayout()
+        self.b2b_prov = _combo([("REST genérico", "rest"), ("Simulado (pruebas)", "simulado")],
+                               actual=cfg.get("proveedor"))
+        self.b2b_entorno = _combo([("Sandbox", "sandbox"), ("Producción", "produccion")],
+                                  actual=cfg.get("entorno"))
+        for lab, wdg in (("Conector", self.b2b_prov), ("Entorno", self.b2b_entorno)):
+            c = QLabel(lab); c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+            fila.addWidget(c); fila.addWidget(wdg)
+        fila.addStretch(1)
+        ly.addLayout(fila)
+
+        _cap("Endpoint base (URL de la API)")
+        self.b2b_endpoint = _inp("https://api.tu-proveedor-b2b.com/v1")
+        self.b2b_endpoint.setText(cfg.get("endpoint") or "")
+        ly.addWidget(self.b2b_endpoint)
+        _cap("API Key (se guarda cifrada · vacío = no cambiar)")
+        self.b2b_key = _inp(""); self.b2b_key.setEchoMode(QLineEdit.EchoMode.Password)
+        ly.addWidget(self.b2b_key)
+        _cap("API Secret (se guarda cifrada · vacío = no cambiar)")
+        self.b2b_secret = _inp(""); self.b2b_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        ly.addWidget(self.b2b_secret)
+
+        t2 = QLabel("📈  Reglas de precios (monitor de desvíos + precio dinámico)")
+        t2.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:14px;padding-top:6px;")
+        ly.addWidget(t2)
+        rfila = QHBoxLayout()
+        self.b2b_umbral = _inp("10"); self.b2b_umbral.setFixedWidth(90)
+        self.b2b_umbral.setText(f"{cfg.get('umbral_variacion_pct', 10):g}")
+        self.b2b_margen = _inp("30"); self.b2b_margen.setFixedWidth(90)
+        self.b2b_margen.setText(f"{cfg.get('margen_objetivo_pct', 30):g}")
+        for lab, wdg in (("Umbral de alerta de variación (%)", self.b2b_umbral),
+                         ("Margen objetivo por defecto (%)", self.b2b_margen)):
+            c = QLabel(lab); c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+            rfila.addWidget(c); rfila.addWidget(wdg)
+        rfila.addStretch(1)
+        ly.addLayout(rfila)
+
+        est = "✓ credenciales configuradas" if cfg.get("api_key") else "— sin credenciales"
+        self.b2b_estado = QLabel(f"Estado: {est}")
+        self.b2b_estado.setStyleSheet(f"color:{_TEXT};background:transparent;font-size:12px;")
+        ly.addWidget(self.b2b_estado)
+        nota = QLabel("Las credenciales se guardan cifradas (Fernet) y no se muestran. Guardar requiere "
+                      "permiso de edición de compras.")
+        nota.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;"); nota.setWordWrap(True)
+        ly.addWidget(nota)
+        bar = QHBoxLayout()
+        bar.addWidget(_btn("Guardar configuración", self._guardar_b2b, primary=True))
+        bar.addStretch(1)
+        ly.addLayout(bar)
+        ly.addStretch(1)
+        return w
+
+    def _guardar_b2b(self):
+        if not self._puede("compras.editar"):
+            self._aviso("Integración B2B", "Permiso requerido: compras.editar", "warning"); return
+        try:
+            umbral = float((self.b2b_umbral.text() or "10").replace(",", "."))
+            margen = float((self.b2b_margen.text() or "30").replace(",", "."))
+        except ValueError:
+            self._aviso("Integración B2B", "Umbral y margen deben ser numéricos.", "warning"); return
+        from src.db import compras_b2b as B2BDB
+        ok = B2BDB.guardar_config(
+            proveedor=self.b2b_prov.currentData(), entorno=self.b2b_entorno.currentData(),
+            endpoint=self.b2b_endpoint.text().strip(),
+            api_key=(self.b2b_key.text().strip() or None),
+            api_secret=(self.b2b_secret.text().strip() or None),
+            umbral_variacion_pct=umbral, margen_objetivo_pct=margen, id_empresa=self._emp())
+        if ok:
+            self.b2b_key.clear(); self.b2b_secret.clear()
+            self._aviso("Integración B2B", "Configuración B2B y reglas de precios guardadas.", "success")
+        else:
+            self._aviso("Integración B2B", "No se pudo guardar la configuración.", "error")
 
     def _tabla_kv(self):
         """Tabla de 2 columnas (Parámetro · Valor) centrada, con el estilo estándar de la app.

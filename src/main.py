@@ -183,39 +183,8 @@ def iniciar_backend():
         logger.error(f"Error iniciando backend: {e}")
 
 
-PORTAL_API_PORT = int(os.environ.get("PORTAL_API_PORT", "8099"))
-
-
-def url_portal_proveedor(token: str = "", host: str = "127.0.0.1") -> str:
-    """URL del portal web del proveedor (con token opcional para autologin)."""
-    base = f"http://{host}:{PORTAL_API_PORT}/api/v1/portal-proveedor/panel"
-    return base + (f"?token={token}" if token else "")
-
-
-def iniciar_portal_api():
-    """Arranca el servidor del PORTAL DEL PROVEEDOR (API Flask) en un hilo daemon, para que el portal web
-    esté disponible en http://127.0.0.1:8099 mientras la app está abierta (sin comandos manuales)."""
-    try:
-        import socket
-        import threading
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        libre = sock.connect_ex(("127.0.0.1", PORTAL_API_PORT)) != 0
-        sock.close()
-        if not libre:
-            logger.info("Portal API ya está corriendo (puerto %s).", PORTAL_API_PORT)
-            return
-
-        def _run():
-            try:
-                from src.api import crear_app
-                crear_app().run(host="127.0.0.1", port=PORTAL_API_PORT, debug=False,
-                                use_reloader=False, threaded=True)
-            except Exception as e:
-                logger.warning("Portal API no se pudo iniciar: %s", e)
-        threading.Thread(target=_run, name="portal-api", daemon=True).start()
-        logger.info("Portal del proveedor en %s", url_portal_proveedor())
-    except Exception as e:
-        logger.debug("iniciar_portal_api: %s", e)
+# NOTA: el portal web externo del proveedor (hilo daemon en el puerto 8099) se RETIRÓ en la
+# refactorización del módulo Proveedores (Fase 1). El aprovisionamiento pasa a conectores B2B externos.
 
 
 # ============================================================
@@ -1625,7 +1594,6 @@ if __name__ == "__main__":
             pass
 
     iniciar_backend()
-    iniciar_portal_api()   # portal web del proveedor disponible mientras la app esté abierta
     init_db()
     try:
         from src.utils.observabilidad import registrar_evento
