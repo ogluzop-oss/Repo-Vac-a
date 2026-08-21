@@ -48,7 +48,7 @@ def test_bolsa_carrito_y_tramitar(db, fab, monkeypatch):
     w = CG.ComprasWindow(usuario={"nombre": "Tester"})
 
     # Buscar en la bolsa unificada → dos tarifas, ordenadas por precio (más barato primero).
-    # Columnas: [Origen, Proveedor, Precio, Divisa, Precio ref., Puja mín., Disponible, Unidad].
+    # Columnas: [Origen, Proveedor, Precio, Divisa, Precio ref., PVP Sugerido, Desvío %, Disponible, Unidad].
     w.in_bolsa_art.setText("ARTUI")
     w._buscar_bolsa()
     assert w.tbl_bolsa.rowCount() == 2
