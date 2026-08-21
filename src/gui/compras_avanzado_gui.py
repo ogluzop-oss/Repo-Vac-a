@@ -10,7 +10,7 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                             QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                             QPushButton, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import compras as C, proveedores as P
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo,
@@ -148,18 +148,53 @@ class ComprasAvanzadoWindow(QWidget):
         self.b2b_endpoint = _inp("https://…")
         self.b2b_endpoint.setText(cfg.get("endpoint") or "")
         ly.addWidget(self.b2b_endpoint)
-        _cap("API Key (se guarda cifrada · vacío = no cambiar)")
-        self.b2b_key = _inp(""); self.b2b_key.setEchoMode(QLineEdit.EchoMode.Password)
-        ly.addWidget(self.b2b_key)
-        _cap("API Secret (se guarda cifrada · vacío = no cambiar)")
-        self.b2b_secret = _inp(""); self.b2b_secret.setEchoMode(QLineEdit.EchoMode.Password)
-        ly.addWidget(self.b2b_secret)
-        # Asistente rápido de vinculación: cargar claves de archivo + OAuth (si la plataforma lo admite).
+        tiene_cred = bool(cfg.get("api_key"))
+
+        # (A) Indicador de estado SEGURO: si ya hay credenciales cifradas guardadas, no mostramos
+        #     campos vacíos (evita la duda de si están o no). Badge + botón "Reemplazar claves".
+        self.b2b_seguro = QWidget(); _sg = QHBoxLayout(self.b2b_seguro)
+        _sg.setContentsMargins(0, 0, 0, 0)
+        _lbl_seg = QLabel("🔒  Credenciales B2B configuradas y cifradas")
+        _lbl_seg.setStyleSheet("color:#3FB950;background:transparent;font-weight:800;font-size:13px;")
+        _sg.addWidget(_lbl_seg)
+        _sg.addWidget(_btn("Reemplazar claves", self._reemplazar_claves_b2b))
+        _sg.addStretch(1)
+        ly.addWidget(self.b2b_seguro)
+
+        # (B) Método PRINCIPAL de vinculación (1 clic): cargar archivo de claves + OAuth si procede.
         wiz = QHBoxLayout()
         wiz.addWidget(_btn("📁  Cargar archivo de claves (.json / .env)", self._cargar_claves_b2b))
         self.b2b_oauth_btn = _btn("🔗  Conectar cuenta B2B", self._oauth_b2b, primary=True)
         wiz.addWidget(self.b2b_oauth_btn); wiz.addStretch(1)
         ly.addLayout(wiz)
+
+        # (C) Acordeón "Introducir claves manualmente" (oculto por defecto): API Key/Secret.
+        self.b2b_toggle_manual = QPushButton("⚙️  Introducir claves manualmente")
+        self.b2b_toggle_manual.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.b2b_toggle_manual.setStyleSheet(
+            f"QPushButton{{background:transparent;border:none;color:{_DIM};font-weight:700;"
+            f"text-align:left;padding:2px 0;}}QPushButton:hover{{color:{_CIAN};}}")
+        self.b2b_toggle_manual.clicked.connect(self._toggle_manual_b2b)
+        trow = QHBoxLayout(); trow.addWidget(self.b2b_toggle_manual); trow.addStretch(1)
+        ly.addLayout(trow)
+
+        self.b2b_manual = QWidget(); _mv = QVBoxLayout(self.b2b_manual)
+        _mv.setContentsMargins(0, 0, 0, 0); _mv.setSpacing(6)
+
+        def _capm(txt):
+            lab = QLabel(txt); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+            _mv.addWidget(lab)
+        _capm("API Key (se guarda cifrada · vacío = no cambiar)")
+        self.b2b_key = _inp(""); self.b2b_key.setEchoMode(QLineEdit.EchoMode.Password)
+        _mv.addWidget(self.b2b_key)
+        _capm("API Secret (se guarda cifrada · vacío = no cambiar)")
+        self.b2b_secret = _inp(""); self.b2b_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        _mv.addWidget(self.b2b_secret)
+        ly.addWidget(self.b2b_manual)
+
+        # Estado inicial: badge seguro solo si hay credenciales guardadas; el manual siempre oculto.
+        self.b2b_seguro.setVisible(tiene_cred)
+        self.b2b_manual.setVisible(False)
 
         t2 = QLabel("📈  Reglas de precios (monitor de desvíos + precio dinámico)")
         t2.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:14px;padding-top:6px;")
@@ -183,7 +218,8 @@ class ComprasAvanzadoWindow(QWidget):
         pfila.addStretch(1)
         ly.addLayout(pfila)
 
-        self.b2b_badge = QLabel("✓ credenciales configuradas" if cfg.get("api_key") else "— sin credenciales")
+        self.b2b_badge = QLabel("Pulsa «Probar conexión» para verificar." if cfg.get("api_key")
+                                else "— sin credenciales")
         self.b2b_badge.setStyleSheet(f"color:{_TEXT};background:transparent;font-size:13px;font-weight:700;")
         ly.addWidget(self.b2b_badge)
         nota = QLabel("Las credenciales se guardan cifradas (Fernet) y no se muestran. Guardar requiere "
@@ -214,6 +250,15 @@ class ComprasAvanzadoWindow(QWidget):
         if hasattr(self, "b2b_oauth_btn"):
             self.b2b_oauth_btn.setVisible(bool(pre.get("oauth")))
 
+    def _toggle_manual_b2b(self):
+        """Muestra/oculta el acordeón de entrada manual de claves (API Key/Secret)."""
+        self.b2b_manual.setVisible(not self.b2b_manual.isVisible())
+
+    def _reemplazar_claves_b2b(self):
+        """Revela la entrada manual para sustituir las credenciales cifradas ya guardadas."""
+        self.b2b_manual.setVisible(True)
+        self.b2b_key.setFocus()
+
     def _cargar_claves_b2b(self):
         """Rellena API Key/Secret desde un archivo .json o .env (1 clic)."""
         from PyQt6.QtWidgets import QFileDialog
@@ -227,6 +272,7 @@ class ComprasAvanzadoWindow(QWidget):
         if secret:
             self.b2b_secret.setText(secret)
         if key or secret:
+            self.b2b_manual.setVisible(True)   # revela el acordeón para que el usuario revise lo cargado
             self._aviso("Integración B2B", "Claves cargadas del archivo. Revisa y pulsa «Guardar».",
                         "success")
         else:
@@ -314,6 +360,11 @@ class ComprasAvanzadoWindow(QWidget):
             umbral_variacion_pct=umbral, margen_objetivo_pct=margen, id_empresa=self._emp())
         if ok:
             self.b2b_key.clear(); self.b2b_secret.clear()
+            # Estado seguro: si ya hay credenciales cifradas guardadas, colapsa el manual y muestra el badge.
+            from src.db import compras_b2b as B2BDB2
+            if B2BDB2.obtener_config(self._emp()).get("api_key"):
+                self.b2b_seguro.setVisible(True)
+                self.b2b_manual.setVisible(False)
             self._pintar_badge_b2b({"ok": True, "mensaje": "Configuración guardada (credenciales cifradas)."})
             self._aviso("Integración B2B", "Configuración B2B y reglas de precios guardadas.", "success")
         else:

@@ -229,7 +229,11 @@ class ComprasWindow(QWidget):
             b.setStyleSheet("QPushButton{background:transparent;border:none;font-size:14px;padding:0;}"
                             "QPushButton:hover{background:#1A2230;border-radius:6px;}")
             b.clicked.connect(lambda _=False, row=r: self._editar_proveedor(row))
-            cont = QWidget(); lay = QHBoxLayout(cont); lay.setContentsMargins(0, 0, 0, 0)
+            # Fondo opaco del contenedor: tapa el hover de celda global (::item:hover) para que la
+            # columna Acciones NO reaccione al pasar el ratón; sólo el botón del lápiz hace hover swap.
+            cont = QWidget(); cont.setObjectName("celda_acciones")
+            cont.setStyleSheet(f"#celda_acciones{{background:{_BG};}}")
+            lay = QHBoxLayout(cont); lay.setContentsMargins(0, 0, 0, 0)
             lay.addWidget(b, 0, Qt.AlignmentFlag.AlignCenter)
             self.tbl_prov.setCellWidget(r, 6, cont)
 
