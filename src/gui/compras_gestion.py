@@ -15,7 +15,7 @@ import logging
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (QDialog, QFormLayout,
-                             QFrame, QHBoxLayout, QLabel, QPushButton, QStackedWidget,
+                             QFrame, QHBoxLayout, QHeaderView, QLabel, QPushButton, QStackedWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.db import compras as C
@@ -219,6 +219,13 @@ class ComprasWindow(QWidget):
                                 "Email", "Teléfono", tr("compras.estado", default="Estado"),
                                 tr("compras.acciones", default="Acciones")])
         self.tbl_prov.cellClicked.connect(self._sel_proveedor)
+        # Anchos: ID estrecho, Email ocupa el hueco, Acciones fijo; el resto al contenido.
+        hh = self.tbl_prov.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed); self.tbl_prov.setColumnWidth(0, 60)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed); self.tbl_prov.setColumnWidth(6, 90)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)     # Email
+        for c in (1, 2, 4, 5):
+            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
         ly.addWidget(self.tbl_prov, 1)
         return w
 
@@ -227,14 +234,17 @@ class ComprasWindow(QWidget):
         filas = P.listar_proveedores(texto=texto)
         self._fill(self.tbl_prov, filas, ("id_proveedor", "razon_social", "cif_nif",
                                           "email", "telefono", "estado"))
-        # Columna "Acciones": lápiz de edición por proveedor.
+        # Columna "Acciones": lápiz de edición por proveedor (centrado y completo, sin recortes).
         for r in range(self.tbl_prov.rowCount()):
-            b = QPushButton("✏️"); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b = QPushButton("✏"); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFixedSize(30, 30)
             b.setToolTip(tr("compras.editar_prov", default="Editar proveedor"))
-            b.setStyleSheet("QPushButton{background:transparent;border:none;font-size:16px;}"
-                            "QPushButton:hover{color:#00FFC6;}")
+            b.setStyleSheet("QPushButton{background:transparent;border:none;font-size:15px;padding:0;"
+                            "color:#00FFC6;} QPushButton:hover{color:#FFFFFF;}")
             b.clicked.connect(lambda _=False, row=r: self._editar_proveedor(row))
-            self.tbl_prov.setCellWidget(r, 6, b)
+            cont = QWidget(); lay = QHBoxLayout(cont); lay.setContentsMargins(0, 0, 0, 0)
+            lay.addWidget(b, 0, Qt.AlignmentFlag.AlignCenter)
+            self.tbl_prov.setCellWidget(r, 6, cont)
 
     def _editar_proveedor(self, row):
         """Abre un diálogo para editar el proveedor de la fila. Los cambios se propagan a todas las
