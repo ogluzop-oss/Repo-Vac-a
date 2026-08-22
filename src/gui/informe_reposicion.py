@@ -814,8 +814,8 @@ class InformeReposicionWindow(QWidget):
         )
         side_ly.addWidget(lbl_m)
 
-        self._tab_keys = ["repo.tab_status", "repo.tab_edit", "repo.tab_export"]
-        _tab_def = ["ESTADO REPOSICIÓN", "EDITAR STOCK ESPERADO", "EXPORTAR INFORME"]
+        self._tab_keys = ["repo.tab_status", "repo.tab_edit", "repo.tab_export", "repo.tab_reab"]
+        _tab_def = ["ESTADO REPOSICIÓN", "EDITAR STOCK ESPERADO", "EXPORTAR INFORME", "REABASTECIMIENTO"]
 
         self._nav_btns = []
         for idx, key in enumerate(self._tab_keys):
@@ -856,16 +856,31 @@ class InformeReposicionWindow(QWidget):
         self._page_estado = self._EstadoReposicionPage(self)
         self._page_editar = self._EditarStockEsperadoPage(self)
         self._page_exportar = self._ExportarInformePage(self)
+        self._page_reab = self._crear_reab_page()
 
         self._vistas.addWidget(self._page_estado)
         self._vistas.addWidget(self._page_editar)
         self._vistas.addWidget(self._page_exportar)
+        self._vistas.addWidget(self._page_reab)
 
         root.addWidget(self._vistas)
         self._ir_a(0)
 
         self.setLayout(root)
         self.setStyleSheet(f"background-color: {self._FONDO};")
+
+    def _crear_reab_page(self):
+        """Pestaña de REABASTECIMIENTO migrada desde Logística (artículos monitorizados + responsables →
+        Correo interno). Reutiliza la página y el motor existentes; degradable."""
+        try:
+            from src.gui.recepcion_pale import StockReplenishmentEngine, _ReabastecimientoPage
+            self._reab_engine = StockReplenishmentEngine(self)
+            return _ReabastecimientoPage(self._reab_engine)
+        except Exception as e:
+            import logging
+            from PyQt6.QtWidgets import QWidget as _QW
+            logging.getLogger("gui.reposicion").error("crear pestaña reabastecimiento: %s", e)
+            return _QW()
 
     # ============================================================
     # BLOQUE ESTILO DE BOTONES
