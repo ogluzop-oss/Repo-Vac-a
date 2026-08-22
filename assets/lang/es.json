@@ -908,7 +908,7 @@
   "vta": {
     "tab_search": "BUSCAR VENTAS",
     "tab_summary": "RESUMEN DE VENTAS",
-    "tab_forecast": "HISTÓRICO DE VENTAS",
+    "tab_forecast": "IMPORTAR VENTAS",
     "exit": "SALIR AL MENÚ",
     "search_title": "BUSCAR VENTAS",
     "lbl_ticket": "Nº Ticket",
@@ -974,7 +974,7 @@
     "chart_title": "Facturación  {desde} → {hasta}",
     "top10_title": "TOP 10 MÁS VENDIDOS",
     "unit_uds_low": "uds",
-    "forecast_title": "HISTÓRICO DE VENTAS",
+    "forecast_title": "IMPORTAR VENTAS",
     "forecast_subtitle": "Sistema de previsión inteligente basado en histórico de ventas y modelos IA",
     "btn_upload_hist": "SUBIR VENTAS PASADAS",
     "btn_view_forecast": "VER PREVISIÓN",
