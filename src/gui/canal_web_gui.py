@@ -25,10 +25,10 @@ _BG = "#0E1117"
 _BG2 = "#161B22"
 _TEXT2 = "#8B949E"
 
-# Enlace de AFILIADO al creador web con IA de Hostinger + código promo (configurables por entorno). Rellena
-# con tu enlace/código reales de afiliado de Hostinger para obtener beneficios por cada cliente referido.
-HOSTINGER_URL = os.getenv("HOSTINGER_REFERRAL_URL", "https://www.hostinger.com/es/creador-paginas-web")
-HOSTINGER_PROMO = os.getenv("HOSTINGER_PROMO_CODE", "SMARTMANAGER")
+# Enlace de AFILIADO al creador web/tienda online de Shopify + código promo (configurables por entorno).
+# Rellena con tu enlace/código reales de afiliado de Shopify para obtener beneficios por cada cliente referido.
+SHOPIFY_URL = os.getenv("SHOPIFY_REFERRAL_URL", "https://www.shopify.com/es")
+SHOPIFY_PROMO = os.getenv("SHOPIFY_PROMO_CODE", "SMARTMANAGER")
 
 
 def _btn_x(slot=None):
@@ -119,26 +119,26 @@ class CanalWebWindow(QWidget):
         ly = QVBoxLayout(w)
         ly.setSpacing(14)
         ly.addStretch(1)
-        t = QLabel("Crear tu página web con Hostinger")
+        t = QLabel("Crear tu página web con Shopify")
         t.setStyleSheet(f"color:{_CIAN};font-size:22px;font-weight:900;")
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ly.addWidget(t)
-        prov = QLabel("Proveedor oficial de creación web:  HOSTINGER (IA)")
+        prov = QLabel("Proveedor oficial de creación web:  SHOPIFY (IA)")
         prov.setStyleSheet(f"color:{_CIAN};font-size:14px;font-weight:800;")
         prov.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ly.addWidget(prov)
-        exp = QLabel("Hostinger creará tu página web automáticamente con inteligencia artificial. Smart "
+        exp = QLabel("Shopify creará tu página web automáticamente con inteligencia artificial. Smart "
                      "Manager NO genera páginas web: cuando tu web esté lista, la conectas aquí en un paso "
                      "(«Sí, ya tengo web» → Web tradicional).")
         exp.setWordWrap(True)
         exp.setAlignment(Qt.AlignmentFlag.AlignCenter)
         exp.setStyleSheet(f"color:{_TEXT2};font-size:13px;")
         ly.addWidget(exp)
-        # Código promocional (descuento para los clientes de Smart Manager que crean su web en Hostinger).
-        if HOSTINGER_PROMO:
+        # Código promocional (descuento para los clientes de Smart Manager que crean su web en Shopify).
+        if SHOPIFY_PROMO:
             fila_promo = QHBoxLayout()
             fila_promo.addStretch()
-            promo = QLabel(f"🎁  Código de descuento:   {HOSTINGER_PROMO}")
+            promo = QLabel(f"🎁  Código de descuento:   {SHOPIFY_PROMO}")
             promo.setAlignment(Qt.AlignmentFlag.AlignCenter)
             promo.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             promo.setStyleSheet(f"color:{_CIAN};background:{_BG2};border:2px dashed {_CIAN};border-radius:10px;"
@@ -146,16 +146,16 @@ class CanalWebWindow(QWidget):
             fila_promo.addWidget(promo)
             fila_promo.addStretch()
             ly.addLayout(fila_promo)
-            nota = QLabel("Aplícalo en el pago de Hostinger para obtener tu descuento como cliente de Smart "
+            nota = QLabel("Aplícalo en el pago de Shopify para obtener tu descuento como cliente de Smart "
                           "Manager.")
             nota.setWordWrap(True)
             nota.setAlignment(Qt.AlignmentFlag.AlignCenter)
             nota.setStyleSheet(f"color:{_TEXT2};font-size:11px;")
             ly.addWidget(nota)
-        # Un ÚNICO paso: abrir el creador de Hostinger (delegación total).
+        # Un ÚNICO paso: abrir el creador de Shopify (delegación total).
         fila = QHBoxLayout()
         fila.addStretch()
-        b = _boton("🌐  Crear mi web con Hostinger", primario=True)
+        b = _boton("🌐  Crear mi web con Shopify", primario=True)
         b.setMinimumWidth(320)
         b.clicked.connect(self._abrir_hostinger)
         fila.addWidget(b)
@@ -165,14 +165,14 @@ class CanalWebWindow(QWidget):
         return w
 
     def _abrir_hostinger(self):
-        """Delegación TOTAL: abre el creador web con IA de Hostinger en el navegador (enlace de afiliado +
-        código promo). La creación ocurre ÍNTEGRAMENTE en Hostinger; Smart Manager solo conecta la web
-        resultante después. Un solo clic (mínimo número de pasos)."""
+        """Delegación TOTAL: abre el creador web/tienda online de Shopify en el navegador (enlace de
+        afiliado + código promo). La creación ocurre ÍNTEGRAMENTE en Shopify; Smart Manager solo conecta
+        la web resultante después. Un solo clic (mínimo número de pasos). (Flujo/lógica sin cambios.)"""
         import webbrowser
         try:
-            webbrowser.open(HOSTINGER_URL)
+            webbrowser.open(SHOPIFY_URL)
         except Exception as e:
-            logger.debug("abrir hostinger: %s", e)
+            logger.debug("abrir shopify: %s", e)
 
     def _cerrar_o_volver(self):
         """✕: navega hacia atrás. Desde el asistente Hostinger → a la selección de tipo (3 columnas); desde
