@@ -109,6 +109,8 @@ class CalidadDashboardWindow(QWidget):
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
         self.tabs = QTabWidget()
+        # Sin línea gris alrededor del contenido de cada sub-pestaña (el contorno lo pone la tabla).
+        self.tabs.setStyleSheet("QTabWidget::pane{border:none;}")
 
         self.tbl_insp = _tabla(["ID", "Fase", "Artículo", "Inspecc.", "Rechaz.", "Resultado", "Fecha"])
         self.tbl_nc = _tabla(["ID", "Código", "Origen", "Severidad", "Estado", "Fecha"])
