@@ -25,8 +25,34 @@ def _emp(id_empresa=None):
         return id_empresa or EMPRESA_DEFAULT_ID
 
 
-def precio_referencia(codigo, id_empresa=None) -> float | None:
-    """Último precio unitario de compra del artículo (índice de mercado). None si no hay histórico."""
+def _uno(cur):
+    r = cur.fetchone()
+    if not r:
+        return None
+    v = r[0] if not isinstance(r, dict) else list(r.values())[0]
+    return v
+
+
+def ref_manual(codigo, id_empresa=None) -> float | None:
+    """Precio ref. FIJADO MANUALMENTE (articulos.precio_ref). None si la empresa no lo ha sobrescrito."""
+    if not codigo:
+        return None
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT precio_ref FROM articulos WHERE codigo=%s AND id_empresa<=>%s",
+                        (str(codigo).strip(), emp))
+            v = _uno(cur)
+        return float(v) if v is not None else None
+    except Exception as e:
+        logger.debug("ref_manual(%s): %s", codigo, e)
+        return None
+
+
+def media_historica(codigo, id_empresa=None, dias=30) -> float | None:
+    """Coste medio PONDERADO por cantidad de las líneas de pedido de los últimos `dias` días. None si no
+    hay histórico en la ventana. Es el índice automático del Precio ref. cuando no hay valor manual."""
     if not codigo:
         return None
     emp = _emp(id_empresa)
@@ -34,17 +60,88 @@ def precio_referencia(codigo, id_empresa=None) -> float | None:
         from src.db.conexion import obtener_conexion
         with obtener_conexion() as c, c.cursor() as cur:
             cur.execute(
-                "SELECT l.precio_unitario FROM compras_pedidos_lineas l "
-                "JOIN compras_pedidos p ON p.id_pedido=l.id_pedido "
-                "WHERE p.id_empresa=%s AND UPPER(l.codigo_articulo)=%s AND l.precio_unitario>0 "
-                "ORDER BY l.id_pedido DESC LIMIT 1", (emp, str(codigo).strip().upper()))
-            r = cur.fetchone()
-        if r:
-            v = r[0] if not isinstance(r, dict) else list(r.values())[0]
-            return float(v) if v else None
+                "SELECT SUM(l.precio_unitario*l.cantidad)/NULLIF(SUM(l.cantidad),0) "
+                "FROM compras_pedidos_lineas l JOIN compras_pedidos p ON p.id_pedido=l.id_pedido "
+                "WHERE p.id_empresa<=>%s AND UPPER(l.codigo_articulo)=%s AND l.precio_unitario>0 "
+                "AND l.cantidad>0 AND p.fecha >= (NOW() - INTERVAL %s DAY)",
+                (emp, str(codigo).strip().upper(), int(dias)))
+            v = _uno(cur)
+        return round(float(v), 4) if v is not None else None
     except Exception as e:
-        logger.debug("precio_referencia(%s): %s", codigo, e)
-    return None
+        logger.debug("media_historica(%s): %s", codigo, e)
+        return None
+
+
+def _precio_alta(codigo, id_empresa=None) -> float | None:
+    """Precio fijado en el alta del artículo (articulos.precio). Fallback para artículos sin histórico."""
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT precio FROM articulos WHERE codigo=%s AND id_empresa<=>%s",
+                        (str(codigo).strip(), emp))
+            v = _uno(cur)
+        return float(v) if v not in (None, 0) else None
+    except Exception as e:
+        logger.debug("_precio_alta(%s): %s", codigo, e)
+        return None
+
+
+def precio_referencia(codigo, id_empresa=None) -> float | None:
+    """Precio ref. del artículo, resuelto por prioridad:
+    1) valor MANUAL fijado por la empresa (articulos.precio_ref);
+    2) coste medio PONDERADO de los pedidos de los últimos 30 días (media histórica);
+    3) precio de ALTA del artículo (articulos.precio) si no hay histórico.
+    None solo si no hay ninguno de los tres."""
+    if not codigo:
+        return None
+    emp = _emp(id_empresa)
+    m = ref_manual(codigo, emp)
+    if m is not None:
+        return m
+    mh = media_historica(codigo, emp)
+    if mh is not None:
+        return mh
+    return _precio_alta(codigo, emp)
+
+
+def es_ref_manual(codigo, id_empresa=None) -> bool:
+    """True si el Precio ref. está fijado manualmente (prioritario, no se recalcula solo)."""
+    return ref_manual(codigo, id_empresa) is not None
+
+
+def set_precio_referencia(codigo, precio, id_empresa=None) -> bool:
+    """Fija manualmente el Precio ref. del artículo (queda como referencia prioritaria)."""
+    if not codigo:
+        return False
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("UPDATE articulos SET precio_ref=%s WHERE codigo=%s AND id_empresa<=>%s",
+                        (round(float(precio), 2), str(codigo).strip(), emp))
+            c.commit()
+        return True
+    except Exception as e:
+        logger.error("set_precio_referencia(%s): %s", codigo, e)
+        return False
+
+
+def restablecer_precio_referencia(codigo, id_empresa=None) -> bool:
+    """Quita el valor manual → el Precio ref. vuelve a calcularse por media histórica / precio de alta."""
+    if not codigo:
+        return False
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("UPDATE articulos SET precio_ref=NULL WHERE codigo=%s AND id_empresa<=>%s",
+                        (str(codigo).strip(), emp))
+            c.commit()
+        return True
+    except Exception as e:
+        logger.error("restablecer_precio_referencia(%s): %s", codigo, e)
+        return False
 
 
 def evaluar_desvio(precio, ref, umbral_pct=10.0) -> str:
@@ -110,6 +207,22 @@ def quitar_watchlist(codigo, id_empresa=None) -> bool:
         return True
     except Exception as e:
         logger.error("quitar_watchlist: %s", e)
+        return False
+
+
+def en_watchlist(codigo, id_empresa=None) -> bool:
+    """True si el artículo está en la watchlist (seguimiento crítico/estratégico) de la empresa."""
+    if not codigo:
+        return False
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT 1 FROM compras_watchlist WHERE id_empresa=%s AND codigo_articulo=%s LIMIT 1",
+                        (emp, str(codigo).strip().upper()))
+            return cur.fetchone() is not None
+    except Exception as e:
+        logger.debug("en_watchlist(%s): %s", codigo, e)
         return False
 
 
