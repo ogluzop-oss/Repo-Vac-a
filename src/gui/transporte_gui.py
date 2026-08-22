@@ -92,7 +92,7 @@ class TransporteWindow(QWidget):
 
         tabs = QTabWidget()
         tabs.setStyleSheet(
-            f"QTabWidget::pane{{border:1px solid #30363D;border-radius:10px;}}"
+            f"QTabWidget::pane{{border:none;}}"
             f"QTabBar::tab{{background:transparent;color:{T.TEXT};padding:8px 18px;font-weight:800;"
             f"border:1px solid #30363D;border-bottom:none;border-top-left-radius:8px;border-top-right-radius:8px;}}"
             f"QTabBar::tab:selected{{background:{T.INFO};color:{T.BG};}}")
