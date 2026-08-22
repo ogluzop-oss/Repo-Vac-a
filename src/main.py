@@ -319,6 +319,9 @@ class SmartManagerApp(QStackedWidget):
         # de aplicar el stylesheet/maximizar.
         self.setAutoFillBackground(True)
         self.setStyleSheet("QStackedWidget{background:#0E1117;}")
+        # NOTA: el stack PRINCIPAL (login/selector/vídeo de carga/menú) NO se anima a propósito, para no
+        # deslizar la pantalla del vídeo de carga previa al menú. La transición se aplica DENTRO de cada
+        # módulo al abrirse (menu_principal → instalar_transiciones_en).
 
         # --- 0. MULTIMEDIA (Intro) ---
         self.intro_player = QMediaPlayer()

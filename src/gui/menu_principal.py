@@ -1855,6 +1855,11 @@ class MenuPrincipal(QWidget):
             return
 
         self._ventanas["tpv"] = tpv
+        try:
+            from src.gui.transiciones import instalar_transiciones_en
+            instalar_transiciones_en(tpv)
+        except Exception:
+            pass
         smart_app.addWidget(tpv)
         self.hide()
         smart_app.setCurrentWidget(tpv)
@@ -1900,6 +1905,13 @@ class MenuPrincipal(QWidget):
 
             nueva_v = clase_ventana(**kwargs)
             self._ventanas[identificador] = nueva_v
+
+            # Propaga la transición de deslizamiento a TODA la navegación del módulo (pestañas y stacks).
+            try:
+                from src.gui.transiciones import instalar_transiciones_en
+                instalar_transiciones_en(nueva_v)
+            except Exception:
+                pass
 
             if hasattr(nueva_v, "showMaximized"):
                 nueva_v.showMaximized()

@@ -211,4 +211,5 @@ MODULOS = [
     "0210_proveedores_ficha",
     "0211_pedidos_pvp_articulos_unidad",
     "0212_articulos_precio_ref",
+    "0213_reab_schedule_perfiles",
 ]

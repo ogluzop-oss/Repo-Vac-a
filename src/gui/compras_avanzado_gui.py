@@ -82,11 +82,13 @@ class ComprasAvanzadoWindow(QWidget):
         tabs = QTabWidget()
         # Sin línea alrededor del contenido de cada sub-pestaña (el contorno turquesa lo pone la tabla).
         tabs.setStyleSheet("QTabWidget::pane{border:none;}")
-        tabs.addTab(self._tab_proveedores(), "Proveedores / Homologación")
+        # "Proveedores / Homologación" renombrada a "Homologar Proveedor" (unificación en Proveedores).
+        tabs.addTab(self._tab_proveedores(), "Homologar Proveedor")
         tabs.addTab(self._tab_devoluciones(), "Devoluciones")
         tabs.addTab(self._tab_incidencias(), "Incidencias")
         tabs.addTab(self._tab_evaluacion(), "Evaluación")
         tabs.addTab(self._tab_comparar(), "Comparar proveedores")
+        self.tabs = tabs   # expuesto para poder EMBEBER estas sub-pestañas en la sección Proveedores
         root.addWidget(tabs)
 
     def _emp(self):
@@ -368,9 +370,12 @@ class ComprasAvanzadoWindow(QWidget):
     # ── Incidencias ───────────────────────────────────────────────────────────
     def _tab_incidencias(self):
         w = QWidget(); ly = QVBoxLayout(w)
+        # "Actualizar" en la ESQUINA SUPERIOR DERECHA (sobre la tabla), no debajo.
+        barra = QHBoxLayout(); barra.addStretch(1)
+        barra.addWidget(_btn("🔄  Actualizar", self._carga_inc, primary=True))
+        ly.addLayout(barra)
         self.tbl_inc = _tabla(["ID", "Tipo", "Artículo", "Cantidad", "Estado", "Fecha"])
-        ly.addWidget(self.tbl_inc)
-        ly.addWidget(_btn("🔄  Actualizar", self._carga_inc, primary=True))
+        ly.addWidget(self.tbl_inc, 1)
         self._carga_inc()
         return w
 
