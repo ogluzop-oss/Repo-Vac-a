@@ -111,6 +111,11 @@ class CalidadDashboardWindow(QWidget):
         self.tabs = QTabWidget()
         # Sin línea gris alrededor del contenido de cada sub-pestaña (el contorno lo pone la tabla).
         self.tabs.setStyleSheet("QTabWidget::pane{border:none;}")
+        try:
+            from src.gui.transiciones import instalar_transicion_tabs
+            instalar_transicion_tabs(self.tabs)   # deslizamiento al cambiar de sub-pestaña
+        except Exception:
+            pass
 
         self.tbl_insp = _tabla(["ID", "Fase", "Artículo", "Inspecc.", "Rechaz.", "Resultado", "Fecha"])
         self.tbl_nc = _tabla(["ID", "Código", "Origen", "Severidad", "Estado", "Fecha"])

@@ -320,6 +320,14 @@ class SmartManagerApp(QStackedWidget):
         self.setAutoFillBackground(True)
         self.setStyleSheet("QStackedWidget{background:#0E1117;}")
 
+        # Transición GLOBAL de deslizamiento al cambiar de pantalla (login/selector/menú/módulos que
+        # viven en este stack): la vista saliente se desliza a la derecha. A prueba de fallos.
+        try:
+            from src.gui.transiciones import instalar_transicion_stack
+            instalar_transicion_stack(self)
+        except Exception:
+            pass
+
         # --- 0. MULTIMEDIA (Intro) ---
         self.intro_player = QMediaPlayer()
         self.intro_audio = QAudioOutput()

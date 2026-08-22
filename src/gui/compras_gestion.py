@@ -23,6 +23,7 @@ from src.db import proveedores as P
 from src.gui.catalogo_gestion import (_BG, _BG2, _BORDE, _CIAN, _DIM, _ROJO, _SIDEBAR, _TEXT, _btn,
                                       _btn_cargando, _btn_salir_sidebar, _combo, _dialogo_frameless,
                                       _inp, _tabla)
+from src.gui.transiciones import instalar_transicion_stack, instalar_transicion_tabs
 from src.utils.i18n import tr
 
 logger = logging.getLogger("gui.compras")
@@ -137,7 +138,7 @@ class ComprasWindow(QWidget):
             ("rec", "📥", "Recepciones", self._page_recepciones, self._load_recepciones),
             ("fac", "🧾", "Facturas", self._page_facturas, self._load_facturas),
             ("inf", "📊", "Informes", self._page_informes, self._cargar_informe),
-            ("avz", "🤝", "Avanzado", self._page_avanzado, lambda: None),
+            # «Avanzado» se ha UNIFICADO dentro de «Proveedores» (sub-pestañas). Ya no es una sección.
             ("cal", "🔬", "Calidad", self._page_calidad, lambda: None),
         ]
         return secs
@@ -158,6 +159,7 @@ class ComprasWindow(QWidget):
         rcol.setContentsMargins(24, 18, 24, 18); rcol.setSpacing(14)
         rcol.addLayout(self._build_header())
         self.stack = QStackedWidget()
+        instalar_transicion_stack(self.stack)   # deslizamiento al cambiar de sección
         self._loaders = []
         for _sid, _ic, _lbl, page_fn, loader_fn in self._secciones:
             self.stack.addWidget(page_fn())
@@ -225,15 +227,6 @@ class ComprasWindow(QWidget):
         if callable(self._volver):
             self._volver()
 
-    def _page_avanzado(self):
-        """Compras avanzado (homologación/devoluciones/incidencias/evaluación) embebido."""
-        try:
-            from src.gui.compras_avanzado_gui import ComprasAvanzadoWindow
-            return ComprasAvanzadoWindow(callback_vuelta=None, usuario=self.usuario, main=self)
-        except Exception as e:
-            logger.error("embed Compras avanzado: %s", e)
-            return QWidget()
-
     def _page_calidad(self):
         """Calidad (inspecciones/NC/CAPA/auditorías): dominio de calidad de suministro/recepción,
         reutilizando el Dashboard de Calidad existente sin duplicarlo."""
@@ -244,8 +237,34 @@ class ComprasWindow(QWidget):
             logger.error("embed Calidad: %s", e)
             return QWidget()
 
-    # ── Sección Proveedores ──────────────────────────────────────────────────
+    # ── Sección Proveedores (UNIFICADA con Avanzado) ─────────────────────────
     def _page_proveedores(self):
+        """Sección Proveedores por SUB-PESTAÑAS: el directorio/alta existente + las antiguas pestañas de
+        «Avanzado» (Homologar Proveedor · Devoluciones · Incidencias · Evaluación · Comparar proveedores),
+        migradas tal cual. La sección «Avanzado» desaparece del sidebar (sin duplicidad)."""
+        cont = QWidget(); cly = QVBoxLayout(cont); cly.setContentsMargins(0, 0, 0, 0); cly.setSpacing(0)
+        tabw = QTabWidget()
+        tabw.setStyleSheet("QTabWidget::pane{border:none;}")
+        instalar_transicion_tabs(tabw)   # deslizamiento al cambiar de sub-pestaña
+        tabw.addTab(self._crud_proveedores(),
+                    tr("compras.subtab_directorio", default="Directorio de Proveedores"))
+        # Embebe las sub-pestañas de Compras Avanzado (con su lógica) moviéndolas a esta pestaña. El
+        # objeto se conserva vivo (posee los widgets/handlers); su cabecera propia no se muestra.
+        try:
+            from src.gui.compras_avanzado_gui import ComprasAvanzadoWindow
+            self._compras_avz = ComprasAvanzadoWindow(callback_vuelta=None, usuario=self.usuario, main=self)
+            av_tabs = self._compras_avz.tabs
+            while av_tabs.count():
+                page = av_tabs.widget(0)
+                titulo = av_tabs.tabText(0)
+                av_tabs.removeTab(0)
+                tabw.addTab(page, titulo)
+        except Exception as e:
+            logger.error("unificar Avanzado en Proveedores: %s", e)
+        cly.addWidget(tabw)
+        return cont
+
+    def _crud_proveedores(self):
         w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10); ly.setContentsMargins(0, 0, 0, 0)
         fila = QHBoxLayout()
         self.in_prov_buscar = _inp(tr("compras.buscar_prov", default="Buscar proveedor…"))
@@ -1414,6 +1433,7 @@ class FichaProveedorDialog(QDialog):
         # Sin línea alrededor del contenido de cada sub-pestaña (el contorno turquesa lo ponen las
         # tablas). Se conserva el fondo del pane para el contenido con scroll.
         tabs.setStyleSheet(f"QTabWidget::pane{{border:none;background:{_BG};}}")
+        instalar_transicion_tabs(tabs)   # deslizamiento al cambiar de sub-pestaña
         # Cada pestaña envuelta en scroll (misma scrollbar cyan de la app) para que el contenido no se corte.
         tabs.addTab(_scroll_neon(self._tab_generales()),
                     tr("compras.ficha_generales", default="Datos Generales"))
