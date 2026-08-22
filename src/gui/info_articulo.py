@@ -416,6 +416,27 @@ class _BuscarArticuloPage(QWidget):
         row_fam.addWidget(self.cmb_familia, 1)
         self.info_lyt.addLayout(row_fam)
 
+        # ── PRECIO DE REFERENCIA (editable; alimenta el Desvío % de la bolsa de Pedidos) ──
+        # Manual (prioritario) o automático (media ponderada 30 días / precio de alta). Editable aquí y
+        # también desde Pedidos (doble clic en la celda «Precio ref.»).
+        self.info_lyt.addSpacing(8)
+        row_ref = QHBoxLayout()
+        self._lbl_ref_tit = QLabel(tr("info.f_precio_ref", default="PRECIO REF.:"))
+        self._lbl_ref_tit.setStyleSheet("color:#8B949E;font-size:12px;font-weight:bold;border:none;")
+        self._lbl_ref_tit.setFixedWidth(140)
+        self.lbl_precio_ref = QLabel("-")
+        self.lbl_precio_ref.setStyleSheet("color:#FFFFFF;font-size:14px;font-weight:900;border:none;")
+        self.btn_edit_ref = QPushButton("✎")
+        self.btn_edit_ref.setStyleSheet(_ss_boton(_CIAN))
+        self.btn_edit_ref.setFixedSize(44, 32)
+        self.btn_edit_ref.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_edit_ref.setToolTip(tr("info.edit_precio_ref", default="Editar Precio ref."))
+        self.btn_edit_ref.clicked.connect(self._editar_precio_ref)
+        row_ref.addWidget(self._lbl_ref_tit)
+        row_ref.addWidget(self.lbl_precio_ref, 1)
+        row_ref.addWidget(self.btn_edit_ref)
+        self.info_lyt.addLayout(row_ref)
+
         # ── FÍSICA DE SEGURIDAD DEL AUTOCOBRO (Capa 1): peso esperado + tolerancia por artículo ──
         # Master data que alimenta el control antifraude de las cajas de autocobro. Editable solo por
         # gerente/administrador. Vacío = usa los valores por defecto del motor.
@@ -590,6 +611,7 @@ class _BuscarArticuloPage(QWidget):
                 else art.get("precio", 0)
             )
             self.labels["PRECIO"].setText(f"{divisas.formatear(precio)}")
+            self._pintar_precio_ref(art.get("codigo"))
 
             self.labels["U_TIENDA"].setText(fmt(art.get("ubicacion_tienda")))
             self.labels["U_ALMACEN"].setText(fmt(art.get("ubicacion_almacen")))
@@ -634,6 +656,43 @@ class _BuscarArticuloPage(QWidget):
 
         except Exception as e:
             print(f"Error búsqueda: {e}")
+
+    def _pintar_precio_ref(self, codigo):
+        """Muestra el Precio ref. actual del artículo y si es manual (prioritario) o automático."""
+        try:
+            from src.services.compras import precios_dinamicos as PD
+            pr = PD.precio_referencia(codigo)
+            manual = PD.es_ref_manual(codigo)
+            origen = (tr("info.pref_manual", default="manual") if manual
+                      else tr("info.pref_auto", default="auto"))
+            self.lbl_precio_ref.setText((f"{pr:.2f} €" if pr is not None else "—") + f"  ·  {origen}")
+        except Exception:
+            self.lbl_precio_ref.setText("—")
+
+    def _editar_precio_ref(self):
+        """Editor del Precio ref. (mismo diálogo que en Pedidos): manual prioritario o restablecer a media."""
+        cod = getattr(self, "_art_codigo", None)
+        if not cod:
+            return
+        try:
+            from src.gui.compras_gestion import _DialogoPrecioRef
+            from src.services.compras import precios_dinamicos as PD
+        except Exception:
+            return
+        actual = PD.precio_referencia(cod)
+        dlg = _DialogoPrecioRef(cod, actual, PD.es_ref_manual(cod), PD.media_historica(cod), self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dlg.restablecer:
+            PD.restablecer_precio_referencia(cod)
+        elif dlg.valor is not None:
+            PD.set_precio_referencia(cod, dlg.valor)
+        else:
+            return
+        self._pintar_precio_ref(cod)
+        if mostrar_mensaje:
+            mostrar_mensaje(self, tr("info.precio_ref", default="Precio ref."),
+                            tr("info.pref_ok", default="Precio de referencia actualizado."), nivel="success")
 
     def _compactar_icono(self, compacto: bool):
         """Reduce el icono de lupa cuando hay un resultado en pantalla, para que el panel de resultado

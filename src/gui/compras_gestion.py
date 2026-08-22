@@ -421,8 +421,14 @@ class ComprasWindow(QWidget):
         ly.addLayout(bfila)
         # Acciones sobre la tabla: JUSTO ENCIMA de la bolsa (bajo el buscador).
         mbar = QHBoxLayout()
-        mbar.addWidget(_btn("👁  " + tr("compras.watchlist", default="AÑADIR A WATCHLIST"),
-                            self._add_watchlist, primary=True))
+        self.btn_watchlist = _btn("👁  " + tr("compras.watchlist", default="AÑADIR A WATCHLIST"),
+                                  self._add_watchlist, primary=True)
+        mbar.addWidget(self.btn_watchlist)
+        # Indicador de artículo crítico/estratégico (en watchlist): evaluación preventiva activa.
+        self.lbl_watchlist = QLabel("")
+        self.lbl_watchlist.setStyleSheet(f"color:{_CIAN};background:transparent;font-weight:800;"
+                                         "font-size:12px;padding-left:8px;")
+        mbar.addWidget(self.lbl_watchlist)
         mbar.addStretch(1)
         ly.addLayout(mbar)
         # Tabla de la BOLSA (SOLO proveedores locales, tabla proveedor_precios_negociados). Columnas finales:
@@ -533,8 +539,9 @@ class ComprasWindow(QWidget):
         try:
             from src.services.compras import precios_dinamicos as PD
             _umbral, margen = PD._reglas(self._emp_actual())
+            en_wl = PD.en_watchlist(cod, id_empresa=self._emp_actual())
         except Exception:
-            PD = None; margen = 30.0
+            PD = None; margen = 30.0; en_wl = False
         verde, rojo = QColor("#3FB950"), QColor("#F85149")
         for r in filas:
             row = self.tbl_bolsa.rowCount(); self.tbl_bolsa.insertRow(row)
@@ -552,6 +559,8 @@ class ComprasWindow(QWidget):
                 it = QTableWidgetItem("" if v is None else str(v))
                 if c in (1, 3):                     # Precio y Desvío %: color de alerta preventiva
                     it.setForeground(color)
+                    if en_wl:                       # artículo crítico (watchlist): alerta DESTACADA (negrita)
+                        f = it.font(); f.setBold(True); it.setFont(f)
                 self.tbl_bolsa.setItem(row, c, it)
             # Columna Acción: botón para añadir esta fila a la cola.
             b = _btn("＋", lambda _=False, rr=row: self._accion_bolsa(rr), primary=True)
@@ -559,6 +568,7 @@ class ComprasWindow(QWidget):
             cont = QWidget(); lay = QHBoxLayout(cont); lay.setContentsMargins(0, 0, 0, 0)
             lay.addWidget(b, 0, Qt.AlignmentFlag.AlignCenter)
             self.tbl_bolsa.setCellWidget(row, 6, cont)
+        self._refrescar_watchlist_btn()   # refleja el estado crítico/watchlist del artículo buscado
         if not filas:
             _aviso(self, tr("compras.bolsa_titulo", default="Bolsa"),
                    tr("compras.bolsa_vacia3",
@@ -573,7 +583,8 @@ class ComprasWindow(QWidget):
                 logger.debug("sugerencia PVP: %s", e)
 
     def _precio_ref_mercado(self, codigo):
-        """Precio de referencia (índice de mercado) = último coste de compra del artículo (histórico ERP)."""
+        """Precio ref. del artículo: valor manual si lo hay, si no media ponderada 30 días, si no precio
+        de alta (resuelto por `precios_dinamicos.precio_referencia`)."""
         try:
             from src.services.compras import precios_dinamicos as PD
             return PD.precio_referencia(codigo, id_empresa=self._emp_actual())
@@ -595,8 +606,20 @@ class ComprasWindow(QWidget):
                   m=float(sug["margen_pct"])),
                "warning" if sug.get("desvio") == "alerta" else "success")
 
+    def _nombre_articulo(self, codigo):
+        """Nombre del artículo por su código (para el toast). Degrada al propio código si no se encuentra."""
+        try:
+            from src.db import articulos as A
+            r = A.buscar_uno(codigo, id_empresa=self._emp_actual())
+            if r and r[1]:
+                return r[1]
+        except Exception:
+            pass
+        return codigo
+
     def _add_watchlist(self):
-        """Añade el artículo buscado a la watchlist de monitorización de coste."""
+        """Alterna el artículo buscado en la WATCHLIST (seguimiento crítico/estratégico, migr 0209):
+        si no está, lo añade; si ya está, lo quita. Toast inmediato con el nombre del artículo."""
         cod = getattr(self, "_bolsa_cod", None)
         if not cod:
             _aviso(self, "Watchlist", tr("compras.wl_busca",
@@ -604,21 +627,94 @@ class ComprasWindow(QWidget):
                    "warning")
             return
         from src.services.compras import precios_dinamicos as PD
-        if PD.añadir_watchlist(cod, id_empresa=self._emp_actual()):
-            _aviso(self, "Watchlist", tr("compras.wl_ok", default="«{c}» añadido a la watchlist.", c=cod),
-                   "success")
+        emp = self._emp_actual()
+        nombre = self._nombre_articulo(cod)
+        if PD.en_watchlist(cod, id_empresa=emp):
+            ok = PD.quitar_watchlist(cod, id_empresa=emp)
+            _aviso(self, "Watchlist",
+                   tr("compras.wl_quitado", default="👁️ {n} quitado de la Watchlist.", n=nombre)
+                   if ok else tr("compras.wl_err", default="No se pudo actualizar la watchlist."),
+                   "success" if ok else "error")
         else:
-            _aviso(self, "Watchlist", tr("compras.wl_err", default="No se pudo añadir a la watchlist."),
-                   "error")
+            ok = PD.añadir_watchlist(cod, id_empresa=emp)
+            _aviso(self, "Watchlist",
+                   tr("compras.wl_ok2", default="👁️ {n} añadido a la Watchlist.", n=nombre)
+                   if ok else tr("compras.wl_err", default="No se pudo actualizar la watchlist."),
+                   "success" if ok else "error")
+        self._refrescar_watchlist_btn()
+
+    def _refrescar_watchlist_btn(self):
+        """Refleja en el botón/indicador si el artículo buscado está en la watchlist (estado crítico)."""
+        if not hasattr(self, "btn_watchlist"):
+            return
+        cod = getattr(self, "_bolsa_cod", None)
+        dentro = False
+        if cod:
+            try:
+                from src.services.compras import precios_dinamicos as PD
+                dentro = PD.en_watchlist(cod, id_empresa=self._emp_actual())
+            except Exception:
+                dentro = False
+        if dentro:
+            self.btn_watchlist.setText("👁  " + tr("compras.watchlist_quitar", default="QUITAR DE WATCHLIST"))
+            # Acento sutil (danger tenue): distingue el estado "ya en seguimiento" sin romper el tema.
+            self.btn_watchlist.setStyleSheet(
+                f"QPushButton{{background:{_BG2};color:{_ROJO};border:2px solid {_ROJO};border-radius:8px;"
+                f"font-weight:900;font-size:12px;padding:0 14px;}}"
+                f"QPushButton:hover{{background:{_ROJO};color:{_BG};border-color:{_ROJO};}}")
+            self.lbl_watchlist.setText(tr("compras.wl_critico",
+                                          default="⭐ En Watchlist · seguimiento crítico (evaluación preventiva)"))
+        else:
+            self.btn_watchlist.setText("👁  " + tr("compras.watchlist", default="AÑADIR A WATCHLIST"))
+            self.btn_watchlist.setStyleSheet(
+                f"QPushButton{{background:{_BG2};color:{_CIAN};border:2px solid {_CIAN};border-radius:8px;"
+                f"font-weight:900;font-size:12px;padding:0 14px;}}"
+                f"QPushButton:hover{{background:{_CIAN};color:{_BG};border-color:{_CIAN};}}")
+            self.lbl_watchlist.setText("")
 
     def _bolsa_sel(self):
         r = self.tbl_bolsa.currentRow()
         rows = getattr(self, "_bolsa_rows", []) or []
         return rows[r] if 0 <= r < len(rows) else None
 
-    def _bolsa_doble_clic(self, fila_idx, _col):
-        """Doble clic en una fila → añade esa tarifa a la cola (igual que el botón Acción)."""
-        self._accion_bolsa(fila_idx)
+    def _bolsa_doble_clic(self, fila_idx, col):
+        """Doble clic: en la columna «Precio ref.» (2) abre el editor rápido del Precio ref.; en cualquier
+        otra columna añade esa tarifa a la cola (igual que el botón Acción)."""
+        if col == 2:
+            self._editar_precio_ref()
+        else:
+            self._accion_bolsa(fila_idx)
+
+    def _editar_precio_ref(self):
+        """Editor RÁPIDO del Precio ref. del artículo buscado (sin salir de Pedidos). Guarda un valor
+        MANUAL prioritario o lo restablece a la media histórica; refresca al instante Desvío % y colores."""
+        cod = getattr(self, "_bolsa_cod", None)
+        if not cod:
+            _aviso(self, tr("compras.precio_ref", default="Precio ref."),
+                   tr("compras.pref_busca", default="Busca un artículo antes de editar su precio ref."),
+                   "warning")
+            return
+        from src.services.compras import precios_dinamicos as PD
+        emp = self._emp_actual()
+        actual = PD.precio_referencia(cod, id_empresa=emp)
+        manual = PD.es_ref_manual(cod, id_empresa=emp)
+        media = PD.media_historica(cod, id_empresa=emp)
+        dlg = _DialogoPrecioRef(cod, actual, manual, media, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dlg.restablecer:
+            PD.restablecer_precio_referencia(cod, id_empresa=emp)
+            _aviso(self, tr("compras.precio_ref", default="Precio ref."),
+                   tr("compras.pref_reset", default="Precio ref. restablecido a la media histórica."),
+                   "success")
+        elif dlg.valor is not None:
+            PD.set_precio_referencia(cod, dlg.valor, id_empresa=emp)
+            _aviso(self, tr("compras.precio_ref", default="Precio ref."),
+                   tr("compras.pref_set", default="Precio ref. fijado manualmente a {v:.2f} €.", v=dlg.valor),
+                   "success")
+        else:
+            return
+        self._buscar_bolsa()   # recalcula Desvío % + indicadores verde ▼ / rojo ▲ al instante
 
     def _accion_bolsa(self, row):
         """Añade la tarifa de la fila `row` a la cola de artículos (pregunta la cantidad)."""
@@ -1156,6 +1252,64 @@ class _DialogoCantidad(QDialog):
         if c > 0:
             self.cantidad = c
             self.accept()
+
+
+class _DialogoPrecioRef(QDialog):
+    """Editor rápido del Precio ref. de un artículo (frameless). Permite fijar un valor MANUAL prioritario
+    o restablecerlo a la media histórica. Expone `valor` (float|None) y `restablecer` (bool)."""
+
+    def __init__(self, codigo, actual, es_manual, media, parent=None):
+        super().__init__(parent)
+        self.valor = None
+        self.restablecer = False
+        self.setFixedSize(440, 340)
+        v = _dialogo_frameless(self, titulo=tr("compras.precio_ref", default="Precio de referencia"),
+                               ancho=440)
+        cab = QLabel(f"{codigo}")
+        cab.setStyleSheet(f"color:{_CIAN};background:transparent;font-size:14px;font-weight:900;")
+        v.addWidget(cab)
+        origen = (tr("compras.pref_manual", default="valor manual (prioritario)") if es_manual
+                  else tr("compras.pref_auto", default="cálculo automático"))
+        info = QLabel(tr("compras.pref_info",
+                         default="Precio ref. actual: {a} € · origen: {o}.",
+                         a=(f"{actual:.2f}" if actual is not None else "—"), o=origen))
+        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:12px;"); info.setWordWrap(True)
+        v.addWidget(info)
+        med = QLabel(tr("compras.pref_media",
+                        default="Media histórica (30 días): {m}.",
+                        m=(f"{media:.2f} €" if media is not None else "sin histórico")))
+        med.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+        v.addWidget(med)
+        cap = QLabel(tr("compras.pref_nuevo", default="Nuevo Precio ref. manual (€)"))
+        cap.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:12px;")
+        v.addWidget(cap)
+        self.in_val = _inp("0.00")
+        if actual is not None:
+            self.in_val.setText(f"{float(actual):.2f}")
+        self.in_val.returnPressed.connect(self._ok)
+        v.addWidget(self.in_val)
+        v.addWidget(_btn(tr("compras.pref_restablecer", default="↺  Restablecer a media histórica"),
+                         self._reset, primary=True))
+        v.addStretch(1)
+        row = QHBoxLayout(); row.addStretch(1)
+        row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), self.reject))
+        row.addWidget(_btn(tr("compras.guardar", default="Guardar"), self._ok, primary=True))
+        v.addLayout(row)
+        self.in_val.setFocus(); self.in_val.selectAll()
+
+    def _reset(self):
+        self.restablecer = True
+        self.accept()
+
+    def _ok(self):
+        try:
+            v = float((self.in_val.text() or "0").replace(",", "."))
+        except ValueError:
+            return
+        if v <= 0:
+            return
+        self.valor = round(v, 2)
+        self.accept()
 
 
 class _DialogoReposicion(QDialog):
