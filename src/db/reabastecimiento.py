@@ -303,51 +303,126 @@ def obtener_propuesta(propuesta_id: int) -> dict | None:
 # ── PROGRAMACIÓN DE ENVÍOS ───────────────────────────────────────────────────
 
 def cargar_schedule() -> dict:
+    """Programación de envío + PERFILES destinatarios (migr 0213). `perfiles` = lista de IDs de usuario
+    (responsables de logística) que reciben la solicitud en su bandeja de Correo interna."""
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT email, dias, hora, minuto, ultima_envio, smtp_user, smtp_pass "
+                    "SELECT dias, hora, minuto, ultima_envio, perfiles "
                     "FROM reab_schedule LIMIT 1"
                 )
                 r = cur.fetchone()
                 if r:
-                    return {
-                        "email": r[0] or "", "dias": r[1] or "",
-                        "hora": int(r[2]), "minuto": int(r[3]),
-                        "ultima_envio": r[4],
-                        "smtp_user": r[5] or "", "smtp_pass": r[6] or "",
-                    }
+                    perfiles = [p for p in (str(r[4] or "").split(",")) if p.strip()]
+                    return {"dias": r[0] or "", "hora": int(r[1]), "minuto": int(r[2]),
+                            "ultima_envio": r[3], "perfiles": perfiles}
     except Exception as e:
         logger.error(f"Error cargando schedule: {e}")
-    return {"email": "", "dias": "", "hora": 8, "minuto": 0, "ultima_envio": None,
-            "smtp_user": "", "smtp_pass": ""}
+    return {"dias": "", "hora": 8, "minuto": 0, "ultima_envio": None, "perfiles": []}
 
 
-def guardar_schedule(email: str, dias: str, hora: int, minuto: int,
-                     smtp_user: str = "", smtp_pass: str = "") -> bool:
+def guardar_schedule(dias: str, hora: int, minuto: int, perfiles=None) -> bool:
+    """Guarda la programación (días/hora) y los PERFILES destinatarios (IDs de usuario, coma-separados)."""
+    perfiles_str = ",".join(str(p) for p in (perfiles or []))
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT id FROM reab_schedule LIMIT 1")
                 r = cur.fetchone()
                 if r:
-                    cur.execute(
-                        "UPDATE reab_schedule SET email=%s, dias=%s, hora=%s, minuto=%s, "
-                        "smtp_user=%s, smtp_pass=%s WHERE id=%s",
-                        (email, dias, hora, minuto, smtp_user, smtp_pass, r[0])
-                    )
+                    cur.execute("UPDATE reab_schedule SET dias=%s, hora=%s, minuto=%s, perfiles=%s "
+                                "WHERE id=%s", (dias, hora, minuto, perfiles_str, r[0]))
                 else:
-                    cur.execute(
-                        "INSERT INTO reab_schedule (email, dias, hora, minuto, smtp_user, smtp_pass) "
-                        "VALUES (%s,%s,%s,%s,%s,%s)",
-                        (email, dias, hora, minuto, smtp_user, smtp_pass)
-                    )
+                    cur.execute("INSERT INTO reab_schedule (dias, hora, minuto, perfiles) "
+                                "VALUES (%s,%s,%s,%s)", (dias, hora, minuto, perfiles_str))
             conn.commit()
             return True
     except Exception as e:
         logger.error(f"Error guardando schedule: {e}")
         return False
+
+
+def articulos_bajo_umbral(id_empresa=None) -> list:
+    """Artículos monitorizados cuyo STOCK ACTUAL (tienda+almacén) ha caído por debajo del umbral mínimo.
+    Es la lista informativa que se envía en la solicitud de reabastecimiento. NO modifica stock."""
+    emp = _emp(id_empresa)
+    filas = []
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT rc.codigo, a.nombre,
+                       COALESCE(a.Stock_tienda,0) + COALESCE(a.Stock_total,0) AS stock_actual,
+                       COALESCE(a.Stock_central,0) AS stock_central,
+                       rc.umbral_min, rc.stock_objetivo
+                FROM reab_config rc
+                JOIN articulos a ON a.codigo = rc.codigo AND a.id_empresa <=> rc.id_empresa
+                WHERE rc.id_empresa <=> %s
+                  AND (COALESCE(a.Stock_tienda,0) + COALESCE(a.Stock_total,0)) < rc.umbral_min
+                ORDER BY a.nombre ASC
+            """, (emp,))
+            for r in cur.fetchall():
+                filas.append({"codigo": r[0], "nombre": r[1], "stock_actual": int(r[2]),
+                              "stock_central": int(r[3]), "umbral_min": int(r[4]),
+                              "stock_objetivo": int(r[5]),
+                              "cantidad": max(0, int(r[5]) - int(r[2]))})
+    except Exception as e:
+        logger.error(f"articulos_bajo_umbral: {e}")
+    return filas
+
+
+def _buzon_de_perfil(id_usuario, id_empresa):
+    """Resuelve el buzón de Correo (id_correo) de un perfil: primero su buzón personal (id_usuario),
+    si no tiene, el primer buzón de la empresa (para que la solicitud llegue igualmente)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id_correo FROM correos_corporativos WHERE id_empresa<=>%s AND id_usuario=%s "
+                        "LIMIT 1", (id_empresa, id_usuario))
+            r = cur.fetchone()
+            if r:
+                return r[0]
+            cur.execute("SELECT id_correo FROM correos_corporativos WHERE id_empresa<=>%s "
+                        "ORDER BY id_correo LIMIT 1", (id_empresa,))
+            r = cur.fetchone()
+            return r[0] if r else None
+    except Exception as e:
+        logger.debug("_buzon_de_perfil(%s): %s", id_usuario, e)
+        return None
+
+
+def enviar_reabastecimiento_a_perfiles(perfiles, id_empresa=None) -> dict:
+    """Envía UNA solicitud INFORMATIVA (sin botones, sin tocar stock) a la bandeja de Correo interna de
+    cada perfil seleccionado, con TODOS los artículos actualmente bajo umbral. Devuelve
+    {enviados, articulos, sin_articulos}. El stock solo se ajustará al recepcionar los palés."""
+    emp = _emp(id_empresa)
+    arts = articulos_bajo_umbral(emp)
+    if not arts:
+        return {"enviados": 0, "articulos": 0, "sin_articulos": True}
+    from datetime import datetime
+    asunto = f"🔄 Solicitud de reabastecimiento ({len(arts)} artículo(s))"
+    lineas = [f"Solicitud automática de reabastecimiento — {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+              "Artículos por debajo del umbral mínimo (informativo; el stock se ajusta al recepcionar):",
+              ""]
+    for a in arts:
+        lineas.append(f"• {a['nombre']} ({a['codigo']}) — stock {a['stock_actual']} / umbral "
+                      f"{a['umbral_min']} → reponer {a['cantidad']} (objetivo {a['stock_objetivo']})")
+    cuerpo = "\n".join(lineas)
+    enviados = 0
+    try:
+        from src.db import correo as _correo
+        vistos = set()
+        for pid in (perfiles or []):
+            buzon = _buzon_de_perfil(pid, emp)
+            if not buzon or buzon in vistos:   # evita duplicar si comparten buzón
+                continue
+            vistos.add(buzon)
+            mid = f"reab-{datetime.now().strftime('%Y%m%d%H%M%S')}-{buzon}"
+            if _correo.guardar_recibido(buzon, "Smart Manager · Reabastecimiento", asunto,
+                                        cuerpo, message_id=mid, id_empresa=emp):
+                enviados += 1
+    except Exception as e:
+        logger.error("enviar_reabastecimiento_a_perfiles: %s", e)
+    return {"enviados": enviados, "articulos": len(arts), "sin_articulos": False}
 
 
 def marcar_envio_hoy() -> bool:
