@@ -780,11 +780,13 @@ class ComprasWindow(QWidget):
             art = f"{it['codigo']} · {it.get('proveedor') or ''} ({it.get('unidad') or 'unidad'})"
             for c, v in enumerate([art, f"{float(it['precio']):.2f}", str(it["cantidad"]), f"{pt:.2f}"]):
                 t.setItem(r, c, QTableWidgetItem(v))
-            chk = QTableWidgetItem()
-            chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            chk.setCheckState(Qt.CheckState.Unchecked)
-            chk.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            t.setItem(r, 4, chk)
+            # Casilla ✓ CENTRADA en la celda: QCheckBox dentro de un contenedor con AlignCenter (la
+            # alineación de un QTableWidgetItem no centra el indicador de la casilla de forma fiable).
+            from PyQt6.QtWidgets import QCheckBox
+            cb = QCheckBox()
+            cont = QWidget(); lay = QHBoxLayout(cont); lay.setContentsMargins(0, 0, 0, 0)
+            lay.addWidget(cb, 0, Qt.AlignmentFlag.AlignCenter)
+            t.setCellWidget(r, 4, cont)
         # Fila TOTAL (resaltada) con el precio total de todos los artículos.
         r = t.rowCount(); t.insertRow(r)
         neg = QFont(); neg.setBold(True)
@@ -833,12 +835,14 @@ class ComprasWindow(QWidget):
 
     def _cancelar_seleccionados(self):
         """CANCELAR: retira de la cola TODOS los artículos MARCADOS con la casilla (con una confirmación)."""
+        from PyQt6.QtWidgets import QCheckBox
         t = getattr(self, "tbl_carrito", None)
         marcados = []
         if t is not None:
             for r in range(min(t.rowCount(), len(self._carrito))):
-                cel = t.item(r, 4)
-                if cel is not None and cel.checkState() == Qt.CheckState.Checked:
+                w = t.cellWidget(r, 4)
+                cb = w.findChild(QCheckBox) if w is not None else None
+                if cb is not None and cb.isChecked():
                     marcados.append(r)
         if not marcados:
             _aviso(self, tr("compras.cola_titulo", default="Artículos en cola"),

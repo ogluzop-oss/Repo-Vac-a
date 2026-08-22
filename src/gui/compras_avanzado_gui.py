@@ -146,7 +146,8 @@ class ComprasAvanzadoWindow(QWidget):
         ly.addWidget(info)
 
         fila = QHBoxLayout()
-        c = QLabel("Motor / Lonja"); c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+        c = QLabel("Motor / Lonja / B2B")
+        c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
         self.cmp_motor = _combo([(lab, i) for i, (lab, _u, _q) in enumerate(self._COMPARADORES)])
         self.cmp_motor.setMinimumWidth(420); self.cmp_motor.view().setMinimumWidth(440)
         fila.addWidget(c); fila.addWidget(self.cmp_motor); fila.addStretch(1)
