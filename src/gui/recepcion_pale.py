@@ -3679,8 +3679,8 @@ class RecepcionPaleWindow(QWidget):
             4: "vista_incidencias", 5: "vista_historial",
         }
         self._vista_built = {0: True}
-        # Placeholders (y atributos a None) para los índices 1..7.
-        for i in range(1, 8):
+        # Placeholders (y atributos a None) para las sub-páginas restantes (1..5).
+        for i in range(1, 6):
             setattr(self, self._vista_attr[i], None)
             self.vistas.addWidget(QWidget())
 
