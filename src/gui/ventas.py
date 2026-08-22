@@ -2194,7 +2194,7 @@ class VentasAnaliticaWindow(QWidget):
             pass
 
     def _retraducir(self):
-        _tab_def = ["RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
+        _tab_def = ["RESUMEN DE VENTAS", "IMPORTAR VENTAS", "RENDIMIENTO"]
         for i, btn in enumerate(self._sidebar_btns):
             _d = _tab_def[i] if i < len(_tab_def) else ""
             btn.setText(tr(self._tab_keys[i], default=_d))
@@ -2242,7 +2242,7 @@ class VentasAnaliticaWindow(QWidget):
         ly.addWidget(titulo)
 
         self._tab_keys = ["vta.tab_summary", "vta.tab_forecast", "vta.tab_rendimiento"]
-        _tab_def = ["RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
+        _tab_def = ["RESUMEN DE VENTAS", "IMPORTAR VENTAS", "RENDIMIENTO"]
         for i, texto in enumerate(_tab_def):
             btn = QPushButton(tr(self._tab_keys[i], default=texto))
             btn.setObjectName("btn_sidebar")
@@ -2310,7 +2310,8 @@ class VentasAnaliticaWindow(QWidget):
 
         hoy = QDate.currentDate()
         row_d = QHBoxLayout(); row_d.setSpacing(6)
-        self.res_fecha_desde = _date_neon(hoy.addDays(-30))
+        # Ambas fechas por defecto = DÍA EN CURSO (el usuario amplía el rango si lo necesita).
+        self.res_fecha_desde = _date_neon(hoy)
         self.res_fecha_hasta = _date_neon(hoy)
         for txt, w in ((tr("vta.lbl_date_from", default="Fecha Inicio"), self.res_fecha_desde), (tr("vta.lbl_date_to", default="Fecha Fin"), self.res_fecha_hasta)):
             lbl = _filter_lbl(txt)
@@ -2459,7 +2460,7 @@ class VentasAnaliticaWindow(QWidget):
         root.setSpacing(14)
 
         _center = Qt.AlignmentFlag.AlignCenter
-        root.addWidget(_lbl(tr("vta.forecast_title", default="HISTÓRICO DE VENTAS"), bold=True, size=15, color=CIAN))
+        root.addWidget(_lbl(tr("vta.forecast_title", default="IMPORTAR VENTAS"), bold=True, size=15, color=CIAN))
         root.addWidget(_separador())
 
         # ── Recuadro explicativo (arriba) ──────────────────────────────────────
