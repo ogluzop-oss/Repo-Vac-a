@@ -11,6 +11,7 @@ E2.5 facturas; E2.6 informes).
 """
 
 import logging
+import uuid as _uuid
 
 from src.db.conexion import (EMPRESA_DEFAULT_ID, _fila_a_dict, _filas_a_dicts,
                              ensure_schema, obtener_conexion, transaccion)
@@ -78,8 +79,9 @@ def crear_pedido(id_proveedor=None, lineas=None, observaciones=None, usuario=Non
                 "observaciones, usuario, id_almacen, descuento) VALUES (%s,%s,'BORRADOR',%s,%s,%s,%s)",
                 (id_empresa, id_proveedor, observaciones, usuario, id_almacen, descuento))
             pid = cur.lastrowid
-            cur.execute("UPDATE compras_pedidos SET numero=%s WHERE id_pedido=%s",
-                        (f"PC{pid:06d}", pid))
+            # Código de referencia (numero) + UUID único de pedido (trazabilidad QR, migr 0211).
+            cur.execute("UPDATE compras_pedidos SET numero=%s, uuid=%s WHERE id_pedido=%s",
+                        (f"PC{pid:06d}", str(_uuid.uuid4()), pid))
             bruto = _insertar_lineas(cur, pid, lineas)
             total = round(bruto * (1 - descuento / 100.0), 2)
             cur.execute("UPDATE compras_pedidos SET total=%s WHERE id_pedido=%s", (total, pid))
@@ -104,11 +106,14 @@ def _insertar_lineas(cur, id_pedido, lineas) -> float:
         precio = round(float(ln.get("precio_unitario") or 0), 2)
         subtotal = round(cant * precio, 2)
         total += subtotal
+        # pvp_sugerido (migr 0211): PVP dinámico calculado en la tramitación (coste × margen), opcional.
+        pvp = ln.get("pvp_sugerido")
+        pvp = round(float(pvp), 2) if pvp not in (None, "") else None
         cur.execute(
             "INSERT INTO compras_pedidos_lineas (id_pedido, codigo_articulo, descripcion, "
-            "cantidad, precio_unitario, subtotal) VALUES (%s,%s,%s,%s,%s,%s)",
+            "cantidad, precio_unitario, subtotal, pvp_sugerido) VALUES (%s,%s,%s,%s,%s,%s,%s)",
             (id_pedido, ln.get("codigo") or ln.get("codigo_articulo"),
-             ln.get("descripcion"), cant, precio, subtotal))
+             ln.get("descripcion"), cant, precio, subtotal, pvp))
     return round(total, 2)
 
 

@@ -41,7 +41,7 @@ FUNCIONES = {
     # Funciones BASE (R8) — capacidades transversales, NO ediciones; visibles en las versiones que corresponden.
     "transporte.reparto": "Reparto · Flota y rutas de reparto",
     "distribucion.expedicion": "Distribución · Pedidos, picking y expediciones (B2B)",
-    "compras.bolsa": "Compras · Vista B2B avanzada (bolsa comparativa + catálogo remoto + watchlist)",
+    "compras.bolsa": "Compras · Bolsa de proveedores (comparativa de tarifas pactadas + watchlist)",
 }
 
 # MATRIZ (fuente de verdad). Solo se listan las DIFERENCIAS respecto a la base (todo VISIBLE por defecto).

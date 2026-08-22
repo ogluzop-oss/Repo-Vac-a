@@ -209,4 +209,5 @@ MODULOS = [
     "0208_compras_b2b_config",
     "0209_compras_watchlist",
     "0210_proveedores_ficha",
+    "0211_pedidos_pvp_articulos_unidad",
 ]
