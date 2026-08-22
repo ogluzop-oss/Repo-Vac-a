@@ -1296,12 +1296,12 @@ class _DialogoPrecioRef(QDialog):
         info = QLabel(tr("compras.pref_info",
                          default="Precio ref. actual: {a} € · origen: {o}.",
                          a=(f"{actual:.2f}" if actual is not None else "—"), o=origen))
-        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:12px;"); info.setWordWrap(True)
+        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:13px;"); info.setWordWrap(True)
         v.addWidget(info)
         med = QLabel(tr("compras.pref_media",
                         default="Media histórica (30 días): {m}.",
                         m=(f"{media:.2f} €" if media is not None else "sin histórico")))
-        med.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+        med.setStyleSheet(f"color:{_DIM};background:transparent;font-size:13px;")
         v.addWidget(med)
         cap = QLabel(tr("compras.pref_nuevo", default="Nuevo Precio ref. manual (€)"))
         cap.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:13px;")

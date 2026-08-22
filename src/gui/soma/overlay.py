@@ -333,12 +333,11 @@ class SomaOverlay(QWidget):
 
     @staticmethod
     def _card_ss(hover: bool) -> str:
-        """Estilo de la tarjeta de invocación: sutil en reposo (fondo oscuro + contorno/texto turquesa),
-        con hover swap (se rellena de turquesa) para que se note clicable sin invadir la pantalla."""
-        fondo = "#00FFC6" if hover else "#12212B"
-        color = "#0D1117" if hover else "#00FFC6"
-        return (f"QLabel{{background:{fondo};color:{color};border:2px solid #00FFC6;border-radius:14px;"
-                f"font-weight:900;font-size:13px;padding:0 10px;font-family:'Segoe UI';}}")
+        """Estilo de la 'pestaña' de invocación: SIN fondo ni contorno (solo icono + texto turquesa),
+        pegada al ras de la barra de tareas. Hover sutil = el texto se aclara (blanco), sin recuadro."""
+        color = "#FFFFFF" if hover else "#00FFC6"
+        return (f"QLabel{{background:transparent;color:{color};border:none;"
+                f"font-weight:900;font-size:13px;font-family:'Segoe UI';}}")
 
     def enterEvent(self, e):   # noqa: N802 (API Qt): hover de la tarjeta (solo en reposo)
         if self._modo == "reposo":
@@ -353,9 +352,10 @@ class SomaOverlay(QWidget):
     def _aplicar_layout(self):
         r = self._rect_ref()
         if self._modo == "reposo":
-            # REPOSO: SOMA oculto. Solo la tarjeta discreta abajo-centro (invocable por clic o wake word).
+            # REPOSO: SOMA oculto. Solo la 'pestaña' transparente abajo-centro, PEGADA al ras de la barra
+            # de tareas (sin margen inferior), invocable por clic o wake word.
             x = r.x() + (r.width() - _CARD_W) // 2
-            y = r.y() + r.height() - _CARD_H - _MARGEN
+            y = r.y() + r.height() - _CARD_H
             self.setGeometry(x, y, _CARD_W, _CARD_H)
             self._character.setVisible(False)
             self._card.setVisible(True)
