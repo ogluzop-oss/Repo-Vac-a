@@ -421,25 +421,23 @@ class ComprasWindow(QWidget):
         ly.addLayout(bfila)
         # Acciones sobre la tabla: JUSTO ENCIMA de la bolsa (bajo el buscador).
         mbar = QHBoxLayout()
-        mbar.addWidget(_btn("🛒  " + tr("compras.comprar_ya", default="COMPRAR YA"),
-                            self._comprar_ya, primary=True))
         mbar.addWidget(_btn("👁  " + tr("compras.watchlist", default="AÑADIR A WATCHLIST"),
                             self._add_watchlist, primary=True))
         mbar.addStretch(1)
         ly.addLayout(mbar)
-        # Tabla UNIFICADA (modelo B2B + Watchlist): tarifas fijas locales (origen='tarifa') + catálogo
-        # remoto del conector B2B (origen='b2b'), clasificadas por ORIGEN, con PVP sugerido por el motor
-        # de precios dinámicos y el % de desvío frente al precio de referencia de mercado.
-        self.tbl_bolsa = _tabla([tr("compras.origen", default="Origen"),
-                                 tr("compras.proveedor", default="Proveedor"),
-                                 tr("compras.precio", default="Precio"),
-                                 tr("compras.divisa", default="Divisa"),
-                                 tr("compras.precio_ref", default="Precio ref."),
-                                 tr("compras.pvp_sugerido_col", default="PVP Sugerido"),
+        # Tabla de la BOLSA (SOLO proveedores locales, tabla proveedor_precios_negociados). Columnas finales:
+        # Proveedor · Precio (tarifa pactada) · Precio ref. · Desvío % · PVP Sugerido · Unidad · Acción.
+        self.tbl_bolsa = _tabla([tr("compras.proveedor", default="Proveedor"),
+                                 tr("compras.precio_eur", default="Precio (€)"),
+                                 tr("compras.precio_ref", default="Precio ref. (€)"),
                                  tr("compras.desvio_col", default="Desvío %"),
-                                 tr("compras.disponible", default="Disponible"),
-                                 tr("compras.unidad", default="Unidad")])
-        # Doble clic → comprar ya (tarifa: a la cola; en vivo: compra directa del mercado).
+                                 tr("compras.pvp_sugerido_col", default="PVP Sugerido (€)"),
+                                 tr("compras.unidad", default="Unidad"),
+                                 tr("compras.accion", default="Acción")])
+        hh = self.tbl_bolsa.horizontalHeader()
+        hh.setStretchLastSection(False)
+        hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed); self.tbl_bolsa.setColumnWidth(6, 90)
+        # Doble clic en una fila → añade esa tarifa a la cola (equivale al botón Acción).
         self.tbl_bolsa.cellDoubleClicked.connect(self._bolsa_doble_clic)
         ly.addWidget(self.tbl_bolsa, 1)
 
@@ -498,8 +496,10 @@ class ComprasWindow(QWidget):
             return None
 
     def _buscar_bolsa(self):
-        """Unifica en la bolsa: TARIFAS fijas locales (origen 'tarifa', `proveedor_precios_negociados`) +
-        CATÁLOGO REMOTO en tiempo real del conector B2B (origen 'b2b')."""
+        """Bolsa de proveedores: SOLO tarifas pactadas locales (`proveedor_precios_negociados`). Muestra por
+        proveedor el Precio pactado, el Precio ref. del artículo, el % de desvío, el PVP sugerido (coste ×
+        margen) y la unidad, con ALERTA PREVENTIVA (rojo ▲ si el precio supera la referencia, verde ▼ si es
+        igual o menor) ANTES de añadir a la cola."""
         cod = (self.in_bolsa_art.text() or "").strip().upper()
         self.tbl_bolsa.setRowCount(0)
         self._bolsa_rows = []
@@ -509,7 +509,6 @@ class ComprasWindow(QWidget):
         idp_sel = self.cmb_bolsa_prov.currentData()
         orden, desc = self.cmb_bolsa_orden.currentData() or ("precio", False)
         filas = []
-        # 1) Tarifas fijas locales.
         try:
             from src.services.compras import proveedores_pro as PP
             for t in PP.bolsa_precios(cod, id_proveedor=idp_sel,
@@ -518,78 +517,58 @@ class ComprasWindow(QWidget):
                 precio = float(t.get("precio_neto") if t.get("precio_neto") is not None
                                else (t.get("precio") or 0))
                 filas.append({"origen": "tarifa", "proveedor": t.get("proveedor"), "precio": precio,
-                              "divisa": t.get("divisa") or "EUR", "precio_ref": precio, "disponible": None,
                               "unidad": t.get("unidad_medida"), "id_proveedor": t.get("id_proveedor"),
-                              "codigo": cod, "ref_externa": None})
+                              "codigo": cod})
         except Exception as e:
             logger.error("bolsa_precios: %s", e)
-        # 2) Catálogo remoto B2B (tiempo real; degradable si no hay conector configurado).
-        try:
-            from src.services.compras import b2b_client as B2B
-            for x in B2B.obtener_catalogo(cod, id_empresa=self._emp_actual()):
-                precio = float(x.get("precio") or 0)
-                filas.append({"origen": "b2b", "proveedor": x.get("proveedor") or "B2B", "precio": precio,
-                              "divisa": x.get("divisa") or "EUR", "precio_ref": precio,
-                              "disponible": x.get("stock"), "unidad": x.get("unidad"),
-                              "id_proveedor": x.get("proveedor_id"), "codigo": x.get("codigo") or cod,
-                              "ref_externa": x.get("ref_externa"), "nombre": x.get("nombre")})
-        except Exception as e:
-            logger.debug("bolsa b2b: %s", e)
-        # Precio ref. de mercado (Fase 3): índice histórico de compra, para detectar desvíos.
+        # Precio ref. del artículo = último coste de compra (histórico ERP).
         self._ref_mercado = self._precio_ref_mercado(cod)
         if orden == "proveedor":
             filas.sort(key=lambda f: (f.get("proveedor") or ""))
         else:
-            filas.sort(key=lambda f: (f.get("precio_ref") if f.get("precio_ref") is not None else 1e18),
+            filas.sort(key=lambda f: (f.get("precio") if f.get("precio") is not None else 1e18),
                        reverse=bool(desc))
         self._bolsa_rows = filas
-        self._bolsa_ref = "EUR"
         ref = self._ref_mercado
         try:
             from src.services.compras import precios_dinamicos as PD
-            umbral, margen = PD._reglas(self._emp_actual())
+            _umbral, margen = PD._reglas(self._emp_actual())
         except Exception:
-            PD = None; umbral, margen = 10.0, 30.0
+            PD = None; margen = 30.0
         verde, rojo = QColor("#3FB950"), QColor("#F85149")
         for r in filas:
             row = self.tbl_bolsa.rowCount(); self.tbl_bolsa.insertRow(row)
-            origen = "B2B" if r["origen"] == "b2b" else "Tarifa"
-            pref = f"{ref:.2f} EUR" if ref is not None else "—"
-            disp = "—" if r.get("disponible") is None else f"{float(r['disponible']):.0f}"
             precio = float(r.get("precio") or 0)
-            # Monitor de desvíos (emulación Google Shopping): verde = oportunidad, rojo = incremento.
-            desvio = PD.evaluar_desvio(precio, ref, umbral) if PD else "normal"
-            flecha = {"oportunidad": "▼ ", "alerta": "▲ "}.get(desvio, "")
-            # PVP sugerido por línea (coste de la fila × margen dinámico) y % de desvío frente a Precio ref.
-            pvp = f"{PD.pvp_sugerido(precio, margen):.2f}" if PD else "—"
-            if ref not in (None, 0):
-                desv_txt = f"{(precio - ref) / ref * 100.0:+.1f}%"
-            else:
-                desv_txt = "—"
-            # Columnas: Origen · Proveedor · Precio · Divisa · Precio ref. · PVP Sugerido · Desvío % ·
-            #           Disponible · Unidad
-            vals = [origen, r.get("proveedor"), f"{flecha}{precio:.2f}", r.get("divisa"),
-                    pref, pvp, desv_txt, disp, r.get("unidad")]
+            pref = f"{ref:.2f}" if ref is not None else "—"
+            # ALERTA PREVENTIVA: rojo ▲ si el precio supera la referencia; verde ▼ si es igual o menor.
+            caro = (ref is not None and precio > ref)
+            flecha = "▲ " if caro else "▼ "
+            color = rojo if caro else verde
+            pvp = f"{PD.pvp_sugerido(precio, margen):.2f}" if PD else f"{precio * (1 + margen / 100):.2f}"
+            desv_txt = f"{(precio - ref) / ref * 100.0:+.1f}%" if ref not in (None, 0) else "—"
+            # Columnas: Proveedor · Precio (€) · Precio ref. (€) · Desvío % · PVP Sugerido (€) · Unidad
+            vals = [r.get("proveedor"), f"{flecha}{precio:.2f}", pref, desv_txt, pvp, r.get("unidad")]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem("" if v is None else str(v))
-                if c in (2, 6) and desvio == "oportunidad":       # Precio y Desvío %: verde si oportunidad
-                    it.setForeground(verde)
-                elif c in (2, 6) and desvio == "alerta":          # rojo si alerta sobre umbral
-                    it.setForeground(rojo)
-                elif r["origen"] == "b2b" and c not in (2, 6):
-                    it.setForeground(QColor(_CIAN))
+                if c in (1, 3):                     # Precio y Desvío %: color de alerta preventiva
+                    it.setForeground(color)
                 self.tbl_bolsa.setItem(row, c, it)
+            # Columna Acción: botón para añadir esta fila a la cola.
+            b = _btn("＋", lambda _=False, rr=row: self._accion_bolsa(rr), primary=True)
+            b.setFixedWidth(70); b.setToolTip(tr("compras.add_cola", default="Añadir a la cola"))
+            cont = QWidget(); lay = QHBoxLayout(cont); lay.setContentsMargins(0, 0, 0, 0)
+            lay.addWidget(b, 0, Qt.AlignmentFlag.AlignCenter)
+            self.tbl_bolsa.setCellWidget(row, 6, cont)
         if not filas:
             _aviso(self, tr("compras.bolsa_titulo", default="Bolsa"),
-                   tr("compras.bolsa_vacia2", default="No hay tarifas ni catálogo B2B para ese artículo."),
-                   "info")
+                   tr("compras.bolsa_vacia3",
+                      default="No hay tarifas de proveedor registradas para ese artículo."), "info")
             return
         # Motor de precios dinámicos: sugerencia de PVP si la variación de coste es significativa.
         if PD is not None:
             try:
                 coste = PD.coste_mas_bajo(filas)
-                sug = PD.sugerencia_precio_venta(cod, coste, id_empresa=self._emp_actual())
-                self._sugerencia_pvp(sug)
+                self._sugerencia_pvp(PD.sugerencia_precio_venta(cod, coste, id_empresa=self._emp_actual()))
             except Exception as e:
                 logger.debug("sugerencia PVP: %s", e)
 
@@ -638,18 +617,15 @@ class ComprasWindow(QWidget):
         return rows[r] if 0 <= r < len(rows) else None
 
     def _bolsa_doble_clic(self, fila_idx, _col):
-        """Doble clic → comprar ya (añade a la cola)."""
-        rows = getattr(self, "_bolsa_rows", []) or []
-        if 0 <= fila_idx < len(rows):
-            self._comprar_ya()
+        """Doble clic en una fila → añade esa tarifa a la cola (igual que el botón Acción)."""
+        self._accion_bolsa(fila_idx)
 
-    def _comprar_ya(self):
-        """Añade la tarifa seleccionada a la cola (pedido a tu proveedor)."""
-        fila = self._bolsa_sel()
-        if not fila:
-            _aviso(self, "Bolsa", tr("compras.bolsa_sel", default="Selecciona una fila de la bolsa."),
-                   "warning")
+    def _accion_bolsa(self, row):
+        """Añade la tarifa de la fila `row` a la cola de artículos (pregunta la cantidad)."""
+        rows = getattr(self, "_bolsa_rows", []) or []
+        if not (0 <= row < len(rows)):
             return
+        fila = rows[row]
         dlg = _DialogoCantidad(tr("compras.cuantas_uds", default="¿Cuántas unidades?"),
                                f"{self._bolsa_cod} · {fila.get('proveedor')}", 1, self)
         if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.cantidad:
@@ -722,7 +698,7 @@ class ComprasWindow(QWidget):
             return
         self._render_carrito()
         # ACTUALIZAR refresca EN VIVO la bolsa superior si hay una búsqueda activa: vuelve a leer las
-        # tarifas locales (origen='tarifa') y el catálogo remoto del conector (origen='b2b').
+        # tarifas pactadas locales (proveedor_precios_negociados).
         if hasattr(self, "in_bolsa_art") and self.in_bolsa_art.text().strip():
             self._buscar_bolsa()
 
@@ -770,55 +746,77 @@ class ComprasWindow(QWidget):
         self._render_carrito()
 
     def _tramitar_lineas(self, items):
-        """Crea+envía el pedido ERP estándar (agrupado por proveedor). Para las líneas de origen 'b2b',
-        además despacha la orden a la plataforma externa vía b2b_client (en paralelo). Devuelve nº pedidos."""
+        """Crea+envía los pedidos (agrupados por proveedor). En ese instante calcula el PVP dinámico por
+        línea (coste × margen), lo registra en el pedido y genera una etiqueta QR de trazabilidad por
+        pedido. Devuelve nº de pedidos enviados. Los PDF generados se guardan en `self._etiquetas_qr`."""
         from collections import defaultdict
+        try:
+            from src.services.compras import precios_dinamicos as PD
+            _u, margen = PD._reglas(self._emp_actual())
+        except Exception:
+            margen = 30.0
         grupos = defaultdict(list)
         for it in items:
-            idp = it.get("id_proveedor") or self._resolver_proveedor_b2b(it)
+            idp = it.get("id_proveedor")
             grupos[int(idp) if idp else 0].append(it)
         n = 0
+        self._etiquetas_qr = []
         for idp, its in grupos.items():
             if not idp:
                 continue
             lineas = [{"codigo": it["codigo"], "cantidad": int(it["cantidad"]),
                        "precio_unitario": float(it["precio"]),
+                       # PVP dinámico calculado EN LA TRAMITACIÓN según el coste pactado.
+                       "pvp_sugerido": round(float(it["precio"]) * (1 + margen / 100.0), 2),
                        "descripcion": f"{it['codigo']} · {it.get('unidad') or 'unidad'}"} for it in its]
             pid = C.crear_pedido(id_proveedor=idp, lineas=lineas, usuario=self.usuario.get("nombre"))
             if pid and C.enviar_pedido(pid):
                 n += 1
-                b2b_its = [it for it in its if it.get("origen") == "b2b"]
-                if b2b_its:
-                    self._despachar_b2b(pid, idp, b2b_its)
+                self._generar_etiqueta_qr(pid, its)
         return n
 
-    def _resolver_proveedor_b2b(self, it):
-        """Resuelve (o crea) un proveedor LOCAL para una línea B2B sin proveedor local, por su nombre."""
-        nombre = (it.get("proveedor") or "Proveedor B2B").strip()
+    def _generar_etiqueta_qr(self, id_pedido, items):
+        """Genera la etiqueta imprimible con QR (ref+UUID del pedido, empresa, proveedor, fecha, bultos)
+        y la indexa en el Centro Documental. Best-effort: si falla, el pedido ya está creado igual."""
         try:
-            for p in (P.listar_proveedores(texto=nombre) or []):
-                if (p.get("razon_social") or "").strip().lower() == nombre.lower():
-                    return p["id_proveedor"]
-            return P.crear_proveedor(nombre)
-        except Exception as e:
-            logger.debug("_resolver_proveedor_b2b: %s", e)
-            return None
+            import datetime as _dt
 
-    def _despachar_b2b(self, id_pedido, id_proveedor, items):
-        """Despacha la orden de compra a la plataforma B2B externa (best-effort; el pedido ERP ya existe)."""
-        try:
-            from src.services.compras import b2b_client as B2B
-            payload = {"pedido_erp": id_pedido, "id_proveedor": id_proveedor,
-                       "lineas": [{"ref_externa": it.get("ref_externa"), "codigo": it.get("codigo"),
-                                   "cantidad": int(it["cantidad"]), "precio": float(it["precio"])}
-                                  for it in items]}
-            res = B2B.enviar_orden_compra(payload, id_empresa=self._emp_actual())
-            if res.get("ok"):
-                logger.info("Orden B2B despachada: %s (pedido ERP %s)", res.get("id_externo"), id_pedido)
-            else:
-                logger.info("Orden B2B no despachada (pedido %s): %s", id_pedido, res.get("mensaje"))
+            from src.utils.etiqueta_pedido import generar_etiqueta_pedido_pdf
+            from src.utils.recursos import ruta_datos
+            ped = C.obtener_pedido(id_pedido, id_empresa=self._emp_actual()) or {}
+            prov = ""
+            try:
+                p = P.obtener_proveedor(ped.get("id_proveedor"), id_empresa=self._emp_actual()) or {}
+                prov = p.get("razon_social") or ""
+            except Exception:
+                pass
+            empresa = ""
+            try:
+                from src.db import empresa as _EMP
+                empresa = (_EMP.obtener_empresa(self._emp_actual()) or {}).get("nombre") or ""
+            except Exception:
+                pass
+            datos = {
+                "referencia": ped.get("numero") or f"PC{id_pedido:06d}",
+                "uuid": ped.get("uuid") or "",
+                "empresa": empresa, "proveedor": prov,
+                "fecha": str(ped.get("fecha") or _dt.datetime.now())[:19],
+                "lineas": [{"codigo": it.get("codigo"), "descripcion": it.get("codigo"),
+                            "cantidad": int(it.get("cantidad") or 0)} for it in items],
+                "total": ped.get("total"),
+            }
+            archivo = ruta_datos("etiquetas_pedidos", f"ETIQ_{datos['referencia']}.pdf")
+            ruta = generar_etiqueta_pedido_pdf(datos, archivo)
+            if ruta:
+                self._etiquetas_qr.append(ruta)
+                try:
+                    from src.db import documentos as _DOC
+                    _DOC.registrar_documento(ruta, tipo="etiqueta_pedido",
+                                             nombre=f"Etiqueta {datos['referencia']}")
+                except Exception as e:
+                    logger.debug("registrar etiqueta pedido: %s", e)
         except Exception as e:
-            logger.debug("_despachar_b2b: %s", e)
+            logger.warning("_generar_etiqueta_qr(%s): %s", id_pedido, e)
 
     def _tramitar_todos(self):
         """Tramita TODA la cola: crea y envía los pedidos (agrupados por proveedor) → Recepciones."""
@@ -832,12 +830,14 @@ class ComprasWindow(QWidget):
                                      "proveedores y aparecerán en Recepciones.")):
             return
         n = self._tramitar_lineas(self._carrito)
+        etiquetas = len(getattr(self, "_etiquetas_qr", []) or [])
         self._carrito = []
         self._render_carrito()
         self._load_recepciones()
         _aviso(self, tr("compras.tramitar_todos", default="Tramitar todos"),
-               tr("compras.tramitar_hecho",
-                  default="Se han enviado {n} pedido(s). Puedes verlos en la pestaña Recepciones.", n=n),
+               tr("compras.tramitar_hecho_qr",
+                  default="Se han enviado {n} pedido(s) y generado {e} etiqueta(s) QR de trazabilidad "
+                          "(en Documentos). Puedes verlos en la pestaña Recepciones.", n=n, e=etiquetas),
                "success" if n else "warning")
 
     def _enviar_carrito_sel(self):

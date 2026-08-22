@@ -1546,6 +1546,167 @@ class BarcodeScanner(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# ALTA RÁPIDA Y GENERADOR EAN-13
+# ---------------------------------------------------------------------------
+class _AltaRapidaEANPage(QWidget):
+    """Alta rápida de un artículo NUEVO con generador de EAN-13 válido y único. Da de alta en la tabla
+    PERMANENTE `articulos` para que quede disponible al instante en el buscador de Pedidos (Proveedores)."""
+
+    _UNIDADES = ["unidad", "kg", "caja", "saco", "palé", "litro", "docena"]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._imagen_path = None
+        cont = QVBoxLayout(self)
+        cont.setContentsMargins(40, 34, 40, 34); cont.setSpacing(14)
+
+        titulo = QLabel(tr("info.ean_titulo", default="⚡ Alta Rápida y Generador EAN-13"))
+        titulo.setStyleSheet(f"color:{_CIAN};font-size:22px;font-weight:900;background:transparent;")
+        cont.addWidget(titulo)
+        sub = QLabel(tr("info.ean_sub", default="Crea un artículo nuevo y genera su código de barras "
+                                                "EAN-13 único para negociarlo con nuevos distribuidores."))
+        sub.setStyleSheet(f"color:#8B949E;font-size:12px;background:transparent;"); sub.setWordWrap(True)
+        cont.addWidget(sub)
+
+        def _lbl(txt):
+            l = QLabel(txt); l.setStyleSheet("color:#8B949E;font-weight:700;font-size:12px;"
+                                             "background:transparent;")
+            return l
+
+        self.in_nombre = QLineEdit(); self.in_nombre.setPlaceholderText(
+            tr("info.ean_nombre", default="Nombre del artículo nuevo"))
+        self.in_nombre.setStyleSheet(_NEON_INPUT_SS)
+        self.cmb_familia = QComboBox(); self.cmb_familia.setStyleSheet(_NEON_COMBO_SS)
+        self.cmb_unidad = QComboBox(); self.cmb_unidad.setStyleSheet(_NEON_COMBO_SS)
+        self.cmb_unidad.addItems(self._UNIDADES)
+        self.in_precio = QLineEdit(); self.in_precio.setPlaceholderText("0.00")
+        self.in_precio.setStyleSheet(_NEON_INPUT_SS); self.in_precio.setFixedWidth(200)
+
+        cont.addWidget(_lbl(tr("info.ean_nombre_lbl", default="Nombre del artículo *")))
+        cont.addWidget(self.in_nombre)
+        fila = QHBoxLayout()
+        colf = QVBoxLayout(); colf.addWidget(_lbl(tr("info.ean_familia", default="Categoría / Familia")))
+        colf.addWidget(self.cmb_familia)
+        colu = QVBoxLayout(); colu.addWidget(_lbl(tr("info.ean_unidad", default="Unidad de medida")))
+        colu.addWidget(self.cmb_unidad)
+        colp = QVBoxLayout(); colp.addWidget(_lbl(tr("info.ean_precio", default="Precio de referencia (€)")))
+        colp.addWidget(self.in_precio)
+        fila.addLayout(colf, 2); fila.addLayout(colu, 1); fila.addLayout(colp, 1)
+        cont.addLayout(fila)
+
+        # Imagen opcional
+        imgrow = QHBoxLayout()
+        self.btn_img = QPushButton(tr("info.ean_img", default="🖼  Cargar imagen (opcional)"))
+        self.btn_img.setStyleSheet(_BTN_CIAN_SS); self.btn_img.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_img.clicked.connect(self._elegir_imagen)
+        self.lbl_img = _lbl("")
+        imgrow.addWidget(self.btn_img); imgrow.addWidget(self.lbl_img, 1)
+        cont.addLayout(imgrow)
+
+        # EAN generado
+        eanrow = QHBoxLayout()
+        self.in_ean = QLineEdit(); self.in_ean.setReadOnly(True)
+        self.in_ean.setPlaceholderText(tr("info.ean_ph", default="EAN-13 (pulsa Generar)"))
+        self.in_ean.setStyleSheet(_NEON_INPUT_SS); self.in_ean.setFixedWidth(280)
+        self.btn_gen = QPushButton(tr("info.ean_generar", default="⚡ Generar EAN-13 único"))
+        self.btn_gen.setStyleSheet(_ss_boton(_VERDE)); self.btn_gen.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_gen.clicked.connect(self._generar_ean)
+        eanrow.addWidget(_lbl(tr("info.ean_lbl", default="Código EAN-13"))); eanrow.addWidget(self.in_ean)
+        eanrow.addWidget(self.btn_gen); eanrow.addStretch(1)
+        cont.addLayout(eanrow)
+
+        self.lbl_estado = QLabel("")
+        self.lbl_estado.setStyleSheet("color:#8B949E;font-size:12px;background:transparent;")
+        cont.addWidget(self.lbl_estado)
+
+        self.btn_guardar = QPushButton(tr("info.ean_guardar", default="💾  Guardar artículo en catálogo"))
+        self.btn_guardar.setStyleSheet(_BTN_CIAN_SS); self.btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_guardar.clicked.connect(self._guardar)
+        brow = QHBoxLayout(); brow.addWidget(self.btn_guardar); brow.addStretch(1)
+        cont.addLayout(brow)
+        cont.addStretch(1)
+        self._cargar_familias()
+
+    def showEvent(self, e):   # noqa: N802 (API Qt): refresca familias al mostrar
+        super().showEvent(e)
+        self._cargar_familias()
+
+    def _cargar_familias(self):
+        self.cmb_familia.clear()
+        self.cmb_familia.addItem(tr("info.ean_sin_familia", default="— Sin familia —"), None)
+        try:
+            from src.db import familias
+            for f in familias.listar_familias():
+                self.cmb_familia.addItem(f.get("nombre"), f.get("id_familia"))
+        except Exception:
+            pass
+
+    def _estado(self, txt, error=False, ok=False):
+        col = _ROJO if error else (_VERDE if ok else "#8B949E")
+        self.lbl_estado.setText(txt)
+        self.lbl_estado.setStyleSheet(f"color:{col};font-size:12px;font-weight:700;background:transparent;")
+
+    def _elegir_imagen(self):
+        from PyQt6.QtWidgets import QFileDialog
+        ruta, _ = QFileDialog.getOpenFileName(self, tr("info.ean_img", default="Cargar imagen"), "",
+                                              "Imágenes (*.png *.jpg *.jpeg *.webp);;Todos (*)")
+        if ruta:
+            self._imagen_path = ruta
+            self.lbl_img.setText(os.path.basename(ruta))
+
+    def _generar_ean(self):
+        from src.db import articulos as A
+        from src.utils import ean
+        codigo = ean.generar(existe_fn=lambda c: A.existe_codigo(c))
+        if not codigo:
+            self._estado(tr("info.ean_err_gen", default="No se pudo generar un EAN único. Reinténtalo."),
+                         error=True)
+            return
+        self.in_ean.setText(codigo)
+        self._estado(tr("info.ean_ok_gen", default="EAN-13 válido generado: {c}", c=codigo), ok=True)
+
+    def _guardar(self):
+        from src.db import articulos as A
+        from src.utils import ean
+        nombre = (self.in_nombre.text() or "").strip()
+        if not nombre:
+            self._estado(tr("info.ean_falta_nombre", default="El nombre es obligatorio."), error=True); return
+        if A.existe_nombre(nombre):
+            self._estado(tr("info.ean_dup_nombre", default="Ya existe un artículo con ese nombre."),
+                         error=True); return
+        codigo = (self.in_ean.text() or "").strip()
+        if not ean.es_valido(codigo):
+            self._estado(tr("info.ean_falta_ean", default="Genera primero un EAN-13 válido."), error=True)
+            return
+        if A.existe_codigo(codigo):
+            self._estado(tr("info.ean_dup_ean", default="Ese EAN ya existe; genera otro."), error=True); return
+        try:
+            precio = float((self.in_precio.text() or "0").replace(",", "."))
+        except ValueError:
+            self._estado(tr("info.ean_precio_num", default="El precio debe ser numérico."), error=True); return
+        id_fam = self.cmb_familia.currentData()
+        categoria = self.cmb_familia.currentText() if id_fam else None
+        ok = A.crear_articulo(codigo, nombre, precio=precio, categoria=categoria, id_familia=id_fam,
+                              unidad=self.cmb_unidad.currentText(), imagen=self._imagen_path)
+        if ok:
+            self._estado(tr("info.ean_guardado",
+                            default="Artículo «{n}» dado de alta con EAN {c}. Ya disponible en Pedidos.",
+                            n=nombre, c=codigo), ok=True)
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("info.ean_titulo2", default="Alta de artículo"),
+                                tr("info.ean_guardado2", default="Artículo creado correctamente."),
+                                nivel="success")
+            for w in (self.in_nombre, self.in_ean, self.in_precio):
+                w.clear()
+            self._imagen_path = None; self.lbl_img.setText("")
+        else:
+            self._estado(tr("info.ean_err_save", default="No se pudo dar de alta el artículo."), error=True)
+
+    def _retraducir(self):
+        pass
+
+
+# ---------------------------------------------------------------------------
 # VENTANA PRINCIPAL
 # ---------------------------------------------------------------------------
 
@@ -1595,8 +1756,10 @@ class InfoArticuloWindow(QWidget):
         )
         side_ly.addWidget(lbl_m)
 
-        self._tab_keys = ["info.tab_search", "info.tab_image", "info.tab_edit", "info.tab_families"]
-        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS"]
+        self._tab_keys = ["info.tab_search", "info.tab_image", "info.tab_edit", "info.tab_families",
+                          "info.tab_ean"]
+        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS",
+                    "ALTA RÁPIDA · EAN-13"]
 
         self._nav_btns = []
         for idx, key in enumerate(self._tab_keys):
@@ -1638,22 +1801,26 @@ class InfoArticuloWindow(QWidget):
         self._page_imagen = _ImagenArticuloPage(self)
         self._page_editar = _EditarArticuloPage(self)
         self._page_familias = _FamiliasPage(self)
+        self._page_ean = _AltaRapidaEANPage(self)
 
         self._vistas.addWidget(self._page_buscar)
         self._vistas.addWidget(self._page_imagen)
         self._vistas.addWidget(self._page_editar)
         self._vistas.addWidget(self._page_familias)
+        self._vistas.addWidget(self._page_ean)
 
         root.addWidget(self._vistas)
         self._ir_a(0)
 
     def _retraducir(self):
         self.setWindowTitle(tr("info.window_title", default="Información de Artículo"))
-        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS"]
+        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS",
+                    "ALTA RÁPIDA · EAN-13"]
         for i, btn in enumerate(self._nav_btns):
             btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
         self._btn_exit.setText(tr("info.exit", default="SALIR AL MENÚ"))
-        for page in (self._page_buscar, self._page_imagen, self._page_editar, self._page_familias):
+        for page in (self._page_buscar, self._page_imagen, self._page_editar, self._page_familias,
+                     self._page_ean):
             if hasattr(page, "_retraducir"):
                 page._retraducir()
 

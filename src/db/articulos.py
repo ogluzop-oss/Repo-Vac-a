@@ -23,6 +23,65 @@ def _emp(id_empresa=None):
 
 
 # ============================================================
+# ALTA DE ARTÍCULOS (Alta Rápida + Generador EAN-13)
+# ============================================================
+def existe_codigo(codigo, id_empresa=None) -> bool:
+    """True si ya existe un artículo con ese código (EAN) en la empresa. Para validar unicidad del EAN."""
+    if not codigo:
+        return False
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM articulos WHERE codigo=%s AND id_empresa=%s LIMIT 1",
+                        (str(codigo), id_empresa))
+            return cur.fetchone() is not None
+    except Exception as e:
+        logger.error("existe_codigo(%s): %s", codigo, e)
+        return False
+
+
+def existe_nombre(nombre, id_empresa=None) -> bool:
+    """True si ya existe un artículo con ese nombre (case-insensitive) en la empresa."""
+    if not (nombre or "").strip():
+        return False
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM articulos WHERE id_empresa=%s AND LOWER(TRIM(nombre))=LOWER(TRIM(%s)) "
+                        "LIMIT 1", (id_empresa, nombre))
+            return cur.fetchone() is not None
+    except Exception as e:
+        logger.error("existe_nombre(%s): %s", nombre, e)
+        return False
+
+
+def crear_articulo(codigo, nombre, *, precio=0, categoria=None, id_familia=None, unidad=None,
+                   imagen=None, id_empresa=None) -> bool:
+    """Alta de un artículo nuevo en el catálogo PERMANENTE `articulos`. `codigo` = EAN-13 generado.
+    Queda disponible de inmediato en el buscador de Pedidos/Proveedores. No pisa uno existente."""
+    if not codigo or not (nombre or "").strip():
+        return False
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO articulos (codigo, id_empresa, nombre, precio, categoria, unidad, imagen, "
+                "estado) VALUES (%s,%s,%s,%s,%s,%s,%s,'activo')",
+                (str(codigo), id_empresa, nombre.strip(), float(precio or 0), categoria, unidad, imagen))
+            conn.commit()
+        if id_familia:
+            try:
+                from src.db import familias
+                familias.asignar_familia(str(codigo), id_familia, id_empresa=id_empresa)
+            except Exception as e:
+                logger.debug("crear_articulo asignar_familia: %s", e)
+        return True
+    except Exception as e:
+        logger.error("crear_articulo(%s): %s", codigo, e)
+        return False
+
+
+# ============================================================
 # BLOQUE CONSULTA DE ARTÍCULOS
 # ============================================================
 

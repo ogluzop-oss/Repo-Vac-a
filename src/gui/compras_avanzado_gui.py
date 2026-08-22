@@ -9,7 +9,7 @@ tocar el flujo principal proveedor→pedido→recepción→factura. Multiempresa
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QMessageBox,
                              QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import compras as C, proveedores as P
@@ -87,7 +87,7 @@ class ComprasAvanzadoWindow(QWidget):
         tabs.addTab(self._tab_devoluciones(), "Devoluciones")
         tabs.addTab(self._tab_incidencias(), "Incidencias")
         tabs.addTab(self._tab_evaluacion(), "Evaluación")
-        tabs.addTab(self._tab_b2b(), "Integración B2B y Reglas de Precios")
+        tabs.addTab(self._tab_comparar(), "Comparar precios")
         root.addWidget(tabs)
 
     def _emp(self):
@@ -115,261 +115,108 @@ class ComprasAvanzadoWindow(QWidget):
         except Exception:
             return True
 
-    # ── Integración B2B y Reglas de Precios ───────────────────────────────────
-    def _tab_b2b(self):
-        """Integración B2B (autocompletado por preset + carga de claves + probar conexión) y reglas de
-        precios (con plantillas). Secretos cifrados (Fernet); guardar exige `compras.editar`. Tema cyan."""
-        from src.db import compras_b2b as B2BDB
-        from src.services.compras import b2b_client as B2B
+    # ── Comparar precios (motores/lonjas del sector + margen objetivo) ─────────
+    # Motores de búsqueda y comparadores especializados en Alimentación/Supermercado/Bakery.
+    # `q=True` = admite término de búsqueda (se anexa a la URL); `q=False` = portal fijo.
+    _COMPARADORES = [
+        ("Google Shopping (Alimentación y Gran Consumo)",
+         "https://www.google.com/search?tbm=shop&q=", True),
+        ("Lonja / Mercado Central — Mercabarna",
+         "https://www.mercabarna.es/es/", False),
+        ("Lonja / Mercado Central — Mercamadrid",
+         "https://www.mercamadrid.es/", False),
+        ("Observatorio de Precios de Alimentos y Materias Primas (harinas, aceites, lácteos)",
+         "https://www.mapa.gob.es/es/alimentacion/servicios/observatorio-de-precios-de-los-alimentos/",
+         False),
+        ("Directorios de Distribuidores de Alimentación",
+         "https://www.google.com/search?q=distribuidores+mayoristas+alimentacion+", True),
+    ]
+
+    def _tab_comparar(self):
+        """Centro de acceso a motores de búsqueda y comparadores de precios del sector (Alimentación /
+        Supermercado / Bakery) + regla de Margen Objetivo (%) para el PVP dinámico en Pedidos. Sin APIs."""
+        from src.db import compras_b2b as CFG
         w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10)
-        cfg = B2BDB.obtener_config(self._emp())
+        cfg = CFG.obtener_config(self._emp())
 
-        def _cap(txt):
-            lab = QLabel(txt); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
-            ly.addWidget(lab); return lab
-
-        t = QLabel("🔌  Conector B2B externo")
+        t = QLabel("🔎  Comparar precios de mercado")
         t.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:14px;")
         ly.addWidget(t)
+        info = QLabel("Consulta precios de referencia en buscadores y lonjas del sector y ábrelos en tu "
+                      "navegador. Smart Manager no conecta con APIs externas: la comparación es manual y el "
+                      "coste real lo fija tu tarifa pactada con el proveedor.")
+        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;"); info.setWordWrap(True)
+        ly.addWidget(info)
+
         fila = QHBoxLayout()
-        # Preset de plataforma (autocompleta el endpoint) + entorno.
-        self.b2b_prov = _combo([(v["label"], k) for k, v in B2B.PRESETS.items()],
-                               actual=cfg.get("proveedor"))
-        self.b2b_prov.setMinimumWidth(300)          # que no se corte "B2Brouter (EDI / Factura…)"
-        self.b2b_prov.view().setMinimumWidth(320)   # ancho del desplegable
-        self.b2b_entorno = _combo([("Sandbox", "sandbox"), ("Producción", "produccion")],
-                                  actual=cfg.get("entorno"))
-        self.b2b_entorno.setMinimumWidth(160)       # que no se corte "Producción"
-        self.b2b_entorno.view().setMinimumWidth(160)
-        for lab, wdg in (("Plataforma", self.b2b_prov), ("Entorno", self.b2b_entorno)):
-            c = QLabel(lab); c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
-            fila.addWidget(c); fila.addWidget(wdg)
-        fila.addStretch(1)
+        c = QLabel("Motor / Lonja"); c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+        self.cmp_motor = _combo([(lab, i) for i, (lab, _u, _q) in enumerate(self._COMPARADORES)])
+        self.cmp_motor.setMinimumWidth(420); self.cmp_motor.view().setMinimumWidth(440)
+        fila.addWidget(c); fila.addWidget(self.cmp_motor); fila.addStretch(1)
         ly.addLayout(fila)
 
-        _cap("Endpoint base (se rellena solo al elegir plataforma)")
-        self.b2b_endpoint = _inp("https://…")
-        self.b2b_endpoint.setText(cfg.get("endpoint") or "")
-        ly.addWidget(self.b2b_endpoint)
-        tiene_cred = bool(cfg.get("api_key"))
+        fila2 = QHBoxLayout()
+        c2 = QLabel("Producto a buscar (opcional)")
+        c2.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+        self.cmp_query = _inp("harina de trigo, aceite de oliva, leche…")
+        fila2.addWidget(c2); fila2.addWidget(self.cmp_query, 1)
+        ly.addLayout(fila2)
 
-        # (A) Indicador de estado SEGURO: si ya hay credenciales cifradas guardadas, no mostramos
-        #     campos vacíos (evita la duda de si están o no). Badge + botón "Reemplazar claves".
-        self.b2b_seguro = QWidget(); _sg = QHBoxLayout(self.b2b_seguro)
-        _sg.setContentsMargins(0, 0, 0, 0)
-        _lbl_seg = QLabel("🔒  Credenciales B2B configuradas y cifradas")
-        _lbl_seg.setStyleSheet("color:#3FB950;background:transparent;font-weight:800;font-size:13px;")
-        _sg.addWidget(_lbl_seg)
-        _sg.addWidget(_btn("Reemplazar claves", self._reemplazar_claves_b2b, primary=True))
-        _sg.addStretch(1)
-        ly.addWidget(self.b2b_seguro)
+        bopen = QHBoxLayout()
+        bopen.addWidget(_btn("🌐  Abrir comparador en navegador", self._abrir_comparador, primary=True))
+        bopen.addStretch(1)
+        ly.addLayout(bopen)
 
-        # (B) Método PRINCIPAL de vinculación (1 clic): cargar archivo de claves + OAuth si procede.
-        wiz = QHBoxLayout()
-        wiz.addWidget(_btn("📁  Cargar archivo de claves (.json / .env)", self._cargar_claves_b2b,
-                           primary=True))
-        self.b2b_oauth_btn = _btn("🔗  Conectar cuenta B2B", self._oauth_b2b, primary=True)
-        wiz.addWidget(self.b2b_oauth_btn); wiz.addStretch(1)
-        ly.addLayout(wiz)
-
-        # (C) Acordeón "Introducir claves manualmente" (oculto por defecto): API Key/Secret.
-        # Botón estándar de la app (fondo oscuro, contorno/texto neón turquesa, hover swap).
-        self.b2b_toggle_manual = _btn("⚙️  Introducir claves manualmente", self._toggle_manual_b2b,
-                                      primary=True)
-        trow = QHBoxLayout(); trow.addWidget(self.b2b_toggle_manual); trow.addStretch(1)
-        ly.addLayout(trow)
-
-        self.b2b_manual = QWidget(); _mv = QVBoxLayout(self.b2b_manual)
-        _mv.setContentsMargins(0, 0, 0, 0); _mv.setSpacing(6)
-
-        def _capm(txt):
-            lab = QLabel(txt); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
-            _mv.addWidget(lab)
-        _capm("API Key (se guarda cifrada · vacío = no cambiar)")
-        self.b2b_key = _inp(""); self.b2b_key.setEchoMode(QLineEdit.EchoMode.Password)
-        _mv.addWidget(self.b2b_key)
-        _capm("API Secret (se guarda cifrada · vacío = no cambiar)")
-        self.b2b_secret = _inp(""); self.b2b_secret.setEchoMode(QLineEdit.EchoMode.Password)
-        _mv.addWidget(self.b2b_secret)
-        ly.addWidget(self.b2b_manual)
-
-        # Estado inicial: badge seguro solo si hay credenciales guardadas; el manual siempre oculto.
-        self.b2b_seguro.setVisible(tiene_cred)
-        self.b2b_manual.setVisible(False)
-
-        t2 = QLabel("📈  Reglas de precios (monitor de desvíos + precio dinámico)")
-        t2.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:14px;padding-top:6px;")
+        t2 = QLabel("📈  PVP dinámico en pedidos")
+        t2.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:14px;padding-top:8px;")
         ly.addWidget(t2)
+        info2 = QLabel("El PVP sugerido se calcula al TRAMITAR un pedido como: Coste pactado × (1 + Margen / "
+                       "100). Configura aquí el margen objetivo por defecto.")
+        info2.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;"); info2.setWordWrap(True)
+        ly.addWidget(info2)
         rfila = QHBoxLayout()
-        self.b2b_umbral = _inp("10"); self.b2b_umbral.setFixedWidth(90)
-        self.b2b_umbral.setText(f"{cfg.get('umbral_variacion_pct', 10):g}")
-        self.b2b_margen = _inp("30"); self.b2b_margen.setFixedWidth(90)
-        self.b2b_margen.setText(f"{cfg.get('margen_objetivo_pct', 30):g}")
-        for lab, wdg in (("Umbral de alerta de variación (%)", self.b2b_umbral),
-                         ("Margen objetivo por defecto (%)", self.b2b_margen)):
-            c = QLabel(lab); c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
-            rfila.addWidget(c); rfila.addWidget(wdg)
+        self.cmp_margen = _inp("30"); self.cmp_margen.setFixedWidth(100)
+        self.cmp_margen.setText(f"{cfg.get('margen_objetivo_pct', 30):g}")
+        cm = QLabel("Regla de Margen Objetivo (%)")
+        cm.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
+        rfila.addWidget(cm); rfila.addWidget(self.cmp_margen)
+        rfila.addWidget(_btn("Supermercado (25%)", lambda: self.cmp_margen.setText("25"), primary=True))
+        rfila.addWidget(_btn("Bakery / Frescos (35%)", lambda: self.cmp_margen.setText("35"), primary=True))
         rfila.addStretch(1)
         ly.addLayout(rfila)
-        pfila = QHBoxLayout()
-        pfila.addWidget(_btn("Margen estándar Supermercado (25% / Alerta 5%)",
-                             lambda: self._preset_reglas(25, 5), primary=True))
-        pfila.addWidget(_btn("Margen Bakery / Frescos (35% / Alerta 10%)",
-                             lambda: self._preset_reglas(35, 10), primary=True))
-        pfila.addStretch(1)
-        ly.addLayout(pfila)
 
-        self.b2b_badge = QLabel("Pulsa «Probar conexión» para verificar." if cfg.get("api_key")
-                                else "— sin credenciales")
-        self.b2b_badge.setStyleSheet(f"color:{_TEXT};background:transparent;font-size:13px;font-weight:700;")
-        ly.addWidget(self.b2b_badge)
-        nota = QLabel("Las credenciales se guardan cifradas (Fernet) y no se muestran. Guardar requiere "
-                      "permiso de edición de compras.")
-        nota.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;"); nota.setWordWrap(True)
-        ly.addWidget(nota)
         bar = QHBoxLayout()
-        bar.addWidget(_btn("⚡  Probar conexión", self._probar_conexion_b2b, primary=True))
-        bar.addWidget(_btn("Guardar configuración", self._guardar_b2b, primary=True))
+        bar.addWidget(_btn("Guardar margen", self._guardar_margen, primary=True))
         bar.addStretch(1)
         ly.addLayout(bar)
         ly.addStretch(1)
-        self.b2b_prov.currentIndexChanged.connect(self._on_preset_b2b)
-        self._on_preset_b2b()   # aplica endpoint/lock/OAuth inicial según el preset
         return w
 
-    def _on_preset_b2b(self):
-        """Autocompleta el endpoint del preset y lo bloquea (salvo REST personalizado); OAuth si procede."""
-        from src.services.compras import b2b_client as B2B
-        key = self.b2b_prov.currentData()
-        pre = B2B.preset(key)
-        if key != "rest":
-            if pre.get("endpoint"):
-                self.b2b_endpoint.setText(pre["endpoint"])
-            self.b2b_endpoint.setReadOnly(True)
-        else:
-            self.b2b_endpoint.setReadOnly(False)
-        if hasattr(self, "b2b_oauth_btn"):
-            self.b2b_oauth_btn.setVisible(bool(pre.get("oauth")))
+    def _abrir_comparador(self):
+        """Abre en el navegador del sistema el comparador seleccionado (anexando el término si procede)."""
+        from urllib.parse import quote_plus
 
-    def _toggle_manual_b2b(self):
-        """Muestra/oculta el acordeón de entrada manual de claves (API Key/Secret)."""
-        self.b2b_manual.setVisible(not self.b2b_manual.isVisible())
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        idx = self.cmp_motor.currentData() or 0
+        _lab, url, admite_q = self._COMPARADORES[int(idx)]
+        q = (self.cmp_query.text() or "").strip()
+        destino = f"{url}{quote_plus(q)}" if (admite_q and q) else url
+        if not QDesktopServices.openUrl(QUrl(destino)):
+            self._aviso("Comparar precios", "No se pudo abrir el navegador.", "warning")
 
-    def _reemplazar_claves_b2b(self):
-        """Revela la entrada manual para sustituir las credenciales cifradas ya guardadas."""
-        self.b2b_manual.setVisible(True)
-        self.b2b_key.setFocus()
-
-    def _cargar_claves_b2b(self):
-        """Rellena API Key/Secret desde un archivo .json o .env (1 clic)."""
-        from PyQt6.QtWidgets import QFileDialog
-        ruta, _ = QFileDialog.getOpenFileName(self, "Cargar archivo de claves", "",
-                                              "Claves (*.json *.env);;Todos (*)")
-        if not ruta:
-            return
-        key, secret = self._parse_claves(ruta)
-        if key:
-            self.b2b_key.setText(key)
-        if secret:
-            self.b2b_secret.setText(secret)
-        if key or secret:
-            self.b2b_manual.setVisible(True)   # revela el acordeón para que el usuario revise lo cargado
-            self._aviso("Integración B2B", "Claves cargadas del archivo. Revisa y pulsa «Guardar».",
-                        "success")
-        else:
-            self._aviso("Integración B2B",
-                        "No se encontraron claves (api_key / api_secret) en el archivo.", "warning")
-
-    @staticmethod
-    def _parse_claves(ruta):
-        """Extrae (api_key, api_secret) de un .json o .env. Tolerante a distintos nombres de campo."""
-        import json
-        key = secret = None
-        try:
-            if ruta.lower().endswith(".json"):
-                with open(ruta, encoding="utf-8") as f:
-                    d = json.load(f)
-                d = {str(k).lower(): v for k, v in (d.items() if isinstance(d, dict) else [])}
-                for k in ("api_key", "apikey", "key", "client_id", "token"):
-                    if d.get(k):
-                        key = str(d[k]); break
-                for k in ("api_secret", "apisecret", "secret", "client_secret"):
-                    if d.get(k):
-                        secret = str(d[k]); break
-            else:
-                with open(ruta, encoding="utf-8") as f:
-                    for ln in f:
-                        ln = ln.strip()
-                        if not ln or ln.startswith("#") or "=" not in ln:
-                            continue
-                        k, v = ln.split("=", 1)
-                        k = k.strip().lower().replace("export ", "").strip()
-                        v = v.strip().strip('"').strip("'")
-                        if k in ("api_key", "b2b_api_key", "apikey") and not key:
-                            key = v
-                        if k in ("api_secret", "b2b_api_secret", "apisecret", "secret") and not secret:
-                            secret = v
-        except Exception:
-            pass
-        return key, secret
-
-    def _oauth_b2b(self):
-        """Estructura preparada para la vinculación por OAuth (el flujo real depende de la plataforma)."""
-        self._aviso("Conectar cuenta B2B",
-                    "La vinculación por OAuth está preparada para esta plataforma; se activará al disponer "
-                    "de las credenciales de aplicación. Mientras tanto, usa la API Key/Secret.", "info")
-
-    def _preset_reglas(self, margen, umbral):
-        self.b2b_umbral.setText(str(umbral))
-        self.b2b_margen.setText(str(margen))
-        self._aviso("Reglas de precios",
-                    f"Plantilla aplicada: margen objetivo {margen}% · alerta de variación {umbral}%.", "info")
-
-    def _pintar_badge_b2b(self, res):
-        ok = bool(res.get("ok"))
-        color = "#3FB950" if ok else "#F85149"
-        icono = "🟢" if ok else "🔴"
-        self.b2b_badge.setText(f"{icono}  {res.get('mensaje', '')}")
-        self.b2b_badge.setStyleSheet(f"color:{color};background:transparent;font-size:13px;font-weight:700;")
-
-    def _probar_conexion_b2b(self):
-        """Prueba la conexión con los valores del formulario (o guardados) y pinta el badge de estado."""
-        from src.db import compras_b2b as B2BDB
-        from src.services.compras import b2b_client as B2B
-        saved = B2BDB.obtener_config(self._emp())
-        cfg = {"proveedor": self.b2b_prov.currentData(),
-               "endpoint": self.b2b_endpoint.text().strip() or saved.get("endpoint"),
-               "api_key": self.b2b_key.text().strip() or saved.get("api_key"),
-               "api_secret": self.b2b_secret.text().strip() or saved.get("api_secret"),
-               "entorno": self.b2b_entorno.currentData()}
-        self._pintar_badge_b2b(B2B.probar_conexion(config=cfg))
-
-    def _guardar_b2b(self):
+    def _guardar_margen(self):
         if not self._puede("compras.editar"):
-            self._aviso("Integración B2B", "Permiso requerido: compras.editar", "warning"); return
+            self._aviso("Comparar precios", "Permiso requerido: compras.editar", "warning"); return
         try:
-            umbral = float((self.b2b_umbral.text() or "10").replace(",", "."))
-            margen = float((self.b2b_margen.text() or "30").replace(",", "."))
+            margen = float((self.cmp_margen.text() or "30").replace(",", "."))
         except ValueError:
-            self._aviso("Integración B2B", "Umbral y margen deben ser numéricos.", "warning"); return
-        from src.db import compras_b2b as B2BDB
-        ok = B2BDB.guardar_config(
-            proveedor=self.b2b_prov.currentData(), entorno=self.b2b_entorno.currentData(),
-            endpoint=self.b2b_endpoint.text().strip(),
-            api_key=(self.b2b_key.text().strip() or None),
-            api_secret=(self.b2b_secret.text().strip() or None),
-            umbral_variacion_pct=umbral, margen_objetivo_pct=margen, id_empresa=self._emp())
-        if ok:
-            self.b2b_key.clear(); self.b2b_secret.clear()
-            # Estado seguro: si ya hay credenciales cifradas guardadas, colapsa el manual y muestra el badge.
-            from src.db import compras_b2b as B2BDB2
-            if B2BDB2.obtener_config(self._emp()).get("api_key"):
-                self.b2b_seguro.setVisible(True)
-                self.b2b_manual.setVisible(False)
-            self._pintar_badge_b2b({"ok": True, "mensaje": "Configuración guardada (credenciales cifradas)."})
-            self._aviso("Integración B2B", "Configuración B2B y reglas de precios guardadas.", "success")
-        else:
-            self._aviso("Integración B2B", "No se pudo guardar la configuración.", "error")
+            self._aviso("Comparar precios", "El margen debe ser numérico.", "warning"); return
+        from src.db import compras_b2b as CFG
+        ok = CFG.guardar_config(margen_objetivo_pct=margen, id_empresa=self._emp())
+        self._aviso("Comparar precios",
+                    "Margen objetivo guardado." if ok else "No se pudo guardar el margen.",
+                    "success" if ok else "error")
 
     def _tabla_kv(self):
         """Tabla de 2 columnas (Parámetro · Valor) centrada, con el estilo estándar de la app.
