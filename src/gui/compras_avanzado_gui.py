@@ -86,7 +86,7 @@ class ComprasAvanzadoWindow(QWidget):
         tabs.addTab(self._tab_devoluciones(), "Devoluciones")
         tabs.addTab(self._tab_incidencias(), "Incidencias")
         tabs.addTab(self._tab_evaluacion(), "Evaluación")
-        tabs.addTab(self._tab_comparar(), "Comparar precios")
+        tabs.addTab(self._tab_comparar(), "Comparar proveedores")
         root.addWidget(tabs)
 
     def _emp(self):
@@ -114,19 +114,17 @@ class ComprasAvanzadoWindow(QWidget):
         except Exception:
             return True
 
-    # ── Comparar precios (motores/lonjas del sector + margen objetivo) ─────────
-    # Motores de búsqueda y comparadores especializados en Alimentación/Supermercado/Bakery.
-    # `q=True` = admite término de búsqueda (se anexa a la URL); `q=False` = portal fijo.
+    # ── Comparar proveedores (plataformas B2B + lonjas del sector + margen objetivo) ──
+    # Acceso a las webs de las plataformas B2B y a las lonjas/directorios del sector.
+    # `q=True` = admite término de búsqueda (se anexa a la URL); `q=False` = portal/web fijo.
     _COMPARADORES = [
-        ("Google Shopping (Alimentación y Gran Consumo)",
-         "https://www.google.com/search?tbm=shop&q=", True),
-        ("Lonja / Mercado Central — Mercabarna",
-         "https://www.mercabarna.es/es/", False),
-        ("Lonja / Mercado Central — Mercamadrid",
-         "https://www.mercamadrid.es/", False),
-        ("Observatorio de Precios de Alimentos y Materias Primas (harinas, aceites, lácteos)",
-         "https://www.mapa.gob.es/es/alimentacion/servicios/observatorio-de-precios-de-los-alimentos/",
-         False),
+        ("Consentio", "https://consentio.co/", False),
+        ("Choco", "https://choco.com/", False),
+        ("Prezo", "https://prezo.io/", False),
+        ("B2Brouter (EDI / Factura electrónica)", "https://www.b2brouter.net/", False),
+        ("haddock", "https://www.haddock.app/", False),
+        ("Lonja / Mercado Central — Mercabarna", "https://www.mercabarna.es/es/", False),
+        ("Lonja / Mercado Central — Mercamadrid", "https://www.mercamadrid.es/", False),
         ("Directorios de Distribuidores de Alimentación",
          "https://www.google.com/search?q=distribuidores+mayoristas+alimentacion+", True),
     ]
@@ -138,12 +136,12 @@ class ComprasAvanzadoWindow(QWidget):
         w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10)
         cfg = CFG.obtener_config(self._emp())
 
-        t = QLabel("🔎  Comparar precios de mercado")
+        t = QLabel("🔎  Comparar proveedores")
         t.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:14px;")
         ly.addWidget(t)
-        info = QLabel("Consulta precios de referencia en buscadores y lonjas del sector y ábrelos en tu "
-                      "navegador. Smart Manager no conecta con APIs externas: la comparación es manual y el "
-                      "coste real lo fija tu tarifa pactada con el proveedor.")
+        info = QLabel("Accede a las webs de tus plataformas B2B y a las lonjas/directorios del sector y "
+                      "ábrelas en tu navegador. Smart Manager no conecta con APIs externas: la comparación "
+                      "es manual y el coste real lo fija tu tarifa pactada con el proveedor.")
         info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;"); info.setWordWrap(True)
         ly.addWidget(info)
 

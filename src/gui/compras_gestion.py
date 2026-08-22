@@ -401,7 +401,7 @@ class ComprasWindow(QWidget):
         lbl_b.setStyleSheet(f"color:{_CIAN};font-weight:800;font-size:14px;padding-top:2px;")
         ly.addWidget(lbl_b)
         bfila = QHBoxLayout()
-        self.in_bolsa_art = _inp(tr("compras.bolsa_articulo", default="Código de artículo…"))
+        self.in_bolsa_art = _inp(tr("compras.bolsa_articulo", default="Código o nombre del artículo…"))
         bfila.addWidget(self.in_bolsa_art, 1)
         try:
             _provs = P.listar_proveedores(estado="activo")
@@ -427,7 +427,7 @@ class ComprasWindow(QWidget):
         # Indicador de artículo crítico/estratégico (en watchlist): evaluación preventiva activa.
         self.lbl_watchlist = QLabel("")
         self.lbl_watchlist.setStyleSheet(f"color:{_CIAN};background:transparent;font-weight:800;"
-                                         "font-size:12px;padding-left:8px;")
+                                         "font-size:14px;padding-left:8px;")
         mbar.addWidget(self.lbl_watchlist)
         mbar.addStretch(1)
         ly.addLayout(mbar)
@@ -443,6 +443,8 @@ class ComprasWindow(QWidget):
         hh = self.tbl_bolsa.horizontalHeader()
         hh.setStretchLastSection(False)
         hh.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed); self.tbl_bolsa.setColumnWidth(6, 90)
+        # Filas algo más altas para que el botón «＋» de la columna Acción no se corte por abajo.
+        self.tbl_bolsa.verticalHeader().setDefaultSectionSize(48)
         # Doble clic en una fila → añade esa tarifa a la cola (equivale al botón Acción).
         self.tbl_bolsa.cellDoubleClicked.connect(self._bolsa_doble_clic)
         ly.addWidget(self.tbl_bolsa, 1)
@@ -506,11 +508,21 @@ class ComprasWindow(QWidget):
         proveedor el Precio pactado, el Precio ref. del artículo, el % de desvío, el PVP sugerido (coste ×
         margen) y la unidad, con ALERTA PREVENTIVA (rojo ▲ si el precio supera la referencia, verde ▼ si es
         igual o menor) ANTES de añadir a la cola."""
-        cod = (self.in_bolsa_art.text() or "").strip().upper()
+        raw = (self.in_bolsa_art.text() or "").strip()
         self.tbl_bolsa.setRowCount(0)
         self._bolsa_rows = []
-        if not cod:
+        if not raw:
             return
+        # Buscar por CÓDIGO o por NOMBRE: si el texto coincide con un artículo por nombre, se resuelve a
+        # su código (la bolsa/watchlist/precio ref. trabajan siempre con el código).
+        cod = raw.upper()
+        try:
+            from src.db import articulos as A
+            r = A.buscar_uno(raw, id_empresa=self._emp_actual())
+            if r and r[0]:
+                cod = str(r[0]).upper()
+        except Exception:
+            pass
         self._bolsa_cod = cod
         idp_sel = self.cmb_bolsa_prov.currentData()
         orden, desc = self.cmb_bolsa_orden.currentData() or ("precio", False)
@@ -892,13 +904,20 @@ class ComprasWindow(QWidget):
                 empresa = (_EMP.obtener_empresa(self._emp_actual()) or {}).get("nombre") or ""
             except Exception:
                 pass
+            # Nombre del artículo para la etiqueta (el proveedor no debería recibir solo códigos).
+            lineas = []
+            for it in items:
+                cod = it.get("codigo")
+                nombre = self._nombre_articulo(cod)
+                desc = f"{nombre} ({cod})" if nombre and nombre != cod else cod
+                lineas.append({"codigo": cod, "descripcion": desc,
+                               "cantidad": int(it.get("cantidad") or 0)})
             datos = {
                 "referencia": ped.get("numero") or f"PC{id_pedido:06d}",
                 "uuid": ped.get("uuid") or "",
                 "empresa": empresa, "proveedor": prov,
                 "fecha": str(ped.get("fecha") or _dt.datetime.now())[:19],
-                "lineas": [{"codigo": it.get("codigo"), "descripcion": it.get("codigo"),
-                            "cantidad": int(it.get("cantidad") or 0)} for it in items],
+                "lineas": lineas,
                 "total": ped.get("total"),
             }
             archivo = ruta_datos("etiquetas_pedidos", f"ETIQ_{datos['referencia']}.pdf")
@@ -1288,7 +1307,7 @@ class _DialogoPrecioRef(QDialog):
             self.in_val.setText(f"{float(actual):.2f}")
         self.in_val.returnPressed.connect(self._ok)
         v.addWidget(self.in_val)
-        v.addWidget(_btn(tr("compras.pref_restablecer", default="↺  Restablecer a media histórica"),
+        v.addWidget(_btn(tr("compras.pref_restablecer", default="🔄  Restablecer a media histórica"),
                          self._reset, primary=True))
         v.addStretch(1)
         row = QHBoxLayout(); row.addStretch(1)
@@ -1408,22 +1427,18 @@ class FichaProveedorDialog(QDialog):
         self._cargar_tarifas()
         self._cargar_historial()
 
-    # ── Cabecera con X compacta (algo más alta para que la ✕ no se corte por abajo) ──
+    # ── Cabecera con X (padding inferior para que la ✕ quede centrada y no se corte) ──
     def _cabecera(self):
         hdr = QHBoxLayout()
         t = QLabel(tr("compras.ficha_prov", default="Ficha del proveedor"))
         t.setStyleSheet(f"color:{_CIAN};background:transparent;font-weight:900;font-size:17px;")
         hdr.addWidget(t)
-        sub = self._prov.get("razon_social") or ""
-        if sub:
-            s = QLabel(f"·  {sub}")
-            s.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:13px;")
-            hdr.addWidget(s)
         hdr.addStretch(1)
-        x = QPushButton("✕"); x.setCursor(Qt.CursorShape.PointingHandCursor); x.setFixedSize(42, 48)
+        x = QPushButton("✕"); x.setCursor(Qt.CursorShape.PointingHandCursor); x.setFixedSize(44, 46)
         x.setToolTip(tr("compras.cerrar", default="Cerrar"))
+        # padding-bottom sube ligeramente el glifo para que no se recorte por debajo.
         x.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
-                        f"border-radius:8px;font-weight:900;font-size:15px;padding:0;}}"
+                        f"border-radius:8px;font-weight:900;font-size:16px;padding:0 0 5px 0;}}"
                         f"QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
         x.clicked.connect(self.reject)
         hdr.addWidget(x)
@@ -1719,9 +1734,10 @@ class _DialogoTarifa(QDialog):
         super().__init__(parent)
         self.datos = None
         base = base or {}
-        self.setFixedSize(440, 340)
+        self.setFixedSize(560, 470)
         v = _dialogo_frameless(self, titulo=tr("compras.ficha_add_tarifa", default="Artículo / Tarifa"),
-                               ancho=440)
+                               ancho=560)
+        v.setSpacing(12)   # más aire entre los campos (no se ven pegados)
         self.in_cod = _inp("Código de artículo"); self.in_cod.setText(str(base.get("codigo") or ""))
         self.in_precio = _inp("0.00")
         if base.get("precio") is not None:
@@ -1733,7 +1749,9 @@ class _DialogoTarifa(QDialog):
                                 actual=(base.get("unidad") or "unidad"))
         for lab, wdg in (("Código de artículo", self.in_cod), ("Precio negociado (€)", self.in_precio),
                          ("Descuento (%)", self.in_dto), ("Unidad de medida", self.cb_unidad)):
-            v.addWidget(_cap(lab)); v.addWidget(wdg)
+            grupo = QVBoxLayout(); grupo.setSpacing(4)
+            grupo.addWidget(_cap(lab)); grupo.addWidget(wdg)
+            v.addLayout(grupo)
         v.addStretch(1)
         row = QHBoxLayout(); row.addStretch(1)
         row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), self.reject))
