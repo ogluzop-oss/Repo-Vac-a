@@ -47,6 +47,23 @@ def _icono_persona(color=_CIAN, size=56):
     return QIcon(pix)
 
 
+class _PerfilBoton(QToolButton):
+    """Botón de perfil con HOVER SWAP también en el icono: al pasar el ratón el fondo se rellena de
+    turquesa y el muñeco pasa de turquesa a oscuro (si no, quedaría turquesa sobre turquesa e invisible)."""
+
+    def __init__(self, icono_normal, icono_hover, parent=None):
+        super().__init__(parent)
+        self._ic_normal = icono_normal
+        self._ic_hover = icono_hover
+        self.setIcon(icono_normal)
+
+    def enterEvent(self, e):   # noqa: N802 (API Qt)
+        self.setIcon(self._ic_hover); super().enterEvent(e)
+
+    def leaveEvent(self, e):   # noqa: N802 (API Qt)
+        self.setIcon(self._ic_normal); super().leaveEvent(e)
+
+
 class SelectorPerfilWindow(QWidget):
     """Ventana de selección de perfil previa al login. `perfil_elegido` emite el nombre elegido."""
 
@@ -56,7 +73,8 @@ class SelectorPerfilWindow(QWidget):
         super().__init__(parent)
         self._id_empresa = id_empresa
         self._botones = []          # [(QToolButton, nombre_lower, nombre)]
-        self._icono = _icono_persona()
+        self._icono = _icono_persona()               # muñeco turquesa (reposo)
+        self._icono_hover = _icono_persona("#0E1117")  # muñeco oscuro (hover, sobre fondo turquesa)
         self._ncols = 0
         self.setObjectName("panel_raiz")
         self.setStyleSheet(f"background:{_BG};")
@@ -130,9 +148,8 @@ class SelectorPerfilWindow(QWidget):
         root.addWidget(self.lbl_vacio)
 
     def _crear_boton(self, nombre):
-        b = QToolButton()
+        b = _PerfilBoton(self._icono, self._icono_hover)
         b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        b.setIcon(self._icono)
         b.setIconSize(QSize(56, 56))
         b.setText(nombre)
         b.setFixedSize(150, 150)

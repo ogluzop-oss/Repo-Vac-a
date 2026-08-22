@@ -31,6 +31,8 @@ _CHAR_ACTIVO = 210   # tamaño del personaje en activo
 _CONV_W = 600
 _CONV_H = 430
 _DIM_ALPHA = 120     # atenuación del ERP (0-255)
+_CARD_W = 176        # tarjeta discreta de invocación (reposo): abajo-centro en TODAS las pantallas
+_CARD_H = 46
 
 
 class SomaOverlay(QWidget):
@@ -51,6 +53,13 @@ class SomaOverlay(QWidget):
         self._conversacion.setVisible(False)
         self._conversacion.enviado.connect(self._on_enviado)
         self._conversacion.usuario_escribe.connect(self._on_usuario_escribe)
+
+        # Tarjeta DISCRETA de invocación (reposo): SOMA permanece oculto (sin personaje) hasta que se
+        # pronuncia la wake word o se pulsa esta tarjeta. Sutil pero visible, abajo-centro de la pantalla.
+        self._card = QLabel("🌸  Asistente SOMA", self)
+        self._card.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._card.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._card.setStyleSheet(self._card_ss(hover=False))
 
         # Badge de propuestas (contador estilo WhatsApp) sobre el personaje en reposo.
         self._propuestas = 0
@@ -322,22 +331,47 @@ class SomaOverlay(QWidget):
         scr = self.screen() or QApplication.primaryScreen()
         return scr.availableGeometry() if scr else QRect(0, 0, 1280, 800)
 
+    @staticmethod
+    def _card_ss(hover: bool) -> str:
+        """Estilo de la 'pestaña' de invocación: SIN fondo ni contorno (solo icono + texto turquesa),
+        pegada al ras de la barra de tareas. Hover sutil = el texto se aclara (blanco), sin recuadro."""
+        color = "#FFFFFF" if hover else "#00FFC6"
+        return (f"QLabel{{background:transparent;color:{color};border:none;"
+                f"font-weight:900;font-size:13px;font-family:'Segoe UI';}}")
+
+    def enterEvent(self, e):   # noqa: N802 (API Qt): hover de la tarjeta (solo en reposo)
+        if self._modo == "reposo":
+            self._card.setStyleSheet(self._card_ss(hover=True))
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):   # noqa: N802 (API Qt)
+        if self._modo == "reposo":
+            self._card.setStyleSheet(self._card_ss(hover=False))
+        super().leaveEvent(e)
+
     def _aplicar_layout(self):
         r = self._rect_ref()
         if self._modo == "reposo":
-            x = r.x() + (r.width() - _DOCK) // 2
-            y = r.y() + r.height() - _DOCK - _MARGEN
-            self.setGeometry(x, y, _DOCK, _DOCK)
-            self._character.setGeometry(0, 0, _DOCK, _DOCK)
+            # REPOSO: SOMA oculto. Solo la 'pestaña' transparente abajo-centro, PEGADA al ras de la barra
+            # de tareas (sin margen inferior), invocable por clic o wake word.
+            x = r.x() + (r.width() - _CARD_W) // 2
+            y = r.y() + r.height() - _CARD_H
+            self.setGeometry(x, y, _CARD_W, _CARD_H)
+            self._character.setVisible(False)
+            self._card.setVisible(True)
+            self._card.setGeometry(0, 0, _CARD_W, _CARD_H)
             self._conversacion.setVisible(False)
-            # Badge de propuestas en la esquina superior derecha del dock.
+            # Badge de propuestas en la esquina superior derecha de la tarjeta.
             if self._propuestas > 0:
-                self._badge.move(_DOCK - self._badge.width() - 6, 6)
+                self._badge.move(_CARD_W - self._badge.width() - 2, 2)
                 self._badge.setVisible(True)
                 self._badge.raise_()
             else:
                 self._badge.setVisible(False)
         else:
+            # ACTIVO: aparece el personaje (+ panel conversacional); la tarjeta se oculta.
+            self._card.setVisible(False)
+            self._character.setVisible(True)
             self.setGeometry(r)
             W, H = r.width(), r.height()
             cx = (W - _CHAR_ACTIVO) // 2

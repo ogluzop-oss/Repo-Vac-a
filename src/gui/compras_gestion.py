@@ -1296,15 +1296,15 @@ class _DialogoPrecioRef(QDialog):
         info = QLabel(tr("compras.pref_info",
                          default="Precio ref. actual: {a} € · origen: {o}.",
                          a=(f"{actual:.2f}" if actual is not None else "—"), o=origen))
-        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:12px;"); info.setWordWrap(True)
+        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:13px;"); info.setWordWrap(True)
         v.addWidget(info)
         med = QLabel(tr("compras.pref_media",
                         default="Media histórica (30 días): {m}.",
                         m=(f"{media:.2f} €" if media is not None else "sin histórico")))
-        med.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;")
+        med.setStyleSheet(f"color:{_DIM};background:transparent;font-size:13px;")
         v.addWidget(med)
         cap = QLabel(tr("compras.pref_nuevo", default="Nuevo Precio ref. manual (€)"))
-        cap.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:12px;")
+        cap.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:13px;")
         v.addWidget(cap)
         self.in_val = _inp("0.00")
         if actual is not None:
@@ -1438,11 +1438,11 @@ class FichaProveedorDialog(QDialog):
         t.setStyleSheet(f"color:{_CIAN};background:transparent;font-weight:900;font-size:17px;")
         hdr.addWidget(t)
         hdr.addStretch(1)
-        x = QPushButton("✕"); x.setCursor(Qt.CursorShape.PointingHandCursor); x.setFixedSize(44, 46)
+        x = QPushButton("✕"); x.setCursor(Qt.CursorShape.PointingHandCursor); x.setFixedSize(44, 44)
         x.setToolTip(tr("compras.cerrar", default="Cerrar"))
-        # padding-bottom sube ligeramente el glifo para que no se recorte por debajo.
+        # padding-bottom mínimo: compensa la métrica del glifo «✕» sin subirlo en exceso (queda centrado).
         x.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
-                        f"border-radius:8px;font-weight:900;font-size:16px;padding:0 0 5px 0;}}"
+                        f"border-radius:8px;font-weight:900;font-size:16px;padding:0 0 2px 0;}}"
                         f"QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
         x.clicked.connect(self.reject)
         hdr.addWidget(x)

@@ -3834,7 +3834,7 @@ class ConfiguracionWindow(QWidget):
             "GESTIÓN CAJA", "PLAZO DEVOLUCIÓN", "GENERAR PERFIL EMPLEADO",
             "HORARIO EMPLEADOS", "FICHAJES", "LOGO CORPORATIVO",
             "PLANIFICAR CITAS", "FISCALIDAD", "ASIGNAR REFERENCIA",
-            "DATOS DE EMPRESA", "MODO TÁCTIL", "SOMA", "COLORES", "SEGURIDAD (MFA)", "VERSIÓN",
+            "DATOS DE EMPRESA", "MODO TÁCTIL", "ASISTENTE SOMA", "COLORES", "SEGURIDAD (MFA)", "VERSIÓN",
             "ESTADO DE LA CUENTA",
         ]
 
@@ -4096,7 +4096,7 @@ class ConfiguracionWindow(QWidget):
             "GESTIÓN CAJA", "PLAZO DEVOLUCIÓN", "GENERAR PERFIL EMPLEADO",
             "HORARIO EMPLEADOS", "FICHAJES", "LOGO CORPORATIVO",
             "PLANIFICAR CITAS", "FISCALIDAD", "ASIGNAR REFERENCIA",
-            "DATOS DE EMPRESA", "MODO TÁCTIL", "SOMA", "COLORES", "SEGURIDAD (MFA)", "VERSIÓN",
+            "DATOS DE EMPRESA", "MODO TÁCTIL", "ASISTENTE SOMA", "COLORES", "SEGURIDAD (MFA)", "VERSIÓN",
             "ESTADO DE LA CUENTA",
         ]
         for i, btn in enumerate(self.btns):
