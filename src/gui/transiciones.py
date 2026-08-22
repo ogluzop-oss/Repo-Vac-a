@@ -15,7 +15,7 @@ API:
 
 import logging
 
-from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect
+from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation
 from PyQt6.QtWidgets import QLabel
 
 logger = logging.getLogger("gui.transiciones")
@@ -23,29 +23,49 @@ logger = logging.getLogger("gui.transiciones")
 _DUR = 240  # ms
 
 
-def _animar_salida(container, old_widget, geom: QRect, duracion: int):
-    """Superpone un snapshot de `old_widget` sobre `container` y lo desliza a la derecha."""
+def _deslizar(old_widget, new_widget, duracion: int):
+    """Efecto filmstrip: el SALIENTE (snapshot) se va por la derecha y el ENTRANTE (widget vivo) entra
+    desde la izquierda, a la vez. El entrante SIEMPRE se anima (garantiza que el efecto se vea, aunque el
+    snapshot del saliente falle). Todo relativo al PADRE del entrante (el stack interno del QTabWidget o
+    el propio QStackedWidget)."""
     try:
-        if old_widget is None or geom.width() <= 0 or geom.height() <= 0:
+        if new_widget is None:
             return
-        pm = old_widget.grab()
-        if pm.isNull():
+        cont = new_widget.parentWidget()
+        if cont is None:
             return
-        ov = QLabel(container)
-        ov.setPixmap(pm)
-        ov.setGeometry(geom)
-        ov.raise_()
-        ov.show()
-        anim = QPropertyAnimation(ov, b"pos", ov)
-        anim.setDuration(int(duracion))
-        anim.setStartValue(geom.topLeft())
-        anim.setEndValue(QPoint(geom.x() + container.width(), geom.y()))
-        anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
-        anim.finished.connect(ov.deleteLater)
-        anim.start()
-        ov._anim = anim   # conserva la referencia mientras dura la animación
+        w = cont.width()
+        if w <= 0 or cont.height() <= 0:
+            return
+        g = new_widget.geometry()
+        # (a) Saliente: snapshot deslizándose a la DERECHA (best-effort).
+        try:
+            if old_widget is not None:
+                pm = old_widget.grab()
+                if not pm.isNull():
+                    ov = QLabel(cont); ov.setPixmap(pm); ov.setGeometry(g)
+                    ov.raise_(); ov.show()
+                    a1 = QPropertyAnimation(ov, b"pos", ov)
+                    a1.setDuration(int(duracion))
+                    a1.setStartValue(g.topLeft())
+                    a1.setEndValue(QPoint(g.x() + w, g.y()))
+                    a1.setEasingCurve(QEasingCurve.Type.InOutCubic)
+                    a1.finished.connect(ov.deleteLater)
+                    a1.start(); ov._a = a1
+        except Exception:
+            pass
+        # (b) Entrante: widget vivo entrando desde la IZQUIERDA (garantizado).
+        new_widget.raise_()
+        a2 = QPropertyAnimation(new_widget, b"pos", new_widget)
+        a2.setDuration(int(duracion))
+        a2.setStartValue(QPoint(g.x() - w, g.y()))
+        a2.setEndValue(g.topLeft())
+        a2.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        a2.finished.connect(lambda gp=g.topLeft(): new_widget.move(gp))
+        a2.start()
+        new_widget._a_in = a2
     except Exception as e:
-        logger.debug("_animar_salida: %s", e)
+        logger.debug("_deslizar: %s", e)
 
 
 def instalar_transicion_tabs(tabs, duracion: int = _DUR):
@@ -60,13 +80,9 @@ def instalar_transicion_tabs(tabs, duracion: int = _DUR):
             old = estado["w"]
             nuevo = tabs.currentWidget()
             estado["w"] = nuevo
-            if old is None or old is nuevo:
+            if nuevo is None or old is nuevo:
                 return
-            try:
-                geom = QRect(old.mapTo(tabs, QPoint(0, 0)), old.size())
-            except Exception:
-                geom = tabs.rect()
-            _animar_salida(tabs, old, geom, duracion)
+            _deslizar(old, nuevo, duracion)
 
         tabs.currentChanged.connect(_on_change)
     except Exception as e:
@@ -86,9 +102,9 @@ def instalar_transicion_stack(stack, duracion: int = _DUR):
             old = estado["w"]
             nuevo = stack.currentWidget()
             estado["w"] = nuevo
-            if old is None or old is nuevo:
+            if nuevo is None or old is nuevo:
                 return
-            _animar_salida(stack, old, QRect(0, 0, stack.width(), stack.height()), duracion)
+            _deslizar(old, nuevo, duracion)
 
         stack.currentChanged.connect(_on_change)
     except Exception as e:
