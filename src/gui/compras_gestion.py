@@ -1197,7 +1197,7 @@ class _DialogoReposicion(QDialog):
 
 
 def _cap(txt):
-    lab = QLabel(txt); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:12px;")
+    lab = QLabel(txt); lab.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:14px;")
     return lab
 
 
@@ -1234,10 +1234,9 @@ class FichaProveedorDialog(QDialog):
         v = _dialogo_frameless(self)   # sin título: cabecera propia con X
         v.addLayout(self._cabecera())
         tabs = QTabWidget()
-        # Contorno NEÓN turquesa alrededor del contenido de cada sub-pestaña (sustituye la línea gris
-        # del ::pane por defecto, que no casa con el diseño de la app).
-        tabs.setStyleSheet(f"QTabWidget::pane{{border:2px solid {_CIAN};border-radius:12px;top:-1px;"
-                           f"background:{_BG};}}")
+        # Sin línea alrededor del contenido de cada sub-pestaña (el contorno turquesa lo ponen las
+        # tablas). Se conserva el fondo del pane para el contenido con scroll.
+        tabs.setStyleSheet(f"QTabWidget::pane{{border:none;background:{_BG};}}")
         # Cada pestaña envuelta en scroll (misma scrollbar cyan de la app) para que el contenido no se corte.
         tabs.addTab(_scroll_neon(self._tab_generales()),
                     tr("compras.ficha_generales", default="Datos Generales"))
@@ -1267,7 +1266,7 @@ class FichaProveedorDialog(QDialog):
             s.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;font-size:13px;")
             hdr.addWidget(s)
         hdr.addStretch(1)
-        x = QPushButton("✕"); x.setCursor(Qt.CursorShape.PointingHandCursor); x.setFixedSize(40, 40)
+        x = QPushButton("✕"); x.setCursor(Qt.CursorShape.PointingHandCursor); x.setFixedSize(42, 48)
         x.setToolTip(tr("compras.cerrar", default="Cerrar"))
         x.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
                         f"border-radius:8px;font-weight:900;font-size:15px;padding:0;}}"
@@ -1361,7 +1360,7 @@ class FichaProveedorDialog(QDialog):
         bar.addWidget(_btn(tr("compras.ficha_add_tarifa", default="Añadir Artículo / Tarifa"),
                            self._add_tarifa, primary=True))
         bar.addWidget(_btn(tr("compras.editar", default="Editar"), self._editar_tarifa, primary=True))
-        bar.addWidget(_btn(tr("compras.eliminar", default="Eliminar"), self._eliminar_tarifa, primary=True))
+        bar.addWidget(_btn(tr("compras.eliminar", default="Eliminar"), self._eliminar_tarifa, danger=True))
         bar.addStretch(1)
         bar.addWidget(_btn("📁  " + tr("compras.ficha_import_tarifas", default="Importar Tarifas (CSV/Excel)"),
                            self._importar_tarifas, primary=True))

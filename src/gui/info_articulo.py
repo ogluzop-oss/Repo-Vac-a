@@ -1569,7 +1569,7 @@ class _AltaRapidaEANPage(QWidget):
         cont.addWidget(sub)
 
         def _lbl(txt):
-            l = QLabel(txt); l.setStyleSheet("color:#8B949E;font-weight:700;font-size:12px;"
+            l = QLabel(txt); l.setStyleSheet("color:#8B949E;font-weight:700;font-size:14px;"
                                              "background:transparent;")
             return l
 
@@ -1759,7 +1759,7 @@ class InfoArticuloWindow(QWidget):
         self._tab_keys = ["info.tab_search", "info.tab_image", "info.tab_edit", "info.tab_families",
                           "info.tab_ean"]
         _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS",
-                    "ALTA RÁPIDA · EAN-13"]
+                    "ALTA ARTÍCULO"]
 
         self._nav_btns = []
         for idx, key in enumerate(self._tab_keys):
@@ -1815,7 +1815,7 @@ class InfoArticuloWindow(QWidget):
     def _retraducir(self):
         self.setWindowTitle(tr("info.window_title", default="Información de Artículo"))
         _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS",
-                    "ALTA RÁPIDA · EAN-13"]
+                    "ALTA ARTÍCULO"]
         for i, btn in enumerate(self._nav_btns):
             btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
         self._btn_exit.setText(tr("info.exit", default="SALIR AL MENÚ"))
