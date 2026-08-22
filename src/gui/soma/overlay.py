@@ -60,6 +60,16 @@ class SomaOverlay(QWidget):
         self._card.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._card.setCursor(Qt.CursorShape.PointingHandCursor)
         self._card.setStyleSheet(self._card_ss(hover=False))
+        # Sombra sutil del TEXTO (sin fondo): mejora la legibilidad de la tarjeta transparente sobre
+        # cualquier pantalla, sin añadir recuadro.
+        try:
+            from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+            _sombra = QGraphicsDropShadowEffect(self._card)
+            _sombra.setBlurRadius(10); _sombra.setOffset(0, 1)
+            _sombra.setColor(QColor(0, 0, 0, 200))
+            self._card.setGraphicsEffect(_sombra)
+        except Exception:
+            pass
 
         # Badge de propuestas (contador estilo WhatsApp) sobre el personaje en reposo.
         self._propuestas = 0

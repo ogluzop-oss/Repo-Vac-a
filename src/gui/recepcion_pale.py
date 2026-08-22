@@ -2908,30 +2908,19 @@ class _ReabastecimientoPage(QWidget):
     def __init__(self, engine: StockReplenishmentEngine, parent=None):
         super().__init__(parent)
         self._engine = engine
-        self._engine.propuesta_creada.connect(self._on_propuesta_auto)
         try:
+            # Solo refresco EN VIVO del stock de la tabla monitorizada (sin propuestas ni webhook: el
+            # reabastecimiento es informativo por Correo y el stock se ajusta al recepcionar palés).
             from src.db.conexion import stock_signals as _db_signals
             _db_signals.stock_actualizado.connect(self._on_stock_cambio)
             _db_signals.propuestas_actualizadas.connect(self._cargar_config)
-            _db_signals.propuestas_actualizadas.connect(self._cargar_propuestas)
-            _db_signals.propuestas_actualizadas.connect(self._cargar_historial)
         except Exception:
             pass
         self._build_ui()
-        self._sig_prueba_ok.connect(self._on_prueba_ok)
-        self._sig_prueba_err.connect(self._on_prueba_err)
         self._schedule_timer = QTimer(self)
         self._schedule_timer.setInterval(60_000)
         self._schedule_timer.timeout.connect(self._check_schedule)
         self._schedule_timer.start()
-        try:
-            from src.utils import reab_webhook as _wh
-            _wh.iniciar_servidor()
-            if _wh.webhook_signals is not None:
-                _wh.webhook_signals.propuesta_actualizada.connect(
-                    self._recargar_desde_webhook)
-        except Exception:
-            pass
 
     def _act_btn_loading(self, label, fn):
         btn = QPushButton(label)
@@ -2976,9 +2965,7 @@ class _ReabastecimientoPage(QWidget):
 
         tab_labels = [
             "ARTÍCULOS MONITORIZADOS",
-            "PROPUESTAS ACTIVAS",
-            "HISTORIAL COMPLETO",
-            "RESPONSABLE LOGÍSTICA",
+            "RESPONSABLES LOGÍSTICA",
         ]
         self._tab_btns = []
         for i, label in enumerate(tab_labels):
@@ -3010,7 +2997,7 @@ class _ReabastecimientoPage(QWidget):
         btn_guardar_cfg.clicked.connect(self._guardar_config)
         p0_hdr.addWidget(btn_guardar_cfg)
         p0_hdr.addStretch()
-        p0_hdr.addWidget(self._act_btn_loading("⟳  ACTUALIZAR", self._cargar_config))
+        p0_hdr.addWidget(self._act_btn_loading("🔄  ACTUALIZAR", self._cargar_config))
         p0_ly.addLayout(p0_hdr)
 
         cols_cfg = ["EAN", "ARTÍCULO", "STOCK TIENDA", "STOCK CENTRAL", "UMBRAL MÍN", "STOCK OBJETIVO"]
@@ -3025,129 +3012,53 @@ class _ReabastecimientoPage(QWidget):
         p0_ly.addWidget(self._cont_cfg)
         self._stack.addWidget(page0)
 
-        # Page 1: PROPUESTAS ACTIVAS
-        page1 = QWidget()
-        page1.setStyleSheet(f"background: {_REAB_FONDO};")
-        p1_ly = QVBoxLayout(page1)
-        p1_ly.setContentsMargins(0, 8, 0, 0)
-        p1_ly.setSpacing(8)
-
-        p1_hdr = QHBoxLayout()
-        p1_hdr.addStretch()
-        p1_hdr.addWidget(self._act_btn_loading("⟳  ACTUALIZAR", self._verificar_y_crear_propuestas))
-        p1_ly.addLayout(p1_hdr)
-
-        cols_prop = ["EAN", "ARTÍCULO", "CANTIDAD", "ESTADO", "FECHA"]
-        self._cont_prop, self._tbl_prop = _crear_tabla_reab(self, cols_prop)
-        ph = self._tbl_prop.horizontalHeader()
-        ph.setStretchLastSection(False)
-        ph.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        ph.resizeSection(0, 160)
-        ph.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        ph.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        ph.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        ph.resizeSection(3, 200)
-        ph.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self._tbl_prop.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._tbl_prop.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._tbl_prop.verticalHeader().setVisible(False)
-        p1_ly.addWidget(self._cont_prop)
-        self._stack.addWidget(page1)
-
-        # Page 2: HISTORIAL COMPLETO
-        page2 = QWidget()
-        page2.setStyleSheet(f"background: {_REAB_FONDO};")
-        p2_ly = QVBoxLayout(page2)
-        p2_ly.setContentsMargins(0, 8, 0, 0)
-        p2_ly.setSpacing(8)
-
-        p2_hdr = QHBoxLayout()
-        p2_hdr.addStretch()
-        p2_hdr.addWidget(self._act_btn_loading("⟳  ACTUALIZAR", self._cargar_historial))
-        p2_ly.addLayout(p2_hdr)
-
-        cols_hist = ["ID", "ARTÍCULO", "CANTIDAD", "ESTADO", "FECHA"]
-        self._cont_hist, self._tbl_hist = _crear_tabla_reab(self, cols_hist)
-        hh_h = self._tbl_hist.horizontalHeader()
-        hh_h.setStretchLastSection(False)
-        hh_h.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        hh_h.resizeSection(0, 240)
-        hh_h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        hh_h.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hh_h.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        hh_h.resizeSection(3, 160)
-        hh_h.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self._tbl_hist.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._tbl_hist.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._tbl_hist.verticalHeader().setVisible(False)
-        p2_ly.addWidget(self._cont_hist)
-        self._stack.addWidget(page2)
-
-        # Page 3: RESPONSABLE LOGÍSTICA
+        # Page 1: RESPONSABLES LOGÍSTICA (selección de perfiles → Correo interno)
         page3 = QWidget()
         page3.setStyleSheet(f"background: {_REAB_FONDO};")
         p3_ly = QVBoxLayout(page3)
         p3_ly.setContentsMargins(32, 20, 32, 20)
         p3_ly.setSpacing(0)
 
-        lbl_sec1 = QLabel(tr("recep.correo_electronico_del_respo", default="Correo electrónico del responsable de logística"))
+        lbl_sec1 = QLabel("Responsables de logística (perfiles de Smart Manager)")
         lbl_sec1.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         lbl_sec1.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 4px;")
         p3_ly.addWidget(lbl_sec1)
 
         lbl_sec1_desc = QLabel(
-            tr("recep.se_enviaran_automaticamente_", default="Se enviarán automáticamente los informes de artículos pendientes de reabastecimiento "
-            "a esta dirección según la programación definida a continuación.")
+            "Selecciona hasta 6 perfiles. Recibiran la solicitud de reabastecimiento en su MODULO DE "
+            "CORREO (bandeja interna), solo cuando haya articulos por debajo del umbral minimo. Es "
+            "informativa: no modifica el stock (se ajusta al recepcionar los pales)."
         )
         lbl_sec1_desc.setWordWrap(True)
         lbl_sec1_desc.setStyleSheet("color: #8B949E; font-size: 11px; margin-bottom: 10px;")
         p3_ly.addWidget(lbl_sec1_desc)
 
-        self._inp_email = QLineEdit()
-        self._inp_email.setPlaceholderText(tr("recep.logistica_miempresa_com", default="logistica@miempresa.com"))
-        self._inp_email.setFixedHeight(46)
-        self._inp_email.setStyleSheet(_EMAIL_INPUT_SS)
-        p3_ly.addWidget(self._inp_email)
-
-        p3_ly.addSpacing(24)
-
-        lbl_smtp = QLabel(tr("recep.correo_remitente_cuenta_que_", default="Correo remitente (cuenta que envía los informes)"))
-        lbl_smtp.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        lbl_smtp.setStyleSheet(f"color: {_REAB_CIAN}; margin-bottom: 4px;")
-        p3_ly.addWidget(lbl_smtp)
-
-        smtp_row = QHBoxLayout()
-        smtp_row.setSpacing(12)
-        smtp_row.setContentsMargins(0, 0, 0, 0)
-
-        self._inp_smtp_user = QLineEdit()
-        self._inp_smtp_user.setPlaceholderText(tr("recep.remitente_gmail_com", default="remitente@gmail.com"))
-        self._inp_smtp_user.setFixedHeight(46)
-        self._inp_smtp_user.setStyleSheet(_EMAIL_INPUT_SS)
-        smtp_row.addWidget(self._inp_smtp_user, 1, Qt.AlignmentFlag.AlignTop)
-
-        pass_col = QVBoxLayout()
-        pass_col.setSpacing(3)
-        pass_col.setContentsMargins(0, 0, 0, 0)
-
-        self._inp_smtp_pass = QLineEdit()
-        self._inp_smtp_pass.setPlaceholderText(tr("recep.contrasena_de_aplicacion_16_", default="Contraseña de aplicación (16 caracteres)"))
-        self._inp_smtp_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self._inp_smtp_pass.setFixedHeight(46)
-        self._inp_smtp_pass.setStyleSheet(_EMAIL_INPUT_SS)
-        pass_col.addWidget(self._inp_smtp_pass)
-
-        self._lbl_pass_saved = QLabel("")
-        self._lbl_pass_saved.setFixedHeight(16)
-        self._lbl_pass_saved.setStyleSheet(
-            "color: #1ED760; font-size: 10px; background: transparent;"
+        from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+        self._lst_perfiles = QListWidget()
+        self._lst_perfiles.setFixedHeight(210)
+        self._lst_perfiles.setStyleSheet(
+            f"QListWidget {{ background: #0E1117; color: #E6EDF3; border: 2px solid {_REAB_CIAN};"
+            f" border-radius: 10px; padding: 6px; font-size: 13px; outline: none; }}"
+            f"QListWidget::item {{ padding: 7px 8px; }}"
+            f"QListWidget::item:selected {{ background: #1A2230; color: {_REAB_CIAN}; }}"
         )
-        pass_col.addWidget(self._lbl_pass_saved)
+        try:
+            from src.db.usuario import listar_usuarios_empresa as _lu_reab
+            for _u in (_lu_reab() or []):
+                _id = _u.get("id")
+                _nom = _u.get("nombre") or _u.get("usuario") or str(_id)
+                _rol = _u.get("perfil") or _u.get("rol") or ""
+                _it = QListWidgetItem(f"{_nom}" + (f"   -   {_rol}" if _rol else ""))
+                _it.setData(Qt.ItemDataRole.UserRole, str(_id))
+                _it.setFlags(_it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                _it.setCheckState(Qt.CheckState.Unchecked)
+                self._lst_perfiles.addItem(_it)
+        except Exception:
+            pass
+        self._lst_perfiles.itemChanged.connect(self._limitar_perfiles)
+        p3_ly.addWidget(self._lst_perfiles)
 
-        smtp_row.addLayout(pass_col, 1)
-        p3_ly.addLayout(smtp_row)
-
-        p3_ly.addSpacing(8)
+        p3_ly.addSpacing(16)
 
         lbl_sec2 = QLabel(tr("recep.dias_de_envio_puede_seleccio", default="Días de envío (puede seleccionar varios)"))
         lbl_sec2.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
@@ -3216,7 +3127,7 @@ class _ReabastecimientoPage(QWidget):
         save_row.addStretch()
         save_row.addWidget(self._lbl_save_ok)
         save_row.addSpacing(20)
-        btn_test = QPushButton(tr("recep.probar_envio", default="PROBAR ENVÍO"))
+        btn_test = QPushButton(tr("recep.enviar_ahora", default="📨  ENVIAR AHORA"))
         btn_test.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {_REAB_CIAN}; border: 2px solid {_REAB_CIAN};"
             f" border-radius: 10px; font-size: 13px; font-weight: bold; padding: 0 18px; outline: none; }}"
@@ -3243,8 +3154,6 @@ class _ReabastecimientoPage(QWidget):
 
     def cargar(self):
         self._cargar_config()
-        self._cargar_propuestas()
-        self._cargar_historial()
         self._cargar_schedule_ui()
 
     def _cargar_config(self):
@@ -3325,123 +3234,8 @@ class _ReabastecimientoPage(QWidget):
                 lambda c=codigo, iu=inp_u, io=inp_o: self._auto_guardar_cfg(c, iu, io)
             )
 
-    def _cargar_propuestas(self):
-        props = _reab_listar_propuestas(estados=("pendiente", "aprobado", "enviado"))
-        self._tbl_prop.setRowCount(len(props))
-        for r, p in enumerate(props):
-            self._tbl_prop.setRowHeight(r, 44)
-            estado = p["estado"]
-            bg, fg = _ESTADO_COLORES.get(estado, ("#8B949E", "#FFF"))
-
-            for c, v in enumerate([p["codigo"], p["nombre"], str(p["cantidad"])]):
-                item = QTableWidgetItem(v)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self._tbl_prop.setItem(r, c, item)
-
-            w_estado = QWidget()
-            w_estado.setStyleSheet("background: transparent;")
-            ly_estado = QHBoxLayout(w_estado)
-            ly_estado.setContentsMargins(6, 4, 6, 4)
-            ly_estado.setSpacing(6)
-
-            lbl_e = QLabel(estado.upper())
-            lbl_e.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl_e.setStyleSheet(
-                f"background:{bg}; color:{fg}; border-radius:6px; "
-                f"font-size:13px; font-weight:bold; padding:2px 8px;"
-            )
-            ly_estado.addWidget(lbl_e, 1)
-
-            if estado == "pendiente":
-                btn_x = QPushButton("✕")
-                btn_x.setFixedWidth(36)
-                btn_x.setSizePolicy(
-                    QSizePolicy.Policy.Fixed,
-                    QSizePolicy.Policy.Expanding,
-                )
-                btn_x.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-                btn_x.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn_x.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-                btn_x.setStyleSheet(
-                    "QPushButton {"
-                    "  background: #F85149;"
-                    "  color: #FFFFFF;"
-                    "  border: none;"
-                    "  border-radius: 6px;"
-                    "  font-size: 20px;"
-                    "  font-weight: 900;"
-                    "  padding: 0px 0px 4px 0px;"
-                    "  margin: 0px;"
-                    "}"
-                    "QPushButton:hover {"
-                    "  background: #FFFFFF;"
-                    "  color: #F85149;"
-                    "}"
-                    "QPushButton:pressed {"
-                    "  background: #F85149;"
-                    "  color: #FFFFFF;"
-                    "}"
-                )
-                btn_x.clicked.connect(
-                    lambda checked, pid=p["id"]: self._accion_propuesta(pid, "cancelado")
-                )
-                ly_estado.addWidget(btn_x, 0)
-
-            self._tbl_prop.setCellWidget(r, 3, w_estado)
-
-            fecha_item = QTableWidgetItem(
-                str(p["fecha_creacion"])[:16] if p["fecha_creacion"] else "—"
-            )
-            fecha_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            fecha_item.setFlags(fecha_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._tbl_prop.setItem(r, 4, fecha_item)
-
-    def _cargar_historial(self):
-        props = _reab_listar_propuestas()
-        self._tbl_hist.setRowCount(len(props))
-        for r, p in enumerate(props):
-            self._tbl_hist.setRowHeight(r, 44)
-            estado = p["estado"]
-            bg, fg = _ESTADO_COLORES.get(estado, ("#8B949E", "#FFFFFF"))
-
-            for c, v in enumerate([str(p["id"]), p["nombre"], str(p["cantidad"])]):
-                item = QTableWidgetItem(v)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self._tbl_hist.setItem(r, c, item)
-
-            w_e = QWidget()
-            w_e.setStyleSheet("background: transparent;")
-            ly_e = QHBoxLayout(w_e)
-            ly_e.setContentsMargins(8, 4, 8, 4)
-            lbl_e = QLabel(estado.upper())
-            lbl_e.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl_e.setStyleSheet(
-                f"background:{bg}; color:{fg}; border-radius:8px; "
-                f"font-size:13px; font-weight:bold; padding:2px 10px;"
-            )
-            ly_e.addWidget(lbl_e)
-            self._tbl_hist.setCellWidget(r, 3, w_e)
-
-            fecha_item = QTableWidgetItem(
-                str(p["fecha_creacion"])[:16] if p["fecha_creacion"] else "—"
-            )
-            fecha_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            fecha_item.setFlags(fecha_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self._tbl_hist.setItem(r, 4, fecha_item)
-
-    def _auto_guardar_cfg(self, codigo: str, inp_umbral: QLineEdit, inp_obj: QLineEdit):
-        try:
-            umbral = max(0, int(inp_umbral.text().strip() or "0"))
-            objetivo = max(0, int(inp_obj.text().strip() or "0"))
-        except ValueError:
-            return
-        _reab_upsert_config(codigo, umbral, objetivo, automatico=True)
-        self._on_stock_cambio(codigo)
-
     def _guardar_config(self):
-        codigos_guardados = []
+        """Guarda umbral mínimo + stock objetivo de los artículos monitorizados (sin crear propuestas)."""
         for r in range(self._tbl_cfg.rowCount()):
             ean_item = self._tbl_cfg.item(r, 0)
             if not ean_item:
@@ -3461,113 +3255,15 @@ class _ReabastecimientoPage(QWidget):
             except ValueError:
                 continue
             _reab_upsert_config(codigo, umbral, objetivo)
-            codigos_guardados.append(codigo)
             inp_u.deselect()
             inp_o.deselect()
         self._tbl_cfg.clearSelection()
         self._tbl_cfg.setFocus()
-        for codigo in codigos_guardados:
-            self._crear_propuesta_si_bajo_umbral(codigo)
-        self._cargar_propuestas()
-
-    def _verificar_y_crear_propuestas(self):
-        try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT rc.codigo, a.nombre,
-                               COALESCE(a.Stock_tienda, 0) + COALESCE(a.Stock_total, 0),
-                               rc.stock_objetivo, rc.origen,
-                               COALESCE(a.Stock_central, 0)
-                        FROM reab_config rc
-                        JOIN articulos a ON a.codigo = rc.codigo
-                        WHERE (COALESCE(a.Stock_tienda, 0) + COALESCE(a.Stock_total, 0)) < rc.umbral_min
-                          AND NOT EXISTS (
-                              SELECT 1 FROM reab_propuestas rp
-                              WHERE rp.codigo = rc.codigo
-                                AND rp.estado IN ('pendiente', 'aprobado', 'enviado')
-                          )
-                    """)
-                    candidatos = cur.fetchall()
-        except Exception:
-            candidatos = []
-
-        for codigo, nombre, stock_actual, stock_objetivo, origen, stock_central in candidatos:
-            cantidad = max(1, (stock_objetivo or 0) - (stock_actual or 0))
-            origen_final = origen or ("ALMACÉN CENTRAL" if (stock_central or 0) > 0 else "PROVEEDOR")
-            _reab_crear_propuesta(
-                codigo, nombre, cantidad, origen_final,
-                stock_actual or 0, stock_objetivo or 0
-            )
-        self._cargar_propuestas()
-
-    def _crear_propuesta_si_bajo_umbral(self, codigo: str) -> bool:
-        """Crea una propuesta si el stock está bajo el umbral y no existe ya una activa.
-        Devuelve True si se creó una propuesta."""
-        try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT rc.codigo, a.nombre,
-                               COALESCE(a.Stock_tienda, 0) + COALESCE(a.Stock_total, 0),
-                               rc.stock_objetivo, rc.origen,
-                               COALESCE(a.Stock_central, 0)
-                        FROM reab_config rc
-                        JOIN articulos a ON a.codigo = rc.codigo
-                        WHERE rc.codigo = %s
-                          AND (COALESCE(a.Stock_tienda, 0) + COALESCE(a.Stock_total, 0)) < rc.umbral_min
-                          AND NOT EXISTS (
-                              SELECT 1 FROM reab_propuestas rp
-                              WHERE rp.codigo = rc.codigo
-                                AND rp.estado IN ('pendiente', 'aprobado', 'enviado')
-                          )
-                    """, (codigo,))
-                    row = cur.fetchone()
-        except Exception:
-            row = None
-
-        if row:
-            cod, nombre, stock_actual, stock_objetivo, origen, stock_central = row
-            cantidad = max(1, (stock_objetivo or 0) - (stock_actual or 0))
-            origen_final = origen or ("ALMACÉN CENTRAL" if (stock_central or 0) > 0 else "PROVEEDOR")
-            _reab_crear_propuesta(
-                cod, nombre, cantidad, origen_final,
-                stock_actual or 0, stock_objetivo or 0
-            )
-            return True
-        return False
-
-    def _actualizar_stock_en_cfg(self, codigo: str):
-        """Actualiza solo las celdas de stock del artículo en ARTÍCULOS MONITORIZADOS."""
-        try:
-            with obtener_conexion() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT COALESCE(Stock_tienda, 0) + COALESCE(Stock_total, 0),
-                               COALESCE(Stock_central, 0)
-                        FROM articulos WHERE codigo = %s
-                    """, (codigo,))
-                    row = cur.fetchone()
-        except Exception:
-            row = None
-
-        if not row:
-            return
-
-        st_tienda, st_central = int(row[0] or 0), int(row[1] or 0)
-        for r in range(self._tbl_cfg.rowCount()):
-            ean_item = self._tbl_cfg.item(r, 0)
-            if ean_item and ean_item.text() == codigo:
-                for ci, val in enumerate([st_tienda, st_central], start=2):
-                    it = self._tbl_cfg.item(r, ci)
-                    if it:
-                        it.setText(str(val))
-                break
 
     def _on_stock_cambio(self, codigo: str):
+        # Solo refresca el stock en vivo de la tabla monitorizada (informativo; no crea propuestas
+        # ni toca stock: el reabastecimiento se comunica por Correo y el stock se ajusta al recepcionar).
         self._actualizar_stock_en_cfg(codigo)
-        if self._crear_propuesta_si_bajo_umbral(codigo):
-            self._cargar_propuestas()
 
     def _eliminar_config(self, codigo: str):
         _reab_eliminar_config(codigo)
@@ -3605,15 +3301,40 @@ class _ReabastecimientoPage(QWidget):
         self._cargar_propuestas()
         self._cargar_historial()
 
+    def _perfiles_seleccionados(self):
+        """IDs de los perfiles marcados en la lista de responsables."""
+        ids = []
+        if hasattr(self, "_lst_perfiles"):
+            for i in range(self._lst_perfiles.count()):
+                it = self._lst_perfiles.item(i)
+                if it.checkState() == Qt.CheckState.Checked:
+                    ids.append(it.data(Qt.ItemDataRole.UserRole))
+        return ids
+
+    def _limitar_perfiles(self, item):
+        """Máximo 6 perfiles: si se marca uno de más, se revierte."""
+        if item.checkState() != Qt.CheckState.Checked:
+            return
+        if len(self._perfiles_seleccionados()) > 6:
+            self._lst_perfiles.blockSignals(True)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            self._lst_perfiles.blockSignals(False)
+            self._lbl_save_ok.setText("⚠ Máximo 6 perfiles responsables")
+            self._lbl_save_ok.setStyleSheet(
+                "color: #E3B341; font-size: 12px; font-weight: bold; background: transparent;")
+            self._lbl_save_ok.setVisible(True)
+            QTimer.singleShot(3000, self._hide_save_ok)
+
     def _cargar_schedule_ui(self):
         cfg = _reab_cargar_schedule()
-        self._inp_email.setText(cfg.get("email", ""))
-        self._inp_smtp_user.setText(cfg.get("smtp_user", ""))
-        self._inp_smtp_pass.clear()
-        has_pass = bool(cfg.get("smtp_pass", ""))
-        self._lbl_pass_saved.setText(
-            "✓  Contraseña guardada (déjalo vacío para conservarla)" if has_pass else ""
-        )
+        perfiles = set(str(p) for p in cfg.get("perfiles", []))
+        if hasattr(self, "_lst_perfiles"):
+            self._lst_perfiles.blockSignals(True)
+            for i in range(self._lst_perfiles.count()):
+                it = self._lst_perfiles.item(i)
+                pid = str(it.data(Qt.ItemDataRole.UserRole))
+                it.setCheckState(Qt.CheckState.Checked if pid in perfiles else Qt.CheckState.Unchecked)
+            self._lst_perfiles.blockSignals(False)
         dias_activos = set(cfg.get("dias", "").split(",")) if cfg.get("dias") else set()
         for i, btn in enumerate(self._dia_btns):
             btn.setChecked(str(i) in dias_activos)
@@ -3624,70 +3345,50 @@ class _ReabastecimientoPage(QWidget):
         self._cmb_min.setCurrentIndex(closest // 5)
 
     def _guardar_schedule_ui(self):
-        email = self._inp_email.text().strip()
-        smtp_user = self._inp_smtp_user.text().strip()
-        smtp_pass = self._inp_smtp_pass.text().strip()
-        if not smtp_pass:
-            smtp_pass = _reab_cargar_schedule().get("smtp_pass", "")
+        perfiles = self._perfiles_seleccionados()
         dias_str = ",".join(str(i) for i, btn in enumerate(self._dia_btns) if btn.isChecked())
         hora = int(self._cmb_hora.currentText().replace("h", "").strip())
         minuto = int(self._cmb_min.currentText().replace("min", "").strip())
-        if _reab_guardar_schedule(email, dias_str, hora, minuto, smtp_user, smtp_pass):
-            self._inp_smtp_pass.clear()
-            self._lbl_pass_saved.setText(
-                "✓  Contraseña guardada (déjalo vacío para conservarla)" if smtp_pass else ""
-            )
-            self._lbl_save_ok.setText(tr("recep.configuracion_guardada_corre", default="✓ Configuración guardada correctamente"))
+        if _reab_guardar_schedule(dias_str, hora, minuto, perfiles):
+            self._lbl_save_ok.setText("✓ Configuración guardada correctamente")
             self._lbl_save_ok.setStyleSheet(
-                "color: #1ED760; font-size: 13px; font-weight: bold; background: transparent;"
-            )
+                "color: #1ED760; font-size: 13px; font-weight: bold; background: transparent;")
             self._lbl_save_ok.setVisible(True)
             QTimer.singleShot(3000, self._hide_save_ok)
         else:
-            self._lbl_save_ok.setText(tr("recep.error_al_guardar_la_configur", default="✕ Error al guardar la configuración"))
+            self._lbl_save_ok.setText("✕ Error al guardar la configuración")
             self._lbl_save_ok.setStyleSheet(
-                "color: #FF4B4B; font-size: 13px; font-weight: bold; background: transparent;"
-            )
+                "color: #FF4B4B; font-size: 13px; font-weight: bold; background: transparent;")
             self._lbl_save_ok.setVisible(True)
             QTimer.singleShot(4000, self._hide_save_ok)
 
     def _probar_envio(self):
-        cfg = _reab_cargar_schedule()
-        email = cfg.get("email", "")
-        smtp_user = cfg.get("smtp_user", "")
-        smtp_pass = cfg.get("smtp_pass", "")
-        if not email or not smtp_user or not smtp_pass:
-            self._lbl_save_ok.setText(tr("recep.completa_y_guarda_email_remi", default="✕ Completa y guarda email, remitente y contraseña antes de probar"))
+        """ENVIAR AHORA: entrega la solicitud (artículos bajo umbral) al Correo de los perfiles marcados."""
+        perfiles = self._perfiles_seleccionados()
+        if not perfiles:
+            self._lbl_save_ok.setText("✕ Selecciona al menos un perfil responsable")
             self._lbl_save_ok.setStyleSheet(
-                "color: #FF4B4B; font-size: 12px; font-weight: bold; background: transparent;"
-            )
-            self._lbl_save_ok.setVisible(True)
-            QTimer.singleShot(5000, self._hide_save_ok)
-            return
-        props = _reab_listar_propuestas(estados=("pendiente",))
-        if not props:
-            self._lbl_save_ok.setText(tr("recep.no_hay_propuestas_pendientes", default="⚠ No hay propuestas pendientes — se envía un artículo de ejemplo para verificar SMTP"))
+                "color: #FF4B4B; font-size: 12px; font-weight: bold; background: transparent;")
+            self._lbl_save_ok.setVisible(True); QTimer.singleShot(4000, self._hide_save_ok); return
+        try:
+            from src.db.reabastecimiento import enviar_reabastecimiento_a_perfiles as _envp
+            res = _envp(perfiles)
+        except Exception:
+            res = {"enviados": 0, "articulos": 0, "sin_articulos": True}
+        if res.get("sin_articulos"):
+            self._lbl_save_ok.setText("⚠ No hay artículos por debajo del umbral ahora mismo")
             self._lbl_save_ok.setStyleSheet(
-                "color: #E3B341; font-size: 11px; font-weight: bold; background: transparent;"
-            )
-            self._lbl_save_ok.setVisible(True)
-            props = [{"id": 0, "codigo": "EJEMPLO", "nombre": "Sin propuestas pendientes — prueba SMTP",
-                      "cantidad": 0}]
+                "color: #E3B341; font-size: 12px; font-weight: bold; background: transparent;")
+        elif res.get("enviados"):
+            self._lbl_save_ok.setText(f"✓ Solicitud enviada al Correo de {res['enviados']} perfil(es) "
+                                      f"({res['articulos']} artículo/s)")
+            self._lbl_save_ok.setStyleSheet(
+                "color: #1ED760; font-size: 12px; font-weight: bold; background: transparent;")
         else:
-            self._lbl_save_ok.setText(f"⏳ Enviando {len(props)} propuesta(s) pendiente(s)…")
+            self._lbl_save_ok.setText("✕ No se pudo entregar (los perfiles no tienen buzón de Correo)")
             self._lbl_save_ok.setStyleSheet(
-                "color: #E3B341; font-size: 13px; font-weight: bold; background: transparent;"
-            )
-            self._lbl_save_ok.setVisible(True)
-        import threading
-        def _bg():
-            ok = _reab_enviar_email_pdf_impl(email, "", smtp_user, smtp_pass, props,
-                                             solo_prueba=True)
-            if ok:
-                self._sig_prueba_ok.emit()
-            else:
-                self._sig_prueba_err.emit()
-        threading.Thread(target=_bg, daemon=True).start()
+                "color: #FF4B4B; font-size: 11px; font-weight: bold; background: transparent;")
+        self._lbl_save_ok.setVisible(True); QTimer.singleShot(6000, self._hide_save_ok)
 
     def _on_prueba_ok(self):
         self._lbl_save_ok.setText(tr("recep.correo_de_prueba_enviado_rev", default="✓ Correo de prueba enviado — revisa tu bandeja de entrada"))
@@ -3715,13 +3416,12 @@ class _ReabastecimientoPage(QWidget):
             pass
 
     def _check_schedule(self):
+        """En el día/hora programados, entrega UNA solicitud (artículos bajo umbral) al Correo interno de
+        los perfiles responsables. Informativo; no modifica stock. Una vez al día (ultima_envio)."""
         from datetime import date as _date
         cfg = _reab_cargar_schedule()
-        if not cfg.get("email") or not cfg.get("dias"):
-            return
-        smtp_user = cfg.get("smtp_user", "")
-        smtp_pass = cfg.get("smtp_pass", "")
-        if not smtp_user or not smtp_pass:
+        perfiles = cfg.get("perfiles", [])
+        if not perfiles or not cfg.get("dias"):
             return
         now = datetime.now()
         dias = [int(d) for d in cfg["dias"].split(",") if d.strip().isdigit()]
@@ -3731,19 +3431,15 @@ class _ReabastecimientoPage(QWidget):
         current_mins = now.hour * 60 + now.minute
         if abs(current_mins - target_mins) > 1:
             return
-        today = _date.today()
-        if cfg.get("ultima_envio") == today:
+        if cfg.get("ultima_envio") == _date.today():
             return
-        props = _reab_listar_propuestas(estados=("pendiente",))
-        if not props:
-            return
-        import threading
-        def _send_bg():
-            ruta = _reab_generar_pdf(props)
-            if not ruta.startswith("ERROR"):
-                if _reab_enviar_email_pdf_impl(cfg["email"], ruta, smtp_user, smtp_pass, props):
-                    _reab_marcar_envio_hoy()
-        threading.Thread(target=_send_bg, daemon=True).start()
+        try:
+            from src.db.reabastecimiento import enviar_reabastecimiento_a_perfiles as _envp
+            res = _envp(perfiles)
+            if res.get("enviados"):
+                _reab_marcar_envio_hoy()
+        except Exception as e:
+            logger.debug("check_schedule reab: %s", e)
 
 
 # ============================================================
@@ -4604,8 +4300,7 @@ class RecepcionPaleWindow(QWidget):
         # Atributo crítico para la limpieza de memoria
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
-        # Motor de reabastecimiento
-        self._engine = StockReplenishmentEngine(self)
+        # (Reabastecimiento —y su motor— se han migrado al módulo de Reposición.)
 
         self.setup_ui()
         self.conectar_eventos_paginas()
@@ -4644,9 +4339,8 @@ class RecepcionPaleWindow(QWidget):
         self.btn_nav_expedir   = self.crear_boton_nav("Expediciones")
         self.btn_nav_incid     = self.crear_boton_nav("Incidencias")
         self.btn_nav_historial = self.crear_boton_nav("Historial")
-        self.btn_nav_reab      = self.crear_boton_nav("Reabastecimiento")
-        # 'Pedir a Central' es UNA PESTAÑA MÁS (arriba, junto al resto), no un diálogo emergente.
-        self.btn_nav_central   = self.crear_boton_nav("Pedir a Central")
+        # 'Reabastecimiento' se migró al módulo de Reposición; 'Pedir a Central' se retiró (duplicaba
+        # Reabastecimiento). Ambas dejan de ser secciones de Logística.
 
         self.lista_botones_nav = [
             self.btn_nav_scan,
@@ -4655,8 +4349,6 @@ class RecepcionPaleWindow(QWidget):
             self.btn_nav_expedir,
             self.btn_nav_incid,
             self.btn_nav_historial,
-            self.btn_nav_reab,
-            self.btn_nav_central,
         ]
 
         for btn in self.lista_botones_nav:
@@ -4704,13 +4396,10 @@ class RecepcionPaleWindow(QWidget):
             3: lambda: ExpedicionesPage(usuario=self.usuario, codigo_local=self.codigo_local),
             4: lambda: IncidenciasPage(usuario=self.usuario, codigo_local=self.codigo_local),
             5: lambda: HistorialUnificadoPage(usuario=self.usuario, codigo_local=self.codigo_local),
-            6: lambda: _ReabastecimientoPage(self._engine),
-            7: lambda: self._crear_panel_pedido_central(),          # PEDIR A CENTRAL (pestaña embebida)
         }
         self._vista_attr = {
             1: "vista_traspaso", 2: "vista_preparacion", 3: "vista_expediciones",
-            4: "vista_incidencias", 5: "vista_historial", 6: "vista_reabastecimiento",
-            7: "vista_pedido_central",
+            4: "vista_incidencias", 5: "vista_historial",
         }
         self._vista_built = {0: True}
         # Placeholders (y atributos a None) para los índices 1..7.
@@ -4744,15 +4433,6 @@ class RecepcionPaleWindow(QWidget):
             except (TypeError, RuntimeError):
                 pass
             page.btn_lanzar_dialogo.clicked.connect(self.abrir_dialogo_traspaso_final)
-
-    def _crear_panel_pedido_central(self):
-        """Factory de la pestaña 'Pedir a Central' (panel embebido; sin ventana emergente). Degradable."""
-        try:
-            from src.gui.pedido_central_gui import PedidoCentralPanel
-            return PedidoCentralPanel(usuario=getattr(self, "usuario", None))
-        except Exception as e:
-            logger.error("crear panel pedido central: %s", e)
-            return QWidget()
 
     def crear_boton_nav(self, txt, active=False):
         """Crea botones de sidebar ocupando todo el ancho usando el estilo global."""
@@ -4813,12 +4493,6 @@ class RecepcionPaleWindow(QWidget):
         )
         self.btn_nav_historial.clicked.connect(
             lambda: self.cambiar_vista(5, self.btn_nav_historial)
-        )
-        self.btn_nav_reab.clicked.connect(
-            lambda: self.cambiar_vista(6, self.btn_nav_reab)
-        )
-        self.btn_nav_central.clicked.connect(
-            lambda: self.cambiar_vista(7, self.btn_nav_central)
         )
 
         # 2. Acción del botón central de la Landing Page
