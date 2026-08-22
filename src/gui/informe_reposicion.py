@@ -873,9 +873,8 @@ class InformeReposicionWindow(QWidget):
         """Pestaña de REABASTECIMIENTO migrada desde Logística (artículos monitorizados + responsables →
         Correo interno). Reutiliza la página y el motor existentes; degradable."""
         try:
-            from src.gui.recepcion_pale import StockReplenishmentEngine, _ReabastecimientoPage
-            self._reab_engine = StockReplenishmentEngine(self)
-            return _ReabastecimientoPage(self._reab_engine)
+            from src.gui.recepcion_pale import _ReabastecimientoPage
+            return _ReabastecimientoPage()
         except Exception as e:
             import logging
             from PyQt6.QtWidgets import QWidget as _QW

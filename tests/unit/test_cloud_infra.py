@@ -24,7 +24,7 @@ _AISLAMIENTO_REVISADO = {
     "almacen_picking_lineas", "com_adjuntos", "com_circular_confirmaciones", "com_encuesta_opciones",
     "com_encuesta_preguntas", "com_encuesta_resp_items", "com_encuesta_respuestas",
     "crm_campania_destinatarios", "crm_ruta_paradas", "rrhh_formacion_asistentes", "tpv_extras_precios",
-    "solicitudes_traspaso_items", "recetas_lineas", "obrador_partes_lineas",
+    "recetas_lineas", "obrador_partes_lineas",
     # plataforma global (no son datos de un tenant)
     "cloud_feature_flags", "saas_regiones", "ioc_grupos_empresariales",
     # (Las tablas de la Lonja B2B se retiraron en la refactorización del módulo Proveedores.)
