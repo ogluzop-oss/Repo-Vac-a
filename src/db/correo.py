@@ -329,6 +329,26 @@ def _emp_corr(id_empresa=None):
         return EMPRESA_DEFAULT_ID
 
 
+def buzon_de_usuario(id_usuario, id_empresa=None):
+    """Buzón de Correo (id_correo) de un perfil: su buzón personal (id_usuario) o, si no tiene, el primer
+    buzón de la empresa (para que el mensaje llegue igualmente). None si no hay ninguno."""
+    emp = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id_correo FROM correos_corporativos WHERE id_empresa<=>%s AND id_usuario=%s "
+                        "LIMIT 1", (emp, id_usuario))
+            r = cur.fetchone()
+            if r:
+                return r[0] if not isinstance(r, dict) else list(r.values())[0]
+            cur.execute("SELECT id_correo FROM correos_corporativos WHERE id_empresa<=>%s "
+                        "ORDER BY id_correo LIMIT 1", (emp,))
+            r = cur.fetchone()
+            return (r[0] if not isinstance(r, dict) else list(r.values())[0]) if r else None
+    except Exception as e:
+        logger.debug("buzon_de_usuario(%s): %s", id_usuario, e)
+        return None
+
+
 def guardar_recibido(id_correo, remitente, asunto, cuerpo=None, *, message_id=None,
                      fecha=None, adjuntos=None, id_empresa=None):
     """Persiste (idempotente por message_id) un correo recibido y sus adjuntos. Audita."""

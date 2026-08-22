@@ -2194,7 +2194,7 @@ class VentasAnaliticaWindow(QWidget):
             pass
 
     def _retraducir(self):
-        _tab_def = ["RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
+        _tab_def = ["RESUMEN DE VENTAS", "IMPORTAR VENTAS", "RENDIMIENTO"]
         for i, btn in enumerate(self._sidebar_btns):
             _d = _tab_def[i] if i < len(_tab_def) else ""
             btn.setText(tr(self._tab_keys[i], default=_d))
@@ -2242,7 +2242,7 @@ class VentasAnaliticaWindow(QWidget):
         ly.addWidget(titulo)
 
         self._tab_keys = ["vta.tab_summary", "vta.tab_forecast", "vta.tab_rendimiento"]
-        _tab_def = ["RESUMEN DE VENTAS", "HISTÓRICO DE VENTAS", "RENDIMIENTO"]
+        _tab_def = ["RESUMEN DE VENTAS", "IMPORTAR VENTAS", "RENDIMIENTO"]
         for i, texto in enumerate(_tab_def):
             btn = QPushButton(tr(self._tab_keys[i], default=texto))
             btn.setObjectName("btn_sidebar")
@@ -2310,7 +2310,8 @@ class VentasAnaliticaWindow(QWidget):
 
         hoy = QDate.currentDate()
         row_d = QHBoxLayout(); row_d.setSpacing(6)
-        self.res_fecha_desde = _date_neon(hoy.addDays(-30))
+        # Ambas fechas por defecto = DÍA EN CURSO (el usuario amplía el rango si lo necesita).
+        self.res_fecha_desde = _date_neon(hoy)
         self.res_fecha_hasta = _date_neon(hoy)
         for txt, w in ((tr("vta.lbl_date_from", default="Fecha Inicio"), self.res_fecha_desde), (tr("vta.lbl_date_to", default="Fecha Fin"), self.res_fecha_hasta)):
             lbl = _filter_lbl(txt)
@@ -2332,12 +2333,19 @@ class VentasAnaliticaWindow(QWidget):
             row_f.addSpacing(10)
         fly.addLayout(row_f)
 
+        btn_row = QHBoxLayout(); btn_row.addStretch()
+        btn_env = QPushButton("📨  " + tr("vta.btn_send_mail", default="ENVIAR POR CORREO"))
+        btn_env.setStyleSheet(_SS_BTN_CIAN)
+        btn_env.setFixedHeight(36)
+        btn_env.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_env.clicked.connect(self._enviar_resumen_correo)
         btn_res = QPushButton(tr("vta.btn_summary", default="GENERAR RESUMEN"))
         btn_res.setStyleSheet(_SS_BTN_CIAN)
         btn_res.setFixedHeight(36)
         btn_res.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_res.clicked.connect(self._generar_resumen)
-        fly.addWidget(btn_res, alignment=Qt.AlignmentFlag.AlignRight)
+        btn_row.addWidget(btn_env); btn_row.addSpacing(10); btn_row.addWidget(btn_res)
+        fly.addLayout(btn_row)
         root.addWidget(filtros_frame)
 
         # Área de gráfica
@@ -2384,6 +2392,9 @@ class VentasAnaliticaWindow(QWidget):
                 datos = self._merge_facturacion_online(datos, desde, hasta)
             top10 = top_articulos(desde, hasta, secc)
             self._dibujar_grafica(datos, top10, desde, hasta)
+            # Guarda el último resumen para poder enviarlo por Correo (PDF).
+            self._res_last = {"datos": datos, "top10": top10, "desde": desde, "hasta": hasta,
+                              "art": art, "secc": secc}
         except Exception as e:
             self._chart_placeholder.setText(tr("vta.summary_err", default="Error al generar resumen: {e}", e=e))
 
@@ -2447,6 +2458,105 @@ class VentasAnaliticaWindow(QWidget):
             top_txt = "  |  ".join(f"{nom or cod} ({int(uds)} {_u})" for cod, nom, uds in top10)
             self._chart_ly.addWidget(_lbl(top_txt, size=9, color="#8B949E"))
 
+    def _pick_perfiles_correo(self, max_n=3):
+        """Diálogo de selección de perfiles destinatarios (máx `max_n`). Devuelve [ids], [] o None (cancela)."""
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox
+        try:
+            from src.db.usuario import listar_usuarios_empresa
+            usuarios = listar_usuarios_empresa() or []
+        except Exception:
+            usuarios = []
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("vta.mail_pick_title", default="Enviar resumen a perfiles"))
+        dlg.setStyleSheet(f"QDialog {{ background: {BG}; }}")
+        v = QVBoxLayout(dlg)
+        cap = _lbl(tr("vta.mail_pick_desc", default="Selecciona hasta {n} perfiles (recibirán el PDF en su "
+                      "Correo).", n=max_n), size=12, color="#8B949E"); cap.setWordWrap(True)
+        v.addWidget(cap)
+        lst = QListWidget()
+        lst.setStyleSheet(f"QListWidget {{ background:#0E1117; color:#E6EDF3; border:2px solid {CIAN};"
+                          f" border-radius:10px; padding:6px; font-size:13px; }}"
+                          f"QListWidget::item {{ padding:7px 8px; }}"
+                          f"QListWidget::item:selected {{ background:#1A2230; color:{CIAN}; }}")
+        for u in usuarios:
+            it = QListWidgetItem(f"{u.get('nombre') or u.get('id')}"
+                                 + (f"   ·   {u.get('perfil')}" if u.get("perfil") else ""))
+            it.setData(Qt.ItemDataRole.UserRole, str(u.get("id")))
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(Qt.CheckState.Unchecked)
+            lst.addItem(it)
+
+        def _limit(item):
+            if item.checkState() != Qt.CheckState.Checked:
+                return
+            marcados = [i for i in range(lst.count())
+                        if lst.item(i).checkState() == Qt.CheckState.Checked]
+            if len(marcados) > max_n:
+                lst.blockSignals(True); item.setCheckState(Qt.CheckState.Unchecked); lst.blockSignals(False)
+        lst.itemChanged.connect(_limit)
+        v.addWidget(lst)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept); bb.rejected.connect(dlg.reject)
+        v.addWidget(bb)
+        dlg.resize(420, 360)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return [lst.item(i).data(Qt.ItemDataRole.UserRole) for i in range(lst.count())
+                if lst.item(i).checkState() == Qt.CheckState.Checked]
+
+    def _enviar_resumen_correo(self):
+        """Genera el PDF del último resumen y lo entrega a la bandeja de Correo de los perfiles elegidos."""
+        res = getattr(self, "_res_last", None)
+        if not res:
+            self._generar_resumen()
+            res = getattr(self, "_res_last", None)
+        if not res or not res.get("datos"):
+            mostrar_mensaje(self, tr("vta.summary_title", default="Resumen de ventas"),
+                            tr("vta.mail_no_data", default="Genera primero un resumen con datos."),
+                            nivel="warning")
+            return
+        perfiles = self._pick_perfiles_correo(max_n=3)
+        if perfiles is None:
+            return
+        if not perfiles:
+            mostrar_mensaje(self, "Correo", tr("vta.mail_pick2", default="Selecciona al menos un perfil."),
+                            nivel="warning")
+            return
+        from datetime import datetime as _dt
+
+        from src.utils.recursos import ruta_datos
+        from src.utils.resumen_ventas_pdf import generar_resumen_ventas_pdf
+        filtros = " · ".join(x for x in (
+            (f"Artículo: {res['art']}" if res.get("art") else ""),
+            (f"Sección: {res['secc']}" if res.get("secc") else "")) if x) or None
+        nombre_pdf = f"Resumen_ventas_{res['desde']}_{res['hasta']}_{_dt.now().strftime('%H%M%S')}.pdf"
+        ruta = generar_resumen_ventas_pdf(res["datos"], res["top10"], res["desde"], res["hasta"],
+                                          ruta_datos("resumenes_ventas", nombre_pdf), filtros=filtros)
+        if not ruta:
+            mostrar_mensaje(self, "Correo", tr("vta.mail_pdf_err", default="No se pudo generar el PDF."),
+                            nivel="error")
+            return
+        from src.db import correo as _correo
+        from src.db.empresa import empresa_actual_id
+        emp = empresa_actual_id()
+        asunto = f"📊 Resumen de ventas {res['desde']} → {res['hasta']}"
+        cuerpo = ("Adjunto el resumen de ventas del periodo (gráfica + totales + top de artículos)."
+                  + (f"\nFiltros: {filtros}" if filtros else ""))
+        enviados = 0; vistos = set()
+        for pid in perfiles:
+            buzon = _correo.buzon_de_usuario(pid, id_empresa=emp)
+            if not buzon or buzon in vistos:
+                continue
+            vistos.add(buzon)
+            mid = f"resumen-{_dt.now().strftime('%Y%m%d%H%M%S')}-{buzon}"
+            if _correo.guardar_recibido(buzon, "Smart Manager · Ventas", asunto, cuerpo, message_id=mid,
+                                        adjuntos=[{"nombre": nombre_pdf, "ruta": ruta}], id_empresa=emp):
+                enviados += 1
+        mostrar_mensaje(self, tr("vta.summary_title", default="Resumen de ventas"),
+                        tr("vta.mail_ok", default="Resumen enviado al Correo de {n} perfil(es).", n=enviados)
+                        if enviados else tr("vta.mail_none", default="No se pudo entregar (sin buzón)."),
+                        nivel="success" if enviados else "error")
+
     # ══════════════════════════════════════════════════════════════════════════
     # TAB 3 — PREVISIÓN FACTURACIÓN
     # ══════════════════════════════════════════════════════════════════════════
@@ -2459,7 +2569,7 @@ class VentasAnaliticaWindow(QWidget):
         root.setSpacing(14)
 
         _center = Qt.AlignmentFlag.AlignCenter
-        root.addWidget(_lbl(tr("vta.forecast_title", default="HISTÓRICO DE VENTAS"), bold=True, size=15, color=CIAN))
+        root.addWidget(_lbl(tr("vta.forecast_title", default="IMPORTAR VENTAS"), bold=True, size=15, color=CIAN))
         root.addWidget(_separador())
 
         # ── Recuadro explicativo (arriba) ──────────────────────────────────────
