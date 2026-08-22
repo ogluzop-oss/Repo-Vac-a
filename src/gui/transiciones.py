@@ -49,8 +49,11 @@ def _animar_salida(container, old_widget, geom: QRect, duracion: int):
 
 
 def instalar_transicion_tabs(tabs, duracion: int = _DUR):
-    """Instala la transición de deslizamiento en un QTabWidget (cambio de sub-pestaña)."""
+    """Instala la transición de deslizamiento en un QTabWidget (cambio de sub-pestaña). Idempotente."""
     try:
+        if tabs.property("_trans_ok"):
+            return tabs
+        tabs.setProperty("_trans_ok", True)
         estado = {"w": tabs.currentWidget()}
 
         def _on_change(_idx):
@@ -72,8 +75,11 @@ def instalar_transicion_tabs(tabs, duracion: int = _DUR):
 
 
 def instalar_transicion_stack(stack, duracion: int = _DUR):
-    """Instala la transición de deslizamiento en un QStackedWidget (cambio de pantalla/sección)."""
+    """Instala la transición de deslizamiento en un QStackedWidget (cambio de pantalla/sección). Idempotente."""
     try:
+        if stack.property("_trans_ok"):
+            return stack
+        stack.setProperty("_trans_ok", True)
         estado = {"w": stack.currentWidget()}
 
         def _on_change(_idx):
@@ -88,3 +94,27 @@ def instalar_transicion_stack(stack, duracion: int = _DUR):
     except Exception as e:
         logger.debug("instalar_transicion_stack: %s", e)
     return stack
+
+
+def instalar_transiciones_en(widget):
+    """Propaga la transición a TODA la navegación de `widget` (una ventana/módulo): todos los QTabWidget
+    (cambio de sub-pestaña) y los QStackedWidget de navegación (cambio de sección). Se EXCLUYEN los
+    QStackedWidget INTERNOS de un QTabWidget (los gestiona su propio QTabWidget) para no duplicar la
+    animación. Idempotente y a prueba de fallos: se puede llamar cada vez que se abre un módulo."""
+    try:
+        from PyQt6.QtWidgets import QStackedWidget, QTabWidget
+        objetivos_tabs = list(widget.findChildren(QTabWidget))
+        if isinstance(widget, QTabWidget):
+            objetivos_tabs.append(widget)
+        for tw in objetivos_tabs:
+            instalar_transicion_tabs(tw)
+        objetivos_stack = list(widget.findChildren(QStackedWidget))
+        if isinstance(widget, QStackedWidget):
+            objetivos_stack.append(widget)
+        for st in objetivos_stack:
+            if isinstance(st.parent(), QTabWidget):   # stack interno de un QTabWidget → NO animar aquí
+                continue
+            instalar_transicion_stack(st)
+    except Exception as e:
+        logger.debug("instalar_transiciones_en: %s", e)
+    return widget
