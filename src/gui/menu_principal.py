@@ -857,11 +857,10 @@ class MenuPrincipal(QWidget):
         "marketplace": "App_store.png",
     }
 
-    # Iconos cuyo PNG viene en un turquesa más apagado: se RECOLOREAN al neón de acento del resto.
-    # Iconos que se RECOLOREAN a neón (para uniformar los que venían en otro turquesa). Los PNG nuevos ya
-    # traen sus colores propios, así que NO se tintan (se muestran con su color original). Solo se conserva
-    # "catalogo" (Catálogo Web se mantiene igual, por decisión de producto).
-    _PNG_TINT_NEON = {"catalogo"}
+    # Iconos que se RECOLOREAN a neón. Los PNG ya traen su color propio (mismo tono turquesa apagado),
+    # así que NINGUNO se tinta: todos se muestran con su color original y quedan uniformes (incluido
+    # "catalogo", que antes se tintaba a un turquesa más brillante y desentonaba con el resto).
+    _PNG_TINT_NEON = set()
 
     # Iconos con el trazo un poco más grueso: se ADELGAZA su contorno (erosión) en vez de engrosarlo.
     _PNG_FINO = {"correo"}
