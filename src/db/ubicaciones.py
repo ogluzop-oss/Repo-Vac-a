@@ -588,13 +588,18 @@ def estanterias_ubicadas() -> list:
     coordenadas), local + almacén juntas. Son las ÚNICAS con etiqueta RFID → las rastreables por RFID."""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
+            # DISTINTAS por pasillo+estantería+ámbito (una re-ubicación crea un nodo nuevo con otro EPC):
+            # se conserva el EPC del nodo más reciente para no listar la misma estantería dos veces.
             cur.execute(
-                "SELECT pasillo, estanteria, COALESCE(ambito,'LINEAL'), epc FROM ubicaciones "
+                "SELECT pasillo, estanteria, COALESCE(ambito,'LINEAL') AS amb, "
+                "  SUBSTRING_INDEX(GROUP_CONCAT(epc ORDER BY id DESC), ',', 1) AS epc "
+                "FROM ubicaciones "
                 "WHERE (codigo_articulo IS NULL OR codigo_articulo='') AND epc IS NOT NULL AND epc<>'' "
                 "  AND pasillo IS NOT NULL AND pasillo<>'' AND pasillo<>'SISTEMA' "
                 "  AND estanteria IS NOT NULL AND estanteria<>'' "
                 "  AND mapa_x IS NOT NULL AND (mapa_x<>0 OR mapa_y<>0) "
-                "ORDER BY ambito, pasillo, estanteria")
+                "GROUP BY pasillo, estanteria, amb "
+                "ORDER BY amb, pasillo, estanteria")
             return [(r[0], r[1], r[2], r[3]) for r in cur.fetchall()]
     except Exception as e:
         logger.error("estanterias_ubicadas: %s", e)

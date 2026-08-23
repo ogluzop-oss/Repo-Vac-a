@@ -6363,22 +6363,23 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
         dlg = QDialog(self)
-        dlg.setFixedSize(460, 240)
+        dlg.setFixedSize(470, 340)
         dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         base = QVBoxLayout(dlg); base.setContentsMargins(0, 0, 0, 0)
         frm = QFrame(); frm.setStyleSheet(
             "QFrame { background-color: #0D1117; border: 2px solid #FFA657; border-radius: 18px; }"
             " QLabel { color: #E6EDF3; border: none; background: transparent; }")
-        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 24, 28, 24); fl.setSpacing(16)
+        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 22, 28, 26); fl.setSpacing(18)
         tit = QLabel("📡  " + tr("ubic.rfid_what_title", default="¿QUÉ DESEAS ENCONTRAR?"))
         tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tit.setStyleSheet("color:#FFA657; font-family:'Segoe UI'; font-size:16px; font-weight:900;")
         fl.addWidget(tit)
+        fl.addSpacing(4)
         res = {"v": None}
 
         def _mk(txt, val, color):
-            b = QPushButton(txt); b.setFixedHeight(52); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b = QPushButton(txt); b.setFixedHeight(56); b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton {{ background:#161B22; color:{color}; border:2px solid {color}; "
                 f"border-radius:12px; font-family:'Segoe UI'; font-weight:900; font-size:14px; }}"
@@ -6387,7 +6388,8 @@ class UbicacionTiendaWindow(QMainWindow):
             return b
         fl.addWidget(_mk("🔎  " + tr("ubic.rfid_item", default="ARTÍCULO"), "ARTICULO", "#00FFC6"))
         fl.addWidget(_mk("🗄️  " + tr("ubic.rfid_shelf", default="ESTANTERÍA"), "ESTANTERIA", "#58A6FF"))
-        cancel = QPushButton(tr("ubic.cancel", default="CANCELAR")); cancel.setFixedHeight(38)
+        fl.addStretch()
+        cancel = QPushButton(tr("ubic.cancel", default="CANCELAR")); cancel.setFixedHeight(42)
         cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel.setStyleSheet("QPushButton { background:#21262D; color:#8B949E; border:1px solid #30363D;"
                              " border-radius:10px; font-family:'Segoe UI'; font-weight:900; }"
@@ -6398,18 +6400,34 @@ class UbicacionTiendaWindow(QMainWindow):
         dlg.exec()
         return res["v"]
 
+    def _x_cerrar_rojo(self, dlg):
+        """Botón rojo con una ✕ (cerrar/cancelar) para la esquina superior derecha de un diálogo."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QPushButton
+        b = QPushButton("✕")
+        b.setFixedSize(30, 30)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setStyleSheet("QPushButton { background:#F85149; color:white; border:none; border-radius:15px;"
+                        " font-family:'Segoe UI'; font-weight:900; font-size:14px; }"
+                        " QPushButton:hover { background:#FF6B63; }")
+        b.clicked.connect(dlg.reject)
+        return b
+
     def _rfid_elegir_articulo(self):
         """Diálogo con buscador + sugerencias de artículos. Devuelve {codigo,nombre,epc} o None."""
         from PyQt6.QtCore import Qt, QStringListModel
-        from PyQt6.QtWidgets import QDialog, QFrame, QLabel, QLineEdit, QPushButton, QVBoxLayout
-        dlg = QDialog(self); dlg.setFixedSize(480, 250)
+        from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
+        dlg = QDialog(self); dlg.setFixedSize(480, 260)
         dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         base = QVBoxLayout(dlg); base.setContentsMargins(0, 0, 0, 0)
         frm = QFrame(); frm.setStyleSheet(
             "QFrame { background-color:#0D1117; border:2px solid #00FFC6; border-radius:18px; }"
             " QLabel { color:#E6EDF3; border:none; background:transparent; }")
-        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 24, 28, 24); fl.setSpacing(14)
+        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 16, 28, 24); fl.setSpacing(14)
+        _hdr = QHBoxLayout(); _hdr.setContentsMargins(0, 0, 0, 0)
+        _hdr.addStretch(); _hdr.addWidget(self._x_cerrar_rojo(dlg))
+        fl.addLayout(_hdr)
         tit = QLabel("🔎  " + tr("ubic.rfid_which_item", default="¿QUÉ ARTÍCULO DESEAS ENCONTRAR?"))
         tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tit.setStyleSheet("color:#00FFC6; font-family:'Segoe UI'; font-size:15px; font-weight:900;")
@@ -6458,7 +6476,7 @@ class UbicacionTiendaWindow(QMainWindow):
         """Diálogo con desplegable de las estanterías YA UBICADAS (local + almacén), únicas con etiqueta
         RFID. Devuelve {codigo,nombre,epc} o None. El EPC del nodo es la radiofrecuencia a buscar."""
         from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QComboBox, QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
+        from PyQt6.QtWidgets import QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
         try:
             registros = ubi_db.estanterias_ubicadas()
         except Exception:
@@ -6471,14 +6489,17 @@ class UbicacionTiendaWindow(QMainWindow):
                            "que tengan etiqueta RFID y puedan rastrearse."),
                 color="#FFB86C", alto=230)
             return None
-        dlg = QDialog(self); dlg.setFixedSize(500, 250)
+        dlg = QDialog(self); dlg.setFixedSize(500, 270)
         dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         base = QVBoxLayout(dlg); base.setContentsMargins(0, 0, 0, 0)
         frm = QFrame(); frm.setStyleSheet(
             "QFrame { background-color:#0D1117; border:2px solid #58A6FF; border-radius:18px; }"
             " QLabel { color:#E6EDF3; border:none; background:transparent; }")
-        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 24, 28, 24); fl.setSpacing(14)
+        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 16, 28, 24); fl.setSpacing(14)
+        _hdr = QHBoxLayout(); _hdr.setContentsMargins(0, 0, 0, 0)
+        _hdr.addStretch(); _hdr.addWidget(self._x_cerrar_rojo(dlg))
+        fl.addLayout(_hdr)
         tit = QLabel("🗄️  " + tr("ubic.rfid_which_shelf", default="¿QUÉ ESTANTERÍA DESEAS ENCONTRAR?"))
         tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tit.setStyleSheet("color:#58A6FF; font-family:'Segoe UI'; font-size:15px; font-weight:900;")
