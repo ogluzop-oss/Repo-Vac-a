@@ -29,6 +29,7 @@ logger = logging.getLogger("rrhh.gui")
 _ESTADOS = [("Activo", "activo"), ("Baja", "baja"), ("Suspendido", "suspendido"),
             ("Excedencia", "excedencia")]
 _SEXOS = [("—", ""), ("Hombre", "H"), ("Mujer", "M"), ("Otro", "X")]
+_AMARILLO = "#FFD60A"   # color del botón Vac./Ausencias (mismo diseño que los primarios)
 
 # Descripción de cada función laboral (mostrada en su pestaña).
 _LABORAL_DESC = {
@@ -70,9 +71,10 @@ class EmpleadoFormDialog(QDialog):
     def _build(self):
         root = _dialogo_frameless(self, "Editar empleado" if self.empleado else "Nuevo empleado", ancho=560)
         tabs = QTabWidget()
+        # Sin borde en el pane (se retiran las líneas grises que rodeaban Identificación/Contacto/Laboral).
         tabs.setStyleSheet(f"QTabBar::tab{{background:{_SIDEBAR};color:{_DIM};padding:8px 14px;}}"
                            f"QTabBar::tab:selected{{color:{_CIAN};}}"
-                           f"QTabWidget::pane{{border:1px solid {_BORDE};}}")
+                           f"QTabWidget::pane{{border:none;}}")
         e = self.empleado
         # Identificación
         self.in_nombre = _inp("Nombre", ); self.in_nombre.setText(e.get("nombre", ""))
@@ -113,10 +115,37 @@ class EmpleadoFormDialog(QDialog):
             ("Puesto", self.in_puesto), ("Salario base mensual", self.in_sal),
             ("Jornada", self.in_jor), ("Estado", self.cb_estado)]), "Laboral")
         root.addWidget(tabs)
-        botones = QHBoxLayout(); botones.addStretch()
+        botones = QHBoxLayout()
+        # En modo edición: botón para ELIMINAR el empleado (rojo, a la izquierda).
+        if self.empleado.get("id"):
+            botones.addWidget(_btn("Eliminar", self._eliminar, danger=True))
+        botones.addStretch()
         botones.addWidget(_btn("Cancelar", self.reject))       # gris (secundario)
         botones.addWidget(_btn("Guardar", self._guardar, primary=True))
         root.addLayout(botones)
+
+    def _eliminar(self):
+        from src.rrhh.db import empleados
+        eid = self.empleado.get("id")
+        if not eid:
+            return
+        nom = f"{self.empleado.get('nombre','')} {self.empleado.get('apellidos','')}".strip()
+        r = QMessageBox.question(
+            self, "Eliminar empleado",
+            f"¿Eliminar a «{nom or eid}»?\nEsta acción no se puede deshacer.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if r != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            ok = empleados.eliminar_empleado(eid, self.id_empresa)
+        except Exception as ex:
+            logger.error("eliminar_empleado(%s): %s", eid, ex); ok = False
+        if ok:
+            self.resultado_id = None
+            self.accept()   # el llamador (_editar) recarga la lista
+        else:
+            QMessageBox.warning(self, "RRHH", "No se pudo eliminar el empleado.")
 
     def _form(self, filas):
         w = QWidget(); fl = QFormLayout(w)
@@ -459,6 +488,18 @@ class RRHHWindow(QWidget):
         self.stack.setCurrentIndex(idx)
         for i, b in enumerate(self._sb_btns):
             b.setChecked(i == idx)   # estilo via QSS global #btn_sidebar:checked
+        # Refresca el desplegable de empleados del formulario inline (si lo tiene y no hay selección en
+        # curso), para que muestre los empleados creados/editados en la pestaña Empleados sin reabrir el
+        # módulo (los inline lo cargaban solo al construirse).
+        try:
+            pagina = self.stack.widget(idx)
+            for form in pagina.findChildren(QWidget):
+                if hasattr(form, "_cargar_empleados") and hasattr(form, "cb_emp"):
+                    if form.cb_emp.currentIndex() <= 0:   # sin empleado elegido → recarga la lista
+                        form._cargar_empleados()
+                    break
+        except Exception:
+            pass
 
     # ── Página 0: Empleados (registro/creación) ──────────────────────────────
     def _page_empleados(self):
@@ -471,17 +512,39 @@ class RRHHWindow(QWidget):
         self.cb_filtro.setMinimumWidth(160)   # evita texto cortado en el desplegable
         self.cb_filtro.currentIndexChanged.connect(self._cargar)
         tb.addWidget(self.in_buscar, 2); tb.addWidget(self.cb_filtro, 1)
-        tb.addWidget(_btn("Buscar", self._cargar))
+        # Buscar/Editar/Control horario con el mismo diseño turquesa que Nuevo/Expediente.
+        tb.addWidget(_btn("Buscar", self._cargar, primary=True))
         tb.addWidget(_btn("Nuevo", self._nuevo, primary=True))
-        tb.addWidget(_btn("Editar", self._editar))
-        tb.addWidget(_btn("Vac./Ausencias", self._gestion_laboral))
-        tb.addWidget(_btn("Control horario", self._control_horario))
+        tb.addWidget(_btn("Editar", self._editar, primary=True))
+        # Vac./Ausencias: mismo diseño que Nuevo/Expediente pero en AMARILLO.
+        btn_vac = _btn("Vac./Ausencias", self._gestion_laboral)
+        btn_vac.setStyleSheet(
+            f"QPushButton{{background:{_BG2};color:{_AMARILLO};border:2px solid {_AMARILLO};"
+            f"border-radius:8px;font-weight:900;font-size:12px;padding:0 14px;font-family:'Segoe UI';}}"
+            f"QPushButton:hover{{background:{_AMARILLO};color:{_BG};border-color:{_AMARILLO};}}")
+        tb.addWidget(btn_vac)
+        tb.addWidget(_btn("Control horario", self._control_horario, primary=True))
         tb.addWidget(_btn("Expediente", self._expediente, primary=True))
         col.addLayout(tb)
+        # Aviso INLINE (no modal): evita el cuelgue de diálogos modales con el audio de SOMA y avisa
+        # cuando se pulsa una acción sin haber seleccionado un empleado.
+        self.lbl_msg = QLabel(""); self.lbl_msg.setStyleSheet(f"color:{_AMARILLO};font-weight:900;font-size:12px;")
+        self.lbl_msg.setVisible(False)
+        col.addWidget(self.lbl_msg)
         self.tbl = _tabla(["Nombre", "Apellidos", "NIF/NIE", "Puesto", "Convenio", "Estado", "Alta"])
         self.tbl.doubleClicked.connect(self._expediente)
         col.addWidget(self.tbl)
         return w
+
+    def _flash(self, msg, color=None):
+        """Aviso inline temporal en la pestaña Empleados (sin diálogos modales)."""
+        color = color or _AMARILLO
+        if hasattr(self, "lbl_msg") and self.lbl_msg is not None:
+            self.lbl_msg.setStyleSheet(f"color:{color};font-weight:900;font-size:12px;")
+            self.lbl_msg.setText(f"ℹ️  {msg}")
+            self.lbl_msg.setVisible(True)
+            QTimer.singleShot(3500, lambda: (self.lbl_msg.setVisible(False)
+                                             if hasattr(self, "lbl_msg") and self.lbl_msg else None))
 
     # ── Páginas 1..9: funciones del módulo laboral (lanzan el wizard existente) ──
     def _page_laboral(self, icono, titulo, tipo, subtipo=None):
@@ -788,10 +851,10 @@ class RRHHWindow(QWidget):
         if dlg.exec():
             self._cargar()
 
-    def _editar(self):
+    def _editar(self, *_):
         e = self._sel()
         if not e:
-            QMessageBox.information(self, "RRHH", "Selecciona un empleado."); return
+            self._flash("Selecciona un empleado de la lista para editarlo."); return
         dlg = EmpleadoFormDialog(empleado=e, id_empresa=self._id_empresa(), parent=self)
         if dlg.exec():
             self._cargar()
@@ -799,19 +862,19 @@ class RRHHWindow(QWidget):
     def _expediente(self, *_):
         e = self._sel()
         if not e:
-            QMessageBox.information(self, "RRHH", "Selecciona un empleado."); return
+            self._flash("Selecciona un empleado de la lista para ver su expediente."); return
         ExpedienteDialog(e["id"], self._id_empresa(), parent=self).exec()
 
     def _gestion_laboral(self, *_):
         e = self._sel()
         if not e:
-            QMessageBox.information(self, "RRHH", "Selecciona un empleado."); return
+            self._flash("Selecciona un empleado de la lista para gestionar vacaciones/ausencias."); return
         GestionLaboralDialog(e["id"], self._id_empresa(), parent=self).exec()
 
     def _control_horario(self, *_):
         e = self._sel()
         if not e:
-            QMessageBox.information(self, "RRHH", "Selecciona un empleado."); return
+            self._flash("Selecciona un empleado de la lista para su control horario."); return
         ControlHorarioDialog(e["id"], self._id_empresa(), parent=self).exec()
 
 
