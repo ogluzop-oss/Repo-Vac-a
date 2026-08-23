@@ -6405,10 +6405,11 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QPushButton
         b = QPushButton("✕")
-        b.setFixedSize(30, 30)
+        b.setFixedSize(46, 40)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setStyleSheet("QPushButton { background:#F85149; color:white; border:none; border-radius:15px;"
-                        " font-family:'Segoe UI'; font-weight:900; font-size:14px; }"
+        # min-height/padding explícitos para que la ✕ no la recorte el estilo global de botones.
+        b.setStyleSheet("QPushButton { background:#F85149; color:white; border:none; border-radius:12px;"
+                        " padding:0; min-height:40px; font-family:'Segoe UI'; font-weight:900; font-size:16px; }"
                         " QPushButton:hover { background:#FF6B63; }")
         b.clicked.connect(dlg.reject)
         return b
