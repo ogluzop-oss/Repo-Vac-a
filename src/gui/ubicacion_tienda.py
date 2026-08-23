@@ -1595,6 +1595,8 @@ class UbicacionTiendaWindow(QMainWindow):
         self.stack.addWidget(self.crear_vista_busqueda())  # Index 2
         self.stack.addWidget(self.crear_vista_gps())  # Index 3
         self.stack.addWidget(self.crear_vista_gestion_estructura())  # Index 4
+        # La vista inicial (índice 0) es LINEAL: fijar sus widgets como activos (ver _activar_assign_view).
+        self._activar_assign_view("LINEAL")
 
         self.main_layout.addWidget(self.sidebar)
         # Responsive P2: el área de vistas se envuelve en un scroll para que la ventana quepa en
@@ -2848,6 +2850,12 @@ class UbicacionTiendaWindow(QMainWindow):
 
             self.stack.setCurrentIndex(target_index)
 
+            # Re-vincular los widgets de la vista de asignación activa (LINEAL=0 / ALMACÉN=1).
+            if target_index == 0:
+                self._activar_assign_view("LINEAL")
+            elif target_index == 1:
+                self._activar_assign_view("ALMACÉN")
+
             # --- E. SINCRONIZACIÓN VISUAL (Evitar Pantalla Negra) ---
             if target_index in [3, 4]:
                 visor = getattr(
@@ -3863,39 +3871,58 @@ class UbicacionTiendaWindow(QMainWindow):
         nivel = self.input_nivel.text().strip().upper()
 
         if not codigo_art or not pasillo or not estanteria or not nivel:
-            QMessageBox.warning(
-                self,
-                "DATOS INCOMPLETOS",
-                "Asegurese de seleccionar un articulo y completar Pasillo, Estante y Nivel.",
-            )
+            self._dialogo_neon_info(
+                tr("ubic.incomplete_title", default="DATOS INCOMPLETOS"),
+                tr("ubic.incomplete_msg",
+                   default="Selecciona un artículo y completa Pasillo, Estantería y Nivel."),
+                color="#FFB86C", alto=210)
             return
 
         try:
             es_lineal = bool(contexto and "LINEAL" in contexto.upper())
+            mundo = "LOCAL" if es_lineal else "ALMACÉN"
+            nueva = f"{pasillo}-{estanteria}-{nivel}"
+
+            # Confirmación de CAMBIO: solo si el artículo ya tiene una ubicación DISTINTA en ESTE ámbito
+            # (un artículo puede tener una en local y otra en almacén, pero no dos en el mismo ámbito).
+            actual = ubi_db.ubicacion_texto_articulo(codigo_art, es_lineal)
+            if actual and actual.strip().upper() != nueva:
+                if not self._dialogo_neon_pregunta(
+                    tr("ubic.change_loc_title", default="¿CAMBIAR UBICACIÓN?"),
+                    tr("ubic.change_loc_msg",
+                       default="Este artículo ya tiene una ubicación en {m}: <b>{a}</b>.<br>"
+                               "¿Deseas cambiarla por <b>{n}</b>?", m=mundo, a=actual, n=nueva),
+                    btn_ok_txt=tr("ubic.change_yes", default="Sí, cambiar"),
+                    btn_cancel_txt=tr("ubic.cancel", default="CANCELAR"),
+                    color="#FFB86C", alto=240):
+                    return
+
             # Transacción completa (articulos + ubicaciones) en la capa de datos.
             _res = ubi_db.asignar_ubicacion(codigo_art, pasillo, estanteria, nivel, es_lineal)
             if not _res.get("ok"):
-                QMessageBox.critical(
-                    self, "ERROR DE PERSISTENCIA", "No se pudo guardar la ubicación."
-                )
+                self._dialogo_neon_info(
+                    tr("ubic.persist_err_title", default="ERROR AL GUARDAR"),
+                    tr("ubic.persist_err_msg",
+                       default="No se pudo guardar la ubicación del artículo en la base de datos."),
+                    color="#F85149", alto=210)
                 return
-            coord_mapa = _res.get("con_coordenadas")
 
-            # 6. Feedback visual y reset
-            if hasattr(self, "mostrar_notificacion_temporal"):
-                self.mostrar_notificacion_temporal(
-                    f"[OK] ASIGNADO: {pasillo}-{estanteria}-{nivel}"
-                )
-
-            if not coord_mapa and self.window().statusBar():
-                self.window().statusBar().setStyleSheet(
-                    "QStatusBar { background: #0D1117; color: #FFB86C; font-family: 'Segoe UI'; "
-                    "font-weight: 900; }"
-                )
-                self.window().statusBar().showMessage(
-                    "Ubicacion textual guardada, pero la estanteria aun no tiene coordenadas en el mapa.",
-                    5000,
-                )
+            # Popup de resultado (ya no en la barra de estado).
+            if _res.get("con_coordenadas"):
+                self._dialogo_neon_info(
+                    tr("ubic.saved_ok_title", default="ARTÍCULO UBICADO"),
+                    tr("ubic.saved_ok_msg",
+                       default="El artículo se ha ubicado correctamente en <b>{n}</b> ({m}).",
+                       n=nueva, m=mundo),
+                    color="#00FFC6", alto=210)
+            else:
+                self._dialogo_neon_info(
+                    tr("ubic.saved_nocoords_title", default="UBICACIÓN GUARDADA"),
+                    tr("ubic.saved_nocoords_msg",
+                       default="Ubicación <b>{n}</b> guardada. La estantería aún no está situada en el "
+                               "plano: ubícala en <b>Gestión Estructura</b> para activar la ruta GPS.",
+                       n=nueva),
+                    color="#FFB86C", alto=240)
 
             # Limpiamos inputs y variables temporales
             self.resetear_formulario_asignacion()
@@ -3905,9 +3932,10 @@ class UbicacionTiendaWindow(QMainWindow):
                 self.cargar_lista_articulos_admin()
 
         except Exception as e:
-            QMessageBox.critical(
-                self, "ERROR DE PERSISTENCIA", f"Error al guardar: {e}"
-            )
+            self._dialogo_neon_info(
+                tr("ubic.persist_err_title", default="ERROR AL GUARDAR"),
+                tr("ubic.persist_err_detail", default="Error al guardar la ubicación:<br>{e}", e=str(e)),
+                color="#F85149", alto=230)
 
     def resetear_formulario_asignacion(self):
         """
@@ -5227,6 +5255,8 @@ class UbicacionTiendaWindow(QMainWindow):
         """
         )
         self.btn_validar.clicked.connect(lambda: self.validar_articulo(tipo_texto))
+        # Enter también valida (además del botón BUSCAR).
+        self.input_scan.returnPressed.connect(lambda: self.validar_articulo(tipo_texto))
 
         search_lyt.addWidget(self.input_scan)
         search_lyt.addWidget(btn_cam)
@@ -5341,8 +5371,32 @@ class UbicacionTiendaWindow(QMainWindow):
             lambda t: self.btn_guardar_final.setEnabled(len(t.strip()) > 0)
         )
 
+        # Cada vista de asignación (LINEAL / ALMACÉN) tiene sus PROPIOS widgets. Como se guardaban en los
+        # mismos self.input_scan/... la segunda vista sobrescribía a la primera y en la pestaña Lineal se
+        # operaba sobre el campo de Almacén (vacío) → "no encuentra". Guardamos el juego de widgets por vista
+        # y se re-vincula a self.* al cambiar de pestaña (_activar_assign_view).
+        if not hasattr(self, "_assign_views"):
+            self._assign_views = {}
+        self._assign_views[tipo_texto] = {
+            "input_scan": self.input_scan, "info_art": self.info_art,
+            "panel_search": self.panel_search, "container_ubicacion": self.container_ubicacion,
+            "input_pasillo": self.input_pasillo, "input_estanteria": self.input_estanteria,
+            "input_nivel": self.input_nivel, "btn_validar": self.btn_validar,
+            "btn_guardar_final": self.btn_guardar_final,
+        }
+
         layout.addStretch()
         return vista
+
+    def _activar_assign_view(self, tipo_texto):
+        """Re-vincula self.input_scan/info_art/... a los widgets de la vista de asignación activa
+        (LINEAL/ALMACÉN), evitando que una pestaña opere sobre los campos de la otra."""
+        ctx = getattr(self, "_assign_views", {}).get(tipo_texto)
+        if not ctx:
+            return
+        for k, v in ctx.items():
+            setattr(self, k, v)
+        self._assign_ctx_tipo = tipo_texto
 
     def validar_articulo(self, contexto="LINEAL"):
         """
@@ -5468,6 +5522,9 @@ class UbicacionTiendaWindow(QMainWindow):
         card = QFrame()
         card.setObjectName("tarjeta_kpi")
         card.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Tarjetas más grandes: caben ubicaciones largas (p. ej. "PASILLO X-ESTANTERÍA 01-NIVEL 4")
+        # sin recortar el texto.
+        card.setMinimumHeight(180)
 
         # Estilo HUD: Fondo oscuro, bordes técnicos y brillo neon al pasar el mouse
         card.setStyleSheet(
@@ -5485,8 +5542,8 @@ class UbicacionTiendaWindow(QMainWindow):
         )
 
         lyt = QVBoxLayout(card)
-        lyt.setContentsMargins(20, 20, 20, 20)
-        lyt.setSpacing(8)
+        lyt.setContentsMargins(24, 22, 24, 22)
+        lyt.setSpacing(10)
 
         # Etiqueta de Título (Metadato de sistema)
         lbl_tit = QLabel(titulo.upper())
@@ -5507,15 +5564,16 @@ class UbicacionTiendaWindow(QMainWindow):
         lbl_val.setObjectName("lbl_value")  # ID clave para actualización O(1)
         lbl_val.setStyleSheet(
             f"""
-            color: {color_neon}; 
+            color: {color_neon};
             font-family: 'Segoe UI';
-            font-size: 26px; 
-            font-weight: 900; 
-            border: none; 
+            font-size: 23px;
+            font-weight: 900;
+            border: none;
             background: transparent;
         """
         )
         lbl_val.setWordWrap(True)
+        lbl_val.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         lyt.addWidget(lbl_tit)
         lyt.addWidget(lbl_val)
@@ -6547,39 +6605,12 @@ class UbicacionTiendaWindow(QMainWindow):
 
         # Verificamos si las coordenadas son nulas o están en el origen (0,0)
         if not coord_dest or (coord_dest.x() == 0 and coord_dest.y() == 0):
-            msg = QMessageBox(self)
-            # Estética Cyberpunk para el diálogo de error
-            msg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-            msg.setIcon(QMessageBox.Icon.Critical)
-            msg.setWindowTitle(tr("ubic.gps_err_title", default="ERROR GPS"))
-            msg.setText(tr("ubic.gps_err_msg", default="EL ACTIVO NO TIENE COORDENADAS VÁLIDAS EN EL MAPA."))
-            msg.setStyleSheet(
-                """
-                QMessageBox { 
-                    background-color: #0A0A0A; 
-                    border: 2px solid #FF5555; 
-                    border-radius: 12px; 
-                }
-                QLabel { 
-                    color: #FF5555; 
-                    font-family: 'Segoe UI'; 
-                    font-weight: 900; 
-                    font-size: 13px;
-                    padding: 10px; 
-                }
-                QPushButton { 
-                    background-color: #1A1A1A; 
-                    color: white; 
-                    border: 1px solid #FF5555; 
-                    border-radius: 5px; 
-                    padding: 6px 15px; 
-                    font-family: 'Segoe UI';
-                    font-weight: 900; 
-                }
-                QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }
-            """
-            )
-            msg.exec()
+            self._dialogo_neon_info(
+                tr("ubic.gps_err_title", default="ERROR GPS"),
+                tr("ubic.gps_err_msg",
+                   default="Este artículo no tiene coordenadas en el plano. Ubica su estantería en "
+                           "<b>Gestión Estructura</b> para poder trazar la ruta."),
+                color="#F85149", alto=230)
             return
 
         # --- 2. CAMBIO DE CONTEXTO VISUAL (Pantalla de Navegación) ---

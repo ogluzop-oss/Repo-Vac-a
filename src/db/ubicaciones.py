@@ -489,21 +489,45 @@ def coords_de_estanteria(pasillo, estanteria, ambito):
 
 def estanterias_registradas(ambito) -> list:
     """[(pasillo, estanteria)] DISTINTAS registradas al asignar artículos en el ámbito dado
-    ('LINEAL' → columnas pasillo/estanteria; 'ALMACEN' → pasillo_almacen/estanteria_almacen). Alimenta el
-    selector de Gestión Estructura (solo se puede ubicar una estantería previamente registrada)."""
+    ('LINEAL' → columnas pasillo/estanteria; 'ALMACEN' → pasillo_almacen/estanteria_almacen), EXCLUYENDO
+    las que YA tienen un nodo ubicado con coordenadas en ese ámbito. Alimenta el selector de Gestión
+    Estructura (solo estanterías registradas y aún NO situadas en el plano)."""
     es_lineal = str(ambito or "").upper() != "ALMACEN"
     col_p, col_e = ("pasillo", "estanteria") if es_lineal else ("pasillo_almacen", "estanteria_almacen")
+    amb = "LINEAL" if es_lineal else "ALMACEN"
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
-                f"SELECT DISTINCT {col_p}, {col_e} FROM ubicaciones "
-                f"WHERE codigo_articulo IS NOT NULL AND codigo_articulo <> '' "
-                f"  AND {col_p} IS NOT NULL AND {col_p} <> '' AND {col_e} IS NOT NULL AND {col_e} <> '' "
-                f"ORDER BY {col_p} ASC, {col_e} ASC")
+                f"SELECT DISTINCT a.{col_p}, a.{col_e} FROM ubicaciones a "
+                f"WHERE a.codigo_articulo IS NOT NULL AND a.codigo_articulo <> '' "
+                f"  AND a.{col_p} IS NOT NULL AND a.{col_p} <> '' "
+                f"  AND a.{col_e} IS NOT NULL AND a.{col_e} <> '' "
+                f"  AND NOT EXISTS (SELECT 1 FROM ubicaciones n "
+                f"     WHERE (n.codigo_articulo IS NULL OR n.codigo_articulo = '') "
+                f"       AND n.pasillo = a.{col_p} AND n.estanteria = a.{col_e} "
+                f"       AND (n.ambito = %s OR n.ambito IS NULL) "
+                f"       AND n.mapa_x IS NOT NULL AND (n.mapa_x <> 0 OR n.mapa_y <> 0)) "
+                f"ORDER BY a.{col_p} ASC, a.{col_e} ASC", (amb,))
             return [(r[0], r[1]) for r in cur.fetchall()]
     except Exception as e:
         logger.error("estanterias_registradas(%s): %s", ambito, e)
         return []
+
+
+def ubicacion_texto_articulo(codigo, es_lineal):
+    """Cadena de ubicación actual del artículo en el ámbito (articulos.ubicacion_tienda /
+    ubicacion_almacen), o None. Para avisar antes de SOBRESCRIBIR una ubicación ya existente."""
+    col = "ubicacion_tienda" if es_lineal else "ubicacion_almacen"
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(f"SELECT {col} FROM articulos WHERE codigo=%s LIMIT 1", (codigo,))
+            r = cur.fetchone()
+            if not r:
+                return None
+            val = r[0] if not isinstance(r, dict) else list(r.values())[0]
+            return val or None
+    except Exception:
+        return None
 
 
 def propagar_coordenadas_estanteria(pasillo, estanteria, ambito, mapa_x, mapa_y) -> int:
