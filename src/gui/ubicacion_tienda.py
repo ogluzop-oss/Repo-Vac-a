@@ -3292,10 +3292,10 @@ class UbicacionTiendaWindow(QMainWindow):
                 else f"3G0-EST-{hashlib.sha256(f'{ref}{time.time()}'.encode()).hexdigest()[:16]}".upper()
             )
 
-            # 1. Escritura RFID Física
-            if hasattr(self, "lector_rfid") and not self.lector_rfid.escribir_tag(
-                epc_final
-            ):
+            # 1. Escritura RFID Física del EPC en la etiqueta de la estantería (degradable: real con
+            # hardware, simulada sin él). El EPC se persiste además en el nodo al FINALIZAR Y GUARDAR
+            # (flush_iconos), de modo que la estantería ubicada queda con su etiqueta/EPC.
+            if getattr(self, "lector_rfid", None) and not self.lector_rfid.escribir_tag(epc_final):
                 if hasattr(self, "mostrar_mensaje_temporal"):
                     self.mostrar_mensaje_temporal(
                         tr("ubic.hw_fail", default="FALLO DE HARDWARE: Acerque el tag"), 5000
@@ -6455,20 +6455,21 @@ class UbicacionTiendaWindow(QMainWindow):
         return res["v"]
 
     def _rfid_elegir_estanteria(self):
-        """Diálogo con desplegable de TODAS las estanterías registradas (local + almacén). Devuelve
-        {codigo,nombre,epc} o None. El EPC del nodo (si está ubicada) es la radiofrecuencia a buscar."""
+        """Diálogo con desplegable de las estanterías YA UBICADAS (local + almacén), únicas con etiqueta
+        RFID. Devuelve {codigo,nombre,epc} o None. El EPC del nodo es la radiofrecuencia a buscar."""
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QComboBox, QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
         try:
-            registros = ubi_db.estanterias_registradas_todas()
+            registros = ubi_db.estanterias_ubicadas()
         except Exception:
             registros = []
         if not registros:
             self._dialogo_neon_info(
-                tr("ubic.rfid_no_shelves_title", default="SIN ESTANTERÍAS"),
+                tr("ubic.rfid_no_shelves_title", default="SIN ESTANTERÍAS UBICADAS"),
                 tr("ubic.rfid_no_shelves_msg",
-                   default="No hay estanterías registradas. Asigna artículos y ubícalas en Gestión Estructura."),
-                color="#FFB86C", alto=220)
+                   default="No hay estanterías ubicadas en el plano. Sitúalas en Gestión Estructura para "
+                           "que tengan etiqueta RFID y puedan rastrearse."),
+                color="#FFB86C", alto=230)
             return None
         dlg = QDialog(self); dlg.setFixedSize(500, 250)
         dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)

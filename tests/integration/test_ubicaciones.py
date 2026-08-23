@@ -162,6 +162,11 @@ def test_estanterias_registradas_todas_combina_ambitos(db, fab):
     assert ("PLT1", "ELT1", "LINEAL") in idx and idx[("PLT1", "ELT1", "LINEAL")] == epc  # con EPC
     assert ("PAT2", "EAT2", "ALMACEN") in idx and idx[("PAT2", "EAT2", "ALMACEN")] is None  # sin ubicar
 
+    # El selector RFID solo lista las UBICADAS (con etiqueta/EPC): la ubicada sí, la no-ubicada no.
+    ubic = {(p, e, a): epc_ for (p, e, a, epc_) in U.estanterias_ubicadas()}
+    assert ("PLT1", "ELT1", "LINEAL") in ubic and ubic[("PLT1", "ELT1", "LINEAL")] == epc
+    assert ("PAT2", "EAT2", "ALMACEN") not in ubic
+
 
 def test_propagacion_estanteria_conecta_gps(db, fab):
     """Flujo end-to-end del arreglo de la desconexión: asignar (sin coords) → ubicar la estantería
