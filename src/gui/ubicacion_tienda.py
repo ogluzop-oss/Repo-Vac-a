@@ -950,7 +950,7 @@ class UbicacionTiendaWindow(QMainWindow):
             )
             boton.setMinimumHeight(62)
             boton.setCursor(Qt.CursorShape.PointingHandCursor)
-            boton.setFont(self._crear_fuente_segoe(10))
+            boton.setFont(self._crear_fuente_segoe(12))
             boton.setEnabled(bool(opcion.get("disponible")))
             boton.setStyleSheet(
                 self._estilo_boton_neon(
@@ -961,7 +961,7 @@ class UbicacionTiendaWindow(QMainWindow):
                     hover_fg="#0D1117" if opcion.get("disponible") else "#6E7681",
                     radius=12,
                     padding="12px 14px",
-                    font_size=10,
+                    font_size=12,
                 )
             )
             boton.clicked.connect(
