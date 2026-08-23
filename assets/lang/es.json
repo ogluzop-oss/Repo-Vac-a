@@ -897,7 +897,7 @@
     "gps_dest_ready": "DESTINO GPS PREPARADO: {nombre}",
     "explorer_err": "Error al invocar el explorador nativo:<br>{e}",
     "not_found2": "NO ENCONTRADO: {termino}",
-    "smart_logistics": "Smart LOGISTICS",
+    "smart_logistics": "Smart Location",
     "no_se_detecto_un_punto_de_an": "No se detectó un punto de anclaje válido en el mapa.\nPor favor, marque la ubicación primero.",
     "has_modificado_el_mapa_desea": "Has modificado el mapa. ¿Deseas guardar los\ncambios antes de salir de esta sección?",
     "eliminar_plano": "🗑️  ELIMINAR PLANO",

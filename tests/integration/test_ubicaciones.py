@@ -178,6 +178,15 @@ def test_propagacion_estanteria_conecta_gps(db, fab):
     assert U.ubicacion_texto_articulo(cod, es_lineal=True) == "PZ1-EZ1-1"
     assert U.ubicacion_texto_articulo(cod, es_lineal=False) is None
 
+    # La confirmación de re-ubicación se basa en un NODO real (no en coords heredadas del artículo).
+    assert U.estanteria_tiene_nodo("PZ1", "EZ1", "LINEAL") is True
+
+    # Al eliminar el nodo, se borran también las coordenadas heredadas por el artículo, y ya NO hay nodo.
+    assert U.eliminar_estanteria_por_epc(epc) is True
+    assert U.estanteria_tiene_nodo("PZ1", "EZ1", "LINEAL") is False
+    cx2, cy2 = U.coords_por_articulo(cod)
+    assert int(cx2) == 0 and int(cy2) == 0
+
 
 def test_reportar_incidencia_marca_en_ubicaciones(db, fab):
     cod = fab.articulo()

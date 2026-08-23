@@ -1535,7 +1535,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt_sidebar.setContentsMargins(0, 40, 0, 40)
         lyt_sidebar.setSpacing(5)
 
-        lbl_modulo = QLabel(tr("ubic.smart_logistics", default="Smart LOGISTICS"))
+        lbl_modulo = QLabel(tr("ubic.smart_logistics", default="Smart Location"))
         lbl_modulo.setStyleSheet(
             "color: #ffffff; font-size: 16px; font-weight: 900; margin-left: 30px; "
             "margin-bottom: 35px; letter-spacing: 2px; border:none; background: transparent;"
@@ -2744,10 +2744,11 @@ class UbicacionTiendaWindow(QMainWindow):
                         self.coordenadas_destino = seleccion["coords"]
 
                         if hasattr(self, "visor_mapa") and self.visor_mapa:
-                            self.visor_mapa.set_punto_destino(
-                                seleccion["coords"].x(),
-                                seleccion["coords"].y(),
-                            )
+                            if hasattr(self.visor_mapa, "set_punto_destino"):
+                                self.visor_mapa.set_punto_destino(
+                                    seleccion["coords"].x(),
+                                    seleccion["coords"].y(),
+                                )
                             if self.visor_mapa.pos_operario:
                                 self.procesar_ruta_gps()
 
@@ -2772,7 +2773,8 @@ class UbicacionTiendaWindow(QMainWindow):
 
                     if hasattr(self, "visor_mapa") and self.visor_mapa:
                         # Marcamos el punto en el mapa (esto activa el radar)
-                        self.visor_mapa.set_punto_destino(dest_x, dest_y)
+                        if hasattr(self.visor_mapa, "set_punto_destino"):
+                            self.visor_mapa.set_punto_destino(dest_x, dest_y)
 
                         # Trazamos la ruta desde donde esté el operario ahora mismo
                         if self.visor_mapa.pos_operario:
@@ -3024,7 +3026,8 @@ class UbicacionTiendaWindow(QMainWindow):
             planta = getattr(self, "planta_actual", 0)
             info = ubi_db.plano_info(planta)
             tipo = info[0] if info else "LOCAL"
-            return "ALMACEN" if str(tipo or "").upper() == "ALMACEN" else "LINEAL"
+            # Robusto a la tilde: el plano se guarda como "ALMACÉN" o "ALMACEN".
+            return "ALMACEN" if str(tipo or "").upper().startswith("ALMAC") else "LINEAL"
         except Exception:
             return "LINEAL"
 
@@ -3052,7 +3055,7 @@ class UbicacionTiendaWindow(QMainWindow):
         fl.addWidget(tit)
 
         sub = QLabel(tr("ubic.pick_shelf_sub", default="Elige la estantería registrada que vas a situar en el plano:"))
-        sub.setStyleSheet("color: #C9D1D9; font-family: 'Segoe UI'; font-size: 12px; font-weight: 700;")
+        sub.setStyleSheet("color: #C9D1D9; font-family: 'Segoe UI'; font-size: 14px; font-weight: 700;")
         sub.setWordWrap(True); sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         fl.addWidget(sub)
 
@@ -3149,11 +3152,12 @@ class UbicacionTiendaWindow(QMainWindow):
             seleccion = self._seleccionar_estanteria_dialog(registros, ambito)
             if not seleccion:
                 return
-            # Si la estantería elegida YA tiene coordenadas, confirmar antes de sobrescribirlas.
+            # Si la estantería elegida YA está situada en el plano (nodo con coordenadas), confirmar
+            # antes de sobrescribirlas. (Solo un NODO físico cuenta; no basta con coords heredadas.)
             try:
-                _ya = ubi_db.coords_de_estanteria(seleccion[0], seleccion[1], ambito)
+                _ya = ubi_db.estanteria_tiene_nodo(seleccion[0], seleccion[1], ambito)
             except Exception:
-                _ya = None
+                _ya = False
             if _ya:
                 if not self._dialogo_neon_pregunta(
                     tr("ubic.shelf_recolocate_title", default="¿ACTUALIZAR COORDENADAS?"),
@@ -3967,13 +3971,16 @@ class UbicacionTiendaWindow(QMainWindow):
 
         self.btn_validar.setEnabled(True)
 
-        # 2. Limpiar formulario de ubicación y bloquear hasta nueva validación
-        for field in [self.input_pasillo, self.input_estanteria, self.input_nivel]:
+        # 2. Limpiar formulario de ubicación y bloquear hasta nueva validación. El contenedor se
+        # deshabilita (hay que volver a validar un artículo); input_pasillo se mantiene HABILITADO para
+        # que, al re-habilitarse el contenedor en la siguiente validación, el 1er paso sea editable
+        # (antes quedaba deshabilitado y no se podía ubicar un 2º artículo sin salir del módulo).
+        self.container_ubicacion.setEnabled(False)
+        for field in (self.input_pasillo, self.input_estanteria, self.input_nivel):
             field.clear()
-            field.setEnabled(False)
-            field.setStyleSheet(
-                "background-color: #0D1117; color: #484F58; border: 1px solid #30363D;"
-            )
+        self.input_pasillo.setEnabled(True)
+        self.input_estanteria.setEnabled(False)
+        self.input_nivel.setEnabled(False)
 
         # 3. Resetear etiquetas de estado
         self.info_art.setText(tr("ubic.waiting_scan", default="ℹ️ ESPERANDO ESCANEO O CÓDIGO..."))
@@ -5459,8 +5466,9 @@ class UbicacionTiendaWindow(QMainWindow):
                     """
                     )
 
-                    # Desbloqueo del formulario jerárquico
+                    # Desbloqueo del formulario jerárquico (el 1er paso, pasillo, siempre editable).
                     self.container_ubicacion.setEnabled(True)
+                    self.input_pasillo.setEnabled(True)
                     self.input_pasillo.setFocus()
 
                 else:
@@ -5565,12 +5573,12 @@ class UbicacionTiendaWindow(QMainWindow):
         lbl_tit = QLabel(titulo.upper())
         lbl_tit.setStyleSheet(
             """
-            color: #8B949E; 
+            color: #8B949E;
             font-family: 'Segoe UI';
-            font-size: 10px; 
-            font-weight: 900; 
-            letter-spacing: 1.5px; 
-            border: none; 
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 1.5px;
+            border: none;
             background: transparent;
         """
         )
@@ -7752,7 +7760,8 @@ class UbicacionTiendaWindow(QMainWindow):
                     self.receptor_rtls.fijar_objetivo(term)
 
                 self.coordenadas_destino = QPointF(coords[0], coords[1])
-                self.visor_mapa.set_punto_destino(coords[0], coords[1])
+                if hasattr(self.visor_mapa, "set_punto_destino"):
+                    self.visor_mapa.set_punto_destino(coords[0], coords[1])
 
                 if ya_ubicado:
                     self.procesar_ruta_gps()
@@ -8064,6 +8073,8 @@ class UbicacionTiendaWindow(QMainWindow):
             if sugerencias:
                 completer = QCompleter(sorted(set(sugerencias)))
                 completer.setFilterMode(Qt.MatchFlag.MatchContains)
+                # Case-insensitive: sin esto, escribir "art" no casaba con "ART001" (sugerencias en mayúsc).
+                completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
                 search_input.setCompleter(completer)
                 from assets.estilo_global import estilizar_completer
                 estilizar_completer(completer)
@@ -8104,7 +8115,8 @@ class UbicacionTiendaWindow(QMainWindow):
 
             self.destino_gps_activo = seleccion
             self.coordenadas_destino = seleccion["coords"]
-            if hasattr(self, "visor_mapa") and self.visor_mapa:
+            if hasattr(self, "visor_mapa") and self.visor_mapa and \
+                    hasattr(self.visor_mapa, "set_punto_destino"):
                 self.visor_mapa.set_punto_destino(
                     seleccion["coords"].x(), seleccion["coords"].y()
                 )
@@ -11946,8 +11958,8 @@ class VistaMapa(QGraphicsView):
         # 5. Ejecución y Lógica de Borrado
         if diag.exec() == QDialog.DialogCode.Accepted:
             try:
-                # A. Borrado en MariaDB
-                ubi_db.eliminar_por_epc(activo_id)
+                # A. Borrado en MariaDB (nodo + limpieza de coordenadas heredadas por los artículos).
+                ubi_db.eliminar_estanteria_por_epc(activo_id)
 
                 # B. Sincronización de Lista Interna
                 if hasattr(self, "puntos_interactivos"):

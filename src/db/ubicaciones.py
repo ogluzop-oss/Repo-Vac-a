@@ -391,6 +391,34 @@ def eliminar_por_epc(epc) -> bool:
         return False
 
 
+def eliminar_estanteria_por_epc(epc) -> bool:
+    """Borra el NODO de estantería (por EPC) y LIMPIA las coordenadas heredadas por los artículos de esa
+    estantería (mapa_x/y=0, verificado=0). Así el GPS deja de enrutar a una estantería eliminada y una
+    futura re-ubicación no pide confirmación (ya no hay nodo)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT pasillo, estanteria, ambito FROM ubicaciones "
+                        "WHERE epc=%s AND (codigo_articulo IS NULL OR codigo_articulo = '')", (epc,))
+            row = cur.fetchone()
+            cur.execute("DELETE FROM ubicaciones WHERE epc=%s", (epc,))
+            if row:
+                pas, est, amb = (row[0], row[1], row[2]) if not isinstance(row, dict) \
+                    else (row["pasillo"], row["estanteria"], row["ambito"])
+                if pas and est:
+                    es_lineal = str(amb or "LINEAL").upper() != "ALMACEN"
+                    col_p, col_e = ("pasillo", "estanteria") if es_lineal else \
+                        ("pasillo_almacen", "estanteria_almacen")
+                    cur.execute(
+                        f"UPDATE ubicaciones SET mapa_x=0, mapa_y=0, verificado=0 "
+                        f"WHERE codigo_articulo IS NOT NULL AND codigo_articulo <> '' "
+                        f"  AND {col_p}=%s AND {col_e}=%s", (pas, est))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("eliminar_estanteria_por_epc(%s): %s", epc, e)
+        return False
+
+
 def upsert_satelite(epc, nombre, x, y, real_x, real_y) -> bool:
     """Upsert de un nodo SATÉLITE de infraestructura (pasillo fijo 'SISTEMA')."""
     try:
@@ -485,6 +513,25 @@ def coords_de_estanteria(pasillo, estanteria, ambito):
             return _coords_estanteria(cur, pasillo, estanteria, ambito)
     except Exception:
         return None
+
+
+def estanteria_tiene_nodo(pasillo, estanteria, ambito) -> bool:
+    """True SOLO si existe un NODO de estantería (fila SIN codigo_articulo) ya situado con coordenadas
+    para pasillo+estantería+ámbito. Se usa para pedir confirmación de re-ubicación SOLO cuando la
+    estantería ya está físicamente en el plano (no basta con que un artículo tenga coords heredadas)."""
+    if not pasillo or not estanteria:
+        return False
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM ubicaciones "
+                "WHERE (codigo_articulo IS NULL OR codigo_articulo = '') "
+                "  AND pasillo=%s AND estanteria=%s AND (ambito=%s OR ambito IS NULL) "
+                "  AND mapa_x IS NOT NULL AND (mapa_x <> 0 OR mapa_y <> 0) LIMIT 1",
+                (pasillo, estanteria, ambito))
+            return cur.fetchone() is not None
+    except Exception:
+        return False
 
 
 def estanterias_registradas(ambito) -> list:
