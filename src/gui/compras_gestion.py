@@ -137,6 +137,8 @@ class ComprasWindow(QWidget):
             ("ped", "📦", "Pedidos", self._page_pedidos, self._load_pedidos),
             ("rec", "📥", "Recepciones", self._page_recepciones, self._load_recepciones),
             ("fac", "🧾", "Facturas", self._page_facturas, self._load_facturas),
+            # Contratos (repositorio central: obligaciones/hitos, renovaciones y próximos vencimientos).
+            ("con", "📄", "Contratos", self._page_contratos, self._load_contratos),
             ("inf", "📊", "Informes", self._page_informes, self._cargar_informe),
             # «Avanzado» se ha UNIFICADO dentro de «Proveedores» (sub-pestañas). Ya no es una sección.
             ("cal", "🔬", "Calidad", self._page_calidad, lambda: None),
@@ -226,6 +228,173 @@ class ComprasWindow(QWidget):
     def _volver_menu(self):
         if callable(self._volver):
             self._volver()
+
+    # ── Sección Contratos (repositorio central + obligaciones + vencimientos) ──
+    def _page_contratos(self):
+        """Contratos comerciales/de servicio: alta, renovación, obligaciones/hitos y próximos
+        vencimientos. Orquesta services/contratos (sin lógica de negocio en la GUI)."""
+        from src.services.contratos.contratos_pro import ESTADOS
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10); ly.setContentsMargins(0, 0, 0, 0)
+        fila = QHBoxLayout()
+        fila.addWidget(_btn(tr("compras.contrato_nuevo", default="NUEVO CONTRATO"),
+                            self._dlg_nuevo_contrato, primary=True))
+        fila.addWidget(_btn(tr("compras.contrato_renovar", default="RENOVAR"),
+                            self._renovar_contrato, primary=True))
+        fila.addWidget(_btn(tr("compras.contrato_oblig", default="OBLIGACIONES"),
+                            self._ver_obligaciones, primary=True))
+        fila.addStretch(1)
+        self.cmb_con_estado = _combo(
+            [(tr("compras.contrato_todos", default="Todos los estados"), None)] + [(e, e) for e in ESTADOS])
+        self.cmb_con_estado.setMinimumWidth(180)
+        self.cmb_con_estado.currentIndexChanged.connect(self._load_contratos)
+        fila.addWidget(self.cmb_con_estado)
+        fila.addWidget(_btn_cargando(tr("compras.actualizar", default="🔄  ACTUALIZAR"), self._load_contratos))
+        ly.addLayout(fila)
+        self.lbl_con_venc = QLabel("")
+        self.lbl_con_venc.setStyleSheet("color:#FFB86C;font-weight:800;font-size:13px;")
+        ly.addWidget(self.lbl_con_venc)
+        self.tbl_con = _tabla([tr("compras.c_id", default="ID"), tr("compras.c_codigo", default="Código"),
+                               tr("compras.c_tipo", default="Tipo"),
+                               tr("compras.c_contraparte", default="Contraparte"),
+                               tr("compras.c_inicio", default="Inicio"), tr("compras.c_fin", default="Fin"),
+                               tr("compras.c_valor", default="Valor"),
+                               tr("compras.c_estado", default="Estado")])
+        ly.addWidget(self.tbl_con)
+        return w
+
+    def _load_contratos(self):
+        from src.services.contratos import contratos_pro as CT
+        estado = self.cmb_con_estado.currentData() if hasattr(self, "cmb_con_estado") else None
+        self._contratos = CT.listar_contratos(estado=estado) or []
+        self._fill(self.tbl_con, self._contratos,
+                   ("id", "codigo", "tipo", "contraparte", "fecha_inicio", "fecha_fin", "valor", "estado"))
+        try:
+            venc = CT.proximos_vencimientos(dias=60) or []
+        except Exception:
+            venc = []
+        self.lbl_con_venc.setText(
+            tr("compras.contrato_venc", default="⚠️  {n} contrato(s) vencen en los próximos 60 días.",
+               n=len(venc)) if venc else "")
+
+    def _contrato_sel(self):
+        r = self.tbl_con.currentRow() if hasattr(self, "tbl_con") else -1
+        cs = getattr(self, "_contratos", [])
+        return cs[r] if 0 <= r < len(cs) else None
+
+    @staticmethod
+    def _num(txt):
+        try:
+            return float(str(txt).replace(",", ".")) if str(txt).strip() else 0.0
+        except ValueError:
+            return 0.0
+
+    def _dlg_nuevo_contrato(self):
+        from src.services.contratos.contratos_pro import TIPOS
+        dlg = QDialog(self); dlg.setFixedSize(520, 600)
+        root = _dialogo_frameless(dlg, titulo=tr("compras.contrato_nuevo", default="Nuevo contrato"), ancho=520)
+        in_cod = _inp(tr("compras.c_codigo_ph", default="Código (opcional)"))
+        cmb_tipo = _combo([(t, t) for t in TIPOS])
+        try:
+            provs = P.listar_proveedores(estado="activo") or []
+        except Exception:
+            provs = []
+        cmb_cp = _combo([("—", None)] + [(p.get("razon_social"), p.get("id_proveedor")) for p in provs])
+        cmb_cp.setEditable(True)
+        in_ini = _inp("AAAA-MM-DD"); in_fin = _inp("AAAA-MM-DD")
+        in_val = _inp("0.00"); in_obs = _inp(tr("compras.c_obs_ph", default="Observaciones"))
+        for lab, wdg in ((tr("compras.c_codigo", default="Código"), in_cod),
+                         (tr("compras.c_tipo", default="Tipo"), cmb_tipo),
+                         (tr("compras.c_contraparte", default="Contraparte"), cmb_cp),
+                         (tr("compras.c_inicio", default="Fecha inicio"), in_ini),
+                         (tr("compras.c_fin", default="Fecha fin"), in_fin),
+                         (tr("compras.c_valor", default="Valor (€)"), in_val),
+                         (tr("compras.c_obs", default="Observaciones"), in_obs)):
+            lbl = QLabel(lab); lbl.setStyleSheet(f"color:{_DIM};font-weight:700;")
+            root.addWidget(lbl); root.addWidget(wdg)
+
+        def _guardar():
+            from src.services.contratos import contratos_pro as CT
+            cid = CT.crear_contrato(
+                codigo=(in_cod.text().strip() or None), tipo=cmb_tipo.currentData(),
+                contraparte=(cmb_cp.currentText().strip() or None), id_referencia=cmb_cp.currentData(),
+                fecha_inicio=(in_ini.text().strip() or None), fecha_fin=(in_fin.text().strip() or None),
+                valor=self._num(in_val.text()), observaciones=(in_obs.text().strip() or None))
+            if cid:
+                dlg.accept(); self._load_contratos()
+                _aviso(self, tr("compras.contratos", default="Contratos"),
+                       tr("compras.contrato_creado", default="Contrato creado."), "success")
+            else:
+                _aviso(self, tr("compras.contratos", default="Contratos"),
+                       tr("compras.contrato_err", default="No se pudo crear el contrato."), "error")
+
+        frow = QHBoxLayout(); frow.addStretch(1)
+        frow.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), dlg.reject))
+        frow.addWidget(_btn(tr("compras.guardar", default="Guardar"), _guardar, primary=True))
+        root.addLayout(frow)
+        dlg.exec()
+
+    def _renovar_contrato(self):
+        c = self._contrato_sel()
+        if not c:
+            _aviso(self, tr("compras.contratos", default="Contratos"),
+                   tr("compras.contrato_sel", default="Selecciona un contrato de la lista."), "warning"); return
+        if not _confirmar(self, tr("compras.contrato_renovar", default="Renovar contrato"),
+                          tr("compras.contrato_renovar_q",
+                             default="¿Renovar el contrato «{c}» 12 meses?", c=(c.get("codigo") or c.get("id")))):
+            return
+        from src.services.contratos import contratos_pro as CT
+        res = CT.renovar_contrato(c["id"], meses=12)
+        if res.get("ok"):
+            self._load_contratos()
+            _aviso(self, tr("compras.contratos", default="Contratos"),
+                   tr("compras.contrato_renovado", default="Contrato renovado."), "success")
+        else:
+            _aviso(self, tr("compras.contratos", default="Contratos"),
+                   res.get("motivo") or tr("compras.contrato_renovar_err", default="No se pudo renovar."), "error")
+
+    def _ver_obligaciones(self):
+        c = self._contrato_sel()
+        if not c:
+            _aviso(self, tr("compras.contratos", default="Contratos"),
+                   tr("compras.contrato_sel", default="Selecciona un contrato de la lista."), "warning"); return
+        from src.services.contratos import contratos_pro as CT
+        dlg = QDialog(self); dlg.setFixedSize(600, 540)
+        root = _dialogo_frameless(
+            dlg, titulo=tr("compras.contrato_oblig_t", default="Obligaciones · {c}",
+                           c=(c.get("codigo") or c.get("id"))), ancho=600)
+        tbl = _tabla([tr("compras.o_id", default="ID"), tr("compras.o_desc", default="Descripción"),
+                      tr("compras.o_tipo", default="Tipo"), tr("compras.o_lim", default="Límite"),
+                      tr("compras.o_cumpl", default="Cumplida")])
+
+        def _recargar():
+            obs = CT.obligaciones(c["id"]) or []
+            self._fill(tbl, obs, ("id", "descripcion", "tipo", "fecha_limite", "cumplida"))
+            return obs
+        self._obs_cache = _recargar()
+        root.addWidget(tbl)
+        fadd = QHBoxLayout()
+        in_desc = _inp(tr("compras.o_desc_ph", default="Descripción de la obligación / hito"))
+        in_lim = _inp("AAAA-MM-DD")
+        fadd.addWidget(in_desc, 2); fadd.addWidget(in_lim, 1)
+
+        def _add():
+            if not in_desc.text().strip():
+                return
+            CT.registrar_obligacion(c["id"], in_desc.text().strip(),
+                                    fecha_limite=(in_lim.text().strip() or None))
+            in_desc.clear(); in_lim.clear(); self._obs_cache = _recargar()
+        fadd.addWidget(_btn(tr("compras.o_add", default="AÑADIR"), _add, primary=True))
+        root.addLayout(fadd)
+
+        def _cumplir():
+            r = tbl.currentRow()
+            if 0 <= r < len(self._obs_cache):
+                CT.cumplir_obligacion(self._obs_cache[r]["id"]); self._obs_cache = _recargar()
+        frow = QHBoxLayout(); frow.addStretch(1)
+        frow.addWidget(_btn(tr("compras.o_cumplir", default="MARCAR CUMPLIDA"), _cumplir, primary=True))
+        frow.addWidget(_btn(tr("compras.cerrar", default="Cerrar"), dlg.reject))
+        root.addLayout(frow)
+        dlg.exec()
 
     def _page_calidad(self):
         """Calidad (inspecciones/NC/CAPA/auditorías): dominio de calidad de suministro/recepción,
