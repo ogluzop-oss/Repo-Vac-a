@@ -183,6 +183,11 @@ class ProyectosWindow(QWidget):
             if it.widget():
                 it.widget().deleteLater()
         if not self._pid:
+            # Sin proyecto seleccionado: mensaje-guía (antes quedaba en blanco y parecía roto).
+            ph = QLabel("Crea o selecciona un proyecto para ver su tablero Kanban.")
+            ph.setStyleSheet(f"color:{_DIM};font-size:14px;font-weight:700;")
+            ph.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._kanban_host.addWidget(ph)
             return
         cont = QWidget(); fila = QHBoxLayout(cont); fila.setSpacing(12)
         tab = T.tablero(self._pid, id_empresa=_empresa())

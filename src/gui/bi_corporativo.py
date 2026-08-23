@@ -55,6 +55,12 @@ class BICorporativoWindow(QWidget):
         self.tabs.addTab(self.tbl_sec, "Secciones")
         self.tabs.addTab(self.tbl_alert, "Alertas")
         self.tabs.addTab(self.tbl_ia, "IA ejecutiva")
+        # Animación de deslizamiento al cambiar de subpestaña (igual que el resto de la app).
+        try:
+            from src.gui.transiciones import instalar_transicion_tabs
+            instalar_transicion_tabs(self.tabs)
+        except Exception:
+            pass
         root.addWidget(self.tabs)
         self._panel = None
         self._load()

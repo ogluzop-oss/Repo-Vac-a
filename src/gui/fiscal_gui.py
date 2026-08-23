@@ -87,7 +87,7 @@ class FiscalPanels:
         cbar = QHBoxLayout()
         cbar.addWidget(_btn("Importar certificado (.p12/.pfx)", self._importar_cert, primary=True))
         cbar.addWidget(_btn("Activar", self._activar_cert, primary=True))
-        cbar.addWidget(_btn("Revocar", self._revocar_cert, primary=True))
+        cbar.addWidget(_btn("Revocar", self._revocar_cert, danger=True))
         cbar.addStretch()
         cl.addLayout(cbar)
         self.fb_cert = QLabel(""); self.fb_cert.setStyleSheet(f"color:{_DIM};")   # feedback de acción

@@ -241,7 +241,7 @@ class TesoreriaWindow(QWidget):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         bar = QHBoxLayout()
         bar.addWidget(_btn("👁 Previsualizar", self._prev_recordatorios, primary=True))
-        bar.addWidget(_btn("✉ Enviar recordatorios ahora", self._enviar_recordatorios, primary=True))
+        bar.addWidget(_btn("Enviar recordatorios ahora", self._enviar_recordatorios, primary=True))
         bar.addStretch(); bar.addWidget(self._btn_actualizar(self._load_recordatorios)); lay.addLayout(bar)
         self.tbl_rec = _tabla(["Factura", "Cliente", "Vence", "Pendiente", "Días", "Nivel a enviar",
                                "Últ. nivel"])

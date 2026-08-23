@@ -28,10 +28,10 @@ class DRDashboardWindow(QWidget):
         t = QLabel("Disaster Recovery · Panel")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
+        cab.addWidget(_btn("Crear snapshot", self._snapshot, primary=True))
+        cab.addWidget(_btn("Drill verify", self._drill, primary=True))
+        cab.addWidget(_btn("Runbook PDF", self._runbook, primary=True))
         cab.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
-        cab.addWidget(_btn("Crear snapshot", self._snapshot))
-        cab.addWidget(_btn("Drill verify", self._drill))
-        cab.addWidget(_btn("Runbook PDF", self._runbook))
         if callback_vuelta:
             cab.addWidget(_btn("Volver", self._volver))
         root.addLayout(cab)
