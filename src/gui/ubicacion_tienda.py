@@ -2848,6 +2848,10 @@ class UbicacionTiendaWindow(QMainWindow):
             for b in self.menu_botones:
                 b.blockSignals(True)
                 b.setChecked(b == btn)
+                # Limpia cualquier stylesheet EXPLÍCITO (el flujo de ruta fija el estilo activo en el
+                # botón GPS ignorando el estado checked → se quedaba pintado tras cambiar de pestaña).
+                # Al vaciarlo, vuelve a mandar el estilo :checked global del sidebar.
+                b.setStyleSheet("")
                 b.blockSignals(False)
 
             self.stack.setCurrentIndex(target_index)
@@ -5821,8 +5825,8 @@ class UbicacionTiendaWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
 
             self._dialogo_neon_info(
-                "✅  MUROS PINTADOS",
-                "Los muros pintados se han guardado correctamente<br>como obstáculos para el GPS.",
+                tr("ubic.changes_saved_title", default="✅  CAMBIOS GUARDADOS"),
+                tr("ubic.changes_saved_msg", default="Los cambios se han guardado correctamente."),
                 color="#00FFC6",
                 ancho=460,
                 alto=195,
@@ -6502,9 +6506,9 @@ class UbicacionTiendaWindow(QMainWindow):
                 estado_inicial=tr("ubic.cam_status", default="ALINEE EL CÓDIGO CON EL SENSOR"),
                 texto_boton_primario=tr("ubic.cam_start", default="INICIAR ESCANEO"),
                 texto_boton_cancelar=tr("ubic.cam_abort", default="ABORTAR OPERACIÓN"),
-                ancho=500,
+                ancho=660,
                 alto=600,
-                ancho_video=420,
+                ancho_video=480,
                 alto_video=320,
                 mostrar_boton_primario=False,
                 object_name_dialog="scanner_dialog",
@@ -6527,7 +6531,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog
             )
             self.dlg_scan.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-            self.dlg_scan.setFixedSize(500, 600)
+            self.dlg_scan.setFixedSize(660, 600)
 
         # --- Lógica de Hardware ---
         self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
