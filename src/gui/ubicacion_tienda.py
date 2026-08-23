@@ -774,16 +774,58 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         return True
 
-    def _resolver_coordenadas_ubicacion(self, pasillo, estanteria):
+    def _resolver_coordenadas_ubicacion(self, pasillo, estanteria, ambito=None):
+        """Coordenadas del NODO de estantería para pasillo+estantería en el ámbito dado
+        ('LINEAL'/'ALMACEN'). Si no se indica ámbito, cae al lookup genérico legado."""
         if not pasillo or not estanteria:
             return None
         try:
-            res = ubi_db.coords_por_pasillo_estanteria(pasillo, estanteria)
+            if ambito:
+                res = ubi_db.coords_de_estanteria(pasillo, estanteria, ambito)
+            else:
+                res = ubi_db.coords_por_pasillo_estanteria(pasillo, estanteria)
             if not res:
                 return None
             return QPointF(float(res[0]), float(res[1]))
         except Exception:
             return None
+
+    def _motivo_sin_destino(self, termino, opciones):
+        """Clasifica POR QUÉ no hay destino navegable y devuelve un mensaje específico (4 casos):
+        artículo sin ubicación · ubicación sin coordenadas · artículo no encontrado · ubicación no
+        encontrada. `opciones` es lo devuelto por `_obtener_opciones_destino_gps`."""
+        import re as _re
+        termino_s = (termino or "").strip()
+        # 1) ¿El término corresponde a un artículo del maestro?
+        try:
+            art = ubi_db.buscar_articulo_con_ubicaciones(termino_s)
+        except Exception:
+            art = None
+        if art:
+            codigo, nombre, ubi_lin, pas_lin, est_lin, ubi_alm, pas_alm, est_alm = art
+            nom = str(nombre or codigo or termino_s).upper()
+            tiene_ubicacion = any([ubi_lin, pas_lin, est_lin, ubi_alm, pas_alm, est_alm])
+            if tiene_ubicacion:
+                return tr("ubic.dest_art_sin_coords",
+                          default="La ubicación de «{n}» aún no tiene coordenadas. Ubícala en Gestión Estructura.",
+                          n=nom)
+            return tr("ubic.dest_art_sin_ubicacion",
+                      default="El artículo «{n}» no tiene ubicación asignada.", n=nom)
+        # 2) ¿Es una ubicación registrada (pasillo/estantería) aunque sin coordenadas?
+        try:
+            if ubi_db.existe_ubicacion_texto(termino_s):
+                return tr("ubic.dest_loc_sin_coords",
+                          default="La ubicación «{t}» no tiene coordenadas asignadas. Ubícala en Gestión Estructura.",
+                          t=termino_s.upper())
+        except Exception:
+            pass
+        # 3/4) No existe: distinguir artículo vs ubicación por la forma del término.
+        parece_ubicacion = bool(_re.search(r"(PASILLO|ESTANTER|BALDA|ZONA|\bP\d|\bE\d)", termino_s.upper()))
+        if parece_ubicacion:
+            return tr("ubic.dest_loc_no_encontrada",
+                      default="No se encontró ninguna ubicación «{t}» en la base de datos.", t=termino_s.upper())
+        return tr("ubic.dest_art_no_encontrado",
+                  default="No se encontró ningún artículo «{t}» en la base de datos.", t=termino_s.upper())
 
     def _obtener_opciones_destino_gps(self, termino):
         termino = (termino or "").strip().upper()
@@ -814,7 +856,7 @@ class UbicacionTiendaWindow(QMainWindow):
                     if not ubicacion_txt or not pasillo or not estanteria:
                         continue
                     punto = self._resolver_coordenadas_ubicacion(
-                        pasillo, estanteria
+                        pasillo, estanteria, ambito=tipo
                     )
                     opciones.append(
                         {
@@ -2495,6 +2537,7 @@ class UbicacionTiendaWindow(QMainWindow):
         self.btn_planta_prev_gps.setFixedSize(45, 140)
         self.btn_planta_prev_gps.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_planta_prev_gps.setStyleSheet(estilo_flecha)
+        self.btn_planta_prev_gps.setProperty("sin_glow", True)  # sin halo neón (flechas planas)
         self.btn_planta_prev_gps.clicked.connect(lambda: self.navegar_planta(-1))
 
         # Marco del Mapa con efecto Neón sutil
@@ -2525,6 +2568,7 @@ class UbicacionTiendaWindow(QMainWindow):
         self.btn_planta_next_gps.setFixedSize(45, 140)
         self.btn_planta_next_gps.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_planta_next_gps.setStyleSheet(estilo_flecha)
+        self.btn_planta_next_gps.setProperty("sin_glow", True)  # sin halo neón (flechas planas)
         self.btn_planta_next_gps.clicked.connect(lambda: self.navegar_planta(1))
 
         lyt_visor_central.addWidget(self.btn_planta_prev_gps)
@@ -2860,14 +2904,17 @@ class UbicacionTiendaWindow(QMainWindow):
     # ============================================================
 
     def gestionar_ubicacion_epc(
-        self, nombre_ref, epc_generado, pos_clic, real_x=None, real_y=None
+        self, nombre_ref, epc_generado, pos_clic, real_x=None, real_y=None,
+        pasillo=None, estanteria=None, ambito=None
     ):
         """
         Lógica de Persistencia y Visualización:
         1. Sincroniza telemetría (m) y coordenadas de mapa (px).
-        2. Persistencia en MariaDB (Insert/Update).
+        2. Encola el NODO de estantería para persistir (con su pasillo/estantería/ámbito reales, para
+           que el GPS resuelva el destino). Si no se indica pasillo/estantería (p. ej. satélite), se usa
+           el modo legado ZONA_ADMIN/nombre.
         3. Renderizado de marcador persistente en el mapa.
-        4. Generación de QR físico con coordenadas exactas.
+        (Ubicar una estantería NO genera QR.)
         """
 
         from PyQt6.QtCore import QPointF
@@ -2921,10 +2968,16 @@ class UbicacionTiendaWindow(QMainWindow):
             self._iconos_pendientes = [
                 p for p in self._iconos_pendientes if p.get("epc") != epc_final
             ]
+            # Nodo de estantería: guarda su identidad REAL (pasillo/estantería/ámbito) para conectar con
+            # las asignaciones. Legado (satélite/sin selección): ZONA_ADMIN + nombre.
+            _pas = (pasillo or "ZONA_ADMIN")
+            _est = (estanteria or nombre_limpio)
             self._iconos_pendientes.append({
                 "epc": epc_final,
-                "pasillo": "ZONA_ADMIN",
-                "estanteria": nombre_limpio,
+                "pasillo": _pas,
+                "estanteria": _est,
+                "ambito": ambito,
+                "planta_index": getattr(self, "planta_actual", None),
                 "mapa_x": int(pos_clic.x()),
                 "mapa_y": int(pos_clic.y()),
                 "real_x": m_x,
@@ -2932,10 +2985,7 @@ class UbicacionTiendaWindow(QMainWindow):
             })
             self.cambios_sin_guardar = True
 
-            # --- 5. GENERACIÓN DE QR FÍSICO (Exportación a carpeta) ---
-            # Pasamos nombre, x e y directamente
-            if hasattr(self, "generar_qr_estanteria"):
-                self.generar_qr_estanteria(epc_final, nombre_limpio, m_x, m_y)
+            # (Ubicar una estantería NO genera QR — solo se registran/asignan sus coordenadas.)
 
             # --- 6. FEEDBACK EN BARRA DE ESTADO ---
             sb = self.window().statusBar()
@@ -2958,6 +3008,78 @@ class UbicacionTiendaWindow(QMainWindow):
                 f"No se pudo registrar el activo en el sistema.\n\nDetalle: {str(e)}",
             )
             return False
+
+    def _ambito_plano_actual(self):
+        """'LINEAL' (planos de local) o 'ALMACEN' (planos de almacén) según el tipo del plano de la planta
+        activa. Determina qué estanterías/pasillos se pueden ubicar en este plano."""
+        try:
+            planta = getattr(self, "planta_actual", 0)
+            info = ubi_db.plano_info(planta)
+            tipo = info[0] if info else "LOCAL"
+            return "ALMACEN" if str(tipo or "").upper() == "ALMACEN" else "LINEAL"
+        except Exception:
+            return "LINEAL"
+
+    def _seleccionar_estanteria_dialog(self, registros, ambito):
+        """Diálogo neón con un desplegable «Pasillo · Estantería» de las estanterías registradas del
+        ámbito. Devuelve (pasillo, estanteria) o None."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+
+        dlg = QDialog(self)
+        dlg.setFixedSize(460, 250)
+        dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        base = QVBoxLayout(dlg); base.setContentsMargins(0, 0, 0, 0)
+        frm = QFrame()
+        frm.setStyleSheet("QFrame { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 18px; }"
+                          " QLabel { color: #E6EDF3; border: none; background: transparent; }")
+        fl = QVBoxLayout(frm); fl.setContentsMargins(30, 26, 30, 26); fl.setSpacing(14)
+
+        mundo = "LINEAL" if ambito == "LINEAL" else "ALMACÉN"
+        tit = QLabel("📍  " + tr("ubic.pick_shelf_title", default="UBICAR ESTANTERÍA · {m}", m=mundo))
+        tit.setStyleSheet("color: #00FFC6; font-family: 'Segoe UI'; font-size: 16px; font-weight: 900;"
+                          " letter-spacing: 1px; border: none; background: transparent;")
+        tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fl.addWidget(tit)
+
+        sub = QLabel(tr("ubic.pick_shelf_sub", default="Elige la estantería registrada que vas a situar en el plano:"))
+        sub.setStyleSheet("color: #C9D1D9; font-family: 'Segoe UI'; font-size: 12px; font-weight: 700;")
+        sub.setWordWrap(True); sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fl.addWidget(sub)
+
+        combo = QComboBox()
+        combo.setFixedHeight(44)
+        combo.setStyleSheet(
+            "QComboBox { background-color: #161B22; color: white; border: 1px solid #00FFC6; "
+            "border-radius: 10px; padding: 6px 12px; font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; }"
+            "QComboBox QAbstractItemView { background-color: #0D1117; color: white; "
+            "selection-background-color: #00FFC6; selection-color: #0D1117; }")
+        for pas, est in registros:
+            combo.addItem(f"{pas} · {est}", (pas, est))
+        fl.addWidget(combo)
+        fl.addStretch()
+
+        btn_h = QHBoxLayout(); btn_h.setSpacing(12)
+        btn_cancel = QPushButton(tr("ubic.cancel", default="CANCELAR"))
+        btn_cancel.setFixedHeight(42); btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cancel.setStyleSheet("QPushButton { background-color: #21262D; color: #8B949E; border: 1px solid #30363D;"
+                                 " border-radius: 10px; font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+                                 " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_ok = QPushButton(tr("ubic.continue", default="CONTINUAR"))
+        btn_ok.setFixedHeight(42); btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_ok.setStyleSheet("QPushButton { background-color: #1ED760; color: #0D1117; border: 2px solid #1ED760;"
+                             " border-radius: 10px; font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
+                             " QPushButton:hover { background-color: transparent; color: #1ED760; border: 2px solid #1ED760; }")
+        btn_ok.clicked.connect(dlg.accept)
+        btn_h.addWidget(btn_cancel); btn_h.addWidget(btn_ok)
+        fl.addLayout(btn_h)
+        base.addWidget(frm)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return combo.currentData()
 
     def abrir_formulario_ubicacion_estanteria(
         self, epc_existente=None, nombre_existente=None, permiso_clic=False
@@ -2994,89 +3116,42 @@ class UbicacionTiendaWindow(QMainWindow):
             QPushButton#btnContinue:hover { background-color: #005FB8; }
         """
 
-        # --- FASE 1: DIÁLOGO DE INSTRUCCIONES (MODO UBICACIÓN) ---
+        # --- FASE 1: SELECCIÓN DE ESTANTERÍA REGISTRADA + ACTIVAR PUNTERO ---
+        # La estantería a ubicar NO se teclea a mano: se elige de las (pasillo·estantería) YA registradas
+        # al asignar artículos, filtradas por el ámbito del plano actual (LOCAL→lineal, ALMACÉN→almacén).
+        # Así las coordenadas quedan atadas a esa estantería y el GPS puede resolver el destino.
         if not is_edit and not permiso_clic:
             self.visor_admin.ultimo_click_escena = None  # Limpieza preventiva
 
-            aviso = QDialog(self)
-            aviso.setFixedSize(480, 290)
-            aviso.setWindowFlags(
-                Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog
-            )
-            aviso.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            ambito = self._ambito_plano_actual()
+            try:
+                registros = ubi_db.estanterias_registradas(ambito)
+            except Exception:
+                registros = []
+            if not registros:
+                mundo = "Lineal" if ambito == "LINEAL" else "Almacén"
+                self._dialogo_neon_info(
+                    tr("ubic.no_shelves_title", default="SIN ESTANTERÍAS REGISTRADAS"),
+                    tr("ubic.no_shelves_msg",
+                       default="Primero asigna artículos en «Asignar Ubicación {m}» para registrar sus "
+                               "pasillos y estanterías. Después podrás situarlas en el plano.", m=mundo),
+                    color="#FFB86C", alto=230)
+                return
 
-            lyt_base = QVBoxLayout(aviso)
-            lyt_base.setContentsMargins(0, 0, 0, 0)
-            frm = QFrame()
-            frm.setStyleSheet(
-                "QFrame { background-color: #0D1117; border: 2px solid #00FFC6; border-radius: 18px; }"
-                " QLabel { color: #E6EDF3; border: none; background: transparent; }"
-            )
-
-            fl = QVBoxLayout(frm)
-            fl.setContentsMargins(30, 26, 30, 26)
-            fl.setSpacing(14)
-
-            tit = QLabel("📍  " + tr("ubic.mode_locate_title", default="MODO UBICACIÓN"))
-            tit.setStyleSheet(
-                "color: #00FFC6; font-family: 'Segoe UI'; font-size: 16px; font-weight: 900;"
-                " letter-spacing: 1px; border: none; background: transparent;"
-            )
-            tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            msg = QLabel(
-                tr("ubic.mode_locate_msg",
-                   default="Para vincular un activo, primero debe marcar una ubicación exacta en el mapa plano.<br><br>¿Desea activar el puntero de ubicación?")
-            )
-            msg.setStyleSheet(
-                "color: #C9D1D9; font-family: 'Segoe UI'; font-size: 13px; font-weight: 700;"
-                " border: none; background: transparent;"
-            )
-            msg.setWordWrap(True)
-            msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            btn_h = QHBoxLayout()
-            btn_h.setSpacing(12)
-
-            btn_cancel = QPushButton(tr("ubic.cancel", default="CANCELAR"))
-            btn_cancel.setFixedHeight(42)
-            btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_cancel.setStyleSheet(
-                "QPushButton { background-color: #21262D; color: #8B949E;"
-                " border: 1px solid #30363D; border-radius: 10px;"
-                " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
-                " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }"
-            )
-            btn_cancel.clicked.connect(aviso.reject)
-
-            btn_cont = QPushButton(tr("ubic.continue", default="CONTINUAR"))
-            btn_cont.setFixedHeight(42)
-            btn_cont.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_cont.setStyleSheet(
-                "QPushButton { background-color: #1ED760; color: #0D1117;"
-                " border: 2px solid #1ED760; border-radius: 10px;"
-                " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
-                " QPushButton:hover { background-color: transparent; color: #1ED760;"
-                " border: 2px solid #1ED760; }"
-            )
-            btn_cont.clicked.connect(aviso.accept)
-
-            btn_h.addWidget(btn_cancel)
-            btn_h.addWidget(btn_cont)
-            fl.addWidget(tit)
-            fl.addWidget(msg)
-            fl.addStretch()
-            fl.addLayout(btn_h)
-            lyt_base.addWidget(frm)
-
-            if aviso.exec() == QDialog.DialogCode.Accepted:
-                self.esperando_ubicacion_estanteria = True
-                if hasattr(self.visor_admin, "configurar_modo"):
-                    self.visor_admin.configurar_modo("UBICAR_ESTANTERIA")
-                if hasattr(self, "mostrar_mensaje_temporal"):
-                    self.mostrar_mensaje_temporal(
-                        tr("ubic.click_to_place", default="Haga clic en el mapa para situar la estantería")
-                    )
+            seleccion = self._seleccionar_estanteria_dialog(registros, ambito)
+            if not seleccion:
+                return
+            self._estanteria_seleccionada = {
+                "pasillo": seleccion[0], "estanteria": seleccion[1], "ambito": ambito,
+            }
+            self.esperando_ubicacion_estanteria = True
+            if hasattr(self.visor_admin, "configurar_modo"):
+                self.visor_admin.configurar_modo("UBICAR_ESTANTERIA")
+            if hasattr(self, "mostrar_mensaje_temporal"):
+                self.mostrar_mensaje_temporal(
+                    tr("ubic.click_to_place_shelf",
+                       default="Haz clic en el mapa para situar {p} · {e}",
+                       p=seleccion[0], e=seleccion[1]))
             return
 
         # --- FASE 2: FORMULARIO DE DATOS (YA HAY CLIC) ---
@@ -3113,19 +3188,18 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         layout.addWidget(lbl_head)
 
-        layout.addWidget(QLabel(tr("ubic.name_ref", default="NOMBRE / REFERENCIA:")))
+        _sel = getattr(self, "_estanteria_seleccionada", None)
+        layout.addWidget(QLabel(tr("ubic.shelf_ref", default="ESTANTERÍA:")))
         input_ref = QLineEdit()
-        nombre_def = (
-            nombre_existente
-            if is_edit
-            else (
-                self.lista_articulos_admin.currentItem().text()
-                if hasattr(self, "lista_articulos_admin")
-                and self.lista_articulos_admin.currentItem()
-                else ""
-            )
-        )
+        if is_edit:
+            nombre_def = nombre_existente or ""
+        elif _sel:
+            nombre_def = f"{_sel['pasillo']} · {_sel['estanteria']}"
+        else:
+            nombre_def = ""
         input_ref.setText(nombre_def)
+        # En alta la estantería viene del selector: campo de solo lectura (no se teclea a mano).
+        input_ref.setReadOnly(not is_edit)
         layout.addWidget(input_ref)
         layout.addStretch()
 
@@ -3187,14 +3261,21 @@ class UbicacionTiendaWindow(QMainWindow):
                     )
                 return
 
-            # 2. Persistencia Lógica (DB + Chincheta)
+            # Estantería seleccionada (pasillo/estantería/ámbito) — atadura de coordenadas.
+            _sel_p = _sel_e = _sel_a = None
+            if _sel:
+                _sel_p, _sel_e, _sel_a = _sel.get("pasillo"), _sel.get("estanteria"), _sel.get("ambito")
+
+            # 2. Persistencia Lógica (DB + Chincheta) — el nodo se guarda con el pasillo/estantería/ámbito
+            # reales, y sus coordenadas se propagan a los artículos ya asignados a esa estantería.
             registro_ok = False
             if hasattr(self, "gestionar_ubicacion_epc"):
                 registro_ok = bool(
-                    self.gestionar_ubicacion_epc(ref, epc_final, pos_clic, rel_x, rel_y)
+                    self.gestionar_ubicacion_epc(ref, epc_final, pos_clic, rel_x, rel_y,
+                                                 pasillo=_sel_p, estanteria=_sel_e, ambito=_sel_a)
                 )
 
-            # 3. [DE TU SEGUNDA VERSIÓN] Memoria de sesión
+            # 3. Memoria de sesión
             if registro_ok and hasattr(self, "gestion_activos"):
                 self.gestion_activos["estanterias_sesion"][epc_final] = {
                     "nombre": ref,
@@ -3202,13 +3283,10 @@ class UbicacionTiendaWindow(QMainWindow):
                     "timestamp": time.time(),
                 }
 
-            # 4. QR
-            if registro_ok and hasattr(self, "generar_qr_estanteria"):
-                self.generar_qr_estanteria(
-                    epc=epc_final, nombre=ref, pos_x=rel_x, pos_y=rel_y
-                )
+            # (Ubicar una estantería NO genera QR: solo se registran y asignan sus coordenadas al nodo.)
 
             self.visor_admin.ultimo_click_escena = None
+            self._estanteria_seleccionada = None
             dialogo.accept()
 
             if seguir_ubicando:
@@ -3811,7 +3889,8 @@ class UbicacionTiendaWindow(QMainWindow):
 
             if not coord_mapa and self.window().statusBar():
                 self.window().statusBar().setStyleSheet(
-                    "color: #FFB86C; font-family: 'Segoe UI'; font-weight: 900;"
+                    "QStatusBar { background: #0D1117; color: #FFB86C; font-family: 'Segoe UI'; "
+                    "font-weight: 900; }"
                 )
                 self.window().statusBar().showMessage(
                     "Ubicacion textual guardada, pero la estanteria aun no tiene coordenadas en el mapa.",
@@ -3853,7 +3932,7 @@ class UbicacionTiendaWindow(QMainWindow):
             )
 
         # 3. Resetear etiquetas de estado
-        self.info_art.setText(tr("ubic.waiting_scan", default="Icono ESPERANDO ESCANEO O CÓDIGO..."))
+        self.info_art.setText(tr("ubic.waiting_scan", default="ℹ️ ESPERANDO ESCANEO O CÓDIGO..."))
         self.info_art.setStyleSheet(
             "color: #8B949E; font-family: 'Segoe UI'; font-size: 12px; font-weight: 900;"
         )
@@ -3877,7 +3956,7 @@ class UbicacionTiendaWindow(QMainWindow):
         # Opcional: Si tienes una imagen del artículo anterior, límpiala aquí también
         if hasattr(self, "lbl_foto_articulo"):
             self.lbl_foto_articulo.clear()
-            self.lbl_foto_articulo.setText(tr("ubic.no_image_icon", default="Icono SIN IMAGEN"))
+            self.lbl_foto_articulo.setText(tr("ubic.no_image_icon", default="🖼️ SIN IMAGEN"))
 
     def actualizar_incidencia_gps(self, codigo_art):
         """
@@ -3903,10 +3982,10 @@ class UbicacionTiendaWindow(QMainWindow):
             # 3. Feedback Visual e Interfaz
             if self.window().statusBar():
                 self.window().statusBar().setStyleSheet(
-                    "color: #F85149; font-family: 'Segoe UI'; font-weight: 900;"
+                    "QStatusBar { background: #0D1117; color: #F85149; font-family: 'Segoe UI'; font-weight: 900; }"
                 )
                 self.window().statusBar().showMessage(
-                    f"Icono INCIDENCIA REPORTADA PARA EL ARTÍCULO {codigo_art}",
+                    f"⚠️ INCIDENCIA REPORTADA PARA EL ARTÍCULO {codigo_art}",
                     7000,
                 )
 
@@ -4210,12 +4289,14 @@ class UbicacionTiendaWindow(QMainWindow):
         self.btn_planta_prev.setFixedSize(50, 120)
         self.btn_planta_prev.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_planta_prev.setStyleSheet(estilo_flecha)
+        self.btn_planta_prev.setProperty("sin_glow", True)  # sin halo neón (flechas planas)
         self.btn_planta_prev.clicked.connect(lambda: self.navegar_planta(-1))
 
         self.btn_planta_next = QPushButton(">")
         self.btn_planta_next.setFixedSize(50, 120)
         self.btn_planta_next.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_planta_next.setStyleSheet(estilo_flecha)
+        self.btn_planta_next.setProperty("sin_glow", True)  # sin halo neón (flechas planas)
         self.btn_planta_next.clicked.connect(lambda: self.navegar_planta(1))
 
         lyt_visor_container.addWidget(self.btn_planta_prev)
@@ -4601,7 +4682,7 @@ class UbicacionTiendaWindow(QMainWindow):
             win = self.window()
             if win and win.statusBar():
                 win.statusBar().setStyleSheet(
-                    "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                    "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
                 )
                 win.statusBar().showMessage(
                     "MUROS GUARDADOS: Sistema de navegación actualizado", 3000
@@ -4626,11 +4707,17 @@ class UbicacionTiendaWindow(QMainWindow):
     def mostrar_mensaje_temporal(self, mensaje, duracion=3000):
         """
         Muestra un mensaje en la barra de estado con estilo turquesa.
+
+        Nota: se fija SIEMPRE el fondo oscuro explícito en el selector QStatusBar. Si solo se
+        establece `color`, Qt descarta la regla de fondo del stylesheet raíz para este widget y la
+        barra se renderiza con un relleno por defecto (el "bug" de la barra turquesa opaca sobre la
+        barra de tareas). Con el fondo explícito la barra siempre muestra texto sobre #0D1117.
         """
         win = self.window()
         if win and win.statusBar():
             win.statusBar().setStyleSheet(
-                "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; "
+                "font-weight: 900; }"
             )
             win.statusBar().showMessage(mensaje, duracion)
 
@@ -4906,7 +4993,24 @@ class UbicacionTiendaWindow(QMainWindow):
                     if destinos_disponibles
                     else " · " + tr("ubic.gps_no_dest", default="SIN DESTINO GPS")
                 )
-                self.res_codigo.setText(tr("ubic.sku_id", default="IDENTIFICADOR SKU: {codigo}", codigo=codigo) + sufijo_destinos)
+                # Pasaporte: el código identifica el artículo; si es una variante, se muestran talla/color.
+                _variante_txt = ""
+                try:
+                    _v = ubi_db.variante_de_codigo(str(codigo))
+                    if _v:
+                        _t, _c = _v[0], _v[1]
+                        partes = []
+                        if _t:
+                            partes.append(tr("ubic.pass_talla", default="Talla {t}", t=str(_t).upper()))
+                        if _c:
+                            partes.append(tr("ubic.pass_color", default="Color {c}", c=str(_c).upper()))
+                        if partes:
+                            _variante_txt = " · " + " · ".join(partes)
+                except Exception:
+                    _variante_txt = ""
+                self.res_codigo.setText(
+                    tr("ubic.sku_id", default="IDENTIFICADOR SKU: {codigo}", codigo=codigo)
+                    + _variante_txt + sufijo_destinos)
 
                 # 2. SINCRONIZACIÓN DE COORDENADAS GPS
                 # Si el artículo tiene coordenadas, el motor de rutas A* podrá trazar el camino
@@ -4942,7 +5046,7 @@ class UbicacionTiendaWindow(QMainWindow):
                         )
                     )
                     self.window().statusBar().setStyleSheet(
-                        "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                        "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
                     )
                     self.window().statusBar().showMessage(
                         "🎯 " + tr("ubic.product_located", default="PRODUCTO LOCALIZADO: {nombre}", nombre=nombre.upper()), 5000
@@ -4956,7 +5060,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 self.destino_gps_activo = None
                 self.result_panel.setVisible(False)
                 self.window().statusBar().setStyleSheet(
-                    "color: #F85149; font-family: 'Segoe UI'; font-weight: 900;"
+                    "QStatusBar { background: #0D1117; color: #F85149; font-family: 'Segoe UI'; font-weight: 900; }"
                 )
                 self.window().statusBar().showMessage(
                     "⚠️ " + tr("ubic.track_fail", default="FALLO DE RASTREO: '{termino}' NO EXISTE", termino=termino), 4000
@@ -5786,7 +5890,7 @@ class UbicacionTiendaWindow(QMainWindow):
             # 4. NOTIFICACIÓN DE SEGURIDAD EN STATUS BAR
             win = self.window()
             if win and win.statusBar():
-                win.statusBar().setStyleSheet("color: #FFB86C; font-weight: 900;")
+                win.statusBar().setStyleSheet("QStatusBar { background: #0D1117; color: #FFB86C; font-weight: 900; }")
                 win.statusBar().showMessage(
                     "⚠️ MODO EDITOR: ACCESO A INFRAESTRUCTURA NIVEL 1", 4000
                 )
@@ -6014,21 +6118,23 @@ class UbicacionTiendaWindow(QMainWindow):
         self.res_nombre.setStyleSheet(
             """
             font-family: 'Segoe UI';
-            font-size: 28px; 
-            font-weight: 900; 
-            color: white; 
+            font-size: 28px;
+            font-weight: 900;
+            color: white;
             border: none;
+            background: transparent;
         """
         )
 
         self.res_codigo = QLabel(tr("ubic.sku_ph", default="SKU: 000000000000"))
         self.res_codigo.setStyleSheet(
             """
-            color: #8B949E; 
+            color: #8B949E;
             font-family: 'Segoe UI';
-            font-size: 14px; 
+            font-size: 14px;
             font-weight: 900;
             border: none;
+            background: transparent;
         """
         )
 
@@ -6539,7 +6645,7 @@ class UbicacionTiendaWindow(QMainWindow):
         # Feedback en la barra de estado inferior
         if self.statusBar():
             self.statusBar().setStyleSheet(
-                "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
             )
             self.statusBar().showMessage(tr("ubic.gps_dest_ready", default="DESTINO GPS PREPARADO: {nombre}", nombre=nombre_prod), 6000)
 
@@ -7410,7 +7516,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
             if self.window().statusBar():
                 self.window().statusBar().setStyleSheet(
-                    "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                    "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
                 )
                 self.window().statusBar().showMessage(
                     f"SISTEMA: {len(registros)} ARTÍCULOS SINCRONIZADOS", 4000
@@ -7459,7 +7565,8 @@ class UbicacionTiendaWindow(QMainWindow):
                 # 4. FEEDBACK HUD (Segoe UI Bold)
                 if self.window().statusBar():
                     self.window().statusBar().setStyleSheet(
-                        f"color: {color_radar}; font-weight: 900; font-family: 'Segoe UI';"
+                        f"QStatusBar {{ background: #0D1117; color: {color_radar}; font-weight: 900; "
+                        f"font-family: 'Segoe UI'; }}"
                     )
                     self.window().statusBar().showMessage(
                         f"RASTREANDO EN VIVO: {item.text()}", 3000
@@ -7467,7 +7574,7 @@ class UbicacionTiendaWindow(QMainWindow):
             else:
                 if self.window().statusBar():
                     self.window().statusBar().setStyleSheet(
-                        "color: #FFB86C; font-weight: 900; font-family: 'Segoe UI';"
+                        "QStatusBar { background: #0D1117; color: #FFB86C; font-weight: 900; font-family: 'Segoe UI'; }"
                     )
                     self.window().statusBar().showMessage(
                         "⚠️ ERROR: ARTÍCULO SIN COORDENADAS", 4000
@@ -7603,14 +7710,14 @@ class UbicacionTiendaWindow(QMainWindow):
                 if ya_ubicado:
                     self.procesar_ruta_gps()
                     self.statusBar().setStyleSheet(
-                        "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                        "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
                     )
                     self.statusBar().showMessage(
                         f"🚀 RUTA GENERADA HACIA {nombre_real}", 4000
                     )
                 else:
                     self.statusBar().setStyleSheet(
-                        "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                        "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
                     )
                     self.statusBar().showMessage(
                         "📍 POR FAVOR, ESCANEE UN QR DE UBICACIÓN PARA EMPEZAR", 6000
@@ -7941,7 +8048,7 @@ class UbicacionTiendaWindow(QMainWindow):
             opciones = self._obtener_opciones_destino_gps(termino)
             disponibles = [op for op in opciones if op.get("disponible")]
             if not disponibles:
-                self.mostrar_mensaje_temporal(tr("ubic.dest_no_coords", default="DESTINO SIN COORDENADAS O NO ENCONTRADO"))
+                self.mostrar_mensaje_temporal(self._motivo_sin_destino(termino, opciones), 6000)
                 return
 
             seleccion = self._mostrar_selector_destino_gps(disponibles)
@@ -7964,14 +8071,14 @@ class UbicacionTiendaWindow(QMainWindow):
             if ya_ubicado:
                 self.procesar_ruta_gps()
                 self.statusBar().setStyleSheet(
-                    "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                    "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
                 )
                 self.statusBar().showMessage(
                     f"RUTA GENERADA HACIA {nombre_destino}", 5000
                 )
             else:
                 self.statusBar().setStyleSheet(
-                    "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                    "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
                 )
                 self.statusBar().showMessage(
                     "ESCANEE UN QR DE UBICACION PARA INICIAR LA NAVEGACION", 6000
@@ -9255,7 +9362,7 @@ class UbicacionTiendaWindow(QMainWindow):
         win = self.window()
         if win and win.statusBar():
             win.statusBar().setStyleSheet(
-                "color: #00F5FF; font-family: 'Segoe UI'; font-weight: 900; font-size: 11px;"
+                "QStatusBar { background: #0D1117; color: #00F5FF; font-family: 'Segoe UI'; font-weight: 900; font-size: 11px; }"
             )
             win.statusBar().showMessage("✅ CALIBRACIÓN FINALIZADA O CANCELADA", 3000)
 
@@ -9309,7 +9416,7 @@ class UbicacionTiendaWindow(QMainWindow):
                 win = self.window()
                 if win and win.statusBar():
                     win.statusBar().setStyleSheet(
-                        "color: #00F5FF; font-family: 'Segoe UI'; font-weight: 900;"
+                        "QStatusBar { background: #0D1117; color: #00F5FF; font-family: 'Segoe UI'; font-weight: 900; }"
                     )
                     win.statusBar().showMessage(
                         f"📡 POSICIÓN {epc} GUARDADA: [{m_x}m, {m_y}m]", 3000
@@ -9320,7 +9427,7 @@ class UbicacionTiendaWindow(QMainWindow):
             win = self.window()
             if win and win.statusBar():
                 win.statusBar().setStyleSheet(
-                    "color: #FF4B4B; font-family: 'Segoe UI'; font-weight: 900;"
+                    "QStatusBar { background: #0D1117; color: #FF4B4B; font-family: 'Segoe UI'; font-weight: 900; }"
                 )
                 win.statusBar().showMessage(
                     "⚠️ ERROR DE RED: POSICIÓN NO GUARDADA", 5000
@@ -11836,7 +11943,7 @@ class VistaMapa(QGraphicsView):
                 win = main.window()
                 if win and win.statusBar():
                     win.statusBar().setStyleSheet(
-                        "color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900;"
+                        "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
                     )
                     win.statusBar().showMessage(
                         f"🗑️ {tipo.upper()} ELIMINADO CORRECTAMENTE.", 3000

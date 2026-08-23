@@ -112,6 +112,66 @@ def test_asignar_ubicacion_persiste_de_verdad(db, fab):
     assert u is not None and u[3] == "PAS3" and u[4] == "EST3"
 
 
+def test_asignar_almacen_escribe_columnas_almacen(db, fab):
+    """La asignación de ALMACÉN escribe articulos.ubicacion_almacen y las columnas
+    pasillo_almacen/estanteria_almacen (antes escribía en las lineales → invisible para el GPS)."""
+    cod = fab.articulo()
+    fab.al_limpiar(lambda: _limpia_ubi(db, codigo_articulo=cod))
+
+    res = U.asignar_ubicacion(cod, "ALM7", "ESTA7", "3", es_lineal=False)
+    assert res["ok"] is True
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT ubicacion_almacen FROM articulos WHERE codigo=%s", (cod,))
+        r = cur.fetchone()
+        assert (r[0] if not isinstance(r, dict) else r["ubicacion_almacen"]) == "ALM7-ESTA7-3"
+        cur.execute("SELECT pasillo_almacen, estanteria_almacen, pasillo, estanteria "
+                    "FROM ubicaciones WHERE codigo_articulo=%s", (cod,))
+        pa, ea, p, e = cur.fetchone()
+        assert (pa, ea) == ("ALM7", "ESTA7")
+        assert not p and not e   # NO se tocan las columnas lineales
+
+
+def test_estanterias_registradas_por_ambito(db, fab):
+    """estanterias_registradas separa lineal (pasillo/estanteria) de almacén (pasillo_almacen/…)."""
+    c1, c2 = fab.articulo(), fab.articulo()
+    fab.al_limpiar(lambda: (_limpia_ubi(db, codigo_articulo=c1), _limpia_ubi(db, codigo_articulo=c2)))
+    U.asignar_ubicacion(c1, "PL10", "EL10", "1", es_lineal=True)
+    U.asignar_ubicacion(c2, "PA20", "EA20", "1", es_lineal=False)
+
+    lineal = U.estanterias_registradas("LINEAL")
+    almacen = U.estanterias_registradas("ALMACEN")
+    assert ("PL10", "EL10") in lineal and ("PL10", "EL10") not in almacen
+    assert ("PA20", "EA20") in almacen and ("PA20", "EA20") not in lineal
+
+
+def test_propagacion_estanteria_conecta_gps(db, fab):
+    """Flujo end-to-end del arreglo de la desconexión: asignar (sin coords) → ubicar la estantería
+    (flush_iconos con su pasillo/estantería/ámbito) → el artículo hereda coordenadas y el GPS las
+    resuelve por ámbito."""
+    cod = fab.articulo()
+    epc = "EST-PROP-0001"
+    fab.al_limpiar(lambda: (_limpia_ubi(db, codigo_articulo=cod), _limpia_ubi(db, epc=epc)))
+    _limpia_ubi(db, epc=epc)
+
+    # 1) Asignación lineal SIN estantería ubicada aún → sin coordenadas.
+    res = U.asignar_ubicacion(cod, "PZ1", "EZ1", "1", es_lineal=True)
+    assert res["ok"] is True and res["con_coordenadas"] is False
+
+    # 2) Ubicar la estantería (nodo) con su pasillo/estantería/ámbito → propaga coords al artículo.
+    U.flush_iconos([{
+        "epc": epc, "pasillo": "PZ1", "estanteria": "EZ1", "ambito": "LINEAL",
+        "planta_index": 9987, "mapa_x": 111, "mapa_y": 222, "real_x": 1.1, "real_y": 2.2,
+    }])
+
+    # El nodo resuelve coordenadas por ámbito…
+    coord = U.coords_de_estanteria("PZ1", "EZ1", "LINEAL")
+    assert coord is not None and int(coord[0]) == 111 and int(coord[1]) == 222
+    # …y el artículo ya asignado heredó las coordenadas (conexión con el GPS).
+    cx, cy = U.coords_por_articulo(cod)
+    assert int(cx) == 111 and int(cy) == 222
+    assert cod in U.articulos_ubicados()
+
+
 def test_reportar_incidencia_marca_en_ubicaciones(db, fab):
     cod = fab.articulo()
     fab.al_limpiar(lambda: _limpia_ubi(db, codigo_articulo=cod))
