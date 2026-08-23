@@ -434,13 +434,27 @@ def flush_iconos(iconos) -> int:
             for ico in iconos:
                 cur.execute(
                     "INSERT INTO ubicaciones "
-                    "(epc, pasillo, estanteria, mapa_x, mapa_y, real_x, real_y, verificado, fecha_actualizacion) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, 1, NOW()) "
-                    "ON DUPLICATE KEY UPDATE mapa_x=VALUES(mapa_x), mapa_y=VALUES(mapa_y), "
-                    "real_x=VALUES(real_x), real_y=VALUES(real_y), estanteria=VALUES(estanteria), "
-                    "fecha_actualizacion=NOW()",
-                    (ico["epc"], ico["pasillo"], ico["estanteria"],
-                     ico["mapa_x"], ico["mapa_y"], ico["real_x"], ico["real_y"]))
+                    "(epc, pasillo, estanteria, ambito, planta_index, mapa_x, mapa_y, real_x, real_y, "
+                    " verificado, fecha_actualizacion) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW()) "
+                    "ON DUPLICATE KEY UPDATE pasillo=VALUES(pasillo), estanteria=VALUES(estanteria), "
+                    "ambito=VALUES(ambito), planta_index=VALUES(planta_index), "
+                    "mapa_x=VALUES(mapa_x), mapa_y=VALUES(mapa_y), "
+                    "real_x=VALUES(real_x), real_y=VALUES(real_y), fecha_actualizacion=NOW()",
+                    (ico["epc"], ico["pasillo"], ico["estanteria"], ico.get("ambito"),
+                     ico.get("planta_index"), ico["mapa_x"], ico["mapa_y"], ico["real_x"], ico["real_y"]))
+                # Propaga las coordenadas del nodo a los artículos ya asignados a esa estantería en su
+                # ámbito (conecta Asignar Ubicación ↔ Gestión Estructura ↔ GPS).
+                amb = ico.get("ambito")
+                if amb and ico.get("pasillo") and ico.get("estanteria"):
+                    es_lineal = str(amb).upper() != "ALMACEN"
+                    col_p, col_e = ("pasillo", "estanteria") if es_lineal else \
+                        ("pasillo_almacen", "estanteria_almacen")
+                    cur.execute(
+                        f"UPDATE ubicaciones SET mapa_x=%s, mapa_y=%s, verificado=1 "
+                        f"WHERE codigo_articulo IS NOT NULL AND codigo_articulo <> '' "
+                        f"  AND {col_p}=%s AND {col_e}=%s",
+                        (ico["mapa_x"], ico["mapa_y"], ico["pasillo"], ico["estanteria"]))
                 n += 1
             conn.commit()
     except Exception as e:
@@ -448,21 +462,87 @@ def flush_iconos(iconos) -> int:
     return n
 
 
-def asignar_ubicacion(codigo, pasillo, estanteria, nivel, es_lineal) -> dict:
-    """Transacción completa de asignación de ubicación de un artículo.
+def _coords_estanteria(cur, pasillo, estanteria, ambito):
+    """(mapa_x, mapa_y) del NODO de estantería (fila sin codigo_articulo) que casa con pasillo+estantería
+    en el ÁMBITO dado, o None. Los nodos guardan su identidad en las columnas genéricas pasillo/estanteria
+    (diferenciados por `ambito`); se prefiere el nodo del ámbito exacto, luego los legados (ambito NULL)."""
+    cur.execute(
+        "SELECT mapa_x, mapa_y FROM ubicaciones "
+        "WHERE pasillo=%s AND estanteria=%s AND (ambito=%s OR ambito IS NULL) "
+        "  AND mapa_x IS NOT NULL AND mapa_y IS NOT NULL AND (mapa_x != 0 OR mapa_y != 0) "
+        "ORDER BY (codigo_articulo IS NULL OR codigo_articulo = '') DESC, (ambito=%s) DESC, "
+        "verificado DESC, id DESC LIMIT 1",
+        (pasillo, estanteria, ambito, ambito))
+    return cur.fetchone()
 
-    Modelo de datos (migr 0105): la ubicación ESTRUCTURADA (pasillo/estantería/balda/coordenadas/
-    incidencia) vive en `ubicaciones` por `codigo_articulo`; `articulos` solo guarda la cadena legible
-    (`ubicacion_tienda`/`ubicacion_almacen`). Antes esta función escribía `articulos.pasillo/estanteria/
-    nivel/mapa_x` (columnas inexistentes) y fallaba en silencio; ahora:
+
+def coords_de_estanteria(pasillo, estanteria, ambito):
+    """(mapa_x, mapa_y) del nodo de estantería para pasillo+estantería+ámbito, o None."""
+    if not pasillo or not estanteria:
+        return None
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            return _coords_estanteria(cur, pasillo, estanteria, ambito)
+    except Exception:
+        return None
+
+
+def estanterias_registradas(ambito) -> list:
+    """[(pasillo, estanteria)] DISTINTAS registradas al asignar artículos en el ámbito dado
+    ('LINEAL' → columnas pasillo/estanteria; 'ALMACEN' → pasillo_almacen/estanteria_almacen). Alimenta el
+    selector de Gestión Estructura (solo se puede ubicar una estantería previamente registrada)."""
+    es_lineal = str(ambito or "").upper() != "ALMACEN"
+    col_p, col_e = ("pasillo", "estanteria") if es_lineal else ("pasillo_almacen", "estanteria_almacen")
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT DISTINCT {col_p}, {col_e} FROM ubicaciones "
+                f"WHERE codigo_articulo IS NOT NULL AND codigo_articulo <> '' "
+                f"  AND {col_p} IS NOT NULL AND {col_p} <> '' AND {col_e} IS NOT NULL AND {col_e} <> '' "
+                f"ORDER BY {col_p} ASC, {col_e} ASC")
+            return [(r[0], r[1]) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("estanterias_registradas(%s): %s", ambito, e)
+        return []
+
+
+def propagar_coordenadas_estanteria(pasillo, estanteria, ambito, mapa_x, mapa_y) -> int:
+    """Propaga las coordenadas de una estantería recién ubicada a TODOS los artículos ya asignados a ese
+    pasillo+estantería en el mismo ámbito. Devuelve nº de artículos actualizados. Es lo que conecta
+    'Asignar Ubicación' con 'Gestión Estructura' → el GPS ya encuentra el destino."""
+    es_lineal = str(ambito or "").upper() != "ALMACEN"
+    col_p, col_e = ("pasillo", "estanteria") if es_lineal else ("pasillo_almacen", "estanteria_almacen")
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE ubicaciones SET mapa_x=%s, mapa_y=%s, verificado=1 "
+                f"WHERE codigo_articulo IS NOT NULL AND codigo_articulo <> '' "
+                f"  AND {col_p}=%s AND {col_e}=%s",
+                (mapa_x, mapa_y, pasillo, estanteria))
+            conn.commit()
+            return cur.rowcount
+    except Exception as e:
+        logger.error("propagar_coordenadas_estanteria(%s/%s): %s", pasillo, estanteria, e)
+        return 0
+
+
+def asignar_ubicacion(codigo, pasillo, estanteria, nivel, es_lineal) -> dict:
+    """Transacción completa de asignación de ubicación de un artículo, POR ÁMBITO.
+
+    Modelo de datos (migr 0105 + 0215): la ubicación ESTRUCTURADA vive en `ubicaciones` por
+    `codigo_articulo`; `articulos` solo guarda la cadena legible. La asignación LINEAL usa las columnas
+    `pasillo/estanteria/balda`; la de ALMACÉN usa `pasillo_almacen/estanteria_almacen/nivel_almacen`
+    (antes ambas escribían en las lineales, dejando el almacén invisible para el GPS).
 
     1) Guarda la cadena legible en `articulos.ubicacion_tienda`/`ubicacion_almacen`.
-    2) Busca coordenadas de mapa de esa estantería en `ubicaciones`.
-    3) Upsert del artículo en `ubicaciones` con pasillo/estantería/balda/coordenadas y limpia incidencia.
+    2) Busca coordenadas del NODO de estantería de ese pasillo+estantería en el MISMO ámbito.
+    3) Upsert de la fila-artículo en `ubicaciones` (UPDATE de la fila existente o INSERT), en las columnas
+       del ámbito, con las coordenadas si la estantería ya está ubicada.
 
     Devuelve {ok, con_coordenadas, mapa_x, mapa_y}.
     """
     emp = _emp()
+    ambito = "LINEAL" if es_lineal else "ALMACEN"
     ubicacion_legible = f"{pasillo}-{estanteria}-{nivel}"
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -471,26 +551,39 @@ def asignar_ubicacion(codigo, pasillo, estanteria, nivel, es_lineal) -> dict:
                 f"UPDATE articulos SET {col_txt}=%s WHERE codigo=%s AND (%s IS NULL OR id_empresa=%s)",
                 (ubicacion_legible, codigo, emp, emp))
 
-            cur.execute(
-                "SELECT mapa_x, mapa_y FROM ubicaciones "
-                "WHERE pasillo=%s AND estanteria=%s "
-                "  AND mapa_x IS NOT NULL AND mapa_y IS NOT NULL AND (mapa_x != 0 OR mapa_y != 0) "
-                "ORDER BY (codigo_articulo IS NULL OR codigo_articulo = '') DESC, verificado DESC, id DESC "
-                "LIMIT 1", (pasillo, estanteria))
-            coord = cur.fetchone()
+            coord = _coords_estanteria(cur, pasillo, estanteria, ambito)
             mapa_x = float(coord[0]) if coord else None
             mapa_y = float(coord[1]) if coord else None
 
-            cur.execute(
-                "INSERT INTO ubicaciones "
-                "(codigo_articulo, pasillo, estanteria, balda, mapa_x, mapa_y, verificado, incidencia_ubicacion) "
-                "VALUES (%s, %s, %s, %s, %s, %s, 1, 0) "
-                "ON DUPLICATE KEY UPDATE pasillo=VALUES(pasillo), estanteria=VALUES(estanteria), "
-                "balda=VALUES(balda), mapa_x=COALESCE(VALUES(mapa_x), mapa_x), "
-                "mapa_y=COALESCE(VALUES(mapa_y), mapa_y), incidencia_ubicacion=0, "
-                "verificado=IF(COALESCE(VALUES(mapa_x), mapa_x) IS NULL "
-                "AND COALESCE(VALUES(mapa_y), mapa_y) IS NULL, verificado, 1)",
-                (codigo, pasillo, estanteria, nivel, mapa_x, mapa_y))
+            # Fila-artículo existente (la que tiene codigo_articulo; NO es un nodo de estantería).
+            cur.execute("SELECT id FROM ubicaciones WHERE codigo_articulo=%s ORDER BY id ASC LIMIT 1",
+                        (codigo,))
+            row = cur.fetchone()
+            rid = (row[0] if not isinstance(row, dict) else list(row.values())[0]) if row else None
+
+            if es_lineal:
+                sets = ("pasillo=%s, estanteria=%s, balda=%s, "
+                        "mapa_x=COALESCE(%s, mapa_x), mapa_y=COALESCE(%s, mapa_y), "
+                        "verificado=IF(%s IS NULL AND %s IS NULL, verificado, 1), incidencia_ubicacion=0")
+            else:
+                sets = ("pasillo_almacen=%s, estanteria_almacen=%s, nivel_almacen=%s, "
+                        "mapa_x=COALESCE(%s, mapa_x), mapa_y=COALESCE(%s, mapa_y), "
+                        "verificado=IF(%s IS NULL AND %s IS NULL, verificado, 1), incidencia_ubicacion=0")
+            params_upd = (pasillo, estanteria, nivel, mapa_x, mapa_y, mapa_x, mapa_y)
+
+            if rid is not None:
+                cur.execute(f"UPDATE ubicaciones SET {sets} WHERE id=%s", params_upd + (rid,))
+            elif es_lineal:
+                cur.execute(
+                    "INSERT INTO ubicaciones (codigo_articulo, pasillo, estanteria, balda, mapa_x, mapa_y, "
+                    "verificado, incidencia_ubicacion) VALUES (%s, %s, %s, %s, %s, %s, 1, 0)",
+                    (codigo, pasillo, estanteria, nivel, mapa_x, mapa_y))
+            else:
+                cur.execute(
+                    "INSERT INTO ubicaciones (codigo_articulo, pasillo_almacen, estanteria_almacen, "
+                    "nivel_almacen, mapa_x, mapa_y, verificado, incidencia_ubicacion) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, 1, 0)",
+                    (codigo, pasillo, estanteria, nivel, mapa_x, mapa_y))
             conn.commit()
         return {"ok": True, "con_coordenadas": bool(coord), "mapa_x": mapa_x, "mapa_y": mapa_y}
     except Exception as e:
@@ -523,6 +616,19 @@ def buscar_con_ubicacion_stock(termino):
             cur.execute(
                 "SELECT codigo, nombre, ubicacion_tienda, ubicacion_almacen, COALESCE(Stock_total, 0) "
                 "FROM articulos WHERE nombre LIKE %s OR codigo=%s", (f"%{termino}%", termino))
+            return cur.fetchone()
+    except Exception:
+        return None
+
+
+def variante_de_codigo(codigo):
+    """(talla, color) si el código es una variante registrada (producto_variantes, migr 0184), o None.
+    Parte del 'pasaporte' RFID: el EPC identifica el artículo y su ficha (nombre/unidad/talla/color) se
+    resuelve desde la BD."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT talla, color FROM producto_variantes WHERE codigo_variante=%s LIMIT 1",
+                        (codigo,))
             return cur.fetchone()
     except Exception:
         return None
@@ -563,6 +669,25 @@ def buscar_ubicaciones_por_texto(termino) -> list:
             return list(cur.fetchall())
     except Exception:
         return []
+
+
+def existe_ubicacion_texto(termino) -> bool:
+    """True si algún registro de `ubicaciones` casa con el texto como pasillo/estantería/balda
+    (lineal o almacén), INDEPENDIENTEMENTE de si tiene coordenadas. Sirve para distinguir en el GPS
+    'ubicación registrada sin coordenadas' de 'ubicación inexistente'."""
+    like = f"%{termino}%"
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM ubicaciones WHERE "
+                "CONCAT_WS(' ', pasillo, estanteria, balda) LIKE %s "
+                "OR CONCAT_WS('-', pasillo, estanteria, balda) LIKE %s "
+                "OR pasillo LIKE %s OR estanteria LIKE %s "
+                "OR pasillo_almacen LIKE %s OR estanteria_almacen LIKE %s LIMIT 1",
+                (like, like, like, like, like, like))
+            return cur.fetchone() is not None
+    except Exception:
+        return False
 
 
 def plantas_con_imagen() -> list:

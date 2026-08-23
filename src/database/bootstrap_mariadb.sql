@@ -627,6 +627,9 @@ ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS ubicacion_almacen    VARCHAR(25
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS pasillo_almacen      VARCHAR(50)  DEFAULT NULL;
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS estanteria_almacen   VARCHAR(50)  DEFAULT NULL;
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS nivel_almacen        VARCHAR(20)  DEFAULT NULL;
+-- Ambito ('LINEAL'/'ALMACEN') y planta del nodo de estanteria (conexion asignacion<->coordenadas, migr 0215)
+ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS ambito               VARCHAR(10)  DEFAULT NULL;
+ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS planta_index         INT          DEFAULT NULL;
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS incidencia_ubicacion TINYINT(1)   DEFAULT 0;
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS verificado           TINYINT(1)   DEFAULT 0;
 ALTER TABLE ubicaciones ADD COLUMN IF NOT EXISTS fecha_actualizacion  DATETIME     NULL;
