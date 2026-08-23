@@ -286,6 +286,9 @@ class MenuPrincipal(QWidget):
         # Recordatorio de citas/eventos programados PARA HOY (notificación flotante).
         QTimer.singleShot(2600, self._comprobar_citas_hoy)
 
+        # Aviso de vencimiento de la suscripción SaaS (notificación flotante, una vez por sesión).
+        QTimer.singleShot(3200, self._comprobar_vencimiento_saas)
+
         # Pre-carga diferida del módulo de Configuración (su import tarda ~450 ms
         # la primera vez). Al calentarlo durante el reposo del menú, la primera
         # apertura de Configuración es prácticamente instantánea.
@@ -2110,6 +2113,69 @@ class MenuPrincipal(QWidget):
             return
         self._citas_aviso_mostrado = True
         self._mostrar_notif_citas(fecha, pendientes)
+
+    # ── Aviso de vencimiento de la suscripción SaaS ──────────────────────────
+    def _comprobar_vencimiento_saas(self):
+        """Notificación flotante si la suscripción SaaS está próxima a vencer o ya venció."""
+        if getattr(self, "_saas_aviso_mostrado", False):
+            return
+        try:
+            from src.services.saas import suscripciones as _SU
+            av = _SU.aviso_vencimiento()
+        except Exception as e:
+            logger.debug("aviso vencimiento SaaS: %s", e)
+            return
+        if not av:
+            return
+        self._saas_aviso_mostrado = True
+        self._mostrar_notif_saas(av)
+
+    def _mostrar_notif_saas(self, av):
+        from PyQt6.QtCore import Qt, QTimer
+        from PyQt6.QtGui import QColor
+        from PyQt6.QtWidgets import (QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
+                                     QPushButton, QVBoxLayout)
+        rojo = av.get("nivel") in ("urgente", "vencida")
+        color = "#F85149" if rojo else "#FFB86C"
+        card = QFrame(self); card.setObjectName("notifSaas")
+        card.setStyleSheet(f"QFrame#notifSaas{{background:#0E1117;border:2px solid {color};"
+                           "border-radius:16px;}")
+        sombra = QGraphicsDropShadowEffect(card); sombra.setBlurRadius(45); sombra.setOffset(0, 0)
+        sombra.setColor(QColor(248, 81, 73, 150) if rojo else QColor(255, 184, 108, 150))
+        card.setGraphicsEffect(sombra)
+        lay = QVBoxLayout(card); lay.setContentsMargins(24, 18, 24, 18); lay.setSpacing(10)
+        icono = "⛔" if rojo else "⚠️"
+        tit = QLabel(f"{icono}  " + tr("menu.saas_titulo", default="SUSCRIPCIÓN"))
+        tit.setStyleSheet(f"color:{color};font-family:'Segoe UI';font-weight:900;font-size:16px;"
+                          "background:transparent;border:none;")
+        lay.addWidget(tit)
+        msg = QLabel(av.get("mensaje", "")); msg.setWordWrap(True)
+        msg.setStyleSheet("color:#E6EDF3;font-family:'Segoe UI';font-size:13px;font-weight:700;"
+                          "background:transparent;border:none;")
+        lay.addWidget(msg)
+        fila = QHBoxLayout(); fila.addStretch()
+        btn = QPushButton(tr("menu.cita_entendido", default="ENTENDIDO"))
+        btn.setCursor(Qt.CursorShape.PointingHandCursor); btn.setFixedHeight(40)
+        btn.setStyleSheet(f"QPushButton{{background:#0E1117;color:{color};border:2px solid {color};"
+                          "border-radius:10px;font-weight:900;font-size:12px;padding:0 18px;}"
+                          f"QPushButton:hover{{background:{color};color:#0E1117;}}")
+        btn.clicked.connect(lambda: (card.hide(), card.deleteLater()))
+        fila.addWidget(btn); lay.addLayout(fila)
+        self._notif_saas_widget = card
+        card.adjustSize(); card.setFixedWidth(max(420, card.sizeHint().width()))
+        self._posicionar_notif_saas()
+        card.show(); card.raise_()
+        QTimer.singleShot(14000, lambda: (card.hide(), card.deleteLater()) if card else None)
+
+    def _posicionar_notif_saas(self):
+        card = getattr(self, "_notif_saas_widget", None)
+        if not card:
+            return
+        try:
+            x = self.width() - card.width() - 24
+            card.move(max(24, x), 90)
+        except Exception:
+            pass
 
     def _mostrar_notif_citas(self, fecha, eventos):
         self._cerrar_notif_citas()
