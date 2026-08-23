@@ -554,6 +554,35 @@ def estanterias_registradas(ambito) -> list:
         return []
 
 
+def estanterias_registradas_todas() -> list:
+    """[(pasillo, estanteria, ambito, epc)] de TODAS las estanterías registradas (LOCAL + ALMACÉN juntas).
+    `epc` = etiqueta RFID del nodo si la estantería ya está ubicada en el plano, o None. Alimenta el
+    selector de rastreo RFID por estantería (el EPC es la radiofrecuencia a buscar)."""
+    out = []
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            for amb, col_p, col_e in (("LINEAL", "pasillo", "estanteria"),
+                                      ("ALMACEN", "pasillo_almacen", "estanteria_almacen")):
+                cur.execute(
+                    f"SELECT DISTINCT a.{col_p}, a.{col_e}, "
+                    f"  (SELECT n.epc FROM ubicaciones n "
+                    f"     WHERE (n.codigo_articulo IS NULL OR n.codigo_articulo='') "
+                    f"       AND n.pasillo=a.{col_p} AND n.estanteria=a.{col_e} "
+                    f"       AND (n.ambito=%s OR n.ambito IS NULL) AND n.epc IS NOT NULL "
+                    f"     ORDER BY n.id DESC LIMIT 1) AS epc "
+                    f"FROM ubicaciones a "
+                    f"WHERE a.codigo_articulo IS NOT NULL AND a.codigo_articulo<>'' "
+                    f"  AND a.{col_p} IS NOT NULL AND a.{col_p}<>'' "
+                    f"  AND a.{col_e} IS NOT NULL AND a.{col_e}<>'' "
+                    f"ORDER BY a.{col_p}, a.{col_e}", (amb,))
+                for r in cur.fetchall():
+                    r = r if not isinstance(r, dict) else list(r.values())
+                    out.append((r[0], r[1], amb, r[2]))
+    except Exception as e:
+        logger.error("estanterias_registradas_todas: %s", e)
+    return out
+
+
 def ubicacion_texto_articulo(codigo, es_lineal):
     """Cadena de ubicación actual del artículo en el ámbito (articulos.ubicacion_tienda /
     ubicacion_almacen), o None. Para avisar antes de SOBRESCRIBIR una ubicación ya existente."""

@@ -144,6 +144,25 @@ def test_estanterias_registradas_por_ambito(db, fab):
     assert ("PA20", "EA20") in almacen and ("PA20", "EA20") not in lineal
 
 
+def test_estanterias_registradas_todas_combina_ambitos(db, fab):
+    """estanterias_registradas_todas junta local + almacén y adjunta el EPC del nodo si está ubicada."""
+    c1, c2 = fab.articulo(), fab.articulo()
+    epc = "EST-TODAS-0001"
+    fab.al_limpiar(lambda: (_limpia_ubi(db, codigo_articulo=c1),
+                            _limpia_ubi(db, codigo_articulo=c2), _limpia_ubi(db, epc=epc)))
+    _limpia_ubi(db, epc=epc)
+    U.asignar_ubicacion(c1, "PLT1", "ELT1", "1", es_lineal=True)
+    U.asignar_ubicacion(c2, "PAT2", "EAT2", "1", es_lineal=False)
+    # Ubicar la estantería lineal → su nodo tiene EPC.
+    U.flush_iconos([{"epc": epc, "pasillo": "PLT1", "estanteria": "ELT1", "ambito": "LINEAL",
+                     "planta_index": 0, "mapa_x": 5, "mapa_y": 6, "real_x": 0.5, "real_y": 0.6}])
+
+    todas = U.estanterias_registradas_todas()
+    idx = {(p, e, a): epc_ for (p, e, a, epc_) in todas}
+    assert ("PLT1", "ELT1", "LINEAL") in idx and idx[("PLT1", "ELT1", "LINEAL")] == epc  # con EPC
+    assert ("PAT2", "EAT2", "ALMACEN") in idx and idx[("PAT2", "EAT2", "ALMACEN")] is None  # sin ubicar
+
+
 def test_propagacion_estanteria_conecta_gps(db, fab):
     """Flujo end-to-end del arreglo de la desconexión: asignar (sin coords) → ubicar la estantería
     (flush_iconos con su pasillo/estantería/ámbito) → el artículo hereda coordenadas y el GPS las

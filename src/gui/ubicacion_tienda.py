@@ -127,6 +127,15 @@ class UbicacionTiendaWindow(QMainWindow):
         self._opciones_destino_busqueda = []
         self._articulo_busqueda_actual = {}
 
+        # Lector RFID (Zebra FX/RFD). DEGRADABLE: modo simulado si no hay hardware. Antes no se
+        # instanciaba nunca, así que escribir_tag se saltaba y el rastreo iba en simulación pura;
+        # ahora el gateway existe y enruta escritura de tag + lectura de RSSI (real o simulada).
+        try:
+            from src.utils.rfid_gateway import LectorZebraGateway
+            self.lector_rfid = LectorZebraGateway(modo_simulado=True)
+        except Exception:
+            self.lector_rfid = None
+
         # --- 2. INICIALIZACIÓN DE DATOS CRÍTICOS (Anti-Crash) ---
         # Inicializamos atributos que los visores buscarán al pintar el Foreground
         self.celda_size = 20
@@ -6349,36 +6358,182 @@ class UbicacionTiendaWindow(QMainWindow):
         ly.addLayout(fila_bot)
         return panel
 
+    def _rfid_preguntar_tipo(self):
+        """Pregunta qué localizar por RFID: 'ARTICULO' | 'ESTANTERIA' | None (cancelar)."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+        dlg = QDialog(self)
+        dlg.setFixedSize(460, 240)
+        dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        base = QVBoxLayout(dlg); base.setContentsMargins(0, 0, 0, 0)
+        frm = QFrame(); frm.setStyleSheet(
+            "QFrame { background-color: #0D1117; border: 2px solid #FFA657; border-radius: 18px; }"
+            " QLabel { color: #E6EDF3; border: none; background: transparent; }")
+        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 24, 28, 24); fl.setSpacing(16)
+        tit = QLabel("📡  " + tr("ubic.rfid_what_title", default="¿QUÉ DESEAS ENCONTRAR?"))
+        tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tit.setStyleSheet("color:#FFA657; font-family:'Segoe UI'; font-size:16px; font-weight:900;")
+        fl.addWidget(tit)
+        res = {"v": None}
+
+        def _mk(txt, val, color):
+            b = QPushButton(txt); b.setFixedHeight(52); b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton {{ background:#161B22; color:{color}; border:2px solid {color}; "
+                f"border-radius:12px; font-family:'Segoe UI'; font-weight:900; font-size:14px; }}"
+                f"QPushButton:hover {{ background:{color}; color:#0D1117; }}")
+            b.clicked.connect(lambda: (res.update(v=val), dlg.accept()))
+            return b
+        fl.addWidget(_mk("🔎  " + tr("ubic.rfid_item", default="ARTÍCULO"), "ARTICULO", "#00FFC6"))
+        fl.addWidget(_mk("🗄️  " + tr("ubic.rfid_shelf", default="ESTANTERÍA"), "ESTANTERIA", "#58A6FF"))
+        cancel = QPushButton(tr("ubic.cancel", default="CANCELAR")); cancel.setFixedHeight(38)
+        cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel.setStyleSheet("QPushButton { background:#21262D; color:#8B949E; border:1px solid #30363D;"
+                             " border-radius:10px; font-family:'Segoe UI'; font-weight:900; }"
+                             " QPushButton:hover { background:#FFFFFF; color:#0D1117; }")
+        cancel.clicked.connect(dlg.reject)
+        fl.addWidget(cancel)
+        base.addWidget(frm)
+        dlg.exec()
+        return res["v"]
+
+    def _rfid_elegir_articulo(self):
+        """Diálogo con buscador + sugerencias de artículos. Devuelve {codigo,nombre,epc} o None."""
+        from PyQt6.QtCore import Qt, QStringListModel
+        from PyQt6.QtWidgets import QDialog, QFrame, QLabel, QLineEdit, QPushButton, QVBoxLayout
+        dlg = QDialog(self); dlg.setFixedSize(480, 250)
+        dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        base = QVBoxLayout(dlg); base.setContentsMargins(0, 0, 0, 0)
+        frm = QFrame(); frm.setStyleSheet(
+            "QFrame { background-color:#0D1117; border:2px solid #00FFC6; border-radius:18px; }"
+            " QLabel { color:#E6EDF3; border:none; background:transparent; }")
+        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 24, 28, 24); fl.setSpacing(14)
+        tit = QLabel("🔎  " + tr("ubic.rfid_which_item", default="¿QUÉ ARTÍCULO DESEAS ENCONTRAR?"))
+        tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tit.setStyleSheet("color:#00FFC6; font-family:'Segoe UI'; font-size:15px; font-weight:900;")
+        fl.addWidget(tit)
+        inp = QLineEdit(); inp.setFixedHeight(44)
+        inp.setPlaceholderText(tr("ubic.rfid_item_ph", default="Código o nombre del artículo…"))
+        inp.setStyleSheet("QLineEdit { background:#161B22; color:white; border:1px solid #00FFC6;"
+                          " border-radius:10px; padding:6px 12px; font-family:'Segoe UI'; font-weight:900; }")
+        try:
+            from assets.estilo_global import estilizar_completer
+            from src.db.conexion import _get_todos_articulos_para_completer
+            model = QStringListModel([f"{c} – {n}" for c, n in _get_todos_articulos_para_completer()])
+            comp = QCompleter(model, inp)
+            comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+            comp.setFilterMode(Qt.MatchFlag.MatchContains)
+            inp.setCompleter(comp); estilizar_completer(comp)
+        except Exception:
+            pass
+        fl.addWidget(inp)
+        res = {"v": None}
+
+        def _ok():
+            txt = inp.text().strip()
+            if "–" in txt:
+                txt = txt.split("–")[0].strip()
+            if not txt:
+                return
+            r = ubi_db.buscar_codigo_nombre(txt)
+            if r:
+                res["v"] = {"codigo": r[0], "nombre": r[1], "epc": r[0]}
+                dlg.accept()
+            else:
+                tit.setText("❌ " + tr("ubic.not_found_master", default="ARTÍCULO NO ENCONTRADO"))
+        btn = QPushButton(tr("ubic.continue", default="CONTINUAR")); btn.setFixedHeight(44)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet("QPushButton { background:#1ED760; color:#0D1117; border:2px solid #1ED760;"
+                          " border-radius:10px; font-family:'Segoe UI'; font-weight:900; font-size:14px; }"
+                          " QPushButton:hover { background:transparent; color:#1ED760; }")
+        btn.clicked.connect(_ok); inp.returnPressed.connect(_ok)
+        fl.addWidget(btn)
+        base.addWidget(frm)
+        dlg.exec()
+        return res["v"]
+
+    def _rfid_elegir_estanteria(self):
+        """Diálogo con desplegable de TODAS las estanterías registradas (local + almacén). Devuelve
+        {codigo,nombre,epc} o None. El EPC del nodo (si está ubicada) es la radiofrecuencia a buscar."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QComboBox, QDialog, QFrame, QLabel, QPushButton, QVBoxLayout
+        try:
+            registros = ubi_db.estanterias_registradas_todas()
+        except Exception:
+            registros = []
+        if not registros:
+            self._dialogo_neon_info(
+                tr("ubic.rfid_no_shelves_title", default="SIN ESTANTERÍAS"),
+                tr("ubic.rfid_no_shelves_msg",
+                   default="No hay estanterías registradas. Asigna artículos y ubícalas en Gestión Estructura."),
+                color="#FFB86C", alto=220)
+            return None
+        dlg = QDialog(self); dlg.setFixedSize(500, 250)
+        dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        base = QVBoxLayout(dlg); base.setContentsMargins(0, 0, 0, 0)
+        frm = QFrame(); frm.setStyleSheet(
+            "QFrame { background-color:#0D1117; border:2px solid #58A6FF; border-radius:18px; }"
+            " QLabel { color:#E6EDF3; border:none; background:transparent; }")
+        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 24, 28, 24); fl.setSpacing(14)
+        tit = QLabel("🗄️  " + tr("ubic.rfid_which_shelf", default="¿QUÉ ESTANTERÍA DESEAS ENCONTRAR?"))
+        tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tit.setStyleSheet("color:#58A6FF; font-family:'Segoe UI'; font-size:15px; font-weight:900;")
+        fl.addWidget(tit)
+        combo = QComboBox(); combo.setFixedHeight(44)
+        combo.setStyleSheet(
+            "QComboBox { background:#161B22; color:white; border:1px solid #58A6FF; border-radius:10px;"
+            " padding:6px 12px; font-family:'Segoe UI'; font-weight:900; font-size:13px; }"
+            "QComboBox QAbstractItemView { background:#0D1117; color:white;"
+            " selection-background-color:#58A6FF; selection-color:#0D1117; }")
+        for pas, est, amb, epc in registros:
+            mundo = "LOCAL" if str(amb).upper().startswith("LIN") else "ALMACÉN"
+            combo.addItem(f"{pas} · {est}  ·  {mundo}", (pas, est, amb, epc))
+        fl.addWidget(combo)
+        res = {"v": None}
+
+        def _ok():
+            data = combo.currentData()
+            if not data:
+                return
+            pas, est, amb, epc = data
+            objetivo = epc or f"EST-{amb}-{pas}-{est}".upper()
+            res["v"] = {"codigo": objetivo, "nombre": f"{pas} · {est}", "epc": objetivo}
+            dlg.accept()
+        btn = QPushButton(tr("ubic.continue", default="CONTINUAR")); btn.setFixedHeight(44)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet("QPushButton { background:#1ED760; color:#0D1117; border:2px solid #1ED760;"
+                          " border-radius:10px; font-family:'Segoe UI'; font-weight:900; font-size:14px; }"
+                          " QPushButton:hover { background:transparent; color:#1ED760; }")
+        btn.clicked.connect(_ok)
+        fl.addWidget(btn)
+        base.addWidget(frm)
+        dlg.exec()
+        return res["v"]
+
     def iniciar_rastreo_rfid(self):
-        """Inicia el rastreo de proximidad RFID del artículo. El lector detecta la alarma del
-        artículo (etiqueta adhesiva RFID o tag duro EAS) y, según la intensidad de señal, emite un
-        pitido intermitente que se ACELERA al acercarse y se vuelve CONSTANTE justo al lado del
-        artículo. Degradable: señal real del lector o simulación de aproximación. UI 100 % inline."""
+        """Inicia el rastreo de proximidad RFID. Antes de activar el lector se pregunta QUÉ localizar
+        (artículo o estantería) y CUÁL, para que el lector sepa qué EPC/radiofrecuencia buscar. El lector
+        detecta la señal y emite un pitido que se ACELERA al acercarse. Degradable: RSSI real del lector
+        (self.lector_rfid) o simulación de aproximación. UI 100 % inline."""
         from PyQt6.QtCore import QTimer
 
-        art = getattr(self, "_articulo_busqueda_actual", {}) or {}
-        codigo = art.get("codigo")
-        # Si no hay artículo localizado, intenta localizarlo con el texto del buscador.
-        if not codigo and getattr(self, "input_search", None) and self.input_search.text().strip():
-            try:
-                self.ejecutar_busqueda()
-            except Exception:
-                pass
-            art = getattr(self, "_articulo_busqueda_actual", {}) or {}
-            codigo = art.get("codigo")
-        if not codigo:
-            sb = self.window().statusBar() if self.window() else None
-            if sb:
-                sb.setStyleSheet("color: #FFA657; font-family: 'Segoe UI'; font-weight: 900;")
-                sb.showMessage("⚠️ " + tr("ubic.rfid_need_search",
-                               default="ESCRIBE O BUSCA UN ARTÍCULO PARA RASTREARLO POR RFID"), 5000)
+        tipo = self._rfid_preguntar_tipo()
+        if tipo is None:
             return
+        objetivo = self._rfid_elegir_articulo() if tipo == "ARTICULO" else self._rfid_elegir_estanteria()
+        if not objetivo:
+            return
+        codigo = objetivo["codigo"]
+        nombre = objetivo.get("nombre") or codigo
+        epc = objetivo.get("epc") or codigo
 
-        nombre = art.get("nombre") or codigo
         try:
             from src.services.rfid import RastreoRFID
             gw = getattr(self, "lector_rfid", None)
-            self._rastreo_sesion = RastreoRFID(codigo, nombre=nombre, gateway=gw)
+            self._rastreo_sesion = RastreoRFID(codigo, nombre=nombre, gateway=gw, epc=epc)
         except Exception as e:
             print(f"[RFID] No se pudo iniciar el rastreo: {e}")
             return
