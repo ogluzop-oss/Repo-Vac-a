@@ -104,7 +104,9 @@ def qss_tabs() -> str:
     """Estilo ESTÁNDAR de pestañas (el del Centro de Inteligencia Empresarial). Fuente única para
     todas las ventanas con QTabWidget, para una experiencia homogénea."""
     return (
-        f"QTabWidget::pane{{border:1px solid {BORDE};border-radius:{RADIO}px;background:{BG};}}"
+        # Sin borde en el pane: se retiran las líneas grises finas que rodeaban el contenido de las
+        # subpestañas (Tesorería, Centro de Inteligencia, Seguridad/Gobierno, Almacenes, Aprobaciones).
+        f"QTabWidget::pane{{border:none;border-radius:{RADIO}px;background:{BG};}}"
         f"QTabBar::tab{{background:{BG2};color:{DIM};padding:8px 16px;margin-right:2px;"
         f"border-top-left-radius:8px;border-top-right-radius:8px;font-family:'{FONT}';font-weight:700;}}"
         f"QTabBar::tab:selected{{background:{BG};color:{INFO};border:1px solid {BORDE};"

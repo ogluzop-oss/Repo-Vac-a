@@ -102,7 +102,7 @@ class SeguridadWindow(QWidget):
         f = QHBoxLayout()
         self.cmb_permiso = _combo([(p, p) for p in _cat.CATALOGO])
         f.addWidget(QLabel("Permiso:")); f.addWidget(self.cmb_permiso)
-        f.addWidget(_btn("Conceder", self._conceder)); f.addWidget(_btn("Quitar", self._quitar))
+        f.addWidget(_btn("Conceder", self._conceder, primary=True)); f.addWidget(_btn("Quitar", self._quitar, danger=True))
         der.addLayout(f)
         self.tbl_permisos = _tabla(["Permiso del rol"])
         der.addWidget(self.tbl_permisos)

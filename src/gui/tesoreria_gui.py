@@ -114,7 +114,7 @@ class TesoreriaWindow(QWidget):
 
     def _btn_actualizar(self, loader):
         """Botón Actualizar (emoji) para la esquina superior derecha de la tabla de una pestaña."""
-        return _btn("🔄 Actualizar", loader)
+        return _btn("🔄 Actualizar", loader, primary=True)
 
     # ── Posición ──────────────────────────────────────────────────────────────
     def _tab_posicion(self):
@@ -209,7 +209,7 @@ class TesoreriaWindow(QWidget):
     def _tab_vencimientos(self):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         bar = QHBoxLayout()
-        bar.addWidget(_btn("Marcar vencidos", self._marcar_vencidos))
+        bar.addWidget(_btn("Marcar vencidos", self._marcar_vencidos, primary=True))
         bar.addStretch(); bar.addWidget(self._btn_actualizar(self._load_vencimientos)); lay.addLayout(bar)
         self.tbl_venc = _tabla(["ID", "Tipo", "Vence", "Importe", "Pendiente", "Estado", "Tercero", "Origen"])
         lay.addWidget(self.tbl_venc)
@@ -240,7 +240,7 @@ class TesoreriaWindow(QWidget):
     def _tab_recordatorios(self):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         bar = QHBoxLayout()
-        bar.addWidget(_btn("👁 Previsualizar", self._prev_recordatorios))
+        bar.addWidget(_btn("👁 Previsualizar", self._prev_recordatorios, primary=True))
         bar.addWidget(_btn("✉ Enviar recordatorios ahora", self._enviar_recordatorios, primary=True))
         bar.addStretch(); bar.addWidget(self._btn_actualizar(self._load_recordatorios)); lay.addLayout(bar)
         self.tbl_rec = _tabla(["Factura", "Cliente", "Vence", "Pendiente", "Días", "Nivel a enviar",
@@ -291,7 +291,7 @@ class TesoreriaWindow(QWidget):
         self.cmb_banca = _combo([]); self.cmb_banca.setMinimumWidth(240)
         self.cmb_banca.currentIndexChanged.connect(self._banca_estado)
         bar.addWidget(QLabel("Cuenta:")); bar.addWidget(self.cmb_banca)
-        bar.addWidget(_btn("⚙ Configurar conexión", self._banca_config))
+        bar.addWidget(_btn("⚙ Configurar conexión", self._banca_config, primary=True))
         bar.addWidget(_btn("🔄 Sincronizar banco", self._banca_sync, primary=True))
         bar.addStretch(); lay.addLayout(bar)
         self.lbl_banca = QLabel(""); self.lbl_banca.setStyleSheet(f"color:{_DIM};font-weight:bold;")

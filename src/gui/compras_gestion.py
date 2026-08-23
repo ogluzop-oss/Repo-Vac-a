@@ -290,7 +290,7 @@ class ComprasWindow(QWidget):
 
     def _dlg_nuevo_contrato(self):
         from src.services.contratos.contratos_pro import TIPOS
-        dlg = QDialog(self); dlg.setFixedSize(520, 600)
+        dlg = QDialog(self); dlg.setFixedSize(520, 680)
         root = _dialogo_frameless(dlg, titulo=tr("compras.contrato_nuevo", default="Nuevo contrato"), ancho=520)
         in_cod = _inp(tr("compras.c_codigo_ph", default="Código (opcional)"))
         cmb_tipo = _combo([(t, t) for t in TIPOS])
@@ -311,6 +311,7 @@ class ComprasWindow(QWidget):
                          (tr("compras.c_obs", default="Observaciones"), in_obs)):
             lbl = QLabel(lab); lbl.setStyleSheet(f"color:{_DIM};font-weight:700;")
             root.addWidget(lbl); root.addWidget(wdg)
+        root.addStretch(1)   # separa los botones del contenido (no pegados)
 
         def _guardar():
             from src.services.contratos import contratos_pro as CT

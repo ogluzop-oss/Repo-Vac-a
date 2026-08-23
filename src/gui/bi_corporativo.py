@@ -38,9 +38,9 @@ class BICorporativoWindow(QWidget):
         t = QLabel("BI Corporativo · Cuadro de mando ejecutivo")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
-        cab.addWidget(_btn("Recalcular DW", self._etl))
+        cab.addWidget(_btn("Recalcular DW", self._etl, primary=True))
         cab.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
-        cab.addWidget(_btn("Exportar", self._export))
+        cab.addWidget(_btn("Exportar", self._export, primary=True))
         if callback_vuelta:
             cab.addWidget(_btn("Volver", self._volver))
         root.addLayout(cab)

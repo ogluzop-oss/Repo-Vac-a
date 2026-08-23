@@ -57,6 +57,7 @@ class SaaSAdminWindow(QWidget):
             cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
         self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
         root.addWidget(self.tabs)
         self._tab_portal()
         if _es_superadmin():
@@ -73,11 +74,11 @@ class SaaSAdminWindow(QWidget):
         self.cmb_plan.setMinimumWidth(150)   # evita texto cortado en el desplegable
         bar.addWidget(QLabel("Plan:")); bar.addWidget(self.cmb_plan)
         bar.addWidget(_btn("Cambiar plan", self._cambiar_plan, primary=True))
-        bar.addWidget(_btn("Renovar", self._renovar))
-        bar.addWidget(_btn("Descargar última factura", self._descargar_factura))
+        bar.addWidget(_btn("Renovar", self._renovar, primary=True))
+        bar.addWidget(_btn("Descargar última factura", self._descargar_factura, primary=True))
         bar.addStretch()
         # "Actualizar" en la esquina superior derecha, justo encima de la tabla.
-        bar.addWidget(_btn("🔄 Actualizar", self.refrescar))
+        bar.addWidget(_btn("🔄 Actualizar", self.refrescar, primary=True))
         lay.addLayout(bar)
         self.tbl_consumo = _tabla(["Recurso", "Consumo"])
         lay.addWidget(self.tbl_consumo)
@@ -105,7 +106,7 @@ class SaaSAdminWindow(QWidget):
         lbl = QLabel("Embudo de venta de Smart Manager (lead → demo → prueba → cliente).")
         lbl.setStyleSheet(f"color:{_DIM};")
         bar.addWidget(lbl); bar.addStretch()
-        bar.addWidget(_btn("🔄  Actualizar", self._load_crm_saas))
+        bar.addWidget(_btn("🔄  Actualizar", self._load_crm_saas, primary=True))
         lay.addLayout(bar)
         self.tbl_crm_saas = _tabla(["Fase", "Nº"])
         lay.addWidget(self.tbl_crm_saas)

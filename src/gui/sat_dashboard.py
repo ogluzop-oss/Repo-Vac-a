@@ -106,6 +106,7 @@ class SATDashboardWindow(QWidget):
         _bar_act.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
         root.addLayout(_bar_act)
         self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
 
         self.tbl_tk = _tabla(["ID", "Código", "Asunto", "Prioridad", "Estado", "Técnico"])
         self.tbl_int = _tabla(["ID", "Ticket", "Tipo", "Técnico", "Horas", "Descripción"])

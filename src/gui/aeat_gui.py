@@ -67,9 +67,9 @@ class AEATWindow(QWidget):
         bar.addWidget(QLabel("Ejercicio:")); bar.addWidget(self.in_ej)
         bar.addWidget(QLabel("Periodo:")); bar.addWidget(self.cmb_per)
         bar.addWidget(_btn("Generar", self._generar, primary=True))
-        bar.addWidget(_btn("Ver", self._ver))
-        bar.addWidget(_btn("Exportar JSON", lambda: self._exportar("json")))
-        bar.addWidget(_btn("Exportar CSV", lambda: self._exportar("csv")))
+        bar.addWidget(_btn("Ver", self._ver, primary=True))
+        bar.addWidget(_btn("Exportar JSON", lambda: self._exportar("json"), primary=True))
+        bar.addWidget(_btn("Exportar CSV", lambda: self._exportar("csv"), primary=True))
         bar.addStretch()
         root.addLayout(bar)
 

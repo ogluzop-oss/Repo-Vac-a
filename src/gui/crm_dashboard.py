@@ -46,6 +46,7 @@ class CRMDashboardWindow(QWidget):
         root.addWidget(self.lbl)
 
         self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
         self.tbl_leads = _tabla(["ID", "Nombre", "Empresa", "Estado", "Prioridad", "Valor", "Score"])
         self.tbl_ops = _tabla(["ID", "Titulo", "Estado", "Valor", "Prob %", "Cierre prev.", "Doc.", "Proy."])
         self.tbl_kpi = _tabla(["KPI", "Valor"])

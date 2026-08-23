@@ -161,6 +161,7 @@ class ContabilidadWindow(QWidget):
         que la ventana Fiscal; sin duplicar). Degradable: si algo falla, se muestra solo lo disponible."""
         from PyQt6.QtWidgets import QTabWidget
         tabs = QTabWidget()
+        tabs.setStyleSheet("QTabWidget::pane { border: none; }")   # sin líneas grises alrededor del contenido
         # 1) Generar — modelos AEAT (303/390/111/190/347/349): el AEATWindow existente.
         try:
             from src.gui.aeat_gui import AEATWindow
