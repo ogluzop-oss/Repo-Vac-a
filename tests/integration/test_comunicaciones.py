@@ -150,6 +150,9 @@ def test_calendario(db):
         assert any(e["id"] == eid for e in ev)
         assert C.eventos_dia("2026-07-15", id_empresa=E)
         assert not C.eventos_dia("2026-07-16", id_empresa=E)
+        # Borrado (usado por "Planificar citas" unificado con la agenda): elimina el evento.
+        assert C.eliminar_evento(eid, id_empresa=E) is True
+        assert not any(e["id"] == eid for e in C.eventos_mes(2026, 7, id_empresa=E))
     finally:
         with db.obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM calendario_participantes WHERE id_evento=%s", (eid,))

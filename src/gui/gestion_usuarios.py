@@ -5971,23 +5971,100 @@ class ConfiguracionWindow(QWidget):
             mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.logo_delete_err", default="No se pudo eliminar el logo: {exc}", exc=exc), "error")
 
     def _load_eventos(self):
+        """Agenda UNIFICADA desde services/calendario (BD): incluye las citas del usuario Y los eventos
+        generados por CRM/SAT (misma agenda, sin módulos paralelos). Migra una sola vez las citas del
+        JSON legado. Devuelve {yyyy-mm-dd: [ {_id, asunto, hora_inicio, hora_fin, tipo}, ... ]}."""
+        self._migrar_json_citas()
+        out = {}
         try:
-            path = os.path.normpath(_EVENTS_FILE)
-            if os.path.exists(path):
-                with open(path, encoding="utf-8") as f:
-                    return json.load(f)
+            import datetime as _dt
+
+            from src.services import calendario
+            hoy = _dt.date.today()
+            desde = f"{hoy.year - 1}-01-01 00:00:00"
+            hasta = f"{hoy.year + 2}-12-31 23:59:59"
+            for e in calendario.eventos_rango(desde, hasta):
+                fecha_str, hi = self._fmt_fecha_hora(e.get("inicio"))
+                _, hf = self._fmt_fecha_hora(e.get("fin")) if e.get("fin") else (None, hi)
+                if not fecha_str:
+                    continue
+                out.setdefault(fecha_str, []).append({
+                    "_id": e.get("id"),
+                    "asunto": e.get("titulo") or e.get("descripcion") or "Evento",
+                    "hora_inicio": hi, "hora_fin": hf or hi,
+                    "tipo": e.get("tipo") or "evento",
+                })
         except Exception:
             pass
-        return {}
+        return out
 
     def _save_eventos(self):
+        # La persistencia de la agenda ahora vive en services/calendario (BD). Se conserva el método por
+        # compatibilidad, pero es un no-op: guardar/editar/borrar operan directamente contra el servicio.
+        return
+
+    # ── Helpers de agenda (services/calendario) ──────────────────────────────
+    def _usuario_id(self):
+        try:
+            return (sesion_global.usuario_actual or {}).get("id") if sesion_global else None
+        except Exception:
+            return None
+
+    def _fmt_fecha_hora(self, valor):
+        """(yyyy-mm-dd, 'Hh MMmin') desde un datetime/str de BD, o (None, '0h 00min')."""
+        import datetime as _dt
+        if valor is None:
+            return None, "0h 00min"
+        try:
+            if isinstance(valor, str):
+                valor = _dt.datetime.fromisoformat(valor.replace("T", " ").split(".")[0])
+            return valor.strftime("%Y-%m-%d"), f"{valor.hour}h {valor.minute:02d}min"
+        except Exception:
+            return None, "0h 00min"
+
+    def _hora_a_dt(self, fecha_str, hora_txt):
+        """'yyyy-mm-dd' + 'Hh MMmin' → 'yyyy-mm-dd HH:MM:00'."""
+        h = m = 0
+        try:
+            toks = (hora_txt or "").split()
+            if toks:
+                h = int(toks[0].rstrip("h") or 0)
+            if len(toks) > 1:
+                m = int(toks[1].rstrip("min") or 0)
+        except Exception:
+            h = m = 0
+        return f"{fecha_str} {h:02d}:{m:02d}:00"
+
+    def _migrar_json_citas(self):
+        """Importa UNA sola vez las citas del JSON legado (documentos/eventos_citas.json) a
+        services/calendario y archiva el fichero, para no perder las citas previas del usuario."""
+        if getattr(self, "_json_migrado", False):
+            return
+        self._json_migrado = True
         try:
             path = os.path.normpath(_EVENTS_FILE)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self._eventos, f, ensure_ascii=False, indent=2)
+            if not os.path.exists(path):
+                return
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f) or {}
+            if data:
+                from src.services import calendario
+                for fecha_str, evs in data.items():
+                    for ev in (evs or []):
+                        calendario.crear_evento(
+                            ev.get("asunto") or "Cita",
+                            self._hora_a_dt(fecha_str, ev.get("hora_inicio", "0h 00min")),
+                            fin=self._hora_a_dt(fecha_str, ev.get("hora_fin", "0h 00min")),
+                            tipo="cita", creado_por=self._usuario_id())
+            os.replace(path, path + ".migrado.bak")
         except Exception:
             pass
+
+    def _recargar_eventos(self):
+        self._eventos = self._load_eventos()
+        if getattr(self, "_cal_widget", None):
+            self._cal_widget.set_events(self._eventos)
+            self._cal_widget.update()
 
     # --- PESTAÑA 7: PLANIFICAR CITAS ---
     def _crear_page_citas(self):
@@ -6162,24 +6239,28 @@ class ConfiguracionWindow(QWidget):
         hora_inicio = f"{self._inicio_h.currentText()} {self._inicio_m.currentText()}"
         hora_fin = f"{self._fin_h.currentText()} {self._fin_m.currentText()}"
 
-        if fecha_str not in self._eventos:
-            self._eventos[fecha_str] = []
-        self._eventos[fecha_str].append({
-            "asunto": asunto,
-            "hora_inicio": hora_inicio,
-            "hora_fin": hora_fin,
-        })
-        self._save_eventos()
-
-        self._cal_widget.update()
+        # Persistencia en la agenda ÚNICA (services/calendario, BD).
+        from src.services import calendario
+        eid = calendario.crear_evento(
+            asunto, self._hora_a_dt(fecha_str, hora_inicio),
+            fin=self._hora_a_dt(fecha_str, hora_fin), tipo="cita", creado_por=self._usuario_id())
+        self._recargar_eventos()
         self._cal_asunto.clear()
 
-        self._mostrar_cita_dialogo(
-            "EVENTO GUARDADO",
-            f"El evento '{asunto}' se ha guardado para el {fecha.toString('dd/MM/yyyy')}.",
-            es_error=False,
-            btn_texto="ACEPTAR",
-        )
+        if eid:
+            self._mostrar_cita_dialogo(
+                "EVENTO GUARDADO",
+                f"El evento '{asunto}' se ha guardado para el {fecha.toString('dd/MM/yyyy')}.",
+                es_error=False,
+                btn_texto="ACEPTAR",
+            )
+        else:
+            self._mostrar_cita_dialogo(
+                "NO SE PUDO GUARDAR",
+                "No se pudo guardar el evento en la agenda. Inténtalo de nuevo.",
+                es_error=True,
+                btn_texto="ENTENDIDO",
+            )
 
     def _cerrar_cal_popup(self):
         if self._cal_popup is not None:
@@ -6239,19 +6320,19 @@ class ConfiguracionWindow(QWidget):
             self._fin_h._refresh_btn()
             self._fin_m._valor = ev["hora_fin"].split()[1]
             self._fin_m._refresh_btn()
-            del self._eventos[fecha_str][idx]
-            if not self._eventos[fecha_str]:
-                del self._eventos[fecha_str]
-            self._save_eventos()
-            self._cal_widget.update()
+            # Editar = eliminar el original (BD) y dejar el formulario listo para volver a guardar.
+            if ev.get("_id"):
+                from src.services import calendario
+                calendario.eliminar_evento(ev["_id"])
+            self._recargar_eventos()
             self._cerrar_cal_popup()
 
         def _hacer_borrar(idx):
-            del self._eventos[fecha_str][idx]
-            if not self._eventos[fecha_str]:
-                del self._eventos[fecha_str]
-            self._save_eventos()
-            self._cal_widget.update()
+            ev = self._eventos[fecha_str][idx]
+            if ev.get("_id"):
+                from src.services import calendario
+                calendario.eliminar_evento(ev["_id"])
+            self._recargar_eventos()
             self._cerrar_cal_popup()
 
         for i, ev in enumerate(list(eventos)):

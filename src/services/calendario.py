@@ -60,6 +60,25 @@ def crear_evento(titulo, inicio, *, fin=None, tipo="evento", descripcion=None, c
         return None
 
 
+def eliminar_evento(id_evento, id_empresa=None) -> bool:
+    """Borra un evento (y sus participantes) por id. Devuelve True si se eliminó."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM calendario_participantes WHERE id_evento=%s AND id_empresa=%s",
+                        (id_evento, id_empresa))
+            cur.execute("DELETE FROM calendario_eventos WHERE id=%s AND id_empresa=%s",
+                        (id_evento, id_empresa))
+            afectadas = cur.rowcount
+            conn.commit()
+        if afectadas:
+            _audit("EVENTO_CALENDARIO_ELIMINADO", f"id={id_evento}")
+        return bool(afectadas)
+    except Exception as e:
+        logger.error("eliminar_evento(%s): %s", id_evento, e)
+        return False
+
+
 def eventos_rango(desde, hasta, *, usuario=None, id_empresa=None) -> list:
     """Eventos cuyo inicio cae en [desde, hasta]. Si `usuario`, solo en los que participa o creó."""
     id_empresa = _emp(id_empresa)
