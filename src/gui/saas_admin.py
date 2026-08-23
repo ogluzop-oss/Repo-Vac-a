@@ -69,6 +69,9 @@ class SaaSAdminWindow(QWidget):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         self.lbl_plan = QLabel(""); self.lbl_plan.setStyleSheet(f"color:{_CIAN};font-size:15px;")
         lay.addWidget(self.lbl_plan)
+        # Banner de aviso de vencimiento de la suscripción (oculto si no procede).
+        self.lbl_aviso = QLabel(""); self.lbl_aviso.setWordWrap(True); self.lbl_aviso.setVisible(False)
+        lay.addWidget(self.lbl_aviso)
         bar = QHBoxLayout()
         self.cmb_plan = _combo([(c, c) for c in _P.PLANES])
         self.cmb_plan.setMinimumWidth(150)   # evita texto cortado en el desplegable
@@ -91,6 +94,23 @@ class SaaSAdminWindow(QWidget):
         self.lbl_plan.setText(f"Plan: {lic['codigo_plan'] if lic else '(sin licencia)'} · "
                               f"Estado: {lic['estado'] if lic else 'sin_licencia'}"
                               + (f" · Suscripción: {sus['estado']}" if sus else ""))
+        # Aviso de vencimiento (banner): rojo si urgente/vencida, ámbar si próximo; oculto si no procede.
+        try:
+            av = _S.aviso_vencimiento(_empresa())
+        except Exception:
+            av = None
+        if av:
+            rojo = av["nivel"] in ("urgente", "vencida")
+            color = "#F85149" if rojo else "#FFB86C"
+            icono = "⛔" if rojo else "⚠️"
+            self.lbl_aviso.setText(f"{icono}  {av['mensaje']}")
+            self.lbl_aviso.setStyleSheet(
+                f"color:{color}; font-size:14px; font-weight:900; border:1px solid {color};"
+                f" border-radius:10px; padding:10px 14px; background:rgba(248,81,73,0.06);")
+            self.lbl_aviso.setVisible(True)
+        else:
+            self.lbl_aviso.setVisible(False)
+            self.lbl_aviso.setText("")
         cons = _M.consumo_empresa(_empresa())
         self.tbl_consumo.setRowCount(len(cons))
         for i, (k, v) in enumerate(cons.items()):

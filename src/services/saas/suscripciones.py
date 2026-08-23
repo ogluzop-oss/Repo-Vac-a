@@ -19,6 +19,10 @@ logger = logging.getLogger("saas.suscripciones")
 CICLOS = {"mensual": 30, "trimestral": 90, "anual": 365}
 ESTADOS = ("prueba", "activa", "suspendida", "cancelada", "vencida")
 
+# Umbrales (días) para los avisos de vencimiento de la suscripción.
+UMBRAL_AVISO = 15      # a partir de aquí se recuerda renovar
+UMBRAL_URGENTE = 3     # a partir de aquí, urgente
+
 
 def _emp(id_empresa=None):
     if id_empresa:
@@ -160,6 +164,116 @@ def reactivar(id_empresa):
 
 def estado(id_empresa=None) -> dict | None:
     return _suscripcion(_emp(id_empresa))
+
+
+# ── Avisos de vencimiento de la suscripción ──────────────────────────────────
+def _a_fecha(v):
+    """Normaliza date/datetime/str → date, o None."""
+    if v is None:
+        return None
+    if hasattr(v, "date") and not isinstance(v, _dt.date):
+        return v.date()
+    if isinstance(v, _dt.date):
+        return v
+    try:
+        return _dt.date.fromisoformat(str(v)[:10])
+    except Exception:
+        return None
+
+
+def dias_para_vencer(id_empresa=None):
+    """Días hasta el próximo cobro/renovación de la suscripción (negativo si ya venció), o None."""
+    s = _suscripcion(_emp(id_empresa))
+    if not s:
+        return None
+    fin = _a_fecha(s.get("proximo_cobro"))
+    if not fin:
+        return None
+    return (fin - _dt.date.today()).days
+
+
+def aviso_vencimiento(id_empresa=None) -> dict | None:
+    """Aviso si la suscripción vence pronto o ya venció. Devuelve {dias, fecha, nivel, mensaje} o None
+    (nivel: 'aviso' | 'urgente' | 'vencida'). Solo aplica a suscripciones en prueba/activa."""
+    s = _suscripcion(_emp(id_empresa))
+    if not s or s.get("estado") not in ("prueba", "activa"):
+        return None
+    d = dias_para_vencer(id_empresa)
+    if d is None:
+        return None
+    fecha = str(_a_fecha(s.get("proximo_cobro")))
+    etiqueta = "período de prueba" if s.get("estado") == "prueba" else "suscripción"
+    if d < 0:
+        return {"dias": d, "fecha": fecha, "nivel": "vencida",
+                "mensaje": f"Tu {etiqueta} venció hace {abs(d)} día(s) ({fecha}). Renueva para no "
+                           f"perder el servicio."}
+    if d <= UMBRAL_URGENTE:
+        return {"dias": d, "fecha": fecha, "nivel": "urgente",
+                "mensaje": f"Tu {etiqueta} vence en {d} día(s) ({fecha}). Renueva cuanto antes."}
+    if d <= UMBRAL_AVISO:
+        return {"dias": d, "fecha": fecha, "nivel": "aviso",
+                "mensaje": f"Tu {etiqueta} vence en {d} día(s) ({fecha}). Recuerda renovar."}
+    return None
+
+
+def suscripciones_por_vencer(dias=UMBRAL_AVISO) -> list:
+    """[(id_empresa, codigo_plan, estado, proximo_cobro, dias)] de suscripciones en prueba/activa que
+    vencen en <= `dias` (o ya vencidas). Para el job de avisos y la vista del operador."""
+    hoy = _dt.date.today()
+    limite = (hoy + _dt.timedelta(days=int(dias))).isoformat()
+    out = []
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id_empresa, codigo_plan, estado, proximo_cobro FROM suscripciones "
+                        "WHERE estado IN ('prueba','activa') AND proximo_cobro IS NOT NULL "
+                        "AND proximo_cobro <= %s ORDER BY proximo_cobro", (limite,))
+            for r in cur.fetchall():
+                r = r if not isinstance(r, dict) else list(r.values())
+                pc = _a_fecha(r[3])
+                if not pc:
+                    continue
+                out.append((r[0], r[1], r[2], pc.isoformat(), (pc - hoy).days))
+    except Exception as e:
+        logger.error("suscripciones_por_vencer: %s", e)
+    return out
+
+
+def job_avisos_vencimiento(id_empresa=None) -> dict:
+    """Job (opt-in): notifica a cada empresa cuya suscripción vence pronto o ya venció. Idempotente en el
+    sentido de que reemite el estado actual; el sistema de notificaciones deduplica por contenido/fecha."""
+    avisadas = 0
+    for emp, plan, _est, fecha, d in suscripciones_por_vencer(UMBRAL_AVISO):
+        try:
+            from src.services import notificaciones
+            if d < 0:
+                tit = f"Suscripción vencida ({plan})"
+                msg = f"Tu suscripción venció el {fecha}. Renueva para mantener el servicio."
+                pr = "alta"
+            elif d <= UMBRAL_URGENTE:
+                tit = f"Suscripción vence en {d} día(s)"
+                msg = f"Tu suscripción ({plan}) vence el {fecha}. Renueva cuanto antes."
+                pr = "alta"
+            else:
+                tit = f"Suscripción vence en {d} día(s)"
+                msg = f"Tu suscripción ({plan}) vence el {fecha}. Recuerda renovar."
+                pr = "normal"
+            notificaciones.emitir("saas_vencimiento", tit, msg, prioridad=pr, modulo="saas",
+                                  roles=["ADMINISTRADOR", "GERENTE"], id_empresa=emp)
+            avisadas += 1
+        except Exception as e:
+            logger.debug("aviso vencimiento empresa %s: %s", emp, e)
+    return {"avisadas": avisadas}
+
+
+def registrar_jobs_saas_avisos(id_empresa=None):
+    """Registra el job de avisos de vencimiento (opt-in, diario) en el planificador."""
+    try:
+        from src.services import scheduler as S
+        S.registrar("saas_avisos_vencimiento", lambda emp: f"avisos={job_avisos_vencimiento()}")
+        S.registrar_job("saas_avisos_vencimiento", intervalo_horas=24,
+                        descripcion="Avisos de vencimiento de suscripción SaaS", id_empresa=id_empresa)
+    except Exception as e:
+        logger.error("registrar_jobs_saas_avisos: %s", e)
 
 
 def _audit(accion, id_empresa, detalle):
