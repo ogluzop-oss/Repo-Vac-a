@@ -171,8 +171,9 @@ def test_propagacion_estanteria_conecta_gps(db, fab):
     assert int(cx) == 111 and int(cy) == 222
     assert cod in U.articulos_ubicados()
 
-    # Una estantería YA ubicada (con coords) desaparece del selector de Gestión Estructura.
-    assert ("PZ1", "EZ1") not in U.estanterias_registradas("LINEAL")
+    # El selector sigue mostrando la estantería aunque ya esté ubicada (la GUI pedirá confirmación
+    # para actualizar sus coordenadas al re-seleccionarla).
+    assert ("PZ1", "EZ1") in U.estanterias_registradas("LINEAL")
     # ubicacion_texto_articulo devuelve la cadena legible del ámbito (para el aviso de cambio).
     assert U.ubicacion_texto_articulo(cod, es_lineal=True) == "PZ1-EZ1-1"
     assert U.ubicacion_texto_articulo(cod, es_lineal=False) is None

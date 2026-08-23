@@ -3149,6 +3149,22 @@ class UbicacionTiendaWindow(QMainWindow):
             seleccion = self._seleccionar_estanteria_dialog(registros, ambito)
             if not seleccion:
                 return
+            # Si la estantería elegida YA tiene coordenadas, confirmar antes de sobrescribirlas.
+            try:
+                _ya = ubi_db.coords_de_estanteria(seleccion[0], seleccion[1], ambito)
+            except Exception:
+                _ya = None
+            if _ya:
+                if not self._dialogo_neon_pregunta(
+                    tr("ubic.shelf_recolocate_title", default="¿ACTUALIZAR COORDENADAS?"),
+                    tr("ubic.shelf_recolocate_msg",
+                       default="La estantería <b>{p} · {e}</b> ya tiene coordenadas asignadas en el "
+                               "plano.<br>¿Deseas actualizarlas situándola en una nueva posición?",
+                       p=seleccion[0], e=seleccion[1]),
+                    btn_ok_txt=tr("ubic.shelf_recolocate_yes", default="Sí, actualizar"),
+                    btn_cancel_txt=tr("ubic.cancel", default="CANCELAR"),
+                    color="#FFB86C", alto=240):
+                    return
             self._estanteria_seleccionada = {
                 "pasillo": seleccion[0], "estanteria": seleccion[1], "ambito": ambito,
             }
