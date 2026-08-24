@@ -93,30 +93,38 @@ def instalar_sidebar_colapsable(ventana, sidebar, *, usuario=None, clave=None, m
         #     contenido (título incluido) por debajo subiendo el margen superior del layout interior, para
         #     que la flecha no tape títulos largos (p. ej. "SMART ACCOUNTING").
         try:
+            import re
             from PyQt6.QtWidgets import QScrollArea, QVBoxLayout
             from src.gui.foundation.tokens import qss_scrollbar
             _old = sidebar.layout()
             if _old is not None and not getattr(sidebar, "_sb_scroll_hecho", False):
+                # Color de fondo REAL de la sidebar (de su stylesheet): el scroll/viewport/content se pintan
+                # OPACOS con ese color. NO se usa 'transparent' porque el viewport de un QScrollArea puede
+                # ser una ventana NATIVA en Windows y, dentro de una ventana frameless, un viewport
+                # translúcido deja ver lo que hay DETRÁS (el menú) → duplicaciones. Con fondo opaco no pasa.
+                _mcol = re.search(r"background(?:-color)?\s*:\s*(#[0-9A-Fa-f]{3,8})", sidebar.styleSheet() or "")
+                _bgcol = _mcol.group(1) if _mcol else "#0D1117"
                 # 1) Mover el layout existente (título + botones) a un widget de CONTENIDO.
                 _content = QWidget()
                 _content.setObjectName("sb_scroll_content")
-                _content.setStyleSheet("#sb_scroll_content{background:transparent;}")
+                _content.setStyleSheet(f"#sb_scroll_content{{background:{_bgcol};}}")
                 _content.setLayout(_old)
                 # 2) Bajar el contenido por debajo de la flecha (margen superior del layout interior).
                 _m = _old.contentsMargins()
                 _hueco = margen + btn.height() + 10
                 if _m.top() < _hueco:
                     _old.setContentsMargins(_m.left(), _hueco, _m.right(), _m.bottom())
-                # 3) QScrollArea con la scrollbar ESTÁNDAR (idéntica al resto del software).
+                # 3) QScrollArea OPACO (mismo color de sidebar). La scrollbar ESTÁNDAR se aplica al PROPIO
+                #    scrollbar (no al área) para no cascar estilos sobre los botones.
                 _scroll = QScrollArea(sidebar)
                 _scroll.setObjectName("sb_scroll")
                 _scroll.setWidgetResizable(True)          # el contenido llena el ancho y empuja el stretch
                 _scroll.setWidget(_content)
                 _scroll.setFrameShape(QScrollArea.Shape.NoFrame)
                 _scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-                _scroll.setStyleSheet("QScrollArea#sb_scroll{background:transparent;border:none;}"
-                                      + qss_scrollbar())
-                _scroll.viewport().setStyleSheet("background:transparent;")
+                _scroll.setStyleSheet(f"QScrollArea#sb_scroll{{background:{_bgcol};border:none;}}")
+                _scroll.viewport().setStyleSheet(f"background:{_bgcol};")
+                _scroll.verticalScrollBar().setStyleSheet(qss_scrollbar())
                 # 4) Nuevo layout en la sidebar con solo el scroll (el hueco del título ya va dentro).
                 _outer = QVBoxLayout(sidebar)
                 _outer.setContentsMargins(0, 0, 0, 0)

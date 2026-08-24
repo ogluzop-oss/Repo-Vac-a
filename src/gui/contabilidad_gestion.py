@@ -556,7 +556,7 @@ class ContabilidadWindow(QWidget):
         b.setFixedSize(250, 300)   # rectángulo VERTICAL (más alto que ancho)
         b.setStyleSheet(
             f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};border-radius:22px;"
-            "font-family:'Segoe UI';font-weight:900;font-size:16px;letter-spacing:1px;padding:18px;}}"
+            f"font-family:'Segoe UI';font-weight:900;font-size:16px;letter-spacing:1px;padding:18px;}}"
             f"QPushButton:hover{{background:{_CIAN};color:#0B1118;}}"          # hover swap
             f"QPushButton:pressed{{background:{_CIAN};color:#0B1118;padding-top:20px;}}")
         b.clicked.connect(slot)
