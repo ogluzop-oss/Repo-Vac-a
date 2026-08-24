@@ -211,8 +211,11 @@ class SelectorPerfilWindow(QWidget):
             if filtro and filtro not in nombre_lower:
                 w.hide()
                 continue
-            w.show()
+            # IMPORTANTE: addWidget PRIMERO (reparenta el botón al contenedor del grid), y show() DESPUÉS.
+            # Al revés, `w` está huérfano (setParent(None) arriba) y show() lo mapea como VENTANA top-level
+            # nativa (con el icono de la app) que PARPADEA un instante en el arranque, antes de reparentarse.
             self.grid.addWidget(w, r, c, Qt.AlignmentFlag.AlignHCenter)
+            w.show()
             visibles += 1
             c += 1
             if c >= ncols:

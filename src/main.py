@@ -496,7 +496,11 @@ class SmartManagerApp(QStackedWidget):
         # Si existe un CLIP de animación en assets (gif/webp/apng animado, o vídeo mp4/webm), se reproduce
         # como animación de carga; si no lo hay todavía, la pantalla de carga es solo el atenuado que
         # bloquea la interacción (nada en el centro).
-        self.loading_logo = QLabel()
+        # Se crea CON PADRE (self.overlay). Sin padre sería un top-level huérfano: al fijarle el QMovie y
+        # hacer jumpToFrame(0) ANTES de añadirlo al layout, Qt le crea en Windows una ventana NATIVA
+        # decorada (con el icono de la app) que PARPADEA un instante en el centro durante el arranque.
+        # Dándole padre desde el inicio se evita (addWidget no lo reparenta porque ya es hijo del overlay).
+        self.loading_logo = QLabel(self.overlay)
         self.loading_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.loading_logo.setStyleSheet("background: transparent; border: none;")
         self._loading_movie = None   # QMovie (gif/webp/apng)
@@ -546,17 +550,17 @@ class SmartManagerApp(QStackedWidget):
                     return False
                 self.loading_logo.setMovie(mov)
                 self._loading_movie = mov
-                # NO se arranca aquí: la animación solo corre mientras se ve la pantalla de carga, y
-                # siempre desde el frame 0 (se lanza en iniciar_proceso_login). Precargamos el 1er frame.
-                mov.jumpToFrame(0)
-                # Tamaño A PANTALLA COMPLETA: lo fija _ajustar_tamano_clip según la pantalla.
-                self._ajustar_tamano_clip()
+                # NO se arranca aquí ni se hace jumpToFrame/escalado: renderizar un frame durante __init__
+                # (cuando la ventana de login aún NO está mostrada) fuerza a Qt a materializar el overlay
+                # como ventana NATIVA suelta → PARPADEO de un marco vacío en el arranque. Tanto el
+                # jumpToFrame(0) como el escalado ya se hacen al MOSTRAR el spinner (iniciar_proceso_login),
+                # así que aquí solo se asocia el QMovie (setMovie sin frame actual no pinta nada).
                 layout.addWidget(self.loading_logo, 0, Qt.AlignmentFlag.AlignCenter)
                 return True
             from PyQt6.QtCore import QUrl
             from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
             from PyQt6.QtMultimediaWidgets import QVideoWidget
-            vw = QVideoWidget()
+            vw = QVideoWidget(self.overlay)   # CON PADRE: evita que sea un top-level huérfano (parpadeo)
             self._loading_video_widget = vw
             player = QMediaPlayer(self)
             self._loading_audio = QAudioOutput(self)
@@ -571,8 +575,8 @@ class SmartManagerApp(QStackedWidget):
                     lambda s, p=player: (p.setPosition(0), p.play())
                     if s == QMediaPlayer.MediaStatus.EndOfMedia else None)
             self._loading_video = player
-            # No se reproduce aquí: arranca desde 0 en iniciar_proceso_login (nunca reanuda).
-            self._ajustar_tamano_clip()
+            # No se reproduce ni se escala aquí (arranca/escala en iniciar_proceso_login): evitar
+            # realizar el widget durante __init__ para no provocar el parpadeo del overlay en el arranque.
             layout.addWidget(vw, 0, Qt.AlignmentFlag.AlignCenter)
             return True
         except Exception:

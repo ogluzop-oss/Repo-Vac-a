@@ -7540,7 +7540,11 @@ class TPVWindow(QWidget):
         if grande:
             icon_px = round(icon_px * 1.7)
         txt_px = 14 if grande else 11
-        b = QPushButton()
+        # IMPORTANTE: se crea CON PADRE (self). Un QPushButton sin padre al que se le añade layout + hijos
+        # es un top-level huérfano: en Windows, Qt le crea una ventana NATIVA decorada (con el icono de la
+        # app) que PARPADEA un instante antes de reparentarse a la rejilla. Darle padre desde el inicio lo
+        # evita (al añadirlo con addWidget se reparenta a su contenedor sin cambio visual).
+        b = QPushButton(self)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         b.setMinimumHeight(alto)
