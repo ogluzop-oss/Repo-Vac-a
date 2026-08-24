@@ -159,10 +159,18 @@ class DocumentoInlineForm(QWidget):
             f"QHeaderView::section:hover{{background-color:{COLOR_CIAN};color:#0E1117;}}"
             "QHeaderView::section:first{border-top-left-radius:18px;}"
             "QHeaderView::section:last{border-top-right-radius:18px;}")
-        contenedor.setFixedHeight(min(n_filas, 8) * 34 + 46)
+        # Alturas deterministas → altura exacta (cabecera + filas) para que el contorno inferior quede
+        # AL RAS de la última fila, sin espacio vacío. El contenedor añade sus 2+2 px de margen.
+        _FILA_H, _CAB_H = 34, 40
+        tw.horizontalHeader().setFixedHeight(_CAB_H)
+        tw.verticalHeader().setDefaultSectionSize(_FILA_H)
         for r in range(n_filas):
+            tw.setRowHeight(r, _FILA_H)
             for c in range(len(columnas)):
                 tw.setItem(r, c, QTableWidgetItem(""))
+        alto_tabla = _CAB_H + n_filas * _FILA_H
+        tw.setFixedHeight(alto_tabla)
+        contenedor.setFixedHeight(alto_tabla + 4)
         self._tablas[clave] = (tw, columnas)
         self._form_ly.addWidget(contenedor)
 
