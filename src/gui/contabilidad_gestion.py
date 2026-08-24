@@ -114,9 +114,28 @@ class ContabilidadWindow(QWidget):
         return cab
 
     def _sidebar(self):
+        from PyQt6.QtWidgets import QScrollArea
+        from src.gui.foundation.tokens import qss_scrollbar
         wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(280); self.sidebar = wrap  # P3 (280: cabe "SMART ACCOUNTING")
         wrap.setStyleSheet(f"#sw{{background:{_SIDEBAR};}}")
-        lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
+        outer = QVBoxLayout(wrap); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
+
+        # El contenido de la sidebar va dentro de un QScrollArea con la scrollbar ESTÁNDAR del software
+        # (turquesa, extremos redondeados): con muchas secciones ningún botón queda cortado (p. ej.
+        # "SALIR AL MENÚ"). Opaco (color de la sidebar) para no transparentar nada en la ventana frameless.
+        scroll = QScrollArea(wrap); scroll.setObjectName("sb_scroll")
+        scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(f"QScrollArea#sb_scroll{{background:{_SIDEBAR};border:none;}}")
+        scroll.verticalScrollBar().setStyleSheet(qss_scrollbar())
+
+        # OJO: los fondos del content/viewport DEBEN llevar selector (#objectName). Un stylesheet sin
+        # selector ("background:...") casca a TODOS los descendientes —incluidos los botones— y les pisa
+        # el 'background:transparent', rompiendo el hover swap y el :checked global. Con selector, el fondo
+        # se aplica SOLO al contenedor y los botones conservan su estilo global #btn_sidebar.
+        content = QWidget(); content.setObjectName("sb_content")
+        content.setStyleSheet(f"#sb_content{{background:{_SIDEBAR};}}")
+        lay = QVBoxLayout(content); lay.setContentsMargins(0, 0, 0, 16); lay.setSpacing(2)
         cab = QLabel("SMART ACCOUNTING")   # título de marca de la sidebar (igual en todos los idiomas)
         cab.setStyleSheet("color:#FFFFFF;padding:0 0 24px 28px;font-size:16px;font-weight:900;"
                           "letter-spacing:2px;background:transparent;")
@@ -134,6 +153,8 @@ class ContabilidadWindow(QWidget):
         lay.addStretch(1)
         if self._volver:   # SALIR AL MENÚ (rojo) al fondo del sidebar
             lay.addWidget(_btn_salir_sidebar(self._volver_menu))
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
         return wrap
 
     _ON = (f"QPushButton{{background:#1A2230;color:{_CIAN};text-align:left;padding:8px 8px 8px 24px;"

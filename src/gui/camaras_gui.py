@@ -201,7 +201,10 @@ class CamarasWindow(QWidget):
         ly.addWidget(self.lst, 1)
         fila = QHBoxLayout()
         fila.addWidget(_btn("＋ Añadir", self._anadir, primary=True))
-        fila.addWidget(_btn("🗑 Eliminar", self._eliminar, rojo=True))
+        _elim = _btn("🗑 Eliminar", self._eliminar, rojo=True)
+        _elim.setProperty("sin_glow", True)   # sin el resplandor turquesa global (opt-out)
+        _elim.setGraphicsEffect(None)
+        fila.addWidget(_elim)
         ly.addLayout(fila)
         # Sin botón "Salir al menú" en el sidebar: la X roja de la cabecera ya vuelve al menú.
         return w

@@ -3804,14 +3804,14 @@ class ConfiguracionWindow(QWidget):
         sidebar = QFrame()
         self.sidebar = sidebar  # P3: referencia para el toggle colapsable
         sidebar.setFixedWidth(260)
-        sidebar.setStyleSheet(
-            f"background-color: {_PANEL_BG}; border-right: 1px solid #30363D;"
-        )
+        sidebar.setStyleSheet(f"background-color: {_PANEL_BG};")   # sin border-right (línea gris fina)
         side_ly = QVBoxLayout(sidebar)
 
         lbl_tit = QLabel(tr("cfg.smart_config", default="SMART CONFIG"))
+        # Mismo estilo que el resto de sidebars (sin margen superior extra): título justo bajo la flecha.
         lbl_tit.setStyleSheet(
-            "color: white; font-weight: 900; font-size: 16px; margin: 30px; letter-spacing: 2px;"
+            "color: white; font-weight: 900; font-size: 16px; letter-spacing: 2px;"
+            "padding: 0 0 24px 28px; background: transparent;"
         )
         side_ly.addWidget(lbl_tit)
 
@@ -5564,9 +5564,23 @@ class ConfiguracionWindow(QWidget):
                 color: #0E1117;
             }}
         """)
-        btn_hist.clicked.connect(self._f_historico_fichajes)
+        btn_hist.clicked.connect(lambda: self._f_historico_fichajes())   # sin pasar el 'checked' como uid
         h_bot = QHBoxLayout()
         h_bot.addWidget(btn_hist)
+        # REVISAR FICHAJES EMPLEADOS: SOLO ADMIN/SUPERADMIN (revisan cualquier empleado de la tienda a la
+        # que se han conectado remotamente = empresa/tienda del contexto activo).
+        try:
+            _perfil = str((sesion_global.usuario_actual or {}).get("perfil", "")).upper()
+        except Exception:
+            _perfil = ""
+        if _perfil in ("ADMINISTRADOR", "SUPERADMIN"):
+            btn_rev = QPushButton(tr("cfg.review_att_btn", default="REVISAR FICHAJES EMPLEADOS"))
+            btn_rev.setFixedHeight(38)
+            btn_rev.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_rev.setStyleSheet(btn_hist.styleSheet())   # mismo estilo neón que el histórico
+            btn_rev.clicked.connect(self._f_revisar_fichajes_empleados)
+            h_bot.addSpacing(12)
+            h_bot.addWidget(btn_rev)
         h_bot.addStretch()
         ly.addLayout(h_bot)
         return page
@@ -5688,15 +5702,21 @@ class ConfiguracionWindow(QWidget):
         s = self._f_seconds % 60
         self._f_lbl_counter.setText(f"{h:02d}:{m:02d}:{s:02d}")
 
-    def _f_historico_fichajes(self):
-        """Histórico de fichajes del empleado EN SESIÓN (cada uno ve los suyos): muestra el mes EN CURSO
-        y permite navegar a meses anteriores con las flechas. Columnas: FECHA · ENTRADA · SALIDA ·
-        HORAS DEL DÍA · HORAS DEL MES. Ventana completa; cerrar con la ✕ roja."""
+    def _f_historico_fichajes(self, uid=None, nombre=None):
+        """Histórico de fichajes. SIN argumentos: el empleado EN SESIÓN (cada uno ve los suyos). Con `uid`
+        (revisión por ADMIN/SUPERADMIN de otro empleado): el empleado indicado, con su nombre en el título.
+        Muestra el mes EN CURSO y permite navegar a meses anteriores con las flechas. Columnas: FECHA ·
+        ENTRADA · SALIDA · HORAS DEL DÍA · HORAS DEL MES. Ventana completa; cerrar con la ✕ roja."""
         import datetime
-        try:
-            self._hf_uid = (sesion_global.usuario_actual or {}).get("id")
-        except Exception:
-            self._hf_uid = None
+        if uid is not None:
+            self._hf_uid = uid
+            self._hf_nombre = nombre or ""
+        else:
+            try:
+                self._hf_uid = (sesion_global.usuario_actual or {}).get("id")
+            except Exception:
+                self._hf_uid = None
+            self._hf_nombre = ""
         hoy = datetime.date.today()
         meses = meses_con_fichajes_empleado(self._hf_uid) if self._hf_uid is not None else []
         actual = (hoy.year, hoy.month)
@@ -5811,6 +5831,93 @@ class ConfiguracionWindow(QWidget):
         QTimer.singleShot(60, _full)
         dlg.exec()
 
+    def _f_revisar_fichajes_empleados(self):
+        """SOLO ADMIN/SUPERADMIN: elige un empleado de la tienda a la que se está conectado remotamente
+        (empresa/tienda del contexto activo, con AISLAMIENTO ESTRICTO por empresa) y abre su histórico de
+        fichajes reutilizando el visor `_f_historico_fichajes` con el uid del empleado seleccionado."""
+        from PyQt6.QtWidgets import QComboBox
+        from src.db.usuario import listar_usuarios_empresa
+        try:
+            perfil = str((sesion_global.usuario_actual or {}).get("perfil", "")).upper()
+        except Exception:
+            perfil = ""
+        if perfil not in ("ADMINISTRADOR", "SUPERADMIN"):
+            mostrar_mensaje(self, tr("cfg.review_att_title", default="Revisar fichajes"),
+                            tr("cfg.review_att_denied",
+                               default="Solo un administrador puede revisar los fichajes de otros empleados."),
+                            "warning")
+            return
+        empleados = listar_usuarios_empresa()   # empleados de la tienda/empresa conectada
+        if not empleados:
+            mostrar_mensaje(self, tr("cfg.review_att_title", default="Revisar fichajes"),
+                            tr("cfg.review_att_empty", default="No hay empleados en la tienda conectada."), "info")
+            return
+        try:
+            from src.db.tiendas import etiqueta_tienda_actual
+            _tienda = etiqueta_tienda_actual() or ""
+        except Exception:
+            _tienda = ""
+
+        dlg = QDialog(self)
+        dlg.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        dlg.setMinimumWidth(520)
+        card = QFrame(dlg); card.setObjectName("rvcard")
+        card.setStyleSheet(f"QFrame#rvcard{{background:#0D1117;border:2px solid {_CIAN};border-radius:14px;}}")
+        root = QVBoxLayout(dlg); root.setContentsMargins(12, 12, 12, 12); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(26, 22, 26, 20); ly.setSpacing(14)
+
+        hdr = QHBoxLayout()
+        t = QLabel(tr("cfg.review_att_title2", default="REVISAR FICHAJES DE EMPLEADOS"))
+        t.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:17px;background:transparent;")
+        hdr.addWidget(t); hdr.addStretch()
+        bx = QPushButton("✕"); bx.setFixedSize(38, 38); bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet("QPushButton{background:transparent;color:#F85149;border:2px solid #F85149;"
+                         "border-radius:9px;font-weight:900;font-size:16px;}"
+                         "QPushButton:hover{background:#F85149;color:#0D1117;}")
+        bx.clicked.connect(dlg.reject); hdr.addWidget(bx)
+        ly.addLayout(hdr)
+
+        if _tienda:
+            sub = QLabel("🏪  " + _tienda)
+            sub.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:12px;font-weight:700;background:transparent;")
+            ly.addWidget(sub)
+
+        lbl = QLabel(tr("cfg.review_att_pick", default="Empleado a revisar:"))
+        lbl.setStyleSheet("color:white;font-family:'Segoe UI';font-weight:700;font-size:13px;background:transparent;")
+        ly.addWidget(lbl)
+        combo = QComboBox(); combo.setFixedHeight(44)
+        combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        combo.setStyleSheet(f"QComboBox{{background:#161B22;color:white;border:2px solid {_CIAN};border-radius:10px;"
+                            "padding:4px 14px;font-family:'Segoe UI';font-weight:700;font-size:13px;}"
+                            "QComboBox::drop-down{border:none;width:24px;}")
+        for e in empleados:
+            etiqueta = e.get("nombre") or "?"
+            if e.get("perfil"):
+                etiqueta += f"   ·   {e['perfil']}"
+            combo.addItem(etiqueta, e.get("id"))
+        ly.addWidget(combo)
+        ly.addSpacing(6)
+
+        fila = QHBoxLayout(); fila.addStretch()
+        ver = QPushButton(tr("cfg.review_att_view", default="VER HISTÓRICO"))
+        ver.setFixedHeight(42); ver.setCursor(Qt.CursorShape.PointingHandCursor)
+        ver.setStyleSheet(f"QPushButton{{background:{_CIAN};color:#0E1117;border:none;border-radius:10px;"
+                          "font-family:'Segoe UI';font-weight:900;font-size:13px;padding:0 22px;}"
+                          f"QPushButton:hover{{background:#0E1117;color:{_CIAN};border:2px solid {_CIAN};}}")
+
+        def _ver():
+            idx = combo.currentIndex()
+            uid = combo.currentData()
+            nombre = empleados[idx].get("nombre") if 0 <= idx < len(empleados) else ""
+            dlg.accept()
+            if uid is not None:
+                self._f_historico_fichajes(uid=uid, nombre=nombre)
+        ver.clicked.connect(_ver)
+        fila.addWidget(ver)
+        ly.addLayout(fila)
+        dlg.exec()
+
     def _hf_navegar(self, delta):
         nuevo = self._hf_idx + delta
         if 0 <= nuevo < len(self._hf_paginas):
@@ -5822,9 +5929,11 @@ class ConfiguracionWindow(QWidget):
         meses_nom = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
                      "septiembre", "octubre", "noviembre", "diciembre"]
         y, m = self._hf_paginas[self._hf_idx]
-        self._hf_titulo.setText("📅  " + tr("cfg.hist_title_mes",
-                                           default="HISTÓRICO DE FICHAJES · {mes} {anio}",
-                                           mes=meses_nom[m].upper(), anio=y))
+        _tit = tr("cfg.hist_title_mes", default="HISTÓRICO DE FICHAJES · {mes} {anio}",
+                  mes=meses_nom[m].upper(), anio=y)
+        if getattr(self, "_hf_nombre", ""):   # revisión de un empleado concreto (ADMIN): su nombre delante
+            _tit = f"{self._hf_nombre.upper()} · {_tit}"
+        self._hf_titulo.setText("📅  " + _tit)
         fichajes = listar_fichajes_empleado(self._hf_uid, y, m) if self._hf_uid is not None else []
         total_seg = sum(int(f["segundos"] or 0) for f in fichajes)
         th, tm = total_seg // 3600, (total_seg % 3600) // 60
