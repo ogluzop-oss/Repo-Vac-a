@@ -56,7 +56,7 @@ class CRMDashboardWindow(QWidget):
         self.tbl_rutas = _tabla(["ID", "Nombre", "Responsable", "Fecha", "Estado"])
         self.tabs.addTab(self.tbl_leads, "Contactos")
         self.tabs.addTab(self._tab_oportunidades(), "Oportunidades")
-        self.tabs.addTab(self.tbl_kpi, "Indicadores / Previsión")
+        self.tabs.addTab(self.tbl_kpi, "KPIs / Previsión")
         self.tabs.addTab(self.tbl_camp, "Campañas")
         self.tabs.addTab(self.tbl_obj, "Objetivos")
         self.tabs.addTab(self.tbl_rutas, "Rutas")

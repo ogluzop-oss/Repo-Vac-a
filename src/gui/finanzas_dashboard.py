@@ -50,7 +50,7 @@ class FinanzasDashboardWindow(QWidget):
         self.tbl_fin = _tabla(["Indicador", "Valor"])
         self.tbl_alertas = _tabla(["Cliente", "Tipo", "Importe", "Estado"])
         self.tbl_rec = _tabla(["Prioridad", "Tipo", "Accion"])
-        self.tabs.addTab(self.tbl_ratios, "Ratios / Indicadores")
+        self.tabs.addTab(self.tbl_ratios, "Ratios / KPIs")
         self.tabs.addTab(self.tbl_fin, "Tesorería / Deuda")
         self.tabs.addTab(self.tbl_alertas, "Riesgo / Crédito")
         self.tabs.addTab(self.tbl_rec, "Recomendaciones IA")

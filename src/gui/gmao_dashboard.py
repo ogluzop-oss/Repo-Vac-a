@@ -120,7 +120,7 @@ class GMAODashboardWindow(QWidget):
         self.tabs.addTab(self._page(self.tbl_plan, [
             ("➕  Nuevo plan", self._nuevo_plan, True),
             ("Generar OT preventivas vencidas", self._generar_preventivas, False)]), "Planes preventivos")
-        self.tabs.addTab(self.tbl_kpi, "Indicadores")
+        self.tabs.addTab(self.tbl_kpi, "KPIs")
         root.addWidget(self.tabs)
         self._load()
 

@@ -146,7 +146,7 @@ class SATDashboardWindow(QWidget):
             logger.error("embed GMAO en Soporte Posventa: %s", e)
             self._gmao = None
 
-        self.tabs.addTab(self.tbl_kpi, "Indicadores")   # unificados (SAT + GMAO)
+        self.tabs.addTab(self.tbl_kpi, "KPIs")   # unificados (SAT + GMAO)
         root.addWidget(self.tabs)
         self._load()
 
