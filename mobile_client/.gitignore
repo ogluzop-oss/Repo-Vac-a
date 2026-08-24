@@ -1,0 +1,24 @@
+# React Native / Node
+node_modules/
+npm-debug.log
+yarn-error.log
+.watchmanconfig
+
+# Metro
+.metro-health-check*
+metro.log
+
+# Native build artifacts
+android/
+ios/
+*.keystore
+!debug.keystore
+
+# Env / secrets
+.env
+.env.local
+
+# Testing / misc
+coverage/
+*.log
+.DS_Store
