@@ -145,6 +145,11 @@ class DocumentoInlineForm(QWidget):
         tw.setHorizontalHeaderLabels([lbl for _, lbl in columnas])
         tw.verticalHeader().setVisible(False)
         tw.setShowGrid(True)                         # rejilla visible: es una tabla de entrada de datos
+        # El QSS global deja la tabla con fondo transparente y sin `gridline-color`, por lo que la
+        # rejilla no se pintaría. Fijamos el color de las líneas divisorias (celdas) explícitamente.
+        tw.setStyleSheet(
+            "QTableWidget#tabla_estandar_smart{background:transparent;border:none;"
+            f"gridline-color:{COLOR_BORDE};}}")
         tw.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         # Cabecera estándar: esquinas superiores redondeadas + intercambio de color al pasar el ratón.
         tw.horizontalHeader().setStyleSheet(
