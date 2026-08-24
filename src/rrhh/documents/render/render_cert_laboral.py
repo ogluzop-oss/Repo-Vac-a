@@ -35,7 +35,7 @@ def _impl():
 
         cuerpos = {
             "GENERAL": (
-                f"Que <b>{trab}</b> (NIF/NIE: {nif}, Nº S.S.: {ss or '—'}) presta servicios en "
+                f"Que <b>{trab}</b> (NIF/NIE: {nif}, Nº Seguridad Social: {ss or '—'}) presta servicios en "
                 f"esta empresa con la categoría/puesto de <b>{_puesto}</b>, manteniendo una "
                 f"relación laboral en vigor a fecha de {fecha}."
             ),

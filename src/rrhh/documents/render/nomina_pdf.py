@@ -36,7 +36,7 @@ EMPRESA_CAMPOS = [
 TRABAJADOR_CAMPOS = [
     ("trab_nombre", "Nombre"), ("trab_apellido1", "Primer apellido"),
     ("trab_apellido2", "Segundo apellido"), ("nif", "DNI/NIE/Pasaporte"),
-    ("num_ss", "Nº afiliación S.S."), ("categoria", "Categoría profesional"),
+    ("num_ss", "Nº Seguridad Social"), ("categoria", "Categoría profesional"),
     ("grupo_prof", "Grupo profesional"), ("grupo_cotizacion", "Grupo de cotización"),
     ("puesto", "Puesto de trabajo"), ("tipo_contrato", "Tipo de contrato"),
     ("codigo_contrato", "Código de contrato"), ("fecha_alta", "Fecha de alta"),

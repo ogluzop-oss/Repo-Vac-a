@@ -20,7 +20,7 @@ DECLARACION = ["Recibí y conformidad", "No conforme"]
 
 EMPRESA_CAMPOS = [("razon_social", "Razón social"), ("cif", "CIF"), ("domicilio", "Domicilio")]
 TRABAJADOR_CAMPOS = [
-    ("nombre", "Nombre"), ("nif", "DNI"), ("num_ss", "NSS"),
+    ("nombre", "Nombre"), ("nif", "DNI"), ("num_ss", "Nº Seguridad Social"),
     ("categoria", "Categoría"), ("antiguedad", "Antigüedad"),
 ]
 EXTINCION_CAMPOS = [

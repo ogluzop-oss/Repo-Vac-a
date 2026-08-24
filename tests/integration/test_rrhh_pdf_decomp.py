@@ -22,7 +22,7 @@ GOLDEN = {
     "ALTA":          (21, "9b0cab304bcc"),
     "BAJA":          (21, "afe4eeedc295"),
     "CERTIFICADO":   (19, "1d196be15fdd"),
-    "CERT LABORAL":  (21, "ff008823f4a0"),   # F4.2: plantilla dedicada (ya no genérica)
+    "CERT LABORAL":  (21, "301e821bd0d1"),   # F4.2: plantilla dedicada; unificado "Nº Seguridad Social"
     "CARTA DESPIDO": (31, "b723520e0c8f"),
     "FINIQUITO":     (24, "2b11f3a5f0ff"),
     "VACACIONES":    (22, "5fcf69e44010"),   # F4.2: plantilla dedicada (ya no genérica)

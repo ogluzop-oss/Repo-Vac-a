@@ -28,7 +28,7 @@ EMPRESA_CAMPOS = [
     ("cnae", "CNAE"), ("domicilio", "Domicilio"),
 ]
 TRABAJADOR_CAMPOS = [
-    ("nombre", "Nombre"), ("nif", "DNI"), ("num_ss", "NSS"),
+    ("nombre", "Nombre"), ("nif", "DNI"), ("num_ss", "Nº Seguridad Social"),
     ("fecha_nacimiento", "Fecha de nacimiento"),
 ]
 RELACION_CAMPOS = [

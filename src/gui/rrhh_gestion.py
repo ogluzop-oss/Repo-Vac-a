@@ -337,7 +337,7 @@ class RRHHWindow(QWidget):
         ("📃", "Certificados laborales", "CERT LABORAL", None),
         ("📮", "Cartas de despido", "CARTA DESPIDO", None),
         # Vacaciones se gestiona en la pestaña Empleados (Vac./Ausencias). Aquí: periodo de prueba.
-        ("🧪", "Periodo prueba", "CARTA DESPIDO", "PERÍODO DE PRUEBA"),
+        ("🧪", "Periodo prueba no superado", "CARTA DESPIDO", "PERÍODO DE PRUEBA"),
     ]
 
     def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None, **_kw):
