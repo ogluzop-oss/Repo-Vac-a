@@ -11,7 +11,8 @@ Notificaciones/CCP) — sin canal paralelo. Si no hay backend de push activo, el
 notificaciones para que la app lo sincronice.
 
 La detección física (antena EAS/portal RFID) llama a `alarma_salida_no_pagada(...)`; este módulo resuelve
-el artículo, evita falsas alarmas (si se acaba de pagar) y avisa a los guardias registrados.
+el artículo, evita falsas alarmas (un artículo PAGADO nunca dispara la alarma, sin ventana temporal) y avisa
+a los guardias registrados. El TPV marca el tag como pagado en caja con `marcar_pagado(epc=...)`.
 """
 
 import datetime as _dt
@@ -24,6 +25,10 @@ logger = logging.getLogger("rfid.antihurto")
 # Guardias de seguridad por empresa. Sus apps se registran al iniciar sesión (como los tokens FCM):
 # es un registro volátil en memoria, coherente con cómo funcionan los tokens push.
 _GUARDIAS = {}   # id_empresa -> set(id_usuario)
+
+# Tags (EPC) DESACTIVADOS en caja: el equivalente lógico a apagar el bit EAS al cobrar. Un EPC que consta
+# aquí está pagado y NUNCA dispara la alarma de salida. Volátil en memoria, por empresa (como los tokens).
+_EPC_PAGADOS = {}   # id_empresa -> set(epc)
 
 
 def _emp(id_empresa=None):
@@ -90,14 +95,28 @@ def _codigo_desde_epc(epc):
         return None
 
 
-def _pagado_recientemente(codigo, minutos=10) -> bool:
-    """True si el artículo se vendió (pagó) en los últimos `minutos` → probablemente NO es hurto
-    (evita falsas alarmas de un cliente que acaba de pagar). Best-effort."""
+def marcar_pagado(*, epc=None, id_empresa=None) -> bool:
+    """Marca un tag (EPC) como PAGADO / desactivado en caja — el equivalente lógico a apagar el bit EAS al
+    cobrar. Un EPC marcado aquí NO dispara la alarma de salida BAJO NINGÚN CONCEPTO. Lo llama el TPV al
+    confirmar el cobro (hook de backend; sin frontend de escritorio)."""
+    if not epc:
+        return False
+    _EPC_PAGADOS.setdefault(_emp(id_empresa), set()).add(str(epc))
+    return True
+
+
+def _esta_pagado(codigo, epc, id_empresa) -> bool:
+    """True si el artículo está PAGADO y, por tanto, NO debe disparar la alarma bajo ningún concepto —
+    sin ventana temporal (un artículo pagado nunca es hurto, se pagara hace un minuto o hace una semana):
+      (a) su tag EPC fue desactivado en caja (`marcar_pagado`), o
+      (b) el artículo consta como vendido/pagado en BD (venta registrada).
+    Best-effort: ante cualquier error de BD, NO suprime (mejor una revisión que dejar pasar un hurto)."""
+    if epc and str(epc) in _EPC_PAGADOS.get(_emp(id_empresa), set()):
+        return True
     try:
-        desde = (_dt.datetime.now() - _dt.timedelta(minutes=int(minutos))).strftime("%Y-%m-%d %H:%M:%S")
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT 1 FROM venta_items vi JOIN ventas v ON v.id=vi.venta_id "
-                        "WHERE vi.codigo_articulo=%s AND v.fecha>=%s LIMIT 1", (codigo, desde))
+                        "WHERE vi.codigo_articulo=%s LIMIT 1", (codigo,))
             return cur.fetchone() is not None
     except Exception:
         return False
@@ -116,9 +135,10 @@ def alarma_salida_no_pagada(*, ean=None, epc=None, id_empresa=None, id_tienda=No
     if not codigo:
         return {"ok": False, "motivo": "articulo_no_identificado", "notificados": 0}
 
-    # Anti falsa-alarma: si se pagó hace un momento, no se dispara la notificación.
-    if verificar_pago and _pagado_recientemente(codigo):
-        return {"ok": False, "motivo": "pagado_recientemente", "ean": codigo, "notificados": 0}
+    # Anti falsa-alarma: un artículo PAGADO no dispara la notificación BAJO NINGÚN CONCEPTO (sin ventana
+    # temporal): tag desactivado en caja (EPC) o venta registrada en BD.
+    if verificar_pago and _esta_pagado(codigo, epc, emp):
+        return {"ok": False, "motivo": "articulo_pagado", "ean": codigo, "notificados": 0}
 
     nombre, precio, imagen = _articulo(codigo, emp)
     hora = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -162,4 +182,4 @@ def _audit(id_empresa, codigo, notificados):
         pass
 
 
-__all__ = ["registrar_guardia", "baja_guardia", "guardias", "alarma_salida_no_pagada"]
+__all__ = ["registrar_guardia", "baja_guardia", "guardias", "marcar_pagado", "alarma_salida_no_pagada"]

@@ -42,18 +42,32 @@ def test_antihurto_alarma(db, fab):
     fab.al_limpiar(lambda: _del(db, "ubicaciones", "epc", epc))
     assert A.alarma_salida_no_pagada(epc=epc, id_empresa=emp)["articulo"]["ean"] == cod
 
-    # Anti falsa-alarma: si se pagó hace un momento, NO se dispara.
+    # Anti falsa-alarma: un artículo PAGADO no dispara la alarma bajo ningún concepto (sin ventana
+    # temporal). Venta antigua (hace 8 días) → sigue suprimiendo.
     with db.obtener_conexion() as c, c.cursor() as cur:
-        cur.execute("INSERT INTO ventas (fecha, total) VALUES (NOW(), 59.99)")
+        cur.execute("INSERT INTO ventas (fecha, total) VALUES (NOW() - INTERVAL 8 DAY, 59.99)")
         vid = cur.lastrowid
         cur.execute("INSERT INTO venta_items (venta_id, codigo_articulo, cantidad, precio_unitario, "
                     "subtotal) VALUES (%s,%s,1,59.99,59.99)", (vid, cod))
         c.commit()
     fab.al_limpiar(lambda: (_del(db, "venta_items", "venta_id", vid), _del(db, "ventas", "id", vid)))
     r2 = A.alarma_salida_no_pagada(ean=cod, id_empresa=emp)
-    assert r2["ok"] is False and r2["motivo"] == "pagado_recientemente"
+    assert r2["ok"] is False and r2["motivo"] == "articulo_pagado"
     # …salvo que se desactive la verificación.
     assert A.alarma_salida_no_pagada(ean=cod, id_empresa=emp, verificar_pago=False)["ok"] is True
+
+    # Tag EPC desactivado en caja (marcar_pagado) → NO dispara aunque el artículo no conste vendido en BD.
+    cod2 = fab.articulo(nombre="Camiseta Tag", precio=12.0, id_empresa=emp)
+    epc_pag = "EPC-PAGADO-1"
+    with db.obtener_conexion() as c, c.cursor() as cur:
+        cur.execute("INSERT INTO ubicaciones (epc, codigo_articulo, verificado) VALUES (%s,%s,1)", (epc_pag, cod2))
+        c.commit()
+    fab.al_limpiar(lambda: _del(db, "ubicaciones", "epc", epc_pag))
+    assert A.alarma_salida_no_pagada(epc=epc_pag, id_empresa=emp)["ok"] is True  # aún no pagado → dispara
+    assert A.marcar_pagado(epc=epc_pag, id_empresa=emp) is True
+    fab.al_limpiar(lambda: A._EPC_PAGADOS.get(emp, set()).discard(epc_pag))
+    r3 = A.alarma_salida_no_pagada(epc=epc_pag, id_empresa=emp)
+    assert r3["ok"] is False and r3["motivo"] == "articulo_pagado"
 
 
 def _del(db, tabla, campo, valor):

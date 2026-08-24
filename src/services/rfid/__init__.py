@@ -14,8 +14,10 @@ realista si no hay hardware, de modo que TODO el flujo es demostrable ahora mism
   del artículo (sin frontend de escritorio; el único frontend es la app del guardia).
 """
 
-from src.services.rfid.antihurto import alarma_salida_no_pagada, registrar_guardia
+from src.services.rfid.antihurto import (alarma_salida_no_pagada, marcar_pagado,
+                                         registrar_guardia)
 from src.services.rfid.inventario import barrido_inventario
 from src.services.rfid.localizador import RastreoRFID
 
-__all__ = ["barrido_inventario", "RastreoRFID", "alarma_salida_no_pagada", "registrar_guardia"]
+__all__ = ["barrido_inventario", "RastreoRFID", "alarma_salida_no_pagada", "marcar_pagado",
+           "registrar_guardia"]
