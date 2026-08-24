@@ -68,6 +68,67 @@ def _deslizar(old_widget, new_widget, duracion: int):
         logger.debug("_deslizar: %s", e)
 
 
+def deslizar_entrada_modulo(pm_saliente, ventana_entrante, duracion: int = _DUR, revelar=None,
+                            al_cubrir=None):
+    """Anima la ENTRADA a un módulo desde el menú principal.
+
+    `pm_saliente` es una instantánea (QPixmap) de la pantalla anterior —el menú— capturada ANTES de
+    ocultarlo; `ventana_entrante` es la ventana/contenedor del módulo ya mostrado y con geometría. La
+    instantánea se superpone sobre él y se desliza hacia la DERECHA, dejándolo ver debajo — mismo lenguaje
+    visual que `_deslizar` (el saliente sale por la derecha).
+
+    - `revelar` (opcional): ventana abierta con `windowOpacity(0)` para evitar el destello de la ventana
+      nativa; se revela (`opacity=1`) UNA VEZ ya está cubierta por la instantánea (caso: módulo en ventana
+      propia). Así el primer fotograma visible es el menú, nunca blanco ni el módulo.
+    - `al_cubrir` (opcional): callback que se ejecuta con la instantánea YA puesta encima (p. ej. cambiar la
+      página del stack raíz al módulo), de modo que el cambio ocurre DEBAJO del overlay y no se ve
+      (caso: TPV embebido en el stack).
+
+    A prueba de fallos: cualquier error degrada a mostrar el módulo (revelar/cubrir) sin animación."""
+    def _revelar():
+        if revelar is not None:
+            try:
+                revelar.setWindowOpacity(1.0)
+            except Exception:
+                pass
+
+    def _cubrir():
+        if al_cubrir is not None:
+            try:
+                al_cubrir()
+            except Exception:
+                pass
+    try:
+        ov = None
+        if (ventana_entrante is not None and pm_saliente is not None and not pm_saliente.isNull()):
+            w, h = ventana_entrante.width(), ventana_entrante.height()
+            if w > 0 and h > 0:
+                ov = QLabel(ventana_entrante)
+                ov.setPixmap(pm_saliente)
+                ov.setScaledContents(True)   # la instantánea (tamaño del menú) cubre exactamente el módulo
+                ov.setGeometry(0, 0, w, h)
+                ov.raise_()
+                ov.show()
+                ov.repaint()                 # pinta la instantánea YA (antes de cubrir/revelar)
+        _cubrir()                            # el cambio de pantalla ocurre DEBAJO del overlay (no se ve)
+        _revelar()                           # revelar la ventana ya cubierta: sin destello ni módulo previo
+        if ov is None:
+            return
+        ov.raise_()                          # asegurar que sigue por encima tras el cambio de página
+        a = QPropertyAnimation(ov, b"pos", ov)
+        a.setDuration(int(duracion))
+        a.setStartValue(QPoint(0, 0))
+        a.setEndValue(QPoint(ov.width(), 0))
+        a.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        a.finished.connect(ov.deleteLater)
+        a.start()
+        ov._a = a                            # evita el GC de la animación
+    except Exception as e:
+        logger.debug("deslizar_entrada_modulo: %s", e)
+        _cubrir()
+        _revelar()
+
+
 def instalar_transicion_tabs(tabs, duracion: int = _DUR):
     """Instala la transición de deslizamiento en un QTabWidget (cambio de sub-pestaña). Idempotente."""
     try:

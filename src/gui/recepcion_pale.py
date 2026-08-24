@@ -3581,7 +3581,10 @@ class RecepcionPaleWindow(QWidget):
 
         self.setup_ui()
         self.conectar_eventos_paginas()
-        self.showMaximized()
+        # NO se auto-muestra aquí: quien abre el módulo (menu_principal.manejar_apertura) lo muestra a
+        # pantalla completa (frameless + opacidad 0 → revelado tras la animación de deslizamiento). Un
+        # showMaximized() propio en __init__ haría aparecer la ventana DURANTE la construcción (antes de
+        # poder ocultarla) → parpadeo al entrar al módulo.
 
         # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
         try:

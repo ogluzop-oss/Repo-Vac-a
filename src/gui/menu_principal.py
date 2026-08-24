@@ -1863,9 +1863,26 @@ class MenuPrincipal(QWidget):
             instalar_transiciones_en(tpv)
         except Exception:
             pass
+        # Instantánea del menú para la animación de deslizamiento de entrada (con el menú aún visible).
+        try:
+            _snap_menu = self.grab()
+        except Exception:
+            _snap_menu = None
         smart_app.addWidget(tpv)
-        self.hide()
-        smart_app.setCurrentWidget(tpv)
+        # Deslizamiento de ENTRADA al TPV: la instantánea del menú se coloca sobre el stack, el cambio de
+        # página menú→TPV ocurre DEBAJO (al_cubrir, no se ve el TPV aparecer) y la instantánea se desliza a
+        # la derecha revelando el TPV. Sin destello ni TPV previo.
+        try:
+            from src.gui.transiciones import deslizar_entrada_modulo
+            deslizar_entrada_modulo(
+                _snap_menu, smart_app,
+                al_cubrir=lambda: smart_app.setCurrentWidget(tpv))
+        except Exception:
+            try:
+                smart_app.setCurrentWidget(tpv)
+            except Exception:
+                pass
+        self.hide()   # el menú ya no es la página actual del stack; ocultarlo es invisible
 
     def manejar_apertura(self, identificador, clase_ventana, **kwargs):
         # Gate SaaS (P0.1/P0.3): el plan y el estado de pago restringen el acceso a módulos.
@@ -1903,7 +1920,15 @@ class MenuPrincipal(QWidget):
                     except Exception:
                         pass
 
-            self.hide()
+            # Instantánea del menú para la animación de deslizamiento de entrada al módulo (el menú se
+            # desliza hacia la derecha dejando ver el módulo). Best-effort. IMPORTANTE: el menú NO se
+            # oculta todavía — se mantiene visible DEBAJO mientras se construye y revela el módulo, para
+            # que no haya parpadeo del fondo durante la construcción; se ocultará tras revelar el módulo.
+            try:
+                _snap_menu = self.grab()
+            except Exception:
+                _snap_menu = None
+
             kwargs["main"] = self
 
             nueva_v = clase_ventana(**kwargs)
@@ -1916,12 +1941,44 @@ class MenuPrincipal(QWidget):
             except Exception:
                 pass
 
+            # Pantalla completa SIN barra de título de Windows (como el menú principal): frameless. Y, como
+            # ese método, se FIJA la geometría al área de trabajo ANTES de mostrar, para que la ventana sin
+            # marco no DESTELLE a tamaño pequeño mientras se crea y se maximiza (era el flash residual).
+            try:
+                nueva_v.setWindowFlags(nueva_v.windowFlags() | Qt.WindowType.FramelessWindowHint)
+            except Exception:
+                pass
+            # Se muestra INVISIBLE (opacidad 0) para evitar el destello de la ventana nativa recién creada y
+            # que se vea el módulo antes de la animación; el helper lo revela ya cubierto por la instantánea
+            # del menú y entonces lo desliza. Best-effort (si falla, se revela igualmente).
+            try:
+                nueva_v.setWindowOpacity(0.0)
+                _scr = nueva_v.screen() or QApplication.primaryScreen()
+                if _scr is not None:
+                    nueva_v.setGeometry(_scr.availableGeometry())
+            except Exception:
+                pass
             if hasattr(nueva_v, "showMaximized"):
                 nueva_v.showMaximized()
             else:
                 nueva_v.show()
 
             QApplication.processEvents()
+
+            # Animación de deslizamiento de ENTRADA: el menú (instantánea) sale por la derecha y deja ver
+            # el módulo. Revela la ventana (opacity=1) una vez cubierta → sin destello ni módulo previo.
+            try:
+                from src.gui.transiciones import deslizar_entrada_modulo
+                deslizar_entrada_modulo(_snap_menu, nueva_v, revelar=nueva_v)
+            except Exception:
+                try:
+                    nueva_v.setWindowOpacity(1.0)
+                except Exception:
+                    pass
+
+            # Ahora que el módulo ya está mostrado, revelado y cubriendo la pantalla, se oculta el menú
+            # (queda DETRÁS del módulo, así ocultarlo es invisible y no hay parpadeo del fondo).
+            self.hide()
 
             if identificador == "ubicacion" and hasattr(
                 nueva_v, "_forzar_reencuadre_diferido"
