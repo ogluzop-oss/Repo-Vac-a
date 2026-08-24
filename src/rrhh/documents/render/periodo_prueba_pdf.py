@@ -93,8 +93,6 @@ def generar_periodo_prueba_pdf(datos: dict, ruta: str = None) -> str:
     story.append(Spacer(1, 3 * mm))
 
     story += [
-        E.seccion("Liquidación", usable_w, sty), Spacer(1, 1.5 * mm),
-        E.grid_datos(LIQUIDACION_CAMPOS, datos, usable_w, sty), Spacer(1, 3 * mm),
         E.seccion("Devolución de bienes de la empresa", usable_w, sty), Spacer(1, 1.5 * mm),
         E.grid_datos(BIENES_CAMPOS, datos, usable_w, sty), Spacer(1, 5 * mm),
     ]

@@ -645,7 +645,6 @@ class RRHHWindow(QWidget):
         from src.rrhh.documents.render import alta_pdf as A
 
         secciones = [
-            ("Datos de la empresa", A.EMPRESA_CAMPOS),
             ("Datos del trabajador/a", A.TRABAJADOR_CAMPOS),
             ("Datos del contrato", A.CONTRATO_CAMPOS),
             ("Funciones", [A.FUNCIONES_CAMPO]),
@@ -657,7 +656,8 @@ class RRHHWindow(QWidget):
 
         return DocumentoInlineForm(self._id_empresa, secciones, A.generar_alta_pdf,
                                    tipo_doc="alta", autollenar_fn=_autollenar,
-                                   campos_grandes=("funciones",), parent=parent)
+                                   campos_grandes=("funciones",),
+                                   campos_empresa=A.EMPRESA_CAMPOS, parent=parent)
 
     def _form_baja(self, parent):
         """Formulario inline de BAJA LABORAL (genérico) con desplegable de tipo y autocompletado."""
@@ -665,7 +665,6 @@ class RRHHWindow(QWidget):
         from src.rrhh.documents.render import baja_pdf as B
 
         secciones = [
-            ("Datos de la empresa", B.EMPRESA_CAMPOS),
             ("Datos del trabajador/a", B.TRABAJADOR_CAMPOS),
             ("Datos de la baja", B.BAJA_CAMPOS),
             ("Gestión de la empresa", B.GESTION_CAMPOS + [B.OBSERVACIONES_CAMPO]),
@@ -677,7 +676,8 @@ class RRHHWindow(QWidget):
         return DocumentoInlineForm(self._id_empresa, secciones, B.generar_baja_pdf,
                                    tipo_doc="baja", autollenar_fn=_autollenar,
                                    campos_grandes=("observaciones",),
-                                   campos_combo={"tipo_baja": B.TIPOS_BAJA}, parent=parent)
+                                   campos_combo={"tipo_baja": B.TIPOS_BAJA},
+                                   campos_empresa=B.EMPRESA_CAMPOS, parent=parent)
 
     def _form_finiquito(self, parent):
         """Formulario inline de FINIQUITO (genérico): datos + conceptos con importe; el PDF calcula
@@ -686,7 +686,6 @@ class RRHHWindow(QWidget):
         from src.rrhh.documents.render import finiquito_pdf as F
 
         secciones = [
-            ("Datos de la empresa", F.EMPRESA_CAMPOS),
             ("Datos del trabajador/a", F.TRABAJADOR_CAMPOS),
             ("Extinción de la relación laboral", F.EXTINCION_CAMPOS),
             ("Detalle de conceptos (días/unidades)", F.DETALLE_CAMPOS),
@@ -702,7 +701,8 @@ class RRHHWindow(QWidget):
             self._id_empresa, secciones, F.generar_finiquito_pdf, tipo_doc="finiquito",
             autollenar_fn=_autollenar,
             campos_combo={"motivo_extincion": F.MOTIVOS, "tipo_despido": F.TIPOS_DESPIDO,
-                          "declaracion": F.DECLARACION}, parent=parent)
+                          "declaracion": F.DECLARACION},
+            campos_empresa=F.EMPRESA_CAMPOS, parent=parent)
 
     def _form_cert_empresa(self, parent):
         """Formulario inline del CERTIFICADO DE EMPRESA (SEPE) con tabla mensual de bases de cotización."""
@@ -710,7 +710,6 @@ class RRHHWindow(QWidget):
         from src.rrhh.documents.render import certificado_empresa_pdf as C
 
         secciones = [
-            ("Datos de la empresa", C.EMPRESA_CAMPOS),
             ("Datos del trabajador/a", C.TRABAJADOR_CAMPOS),
             ("Relación laboral", C.RELACION_CAMPOS),
             ("Bases de cotización (relación mensual — hasta 6 meses)",
@@ -725,7 +724,8 @@ class RRHHWindow(QWidget):
         return DocumentoInlineForm(
             self._id_empresa, secciones, C.generar_certificado_empresa_pdf,
             tipo_doc="certificado_empresa", autollenar_fn=_autollenar,
-            campos_combo={"motivo_baja": C.MOTIVOS_BAJA, "causa_cese": C.CAUSAS_CESE}, parent=parent)
+            campos_combo={"motivo_baja": C.MOTIVOS_BAJA, "causa_cese": C.CAUSAS_CESE},
+            campos_empresa=C.EMPRESA_CAMPOS, parent=parent)
 
     def _form_cert_laboral(self, parent):
         """Formulario inline del CERTIFICADO LABORAL (genérico) con funciones multilínea y finalidad."""
@@ -733,7 +733,6 @@ class RRHHWindow(QWidget):
         from src.rrhh.documents.render import cert_laboral_pdf as L
 
         secciones = [
-            ("Datos de la empresa", L.EMPRESA_CAMPOS),
             ("Datos del trabajador/a", L.TRABAJADOR_CAMPOS),
             ("Contenido del certificado", L.CONTENIDO_CAMPOS + [L.FUNCIONES_CAMPO]),
             ("Finalidad", [L.FINALIDAD_CAMPO]),
@@ -748,7 +747,8 @@ class RRHHWindow(QWidget):
         return DocumentoInlineForm(
             self._id_empresa, secciones, L.generar_cert_laboral_pdf, tipo_doc="certificado_laboral",
             autollenar_fn=_autollenar, campos_grandes=("funciones",),
-            campos_combo={"finalidad": L.FINALIDADES}, parent=parent)
+            campos_combo={"finalidad": L.FINALIDADES},
+            campos_empresa=L.EMPRESA_CAMPOS, parent=parent)
 
     def _form_carta_despido(self, parent):
         """Formulario inline de la CARTA DE DESPIDO (genérico) con relato de hechos y firmas."""
@@ -756,7 +756,6 @@ class RRHHWindow(QWidget):
         from src.rrhh.documents.render import carta_despido_pdf as D
 
         secciones = [
-            ("Datos de la empresa", D.EMPRESA_CAMPOS),
             ("Datos del trabajador/a", D.TRABAJADOR_CAMPOS),
             ("Encabezado", D.ENCABEZADO_CAMPOS),
             ("Datos laborales", D.DATOS_LABORALES_CAMPOS),
@@ -773,7 +772,7 @@ class RRHHWindow(QWidget):
             self._id_empresa, secciones, D.generar_carta_despido_pdf, tipo_doc="carta_despido",
             autollenar_fn=_autollenar, campos_grandes=("hechos",),
             campos_combo={"tipo_despido": D.TIPOS_DESPIDO, "recibi_estado": D.RECIBI_ESTADOS},
-            parent=parent)
+            campos_empresa=D.EMPRESA_CAMPOS, parent=parent)
 
     def _form_periodo_prueba(self, parent):
         """Formulario inline de la CARTA DE NO SUPERACIÓN DEL PERÍODO DE PRUEBA (art. 14 ET)."""
@@ -781,12 +780,10 @@ class RRHHWindow(QWidget):
         from src.rrhh.documents.render import periodo_prueba_pdf as P
 
         secciones = [
-            ("Datos de la empresa", P.EMPRESA_CAMPOS),
             ("Datos del trabajador/a", P.TRABAJADOR_CAMPOS),
             ("Datos del contrato", P.CONTRATO_CAMPOS),
             ("Comunicación", P.COMUNICACION_CAMPOS),
             ("Explicación (opcional — no obligatoria en período de prueba)", [P.EXPLICACION_CAMPO]),
-            ("Liquidación", P.LIQUIDACION_CAMPOS),
             ("Devolución de bienes de la empresa", P.BIENES_CAMPOS),
             ("Firmas", [("recibi_estado", "Estado del recibí"),
                         ("representante_empresa", "Representante de la empresa"),
@@ -801,7 +798,7 @@ class RRHHWindow(QWidget):
             self._id_empresa, secciones, P.generar_periodo_prueba_pdf, tipo_doc="periodo_prueba",
             autollenar_fn=_autollenar, campos_grandes=("explicacion",),
             campos_combo={"recibi_estado": P.RECIBI_ESTADOS, **bienes_combo},
-            parent=parent)
+            campos_empresa=P.EMPRESA_CAMPOS, parent=parent)
 
     def _autollenar_maestros(self, emp, setter):
         """Autocompleta cualquier documento desde la capa de datos MAESTROS unificada

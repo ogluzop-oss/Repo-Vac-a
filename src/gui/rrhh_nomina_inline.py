@@ -68,8 +68,8 @@ class NominaInlineForm(QWidget):
         # Las cabeceras de sección llevan su propio estilo (prevalece sobre esta regla de contenedor).
         cont.setStyleSheet(_INP_SS + f"QLabel{{{_LBL_SS}}}")
 
-        self._seccion("Datos de la empresa")
-        self._grid_texto(EMPRESA_CAMPOS)
+        # Los DATOS DE EMPRESA ya no se piden aquí: se inyectan automáticamente al recoger, desde
+        # "Datos de empresa" (Configuración). Ver `_empresa_valores`.
         self._seccion("Datos del trabajador/a")
         self._grid_texto(TRABAJADOR_CAMPOS)
         self._seccion("Período de liquidación")
@@ -182,23 +182,8 @@ class NominaInlineForm(QWidget):
         self._autollenar(emp)
 
     def _autollenar(self, emp):
-        # Empresa (datos corporativos).
-        try:
-            from src.db.empresa import datos_corporativos
-            dc = datos_corporativos(self._id_empresa()) or {}
-        except Exception:
-            dc = {}
-        mapa_emp = {
-            "razon_social": dc.get("razon_social") or dc.get("nombre"),
-            "nombre_comercial": dc.get("nombre_comercial"), "cif": dc.get("cif"),
-            "ccc": dc.get("ccc"), "domicilio": dc.get("direccion_fiscal") or dc.get("direccion"),
-            "cp": dc.get("cp"), "municipio": dc.get("municipio"), "provincia": dc.get("provincia"),
-            "telefono": dc.get("telefono"), "email": dc.get("email") or dc.get("email_principal"),
-            "cnae": dc.get("cnae"), "convenio": dc.get("convenio_colectivo") or dc.get("convenio"),
-        }
-        for k, v in mapa_emp.items():
-            if v:
-                self._set(k, v)
+        # Los datos de EMPRESA ya no se muestran en el formulario: se inyectan al recoger
+        # (`_empresa_valores`). Aquí solo se autocompleta al trabajador y su contrato.
         # Trabajador.
         apellidos = (emp.get("apellidos") or "").split()
         mapa_trab = {
@@ -231,7 +216,19 @@ class NominaInlineForm(QWidget):
             logger.debug("nomina contrato maestro: %s", e)
 
     def _recoger(self) -> dict:
-        return {k: (w.text().strip() if isinstance(w, QLineEdit) else "") for k, w in self._inputs.items()}
+        datos = {k: (w.text().strip() if isinstance(w, QLineEdit) else "") for k, w in self._inputs.items()}
+        datos.update(self._empresa_valores())     # datos de empresa inyectados automáticamente
+        return datos
+
+    def _empresa_valores(self) -> dict:
+        """Datos de EMPRESA resueltos desde 'Datos de empresa' (Configuración) para las claves de
+        `EMPRESA_CAMPOS`. Fuente única = capa de maestros (`entidad_empresa`)."""
+        try:
+            from src.rrhh import maestros
+            emp = maestros.entidad_empresa(self._id_empresa()) or {}
+        except Exception as e:
+            logger.debug("nomina empresa_valores: %s", e); emp = {}
+        return {k: (emp.get(k) or "") for k, _ in EMPRESA_CAMPOS}
 
     # ── Acciones ──────────────────────────────────────────────────────────────
     def _calcular(self):

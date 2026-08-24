@@ -32,7 +32,8 @@ _CB_SS = _INP_SS.replace("font-size:15px", "font-size:14px")
 
 class DocumentoInlineForm(QWidget):
     def __init__(self, id_empresa_getter, secciones, generar_fn, *, tipo_doc="documento",
-                 autollenar_fn=None, campos_grandes=(), campos_combo=None, parent=None):
+                 autollenar_fn=None, campos_grandes=(), campos_combo=None, campos_empresa=None,
+                 parent=None):
         super().__init__(parent)
         self._id_empresa = id_empresa_getter
         self._secciones = secciones
@@ -41,6 +42,9 @@ class DocumentoInlineForm(QWidget):
         self._autollenar_fn = autollenar_fn
         self._campos_grandes = set(campos_grandes or ())
         self._campos_combo = dict(campos_combo or {})   # clave → [opciones]
+        # Datos de EMPRESA que ya NO se piden en el formulario: se inyectan automáticamente al
+        # generar, tomándolos de "Datos de empresa" (Configuración) vía la capa de maestros.
+        self._campos_empresa = list(campos_empresa or ())
         self._inputs = {}
         self._tablas = {}                                # clave → (QTableWidget, columnas)
         self._empleados = []
@@ -130,22 +134,32 @@ class DocumentoInlineForm(QWidget):
         self._form_ly.addWidget(holder)
 
     def _tabla_widget(self, clave, columnas, n_filas):
-        """Tabla editable (p.ej. bases de cotización mensuales). `columnas`=[(subclave,label),...]."""
-        tw = QTableWidget(n_filas, len(columnas))
+        """Tabla editable (p.ej. bases de cotización mensuales) con el estilo ESTÁNDAR del software:
+        contenedor con borde neón + esquinas redondeadas y cabecera con esquinas redondeadas + hover
+        swap (misma plantilla que el resto de tablas). `columnas`=[(subclave,label),...]."""
+        from assets.estilo_global import construir_tabla_estilizada
+        contenedor, tw = construir_tabla_estilizada(self)
+        if contenedor is None:                       # entorno sin Qt gráfico: degradación segura
+            tw = QTableWidget(n_filas, len(columnas)); contenedor = tw
+        tw.setRowCount(n_filas); tw.setColumnCount(len(columnas))
         tw.setHorizontalHeaderLabels([lbl for _, lbl in columnas])
         tw.verticalHeader().setVisible(False)
-        tw.setFixedHeight(min(n_filas, 8) * 34 + 34)
+        tw.setShowGrid(True)                         # rejilla visible: es una tabla de entrada de datos
         tw.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        tw.setStyleSheet(
-            f"QTableWidget{{background:{COLOR_FONDO_WIDGET};color:#FFF;gridline-color:{COLOR_BORDE};"
-            f"border:1px solid {COLOR_BORDE};border-radius:8px;font-family:'Segoe UI';font-size:15px;}}"
-            f"QHeaderView::section{{background:{COLOR_FONDO_WIDGET};color:{COLOR_CIAN};font-weight:bold;"
-            f"border:none;border-bottom:1px solid {COLOR_BORDE};padding:6px;}}")
+        # Cabecera estándar: esquinas superiores redondeadas + intercambio de color al pasar el ratón.
+        tw.horizontalHeader().setStyleSheet(
+            "QHeaderView{background-color:transparent;border:none;}"
+            f"QHeaderView::section{{background-color:#1A1D23;color:{COLOR_CIAN};border:none;"
+            "padding:10px;font-weight:bold;}"
+            f"QHeaderView::section:hover{{background-color:{COLOR_CIAN};color:#0E1117;}}"
+            "QHeaderView::section:first{border-top-left-radius:18px;}"
+            "QHeaderView::section:last{border-top-right-radius:18px;}")
+        contenedor.setFixedHeight(min(n_filas, 8) * 34 + 46)
         for r in range(n_filas):
             for c in range(len(columnas)):
                 tw.setItem(r, c, QTableWidgetItem(""))
         self._tablas[clave] = (tw, columnas)
-        self._form_ly.addWidget(tw)
+        self._form_ly.addWidget(contenedor)
 
     # ── Datos ─────────────────────────────────────────────────────────────────
     def _set(self, clave, valor):
@@ -184,7 +198,20 @@ class DocumentoInlineForm(QWidget):
                 if not vacia:
                     filas.append(fila)
             datos[clave] = filas
+        datos.update(self._empresa_valores())     # datos de empresa inyectados automáticamente
         return datos
+
+    def _empresa_valores(self) -> dict:
+        """Resuelve los datos de EMPRESA desde 'Datos de empresa' (Configuración) para las claves que
+        antes pedía la sección 'Datos de la empresa'. Fuente única = capa de maestros (`entidad_empresa`)."""
+        if not self._campos_empresa:
+            return {}
+        try:
+            from src.rrhh import maestros
+            emp = maestros.entidad_empresa(self._id_empresa()) or {}
+        except Exception as e:
+            logger.debug("empresa_valores: %s", e); emp = {}
+        return {k: (emp.get(k) or "") for k, _ in self._campos_empresa}
 
     def _cargar_empleados(self):
         try:
