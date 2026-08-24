@@ -626,8 +626,10 @@ def obtener_fichaje_abierto(usuario_id: int) -> dict | None:
 def registrar_entrada(usuario_id: int, nombre: str) -> int | None:
     """Crea un registro de fichaje y devuelve su ID."""
     try:
-        from src.db.empresa import empresa_actual_id, tienda_actual_id
-        _emp, _tnd = empresa_actual_id(), tienda_actual_id()
+        # id_tienda es INT: se coacciona el contexto (que puede ser alfanumérico, p. ej. 'ALMC' = almacén
+        # central) a entero con el helper oficial; si no es numérico → 0. Evita el DataError 1366 al insertar.
+        from src.db.empresa import empresa_actual_id, tienda_actual_id_int
+        _emp, _tnd = empresa_actual_id(), tienda_actual_id_int()
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 cur.execute(
