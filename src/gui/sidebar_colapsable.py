@@ -84,19 +84,47 @@ def instalar_sidebar_colapsable(ventana, sidebar, *, usuario=None, clave=None, m
             "QToolButton:checked{background:%s;color:#0B1118;}" % (_CIAN, _CIAN, _CIAN, _CIAN)
         )
 
-        # La flecha de colapso ocupa la esquina superior-derecha (y=[margen, margen+34]). Para que NO tape
-        # el título de la sidebar —sobre todo los largos, p. ej. "SMART ACCOUNTING"— se baja TODO el
-        # contenido (título incluido) por debajo de la flecha subiendo el margen superior del layout. Es
-        # universal: aplica a la sidebar de CUALQUIER módulo que use este colapsable.
+        # SCROLL + título bajo la flecha (UNIVERSAL para toda sidebar que use este colapsable):
+        #   · El contenido de la sidebar (título + botones) puede DESBORDAR en vertical (módulos con muchas
+        #     secciones), cortando el último botón (p. ej. "SALIR AL MENÚ"). Se envuelve TODO el contenido
+        #     en un QScrollArea con la scrollbar ESTÁNDAR del software (turquesa, extremos redondeados) para
+        #     que nada quede cortado.
+        #   · La flecha de colapso ocupa la esquina superior-derecha (y=[margen, margen+34]); se baja el
+        #     contenido (título incluido) por debajo subiendo el margen superior del layout interior, para
+        #     que la flecha no tape títulos largos (p. ej. "SMART ACCOUNTING").
         try:
-            _lay = sidebar.layout()
-            if _lay is not None:
-                _m = _lay.contentsMargins()
-                _hueco = margen + btn.height() + 10   # flecha (margen + alto) + separación
+            from PyQt6.QtWidgets import QScrollArea, QVBoxLayout
+            from src.gui.foundation.tokens import qss_scrollbar
+            _old = sidebar.layout()
+            if _old is not None and not getattr(sidebar, "_sb_scroll_hecho", False):
+                # 1) Mover el layout existente (título + botones) a un widget de CONTENIDO.
+                _content = QWidget()
+                _content.setObjectName("sb_scroll_content")
+                _content.setStyleSheet("#sb_scroll_content{background:transparent;}")
+                _content.setLayout(_old)
+                # 2) Bajar el contenido por debajo de la flecha (margen superior del layout interior).
+                _m = _old.contentsMargins()
+                _hueco = margen + btn.height() + 10
                 if _m.top() < _hueco:
-                    _lay.setContentsMargins(_m.left(), _hueco, _m.right(), _m.bottom())
-        except Exception:
-            pass
+                    _old.setContentsMargins(_m.left(), _hueco, _m.right(), _m.bottom())
+                # 3) QScrollArea con la scrollbar ESTÁNDAR (idéntica al resto del software).
+                _scroll = QScrollArea(sidebar)
+                _scroll.setObjectName("sb_scroll")
+                _scroll.setWidgetResizable(True)          # el contenido llena el ancho y empuja el stretch
+                _scroll.setWidget(_content)
+                _scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+                _scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                _scroll.setStyleSheet("QScrollArea#sb_scroll{background:transparent;border:none;}"
+                                      + qss_scrollbar())
+                _scroll.viewport().setStyleSheet("background:transparent;")
+                # 4) Nuevo layout en la sidebar con solo el scroll (el hueco del título ya va dentro).
+                _outer = QVBoxLayout(sidebar)
+                _outer.setContentsMargins(0, 0, 0, 0)
+                _outer.setSpacing(0)
+                _outer.addWidget(_scroll)
+                sidebar._sb_scroll_hecho = True
+        except Exception as e:
+            logger.debug("scroll sidebar: %s", e)
 
         estado = {"colapsado": False}
 
