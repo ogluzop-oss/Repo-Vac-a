@@ -84,6 +84,20 @@ def instalar_sidebar_colapsable(ventana, sidebar, *, usuario=None, clave=None, m
             "QToolButton:checked{background:%s;color:#0B1118;}" % (_CIAN, _CIAN, _CIAN, _CIAN)
         )
 
+        # La flecha de colapso ocupa la esquina superior-derecha (y=[margen, margen+34]). Para que NO tape
+        # el título de la sidebar —sobre todo los largos, p. ej. "SMART ACCOUNTING"— se baja TODO el
+        # contenido (título incluido) por debajo de la flecha subiendo el margen superior del layout. Es
+        # universal: aplica a la sidebar de CUALQUIER módulo que use este colapsable.
+        try:
+            _lay = sidebar.layout()
+            if _lay is not None:
+                _m = _lay.contentsMargins()
+                _hueco = margen + btn.height() + 10   # flecha (margen + alto) + separación
+                if _m.top() < _hueco:
+                    _lay.setContentsMargins(_m.left(), _hueco, _m.right(), _m.bottom())
+        except Exception:
+            pass
+
         estado = {"colapsado": False}
 
         def _hijos_contenido():

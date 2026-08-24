@@ -114,7 +114,7 @@ class ContabilidadWindow(QWidget):
         return cab
 
     def _sidebar(self):
-        wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(230); self.sidebar = wrap  # P3
+        wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(280); self.sidebar = wrap  # P3 (280: cabe "SMART ACCOUNTING")
         wrap.setStyleSheet(f"#sw{{background:{_SIDEBAR};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
         cab = QLabel("SMART ACCOUNTING")   # título de marca de la sidebar (igual en todos los idiomas)
@@ -532,11 +532,35 @@ class ContabilidadWindow(QWidget):
     # ── Cierres ──────────────────────────────────────────────────────────────
     def _page_cierres(self):
         w = QWidget(); ly = QVBoxLayout(w); ly.setContentsMargins(0, 0, 0, 0); ly.setSpacing(14)
-        ly.addWidget(QLabel(tr("contab.cierres", default="Cierres y posting")))
-        ly.addWidget(_btn(tr("contab.procesar", default="PROCESAR POSTING PENDIENTE"), self._procesar, primary=True))
-        ly.addWidget(_btn(tr("contab.cerrar_ej", default=f"CERRAR EJERCICIO {self.anio}"), self._cerrar))
-        ly.addStretch(1)
+        ly.addWidget(QLabel(tr("contab.cierres", default="Cierres y contabilización")))
+        # Dos botones MEDIANOS con forma de rectángulo VERTICAL (esquinas redondeadas + hover swap),
+        # centrados en el medio de la pestaña.
+        ly.addStretch(2)
+        fila = QHBoxLayout(); fila.setSpacing(30)
+        fila.addStretch(1)
+        fila.addWidget(self._boton_cierre(
+            tr("contab.procesar", default="PROCESAR\nCONTABILIZACIÓN\nPENDIENTE"), self._procesar))
+        fila.addWidget(self._boton_cierre(
+            tr("contab.cerrar_ej", default=f"CERRAR\nEJERCICIO\n{self.anio}"), self._cerrar))
+        fila.addStretch(1)
+        ly.addLayout(fila)
+        ly.addStretch(3)
         return w
+
+    def _boton_cierre(self, texto, slot):
+        """Botón rectangular vertical (mediano) con esquinas redondeadas y hover swap (relleno cian +
+        texto oscuro al pasar el ratón), para la pestaña Cierres."""
+        b = QPushButton(texto)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        b.setFixedSize(250, 300)   # rectángulo VERTICAL (más alto que ancho)
+        b.setStyleSheet(
+            f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};border-radius:22px;"
+            "font-family:'Segoe UI';font-weight:900;font-size:16px;letter-spacing:1px;padding:18px;}}"
+            f"QPushButton:hover{{background:{_CIAN};color:#0B1118;}}"          # hover swap
+            f"QPushButton:pressed{{background:{_CIAN};color:#0B1118;padding-top:20px;}}")
+        b.clicked.connect(slot)
+        return b
 
     def _procesar(self):
         res = Pg.procesar_cola()
