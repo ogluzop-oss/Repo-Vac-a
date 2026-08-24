@@ -51,8 +51,8 @@ class ResilienciaDashboardWindow(QWidget):
         self.tbl_breakers = _tabla(["Servicio", "Estado", "Fallos"])
         self.tbl_edge = _tabla(["Tienda", "Modo", "Pendientes", "Salud"])
         self.tabs.addTab(self.tbl_estado, "Estado")
-        self.tabs.addTab(self.tbl_breakers, "Circuit breakers")
-        self.tabs.addTab(self.tbl_edge, "Edge nodes")
+        self.tabs.addTab(self.tbl_breakers, "Cortacircuitos")
+        self.tabs.addTab(self.tbl_edge, "Nodos de borde")
         root.addWidget(self.tabs)
         self._load()
 

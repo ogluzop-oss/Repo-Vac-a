@@ -51,7 +51,7 @@ class BICorporativoWindow(QWidget):
         self.tbl_sec = _tabla(["Seccion", "Metrica", "Valor"])
         self.tbl_alert = _tabla(["Tipo", "Severidad", "Mensaje"])
         self.tbl_ia = _tabla(["Categoria", "Detalle"])
-        self.tabs.addTab(self.tbl_kpi, "KPIs estrategicos")
+        self.tabs.addTab(self.tbl_kpi, "Indicadores estratégicos")
         self.tabs.addTab(self.tbl_sec, "Secciones")
         self.tabs.addTab(self.tbl_alert, "Alertas")
         self.tabs.addTab(self.tbl_ia, "IA ejecutiva")

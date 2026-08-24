@@ -122,7 +122,7 @@ class SATDashboardWindow(QWidget):
             ("Cerrar", lambda: self._ticket_estado("cerrado"), False),
             ("Reabrir", lambda: self._ticket_estado("reabierto"), False),
             ("Comentar", self._comentar, False),
-            ("Registrar intervención", self._intervencion, False)]), "Tickets")
+            ("Registrar intervención", self._intervencion, False)]), "Incidencias")
         self.tabs.addTab(self._page(self.tbl_int, [
             ("Ver intervenciones del ticket seleccionado", self._ver_intervenciones, True)]),
             "Intervenciones")
@@ -146,7 +146,7 @@ class SATDashboardWindow(QWidget):
             logger.error("embed GMAO en Soporte Posventa: %s", e)
             self._gmao = None
 
-        self.tabs.addTab(self.tbl_kpi, "KPIs")   # unificados (SAT + GMAO)
+        self.tabs.addTab(self.tbl_kpi, "Indicadores")   # unificados (SAT + GMAO)
         root.addWidget(self.tabs)
         self._load()
 

@@ -399,7 +399,7 @@ class RRHHWindow(QWidget):
         wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(280); self.sidebar = wrap
         wrap.setStyleSheet(f"#sw{{background:{_SIDEBAR};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
-        cab = QLabel("RRHH · LABORAL")
+        cab = QLabel("SMART RRHH")   # título de marca de la sidebar (igual en todos los idiomas)
         cab.setStyleSheet("color:#FFFFFF;padding:0 0 24px 28px;font-size:16px;font-weight:900;"
                           "letter-spacing:2px;background:transparent;")
         lay.addWidget(cab)

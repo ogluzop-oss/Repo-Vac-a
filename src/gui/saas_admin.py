@@ -130,7 +130,7 @@ class SaaSAdminWindow(QWidget):
         lay.addLayout(bar)
         self.tbl_crm_saas = _tabla(["Fase", "Nº"])
         lay.addWidget(self.tbl_crm_saas)
-        self.tabs.addTab(w, "CRM SaaS (funnel)")
+        self.tabs.addTab(w, "CRM SaaS (embudo)")
         self._load_crm_saas()
 
     def _load_crm_saas(self):
@@ -181,7 +181,7 @@ class SaaSAdminWindow(QWidget):
         lay.addWidget(self.lbl_metrics)
         self.tbl_tenants = _tabla(["Empresa", "Plan", "Estado", "Próx. cobro"])
         lay.addWidget(self.tbl_tenants)
-        self.tabs.addTab(w, "Tenants (plataforma)")
+        self.tabs.addTab(w, "Empresas (plataforma)")
         self._load_tenants()
 
     def _load_tenants(self):

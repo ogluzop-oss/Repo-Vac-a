@@ -183,7 +183,7 @@ class CamarasWindow(QWidget):
     def _sidebar(self):
         w = QFrame(); w.setFixedWidth(280); w.setStyleSheet(f"background:{_BG2};")
         ly = QVBoxLayout(w); ly.setContentsMargins(14, 18, 14, 14); ly.setSpacing(10)
-        t = QLabel("CÁMARAS"); t.setStyleSheet(f"color:{_TEXT};font-weight:900;letter-spacing:2px;")
+        t = QLabel("CÁMARAS"); t.setStyleSheet(f"color:{_TEXT};font-size:16px;font-weight:900;letter-spacing:2px;")
         ly.addWidget(t)
         self.cb_dep = QComboBox()
         self.cb_dep.setStyleSheet(f"QComboBox{{background:{_BG};color:{_TEXT};border:1px solid {_BORDE};"

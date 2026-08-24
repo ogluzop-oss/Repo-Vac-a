@@ -3608,7 +3608,7 @@ class RecepcionPaleWindow(QWidget):
         side_ly.setContentsMargins(0, 40, 0, 20)
         side_ly.setSpacing(0)
 
-        lbl_m = QLabel(tr("recep.logistica", default="LOGÍSTICA"))
+        lbl_m = QLabel("SMART LOGISTICS")   # título de marca de la sidebar (igual en todos los idiomas)
         lbl_m.setObjectName("sidebar_title")
         side_ly.addWidget(lbl_m)
 

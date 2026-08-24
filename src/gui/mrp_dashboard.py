@@ -123,10 +123,10 @@ class MRPDashboardWindow(QWidget):
         self.tbl_kpi = _tabla(["KPI", "Valor"])
         self.tabs.addTab(of_page, "Órdenes de Fabricación")
         self.tabs.addTab(self.tbl_sug, "Sugerencias MRP")
-        self.tabs.addTab(self.tbl_kpi, "KPIs")
+        self.tabs.addTab(self.tbl_kpi, "Indicadores")
         # BOM (alta/listado de listas de materiales): integrado como pestaña del cuadro de mando para que
         # esté disponible allá donde se use MRPDashboardWindow (p. ej. Almacenes · Operaciones → MRP).
-        self.tabs.addTab(BOMWindow(usuario=self.usuario, main=main), "BOM")
+        self.tabs.addTab(BOMWindow(usuario=self.usuario, main=main), "Lista de materiales")
         root.addWidget(self.tabs)
         self._load()
 

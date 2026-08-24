@@ -102,7 +102,7 @@ class AlmacenesWindow(QWidget):
     # ── Slotting inteligente + rutas de picking (WMS, sin coste externo) ───────
     def _tab_slotting(self):
         w = QWidget(); ly = QVBoxLayout(w)
-        ly.addWidget(QLabel("Slotting inteligente — coloca los productos de más rotación en las "
+        ly.addWidget(QLabel("Distribución inteligente — coloca los productos de más rotación en las "
                             "ubicaciones más accesibles"))
         bar = QHBoxLayout()
         bar.addWidget(_btn("🔎 Analizar", self._slotting_analizar, primary=True))
@@ -114,15 +114,15 @@ class AlmacenesWindow(QWidget):
         self.tbl_slot = _tabla(["Producto", "Clase", "Rotación", "Ubicación actual",
                                 "→ Intercambiar con", "Ubicación sugerida"])
         ly.addWidget(self.tbl_slot)
-        ly.addWidget(QLabel("Ruta óptima de picking (recorrido serpentín)"))
+        ly.addWidget(QLabel("Ruta óptima de preparación (recorrido serpentín)"))
         bar2 = QHBoxLayout()
         self.cmb_pick = _combo([]); self.cmb_pick.setMinimumWidth(240)
-        bar2.addWidget(QLabel("Picking:")); bar2.addWidget(self.cmb_pick)
+        bar2.addWidget(QLabel("Preparación:")); bar2.addWidget(self.cmb_pick)
         bar2.addWidget(_btn("🧭 Ver ruta óptima", self._ruta_picking, primary=True)); bar2.addStretch()
         ly.addLayout(bar2)
         self.tbl_ruta = _tabla(["Orden", "Producto", "Cantidad", "Ubicación", "Pasillo"])
         ly.addWidget(self.tbl_ruta)
-        self.tabs.addTab(w, "Slotting / Rutas")
+        self.tabs.addTab(w, "Distribución / Rutas")
         self._cargar_pickings()
 
     def _slotting_analizar(self):

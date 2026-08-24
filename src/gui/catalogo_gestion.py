@@ -540,7 +540,7 @@ class CatalogoWindow(QWidget):
         wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(230); self.sidebar = wrap  # P3
         wrap.setStyleSheet(f"QFrame#sw{{background:{_SIDEBAR};border:none;border-right:1px solid {_BORDE};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
-        cab = QLabel(tr("cat.secciones", default="Smart Catalog"))
+        cab = QLabel("SMART CATALOG")   # título de marca de la sidebar (igual en todos los idiomas)
         cab.setStyleSheet(f"color:#FFFFFF;font-family:'{_FONT}';font-weight:900;font-size:16px;"
                           f"letter-spacing:2px;background:transparent;border:none;padding:0 0 24px 28px;")
         lay.addWidget(cab)

@@ -223,7 +223,7 @@ class SeguridadWindow(QWidget):
         lay.addLayout(bar)
         self.tbl_acl = _tabla(["Recurso", "ID", "Sujeto", "Sujeto ID", "Acción", "Permitido"])
         lay.addWidget(self.tbl_acl)
-        self.tabs.addTab(w, "ACL")
+        self.tabs.addTab(w, "Reglas de acceso")
         self._load_acl()
 
     def _load_acl(self):

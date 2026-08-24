@@ -117,7 +117,7 @@ class ContabilidadWindow(QWidget):
         wrap = QFrame(); wrap.setObjectName("sw"); wrap.setFixedWidth(230); self.sidebar = wrap  # P3
         wrap.setStyleSheet(f"#sw{{background:{_SIDEBAR};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
-        cab = QLabel(tr("contab.secciones", default="CONTABILIDAD"))
+        cab = QLabel("SMART ACCOUNTING")   # título de marca de la sidebar (igual en todos los idiomas)
         cab.setStyleSheet("color:#FFFFFF;padding:0 0 24px 28px;font-size:16px;font-weight:900;"
                           "letter-spacing:2px;background:transparent;")
         lay.addWidget(cab)

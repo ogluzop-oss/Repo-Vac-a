@@ -72,7 +72,7 @@ class CCPPanelDialog(QDialog):
                            f"QTabBar::tab:selected{{color:{_CIAN};border-bottom:2px solid {_CIAN};}}"
                            "QTabWidget::pane{border:none;}")
         tabs.addTab(self._tab_analitica(), "Analítica")
-        tabs.addTab(self._tab_timeline(), "Timeline")
+        tabs.addTab(self._tab_timeline(), "Cronología")
         tabs.addTab(self._tab_campanas(), "Campañas")
         root.addWidget(tabs, 1)
         b = QPushButton("Cerrar"); b.setFixedHeight(36); b.clicked.connect(self.accept)

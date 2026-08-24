@@ -2831,7 +2831,7 @@ class _VentaOnlineDialog(QDialog):
             f"<b>{disp['nombre']}</b>  ·  {divisas.formatear(disp['precio'])}<br>"
             + tr(
                 "online.disp_linea",
-                default="Tienda: {t}   ·   Central: {c}   ·   Otras tiendas: {o}   ·   Online: {n}",
+                default="Tienda: {t}   ·   Central: {c}   ·   Otras tiendas: {o}   ·   En línea: {n}",
                 t=disp["tienda"],
                 c=disp["central"],
                 o=otras,

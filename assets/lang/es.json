@@ -1751,7 +1751,7 @@
     "estado": "Estado del pedido",
     "crear": "CREAR PEDIDO",
     "no_art": "No se encontró el artículo «{c}».",
-    "disp_linea": "Tienda: {t}   ·   Central: {c}   ·   Otras tiendas: {o}   ·   Online: {n}",
+    "disp_linea": "Tienda: {t}   ·   Central: {c}   ·   Otras tiendas: {o}   ·   En línea: {n}",
     "consulta_primero": "Consulta primero un artículo.",
     "sin_lineas": "Añade al menos un artículo.",
     "sin_cliente": "Indica el nombre del cliente.",

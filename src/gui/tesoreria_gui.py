@@ -301,7 +301,7 @@ class TesoreriaWindow(QWidget):
                        "PSD2 opera en modo simulado (no descarga nada).")
         ayuda.setWordWrap(True); ayuda.setStyleSheet(f"color:{_DIM};")
         lay.addWidget(ayuda); lay.addStretch()
-        self.tabs.addTab(w, "Banca online")
+        self.tabs.addTab(w, "Banca en línea")
         self._banca_cargar_cuentas()
 
     def _banca_cargar_cuentas(self):
@@ -467,7 +467,7 @@ class TesoreriaWindow(QWidget):
         bar.addStretch(); bar.addWidget(self._btn_actualizar(self._load_cashflow)); lay.addLayout(bar)
         self.tbl_cf = _tabla(["Periodo", "Entradas", "Salidas", "Neto", "Acumulado"])
         lay.addWidget(self.tbl_cf)
-        self.tabs.addTab(w, "Cash Flow")
+        self.tabs.addTab(w, "Flujo de caja")
         self._load_cashflow()
 
     def _load_cashflow(self):

@@ -138,9 +138,9 @@ class CalidadDashboardWindow(QWidget):
                     ("En curso", lambda: self._capa_estado("en_curso"), True),
                     ("Cerrar (eficacia)", self._capa_cerrar, True),
                     ("Cancelar", lambda: self._capa_estado("cancelada"), True)]
-        self.tabs.addTab(self._page(self.tbl_capa, capa_bar), "CAPA")
+        self.tabs.addTab(self._page(self.tbl_capa, capa_bar), "Acciones correctivas")
         self.tabs.addTab(self.tbl_aud, "Auditorías")
-        self.tabs.addTab(self.tbl_kpi, "KPIs")
+        self.tabs.addTab(self.tbl_kpi, "Indicadores")
         root.addWidget(self.tabs)
         self._load()
 

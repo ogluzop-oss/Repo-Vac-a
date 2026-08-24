@@ -1544,7 +1544,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt_sidebar.setContentsMargins(0, 40, 0, 40)
         lyt_sidebar.setSpacing(5)
 
-        lbl_modulo = QLabel(tr("ubic.smart_logistics", default="Smart Location"))
+        lbl_modulo = QLabel("SMART LOCATION")   # título de marca de la sidebar (igual en todos los idiomas)
         lbl_modulo.setStyleSheet(
             "color: #ffffff; font-size: 16px; font-weight: 900; margin-left: 30px; "
             "margin-bottom: 35px; letter-spacing: 2px; border:none; background: transparent;"

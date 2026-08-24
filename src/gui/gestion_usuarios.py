@@ -3811,7 +3811,7 @@ class ConfiguracionWindow(QWidget):
 
         lbl_tit = QLabel(tr("cfg.smart_config", default="SMART CONFIG"))
         lbl_tit.setStyleSheet(
-            "color: white; font-weight: 900; font-size: 14px; margin: 30px; letter-spacing: 2px;"
+            "color: white; font-weight: 900; font-size: 16px; margin: 30px; letter-spacing: 2px;"
         )
         side_ly.addWidget(lbl_tit)
 
