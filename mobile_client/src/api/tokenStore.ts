@@ -1,14 +1,17 @@
 /**
- * Almacén de tokens JWT (access + refresh).
+ * Almacén SEGURO de tokens JWT (access + refresh).
  *
- * Para el MVP se persiste en AsyncStorage con una caché en memoria para lecturas síncronas
- * rápidas desde el cliente HTTP. En producción se recomienda migrar a almacenamiento seguro
- * (react-native-keychain / EncryptedSharedPreferences / Keychain de iOS) — ver README.
+ * Persiste en el Keychain nativo (Android Keystore / iOS Keychain) vía `react-native-keychain`, en
+ * vez de AsyncStorage en texto plano — cierre de la brecha de seguridad documentada en el README.
+ * Mantiene una caché en memoria para las lecturas SÍNCRONAS que necesita el cliente HTTP
+ * (`api/client.ts`) al construir la cabecera `Authorization` en cada petición; el Keychain solo se
+ * lee/escribe de forma asíncrona en `loadTokens`/`setTokens`/`clearTokens`. Misma API pública que la
+ * versión anterior: ningún otro módulo (`client.ts`, `AuthContext.tsx`) necesita cambios.
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Keychain from 'react-native-keychain';
 
-const K_ACCESS = 'sm.auth.access';
-const K_REFRESH = 'sm.auth.refresh';
+/** Namespacing del entry en el Keychain (no es un secreto, solo la clave de búsqueda). */
+const SERVICE = 'sm.auth.tokens';
 
 export interface TokenPair {
   access: string | null;
@@ -19,11 +22,14 @@ let _cache: TokenPair = {access: null, refresh: null};
 
 /** Carga los tokens persistidos a la caché en memoria (llamar al arrancar la app). */
 export async function loadTokens(): Promise<TokenPair> {
-  const [access, refresh] = await Promise.all([
-    AsyncStorage.getItem(K_ACCESS),
-    AsyncStorage.getItem(K_REFRESH),
-  ]);
-  _cache = {access, refresh};
+  try {
+    const cred = await Keychain.getGenericPassword({service: SERVICE});
+    _cache = cred ? (JSON.parse(cred.password) as TokenPair) : {access: null, refresh: null};
+  } catch {
+    // Keychain no disponible (p. ej. módulo nativo aún no enlazado en este build): arranca sin
+    // sesión persistida en vez de romper el arranque de la app.
+    _cache = {access: null, refresh: null};
+  }
   return _cache;
 }
 
@@ -31,26 +37,35 @@ export async function loadTokens(): Promise<TokenPair> {
 export async function setTokens(tokens: Partial<TokenPair>): Promise<void> {
   if (tokens.access !== undefined) {
     _cache.access = tokens.access;
-    if (tokens.access) {
-      await AsyncStorage.setItem(K_ACCESS, tokens.access);
-    } else {
-      await AsyncStorage.removeItem(K_ACCESS);
-    }
   }
   if (tokens.refresh !== undefined) {
     _cache.refresh = tokens.refresh;
-    if (tokens.refresh) {
-      await AsyncStorage.setItem(K_REFRESH, tokens.refresh);
+  }
+  try {
+    if (_cache.access || _cache.refresh) {
+      // El Keychain guarda un único blob por servicio: se persiste el par completo (no hay
+      // actualización parcial de campos), igual que antes con las dos claves de AsyncStorage.
+      await Keychain.setGenericPassword(SERVICE, JSON.stringify(_cache), {
+        service: SERVICE,
+        accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
+      });
     } else {
-      await AsyncStorage.removeItem(K_REFRESH);
+      await Keychain.resetGenericPassword({service: SERVICE});
     }
+  } catch {
+    // Degradación: la sesión sigue funcionando en memoria para esta ejecución de la app, aunque no
+    // sobreviva a un reinicio si el Keychain no está disponible.
   }
 }
 
 /** Borra ambos tokens (logout). */
 export async function clearTokens(): Promise<void> {
   _cache = {access: null, refresh: null};
-  await AsyncStorage.multiRemove([K_ACCESS, K_REFRESH]);
+  try {
+    await Keychain.resetGenericPassword({service: SERVICE});
+  } catch {
+    // no-op: si el Keychain no está disponible, ya no había nada seguro que borrar.
+  }
 }
 
 /** Lectura síncrona de la caché (usada por el cliente HTTP para las cabeceras). */
