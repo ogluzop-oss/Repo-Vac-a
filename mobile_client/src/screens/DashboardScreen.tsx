@@ -70,6 +70,8 @@ export default function DashboardScreen({navigation}: DashboardProps) {
         navigation.navigate('Notificaciones');
       } else if (cap.key === 'agenda') {
         navigation.navigate('Agenda');
+      } else if (cap.key === 'tareas') {
+        navigation.navigate('Tareas');
       } else {
         // El resto del catálogo aún no tiene endpoint REST en el backend (ver core.py):
         // se muestra un estado honesto en vez de datos simulados.
