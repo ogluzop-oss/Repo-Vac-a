@@ -129,7 +129,7 @@ mobile_client/
 │  │  └─ conflict.ts        # resolución de conflictos (puro, testeable)
 │  ├─ store/AuthContext.tsx # estado de sesión
 │  ├─ navigation/           # RootNavigator + tipos
-│  ├─ screens/              # Login · Dashboard · Scanner
+│  ├─ screens/              # Login · Dashboard · Scanner · Directorio · Comunicaciones · Próximamente
 │  ├─ components/           # CameraScanner
 │  └─ theme/colors.ts       # paleta (dark + cian, marca del escritorio)
 └─ __tests__/conflict.test.ts
@@ -137,13 +137,18 @@ mobile_client/
 
 ## 9. Estado y notas de honestidad
 
-- **Es un andamiaje inicial (MVP), no una app terminada.** El código está escrito para compilar y
-  ejecutarse tras `npm install` + configuración nativa, pero **no se ha construido/lanzado dentro de
-  este repositorio** (aquí solo se generó el scaffold).
-- Pantallas reales implementadas: **Login (con MFA), Dashboard (capacidades + sincronización) y
-  Scanner**. El resto de capacidades del menú aún **no** tienen pantalla dedicada (abrir stock lleva
-  al escáner como demostración).
-- **Seguridad**: los tokens se guardan en `AsyncStorage` por simplicidad del MVP. Para producción,
-  migrar a almacenamiento seguro (`react-native-keychain` / Keystore / Keychain) y forzar HTTPS.
-- Los endpoints del catálogo (`/orders`, `/stock`, …) deben existir en el backend; si alguno no está
-  implementado, la llamada devolverá 404 y la UI lo reflejará.
+- **Compila y arranca de verdad** (Android/Metro verificados). Pantallas reales implementadas contra
+  el backend: **Login (con MFA), Dashboard, Scanner (stock, offline-first), Directorio** (`GET
+  /contacts`) y **Comunicaciones** (`GET`/`POST /communications`).
+- **Catálogo vs. backend real**: `api/capabilities.ts` es un espejo 1:1 de `CAPACIDADES` en
+  `src/services/mobile/core.py`, que el propio backend documenta como *"funcionalidades previstas"*.
+  Hoy `/api/v1` **solo** implementa `auth`, `system`, `communications`/`conversations`, `templates`,
+  `campaigns`, `contacts`, `audit`, `recordings`, `commerce` (descriptor), `webauthn`, `realtime` y
+  `portal` — routers reales en `src/api/routers/`. Las demás capacidades del catálogo (`/orders`,
+  `/customers`, `/suppliers`, `/stock` salvo escaneo, `/notifications`, `/agenda`, `/incidents`,
+  `/tasks`, `/workflow`, `/documents`, `/timeline`) **no tienen endpoint REST todavía**. En vez de
+  mostrar datos simulados, esas tarjetas del Dashboard abren `ProximamenteScreen`, que explica el
+  motivo real (backend pendiente) en lugar de fingir que funcionan.
+- **Seguridad**: los tokens se guardan en `AsyncStorage` por simplicidad del MVP. **Pendiente antes de
+  producción**: migrar a almacenamiento seguro (`react-native-keychain` / Keystore / Keychain) y
+  forzar HTTPS.

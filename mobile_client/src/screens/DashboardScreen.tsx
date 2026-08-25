@@ -56,8 +56,19 @@ export default function DashboardScreen({navigation}: DashboardProps) {
     (cap: Capability) => {
       if (cap.key === 'stock') {
         navigation.navigate('Scanner');
+      } else if (cap.key === 'directorio') {
+        navigation.navigate('Directorio');
+      } else if (cap.key === 'ccp') {
+        navigation.navigate('Comunicaciones');
+      } else {
+        // El resto del catálogo aún no tiene endpoint REST en el backend (ver core.py):
+        // se muestra un estado honesto en vez de datos simulados.
+        navigation.navigate('Proximamente', {
+          label: cap.label,
+          endpoint: cap.endpoint,
+          icon: cap.icon,
+        });
       }
-      // El resto de capacidades se irán cableando a sus pantallas dedicadas.
     },
     [navigation],
   );

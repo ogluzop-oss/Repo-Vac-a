@@ -9,6 +9,9 @@ import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import LoginScreen from '@/screens/LoginScreen';
 import DashboardScreen from '@/screens/DashboardScreen';
 import ScannerScreen from '@/screens/ScannerScreen';
+import DirectorioScreen from '@/screens/DirectorioScreen';
+import ComunicacionesScreen from '@/screens/ComunicacionesScreen';
+import ProximamenteScreen from '@/screens/ProximamenteScreen';
 import {useAuth} from '@/store/AuthContext';
 import {colors} from '@/theme/colors';
 import type {AppStackParamList} from './types';
@@ -37,6 +40,9 @@ export default function RootNavigator() {
         <Stack.Navigator screenOptions={{headerShown: false}}>
           <Stack.Screen name="Dashboard" component={DashboardScreen} />
           <Stack.Screen name="Scanner" component={ScannerScreen} />
+          <Stack.Screen name="Directorio" component={DirectorioScreen} />
+          <Stack.Screen name="Comunicaciones" component={ComunicacionesScreen} />
+          <Stack.Screen name="Proximamente" component={ProximamenteScreen} />
         </Stack.Navigator>
       ) : (
         // signedOut + mfaRequired → la propia LoginScreen alterna a la vista de código MFA.
