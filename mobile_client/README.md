@@ -130,7 +130,8 @@ mobile_client/
 │  ├─ store/AuthContext.tsx # estado de sesión
 │  ├─ navigation/           # RootNavigator + tipos
 │  ├─ screens/              # Login · Dashboard · Scanner · Directorio · Comunicaciones · Clientes ·
-│  │                         # Proveedores · Pedidos (recepción) · Próximamente
+│  │                         # Proveedores · Pedidos (recepción) · Stock · Notificaciones · Agenda ·
+│  │                         # Próximamente
 │  ├─ components/           # CameraScanner
 │  └─ theme/colors.ts       # paleta (dark + cian, marca del escritorio)
 └─ __tests__/conflict.test.ts
@@ -138,20 +139,24 @@ mobile_client/
 
 ## 9. Estado y notas de honestidad
 
-- **Compila y arranca de verdad** (Android/Metro verificados). Pantallas reales implementadas contra
-  el backend: **Login (con MFA), Dashboard, Scanner (stock, offline-first), Directorio** (`GET
-  /contacts`), **Comunicaciones** (`GET`/`POST /communications`), **Clientes** (`GET /customers`),
-  **Proveedores** (`GET /suppliers`) y **Pedidos** (`GET /orders` — recepción de palets, ver nota de
-  dominio más abajo).
+- **Compila y arranca de verdad** (Android/Metro verificados, incluido un build nativo real tras
+  añadir `react-native-keychain`). Pantallas reales implementadas contra el backend: **Login (con
+  MFA), Dashboard, Scanner (stock, offline-first), Directorio** (`GET /contacts`), **Comunicaciones**
+  (`GET`/`POST /communications`), **Clientes** (`GET /customers`), **Proveedores** (`GET /suppliers`),
+  **Pedidos** (`GET /orders` — recepción de palets, ver nota de dominio más abajo), **Stock** (`GET
+  /stock`, consulta de niveles — el escaneo de recepción sigue siendo el flujo aparte de `Scanner`),
+  **Notificaciones** (`GET /notifications` + marcar leída) y **Agenda** (`GET`/`POST /agenda`).
 - **Catálogo vs. backend real**: `api/capabilities.ts` es un espejo 1:1 de `CAPACIDADES` en
   `src/services/mobile/core.py`, que el propio backend documentaba como *"funcionalidades previstas"*.
   `/api/v1` implementa ya `auth`, `system`, `communications`/`conversations`, `templates`, `campaigns`,
   `contacts`, `audit`, `recordings`, `commerce` (descriptor), `webauthn`, `realtime`, `portal`,
-  **`customers`, `suppliers`, `orders`** (solo lectura) **y `stock`** (solo lectura, sin pantalla móvil
-  todavía) — routers reales en `src/api/routers/`, apoyados en `src/db/clientes.py` / `proveedores.py`
-  / `pedidos.py` / `articulos.py` vía una capa fina en `src/services/`. Quedan sin endpoint:
-  `/notifications`, `/agenda`, `/incidents`, `/tasks`, `/workflow`, `/documents`, `/timeline`; sus
-  tarjetas del Dashboard abren `ProximamenteScreen` en vez de simular datos.
+  **`customers`, `suppliers`, `orders`, `stock`** (solo lectura, apoyados en `src/db/` vía una capa fina
+  en `src/services/`) **y `notifications`/`agenda`** (estos dos consumen directamente
+  `src/services/notificaciones.py`/`calendario.py`, que ya eran la capa de servicio real). Quedan sin
+  endpoint: `/incidents`, `/tasks`, `/workflow`, `/documents`, `/timeline`; sus tarjetas del Dashboard
+  abren `ProximamenteScreen` en vez de simular datos. Nota: existe `services/seguridad/incidentes.py`,
+  pero es un dominio distinto (incidentes de SEGURIDAD: fuerza bruta, token comprometido…), no
+  incidencias operativas de tienda/almacén — no se ha reutilizado para no mezclar ambos conceptos.
 - **Nota de dominio — "Pedidos"**: en Smart Manager, hoy, un "pedido" es la recepción de un palet en
   almacén (`pale_codigo` + artículos escaneados), no un pedido de venta ni de compra a proveedor. La
   pantalla `PedidosScreen` lo refleja tal cual (filtro pendiente/procesado), sin fingir ser un módulo

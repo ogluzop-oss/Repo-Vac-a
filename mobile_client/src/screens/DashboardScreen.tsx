@@ -55,7 +55,7 @@ export default function DashboardScreen({navigation}: DashboardProps) {
   const abrirCapacidad = useCallback(
     (cap: Capability) => {
       if (cap.key === 'stock') {
-        navigation.navigate('Scanner');
+        navigation.navigate('Stock');
       } else if (cap.key === 'directorio') {
         navigation.navigate('Directorio');
       } else if (cap.key === 'ccp') {
@@ -66,6 +66,10 @@ export default function DashboardScreen({navigation}: DashboardProps) {
         navigation.navigate('Proveedores');
       } else if (cap.key === 'pedidos') {
         navigation.navigate('Pedidos');
+      } else if (cap.key === 'notificaciones') {
+        navigation.navigate('Notificaciones');
+      } else if (cap.key === 'agenda') {
+        navigation.navigate('Agenda');
       } else {
         // El resto del catálogo aún no tiene endpoint REST en el backend (ver core.py):
         // se muestra un estado honesto en vez de datos simulados.

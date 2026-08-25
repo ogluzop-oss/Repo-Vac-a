@@ -14,6 +14,9 @@ import ComunicacionesScreen from '@/screens/ComunicacionesScreen';
 import ClientesScreen from '@/screens/ClientesScreen';
 import ProveedoresScreen from '@/screens/ProveedoresScreen';
 import PedidosScreen from '@/screens/PedidosScreen';
+import StockScreen from '@/screens/StockScreen';
+import NotificacionesScreen from '@/screens/NotificacionesScreen';
+import AgendaScreen from '@/screens/AgendaScreen';
 import ProximamenteScreen from '@/screens/ProximamenteScreen';
 import {useAuth} from '@/store/AuthContext';
 import {colors} from '@/theme/colors';
@@ -48,6 +51,9 @@ export default function RootNavigator() {
           <Stack.Screen name="Clientes" component={ClientesScreen} />
           <Stack.Screen name="Proveedores" component={ProveedoresScreen} />
           <Stack.Screen name="Pedidos" component={PedidosScreen} />
+          <Stack.Screen name="Stock" component={StockScreen} />
+          <Stack.Screen name="Notificaciones" component={NotificacionesScreen} />
+          <Stack.Screen name="Agenda" component={AgendaScreen} />
           <Stack.Screen name="Proximamente" component={ProximamenteScreen} />
         </Stack.Navigator>
       ) : (

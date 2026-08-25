@@ -9,6 +9,9 @@ export type AppStackParamList = {
   Clientes: undefined;
   Proveedores: undefined;
   Pedidos: undefined;
+  Stock: undefined;
+  Notificaciones: undefined;
+  Agenda: undefined;
   /** Placeholder honesto para capacidades del catálogo cuyo endpoint aún no existe en el backend. */
   Proximamente: {label: string; endpoint: string; icon: string};
 };
@@ -20,4 +23,7 @@ export type ComunicacionesProps = NativeStackScreenProps<AppStackParamList, 'Com
 export type ClientesProps = NativeStackScreenProps<AppStackParamList, 'Clientes'>;
 export type ProveedoresProps = NativeStackScreenProps<AppStackParamList, 'Proveedores'>;
 export type PedidosProps = NativeStackScreenProps<AppStackParamList, 'Pedidos'>;
+export type StockProps = NativeStackScreenProps<AppStackParamList, 'Stock'>;
+export type NotificacionesProps = NativeStackScreenProps<AppStackParamList, 'Notificaciones'>;
+export type AgendaProps = NativeStackScreenProps<AppStackParamList, 'Agenda'>;
 export type ProximamenteProps = NativeStackScreenProps<AppStackParamList, 'Proximamente'>;
