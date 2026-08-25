@@ -5,7 +5,7 @@ se cablean con una línea por recurso sobre esta misma arquitectura)."""
 
 from src.api.routers import (auth, system, communications, templates, campaigns, contacts, audit,
                              recordings, commerce, webauthn, realtime, portal, customers, suppliers,
-                             orders, stock, notifications, agenda)
+                             orders, stock, notifications, agenda, tasks)
 
 # NOTA: los routers portal_proveedor y lonja_vendedor se retiraron (desmontaje del portal externo
 # + lonja, refactorización del módulo Proveedores, Fase 1). `portal` = storefront/back-office (WEB-04).
@@ -15,7 +15,7 @@ from src.api.routers import (auth, system, communications, templates, campaigns,
 # eran la capa de servicio real (no hacía falta una capa fina adicional).
 ROUTERS = [auth, system, communications, templates, campaigns, contacts, audit, recordings,
            commerce, webauthn, realtime, portal, customers, suppliers, orders, stock,
-           notifications, agenda]
+           notifications, agenda, tasks]
 
 
 def registrar_todos(bp):
