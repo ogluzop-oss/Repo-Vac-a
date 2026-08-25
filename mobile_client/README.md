@@ -129,7 +129,8 @@ mobile_client/
 │  │  └─ conflict.ts        # resolución de conflictos (puro, testeable)
 │  ├─ store/AuthContext.tsx # estado de sesión
 │  ├─ navigation/           # RootNavigator + tipos
-│  ├─ screens/              # Login · Dashboard · Scanner · Directorio · Comunicaciones · Próximamente
+│  ├─ screens/              # Login · Dashboard · Scanner · Directorio · Comunicaciones · Clientes ·
+│  │                         # Proveedores · Pedidos (recepción) · Próximamente
 │  ├─ components/           # CameraScanner
 │  └─ theme/colors.ts       # paleta (dark + cian, marca del escritorio)
 └─ __tests__/conflict.test.ts
@@ -139,16 +140,22 @@ mobile_client/
 
 - **Compila y arranca de verdad** (Android/Metro verificados). Pantallas reales implementadas contra
   el backend: **Login (con MFA), Dashboard, Scanner (stock, offline-first), Directorio** (`GET
-  /contacts`) y **Comunicaciones** (`GET`/`POST /communications`).
+  /contacts`), **Comunicaciones** (`GET`/`POST /communications`), **Clientes** (`GET /customers`),
+  **Proveedores** (`GET /suppliers`) y **Pedidos** (`GET /orders` — recepción de palets, ver nota de
+  dominio más abajo).
 - **Catálogo vs. backend real**: `api/capabilities.ts` es un espejo 1:1 de `CAPACIDADES` en
-  `src/services/mobile/core.py`, que el propio backend documenta como *"funcionalidades previstas"*.
-  Hoy `/api/v1` **solo** implementa `auth`, `system`, `communications`/`conversations`, `templates`,
-  `campaigns`, `contacts`, `audit`, `recordings`, `commerce` (descriptor), `webauthn`, `realtime` y
-  `portal` — routers reales en `src/api/routers/`. Las demás capacidades del catálogo (`/orders`,
-  `/customers`, `/suppliers`, `/stock` salvo escaneo, `/notifications`, `/agenda`, `/incidents`,
-  `/tasks`, `/workflow`, `/documents`, `/timeline`) **no tienen endpoint REST todavía**. En vez de
-  mostrar datos simulados, esas tarjetas del Dashboard abren `ProximamenteScreen`, que explica el
-  motivo real (backend pendiente) en lugar de fingir que funcionan.
+  `src/services/mobile/core.py`, que el propio backend documentaba como *"funcionalidades previstas"*.
+  `/api/v1` implementa ya `auth`, `system`, `communications`/`conversations`, `templates`, `campaigns`,
+  `contacts`, `audit`, `recordings`, `commerce` (descriptor), `webauthn`, `realtime`, `portal`,
+  **`customers`, `suppliers`, `orders`** (solo lectura) **y `stock`** (solo lectura, sin pantalla móvil
+  todavía) — routers reales en `src/api/routers/`, apoyados en `src/db/clientes.py` / `proveedores.py`
+  / `pedidos.py` / `articulos.py` vía una capa fina en `src/services/`. Quedan sin endpoint:
+  `/notifications`, `/agenda`, `/incidents`, `/tasks`, `/workflow`, `/documents`, `/timeline`; sus
+  tarjetas del Dashboard abren `ProximamenteScreen` en vez de simular datos.
+- **Nota de dominio — "Pedidos"**: en Smart Manager, hoy, un "pedido" es la recepción de un palet en
+  almacén (`pale_codigo` + artículos escaneados), no un pedido de venta ni de compra a proveedor. La
+  pantalla `PedidosScreen` lo refleja tal cual (filtro pendiente/procesado), sin fingir ser un módulo
+  de gestión comercial de pedidos que todavía no existe.
 - **Seguridad**: los tokens se guardan en `AsyncStorage` por simplicidad del MVP. **Pendiente antes de
   producción**: migrar a almacenamiento seguro (`react-native-keychain` / Keystore / Keychain) y
   forzar HTTPS.

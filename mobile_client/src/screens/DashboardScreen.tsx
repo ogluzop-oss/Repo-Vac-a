@@ -60,6 +60,12 @@ export default function DashboardScreen({navigation}: DashboardProps) {
         navigation.navigate('Directorio');
       } else if (cap.key === 'ccp') {
         navigation.navigate('Comunicaciones');
+      } else if (cap.key === 'clientes') {
+        navigation.navigate('Clientes');
+      } else if (cap.key === 'proveedores') {
+        navigation.navigate('Proveedores');
+      } else if (cap.key === 'pedidos') {
+        navigation.navigate('Pedidos');
       } else {
         // El resto del catálogo aún no tiene endpoint REST en el backend (ver core.py):
         // se muestra un estado honesto en vez de datos simulados.

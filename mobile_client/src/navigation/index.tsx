@@ -11,6 +11,9 @@ import DashboardScreen from '@/screens/DashboardScreen';
 import ScannerScreen from '@/screens/ScannerScreen';
 import DirectorioScreen from '@/screens/DirectorioScreen';
 import ComunicacionesScreen from '@/screens/ComunicacionesScreen';
+import ClientesScreen from '@/screens/ClientesScreen';
+import ProveedoresScreen from '@/screens/ProveedoresScreen';
+import PedidosScreen from '@/screens/PedidosScreen';
 import ProximamenteScreen from '@/screens/ProximamenteScreen';
 import {useAuth} from '@/store/AuthContext';
 import {colors} from '@/theme/colors';
@@ -42,6 +45,9 @@ export default function RootNavigator() {
           <Stack.Screen name="Scanner" component={ScannerScreen} />
           <Stack.Screen name="Directorio" component={DirectorioScreen} />
           <Stack.Screen name="Comunicaciones" component={ComunicacionesScreen} />
+          <Stack.Screen name="Clientes" component={ClientesScreen} />
+          <Stack.Screen name="Proveedores" component={ProveedoresScreen} />
+          <Stack.Screen name="Pedidos" component={PedidosScreen} />
           <Stack.Screen name="Proximamente" component={ProximamenteScreen} />
         </Stack.Navigator>
       ) : (
