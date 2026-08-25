@@ -47,6 +47,10 @@ CATALOGO = [
     "notificaciones.ver", "mensajeria.usar", "correo.enviar", "correo.recibir",
     "scheduler.gestionar", "integraciones.usar", "calendario.gestionar",
     "tareas.gestionar", "webhooks.gestionar",
+    # Incidencias OPERATIVAS de tienda/almacén (distintas de seguridad.* / incidentes de seguridad,
+    # ver services/seguridad/incidentes.py). reportar = abrir/ver las propias (operario); gestionar =
+    # ver todas, asignar y cerrar (gerencia).
+    "incidencias.reportar", "incidencias.gestionar",
     # Business Intelligence (rama BI)
     "bi.ver", "bi.kpi", "bi.dashboard", "bi.forecasting", "bi.exportar", "bi.multiempresa",
     # SaaS / plataforma (rama SAAS)
@@ -150,6 +154,7 @@ ROLES_SISTEMA = {
         "notificaciones.ver", "mensajeria.usar", "correo.enviar", "correo.recibir",
         "scheduler.gestionar", "integraciones.usar", "calendario.gestionar",
         "tareas.gestionar", "webhooks.gestionar",
+        "incidencias.reportar", "incidencias.gestionar",
         "bi.ver", "bi.kpi", "bi.dashboard", "bi.forecasting", "bi.exportar",
         "saas.portal", "saas.branding",
         "crm.ver", "crm.leads", "crm.oportunidades", "crm.pipeline", "crm.actividades",
@@ -202,6 +207,7 @@ ROLES_SISTEMA = {
         "ventas.ver", "ventas.crear", "ventas.facturar", "ventas.devolver",
         "clientes.ver", "compras.ver", "documentos.ver",
         "notificaciones.ver", "mensajeria.usar", "calendario.gestionar", "tareas.gestionar",
+        "incidencias.reportar",
         "crm.ver", "crm.leads", "crm.actividades",
         # Comercio Digital (C0.P1): operativa de venta (ver catálogo + checkout), sin administración.
         "comercio.ver", "comercio.checkout",

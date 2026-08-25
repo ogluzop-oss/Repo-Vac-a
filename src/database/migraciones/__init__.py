@@ -214,4 +214,5 @@ MODULOS = [
     "0213_reab_schedule_perfiles",
     "0214_drop_solicitudes_traspaso",
     "0215_ubicaciones_ambito",
+    "0216_incidencias_operativas",
 ]
