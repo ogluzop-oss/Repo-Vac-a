@@ -14,6 +14,9 @@ export type AppStackParamList = {
   Agenda: undefined;
   Tareas: undefined;
   Incidencias: undefined;
+  Workflow: undefined;
+  Documentos: undefined;
+  Timeline: undefined;
   /** Placeholder honesto para capacidades del catálogo cuyo endpoint aún no existe en el backend. */
   Proximamente: {label: string; endpoint: string; icon: string};
 };
@@ -30,4 +33,7 @@ export type NotificacionesProps = NativeStackScreenProps<AppStackParamList, 'Not
 export type AgendaProps = NativeStackScreenProps<AppStackParamList, 'Agenda'>;
 export type TareasProps = NativeStackScreenProps<AppStackParamList, 'Tareas'>;
 export type IncidenciasProps = NativeStackScreenProps<AppStackParamList, 'Incidencias'>;
+export type WorkflowProps = NativeStackScreenProps<AppStackParamList, 'Workflow'>;
+export type DocumentosProps = NativeStackScreenProps<AppStackParamList, 'Documentos'>;
+export type TimelineProps = NativeStackScreenProps<AppStackParamList, 'Timeline'>;
 export type ProximamenteProps = NativeStackScreenProps<AppStackParamList, 'Proximamente'>;

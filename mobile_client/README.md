@@ -131,7 +131,8 @@ mobile_client/
 │  ├─ navigation/           # RootNavigator + tipos
 │  ├─ screens/              # Login · Dashboard · Scanner · Directorio · Comunicaciones · Clientes ·
 │  │                         # Proveedores · Pedidos (recepción) · Stock · Notificaciones · Agenda ·
-│  │                         # Tareas · Incidencias · Próximamente
+│  │                         # Tareas · Incidencias · Workflow (Aprobaciones) · Documentos · Timeline
+│  │                         # (Actividad) · Próximamente (solo queda como red de seguridad genérica)
 │  ├─ components/           # CameraScanner
 │  └─ theme/colors.ts       # paleta (dark + cian, marca del escritorio)
 └─ __tests__/conflict.test.ts
@@ -146,17 +147,22 @@ mobile_client/
   **Pedidos** (`GET /orders` — recepción de palets, ver nota de dominio más abajo), **Stock** (`GET
   /stock`, consulta de niveles — el escaneo de recepción sigue siendo el flujo aparte de `Scanner`),
   **Notificaciones** (`GET /notifications` + marcar leída), **Agenda** (`GET`/`POST /agenda`),
-  **Tareas** (`GET`/`POST /tasks` + cambiar estado — solo las asignadas a mí) e **Incidencias**
-  (`GET`/`POST /incidents` + cambiar estado — solo las mías; ver nota de dominio más abajo).
+  **Tareas** (`GET`/`POST /tasks` + cambiar estado — solo las asignadas a mí), **Incidencias**
+  (`GET`/`POST /incidents` + cambiar estado — solo las mías; ver nota de dominio más abajo),
+  **Aprobaciones/Workflow** (`GET /workflow/tasks` + aprobar/rechazar — motor BPM transversal real),
+  **Documentos** (`GET /documents`, solo metadatos) y **Actividad/Timeline** (`GET /timeline`,
+  cronología unificada de comunicaciones). **Las 13 tarjetas del catálogo móvil tienen ya pantalla
+  real** — `ProximamenteScreen` queda como red de seguridad genérica para capacidades futuras, no
+  porque falte alguna de las actuales.
 - **Catálogo vs. backend real**: `api/capabilities.ts` es un espejo 1:1 de `CAPACIDADES` en
-  `src/services/mobile/core.py`, que el propio backend documentaba como *"funcionalidades previstas"*.
-  `/api/v1` implementa ya `auth`, `system`, `communications`/`conversations`, `templates`, `campaigns`,
-  `contacts`, `audit`, `recordings`, `commerce` (descriptor), `webauthn`, `realtime`, `portal`,
-  **`customers`, `suppliers`, `orders`, `stock`** (solo lectura, apoyados en `src/db/` vía una capa fina
-  en `src/services/`), **`notifications`/`agenda`/`tasks`** (consumen directamente
-  `src/services/notificaciones.py`/`calendario.py`/`tareas.py`, que ya eran la capa de servicio real)
-  **y `incidents`** (dominio NUEVO, ver nota debajo). Quedan sin endpoint: `/workflow`, `/documents`,
-  `/timeline`.
+  `src/services/mobile/core.py`, que el propio backend documentaba como *"funcionalidades previstas"*
+  — hoy son todas reales. `/api/v1` implementa: `auth`, `system`, `communications`/`conversations`,
+  `templates`, `campaigns`, `contacts`, `audit`, `recordings`, `commerce` (descriptor), `webauthn`,
+  `realtime`, `portal`, **`customers`, `suppliers`, `orders`, `stock`, `documents`** (solo lectura,
+  apoyados en `src/db/` vía una capa fina en `src/services/`), **`notifications`/`agenda`/`tasks`/
+  `workflow`/`timeline`** (consumen directamente `src/services/notificaciones.py`/`calendario.py`/
+  `tareas.py`/`workflow/workflow_engine.py`/`ccp/timeline.py`, que ya eran la capa de servicio real)
+  **e `incidents`** (dominio nuevo, ver nota debajo).
 - **Nota de dominio — "Incidencias"**: `src/services/incidencias_operativas.py` (migración 0216) es un
   dominio nuevo, DISTINTO de `services/seguridad/incidentes.py` (incidentes de SEGURIDAD: fuerza
   bruta, token comprometido — estrictamente de administración, no expuesto en el móvil). El operario
@@ -166,6 +172,10 @@ mobile_client/
   almacén (`pale_codigo` + artículos escaneados), no un pedido de venta ni de compra a proveedor. La
   pantalla `PedidosScreen` lo refleja tal cual (filtro pendiente/procesado), sin fingir ser un módulo
   de gestión comercial de pedidos que todavía no existe.
-- **Seguridad**: los tokens se guardan en `AsyncStorage` por simplicidad del MVP. **Pendiente antes de
-  producción**: migrar a almacenamiento seguro (`react-native-keychain` / Keystore / Keychain) y
-  forzar HTTPS.
+- **Nota de alcance — "Documentos"**: `GET /documents` solo expone metadatos saneados (nunca la ruta
+  de disco del servidor ni claves internas de almacenamiento). La descarga del fichero en sí vive en
+  `src/services/storage/documentos.py` (backend de almacenamiento + URLs firmadas) y queda fuera de
+  alcance por ahora — no se ha construido para no improvisar seguridad de ficheros sin diseñarla.
+- **Seguridad**: los tokens se guardan en el Keychain nativo (Android Keystore / iOS Keychain) vía
+  `react-native-keychain`, no en `AsyncStorage` — ver commit de migración de seguridad. Sigue
+  pendiente forzar HTTPS en producción (hoy el cliente admite HTTP en desarrollo).

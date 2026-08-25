@@ -19,6 +19,9 @@ import NotificacionesScreen from '@/screens/NotificacionesScreen';
 import AgendaScreen from '@/screens/AgendaScreen';
 import TareasScreen from '@/screens/TareasScreen';
 import IncidenciasScreen from '@/screens/IncidenciasScreen';
+import WorkflowScreen from '@/screens/WorkflowScreen';
+import DocumentosScreen from '@/screens/DocumentosScreen';
+import TimelineScreen from '@/screens/TimelineScreen';
 import ProximamenteScreen from '@/screens/ProximamenteScreen';
 import {useAuth} from '@/store/AuthContext';
 import {colors} from '@/theme/colors';
@@ -58,6 +61,9 @@ export default function RootNavigator() {
           <Stack.Screen name="Agenda" component={AgendaScreen} />
           <Stack.Screen name="Tareas" component={TareasScreen} />
           <Stack.Screen name="Incidencias" component={IncidenciasScreen} />
+          <Stack.Screen name="Workflow" component={WorkflowScreen} />
+          <Stack.Screen name="Documentos" component={DocumentosScreen} />
+          <Stack.Screen name="Timeline" component={TimelineScreen} />
           <Stack.Screen name="Proximamente" component={ProximamenteScreen} />
         </Stack.Navigator>
       ) : (

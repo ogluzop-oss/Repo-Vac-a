@@ -74,6 +74,12 @@ export default function DashboardScreen({navigation}: DashboardProps) {
         navigation.navigate('Tareas');
       } else if (cap.key === 'incidencias') {
         navigation.navigate('Incidencias');
+      } else if (cap.key === 'workflow') {
+        navigation.navigate('Workflow');
+      } else if (cap.key === 'documentos') {
+        navigation.navigate('Documentos');
+      } else if (cap.key === 'timeline') {
+        navigation.navigate('Timeline');
       } else {
         // El resto del catálogo aún no tiene endpoint REST en el backend (ver core.py):
         // se muestra un estado honesto en vez de datos simulados.
