@@ -67,3 +67,38 @@ def marcar_procesado(id_pedido):
         cursor = conn.cursor()
         cursor.execute("UPDATE pedidos SET procesado=1 WHERE id=%s", (id_pedido,))
         conn.commit()
+
+
+def listar_pedidos(id_empresa=None, id_tienda=None, procesado=None, limite=100) -> list[dict]:
+    """Lista de pedidos de recepción de palets (más recientes primero). `id_empresa` SIEMPRE debe
+    indicarse explícitamente en contextos multiempresa (p. ej. la REST API); si se omite, cae en el
+    tenant de la sesión de escritorio activa (igual que el resto del módulo)."""
+    if id_empresa is None:
+        id_empresa, tienda_activa = _tenant_actual()
+        if id_tienda is None:
+            id_tienda = tienda_activa
+    filtros = ["id_empresa=%s"]
+    params = [id_empresa]
+    if id_tienda is not None:
+        filtros.append("id_tienda=%s")
+        params.append(id_tienda)
+    if procesado is not None:
+        filtros.append("procesado=%s")
+        params.append(1 if procesado else 0)
+    with obtener_conexion() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, pale_codigo, items, procesado, fecha, id_tienda FROM pedidos WHERE "
+            + " AND ".join(filtros) + " ORDER BY id DESC LIMIT %s",
+            (*params, int(limite)),
+        )
+        rows = cursor.fetchall()
+    out = []
+    for row in rows:
+        try:
+            items = json.loads(row[2]) if row[2] else []
+        except Exception:
+            items = []
+        out.append({"id": row[0], "pale_codigo": row[1], "items": items,
+                    "procesado": bool(row[3]), "fecha": row[4], "id_tienda": row[5]})
+    return out
