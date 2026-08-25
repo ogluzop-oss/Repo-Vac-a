@@ -13,6 +13,7 @@ export type AppStackParamList = {
   Notificaciones: undefined;
   Agenda: undefined;
   Tareas: undefined;
+  Incidencias: undefined;
   /** Placeholder honesto para capacidades del catálogo cuyo endpoint aún no existe en el backend. */
   Proximamente: {label: string; endpoint: string; icon: string};
 };
@@ -28,4 +29,5 @@ export type StockProps = NativeStackScreenProps<AppStackParamList, 'Stock'>;
 export type NotificacionesProps = NativeStackScreenProps<AppStackParamList, 'Notificaciones'>;
 export type AgendaProps = NativeStackScreenProps<AppStackParamList, 'Agenda'>;
 export type TareasProps = NativeStackScreenProps<AppStackParamList, 'Tareas'>;
+export type IncidenciasProps = NativeStackScreenProps<AppStackParamList, 'Incidencias'>;
 export type ProximamenteProps = NativeStackScreenProps<AppStackParamList, 'Proximamente'>;

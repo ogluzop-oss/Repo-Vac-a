@@ -18,6 +18,7 @@ import StockScreen from '@/screens/StockScreen';
 import NotificacionesScreen from '@/screens/NotificacionesScreen';
 import AgendaScreen from '@/screens/AgendaScreen';
 import TareasScreen from '@/screens/TareasScreen';
+import IncidenciasScreen from '@/screens/IncidenciasScreen';
 import ProximamenteScreen from '@/screens/ProximamenteScreen';
 import {useAuth} from '@/store/AuthContext';
 import {colors} from '@/theme/colors';
@@ -56,6 +57,7 @@ export default function RootNavigator() {
           <Stack.Screen name="Notificaciones" component={NotificacionesScreen} />
           <Stack.Screen name="Agenda" component={AgendaScreen} />
           <Stack.Screen name="Tareas" component={TareasScreen} />
+          <Stack.Screen name="Incidencias" component={IncidenciasScreen} />
           <Stack.Screen name="Proximamente" component={ProximamenteScreen} />
         </Stack.Navigator>
       ) : (

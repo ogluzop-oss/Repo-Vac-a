@@ -131,7 +131,7 @@ mobile_client/
 │  ├─ navigation/           # RootNavigator + tipos
 │  ├─ screens/              # Login · Dashboard · Scanner · Directorio · Comunicaciones · Clientes ·
 │  │                         # Proveedores · Pedidos (recepción) · Stock · Notificaciones · Agenda ·
-│  │                         # Tareas · Próximamente
+│  │                         # Tareas · Incidencias · Próximamente
 │  ├─ components/           # CameraScanner
 │  └─ theme/colors.ts       # paleta (dark + cian, marca del escritorio)
 └─ __tests__/conflict.test.ts
@@ -145,19 +145,23 @@ mobile_client/
   (`GET`/`POST /communications`), **Clientes** (`GET /customers`), **Proveedores** (`GET /suppliers`),
   **Pedidos** (`GET /orders` — recepción de palets, ver nota de dominio más abajo), **Stock** (`GET
   /stock`, consulta de niveles — el escaneo de recepción sigue siendo el flujo aparte de `Scanner`),
-  **Notificaciones** (`GET /notifications` + marcar leída), **Agenda** (`GET`/`POST /agenda`) y
-  **Tareas** (`GET`/`POST /tasks` + cambiar estado — solo las asignadas a mí).
+  **Notificaciones** (`GET /notifications` + marcar leída), **Agenda** (`GET`/`POST /agenda`),
+  **Tareas** (`GET`/`POST /tasks` + cambiar estado — solo las asignadas a mí) e **Incidencias**
+  (`GET`/`POST /incidents` + cambiar estado — solo las mías; ver nota de dominio más abajo).
 - **Catálogo vs. backend real**: `api/capabilities.ts` es un espejo 1:1 de `CAPACIDADES` en
   `src/services/mobile/core.py`, que el propio backend documentaba como *"funcionalidades previstas"*.
   `/api/v1` implementa ya `auth`, `system`, `communications`/`conversations`, `templates`, `campaigns`,
   `contacts`, `audit`, `recordings`, `commerce` (descriptor), `webauthn`, `realtime`, `portal`,
   **`customers`, `suppliers`, `orders`, `stock`** (solo lectura, apoyados en `src/db/` vía una capa fina
-  en `src/services/`) **y `notifications`/`agenda`/`tasks`** (estos tres consumen directamente
-  `src/services/notificaciones.py`/`calendario.py`/`tareas.py`, que ya eran la capa de servicio real).
-  Quedan sin endpoint: `/incidents`, `/workflow`, `/documents`, `/timeline`; sus tarjetas del Dashboard
-  abren `ProximamenteScreen` en vez de simular datos. Nota: existe `services/seguridad/incidentes.py`,
-  pero es un dominio distinto (incidentes de SEGURIDAD: fuerza bruta, token comprometido…), no
-  incidencias operativas de tienda/almacén — no se ha reutilizado para no mezclar ambos conceptos.
+  en `src/services/`), **`notifications`/`agenda`/`tasks`** (consumen directamente
+  `src/services/notificaciones.py`/`calendario.py`/`tareas.py`, que ya eran la capa de servicio real)
+  **y `incidents`** (dominio NUEVO, ver nota debajo). Quedan sin endpoint: `/workflow`, `/documents`,
+  `/timeline`.
+- **Nota de dominio — "Incidencias"**: `src/services/incidencias_operativas.py` (migración 0216) es un
+  dominio nuevo, DISTINTO de `services/seguridad/incidentes.py` (incidentes de SEGURIDAD: fuerza
+  bruta, token comprometido — estrictamente de administración, no expuesto en el móvil). El operario
+  reporta y ve/cierra las suyas (`incidencias.reportar`); asignar a otro usuario y ver todas las de la
+  empresa (`?todas=1`) requiere `incidencias.gestionar` (gerencia) — la app móvil solo usa el primero.
 - **Nota de dominio — "Pedidos"**: en Smart Manager, hoy, un "pedido" es la recepción de un palet en
   almacén (`pale_codigo` + artículos escaneados), no un pedido de venta ni de compra a proveedor. La
   pantalla `PedidosScreen` lo refleja tal cual (filtro pendiente/procesado), sin fingir ser un módulo
