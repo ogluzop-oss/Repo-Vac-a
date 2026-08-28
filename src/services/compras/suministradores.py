@@ -153,6 +153,24 @@ def _id_empresa_relacionada(id_suministrador):
         return None
 
 
+def _email_invitacion_original(id_suministrador):
+    """El correo que recibió la invitación de alta ORIGINAL — requisito de negocio confirmado: el
+    enlace de reentrada siempre va a esa dirección, NUNCA al "email_login" que el proveedor haya
+    podido escribir de forma distinta en el formulario de alta (ese campo es solo una preferencia
+    de inicio de sesión, no cambia a quién avisamos que hay un enlace nuevo esperando)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT i.email FROM invitaciones_proveedor i "
+                "JOIN proveedores p ON p.id_proveedor = i.id_proveedor "
+                "WHERE p.id_suministrador=%s ORDER BY i.creado_en DESC LIMIT 1", (id_suministrador,))
+            row = cur.fetchone()
+            return (row[0] if not isinstance(row, dict) else row["email"]) if row else None
+    except Exception as e:
+        logger.error("_email_invitacion_original(%s): %s", id_suministrador, e)
+        return None
+
+
 def _enviar_email_acceso(suministrador, token_sesion):
     try:
         from src.services import ccp
@@ -164,17 +182,20 @@ def _enviar_email_acceso(suministrador, token_sesion):
         # exactamente el mismo síntoma que ya se había diagnosticado y resuelto para las
         # invitaciones (`invitaciones._enviar_email_invitacion`), pero sin aplicar aquí.
         id_empresa = _id_empresa_relacionada(suministrador["id"])
+        # Destinatario: SIEMPRE el correo de la invitación original, no `email_login` (bug de
+        # diseño corregido — ver docstring de `_email_invitacion_original`).
+        destinatario = _email_invitacion_original(suministrador["id"]) or suministrador.get("email_login")
         # Ruta real del panel: /portal/proveedor/<token>/dashboard (bug corregido — antes apuntaba
         # a /sesion/<token>, una ruta que nunca existió en el blueprint).
         r = ccp.enviar_comunicacion(
             id_empresa=id_empresa,
-            destinatario=suministrador["email_login"], asunto="Acceso a tu Portal de Proveedor",
+            destinatario=destinatario, asunto="Acceso a tu Portal de Proveedor",
             cuerpo=f"Accede a tu portal: {base}/{token_sesion}/dashboard\n\nEste enlace caduca en "
                   f"{MINUTOS_SESION} minutos.",
             contexto="compras.acceso_proveedor")
         if not getattr(r, "ok", True):
             logger.warning("_enviar_email_acceso(%s): no se pudo enviar (%s)",
-                           suministrador.get("email_login"), getattr(r, "mensaje", "motivo desconocido"))
+                           destinatario, getattr(r, "mensaje", "motivo desconocido"))
     except Exception as e:
         logger.debug("_enviar_email_acceso: %s", e)
 

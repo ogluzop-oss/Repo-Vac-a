@@ -98,6 +98,40 @@ document.addEventListener('DOMContentLoaded',function(){{
 }});
 """
 
+# El botón nativo de <input type=file> (::file-selector-button) y el texto "Ningún archivo
+# seleccionado" que lo acompaña son parte del control del sistema operativo: su alto y su
+# separación del resto no se pueden ajustar con fiabilidad entre navegadores (de ahí que quedara
+# pegado al botón "Importar" con una altura ligeramente distinta). Se sustituye por el mismo patrón
+# que el desplegable: un disparador propio con el mismo alto/tipografía que el resto de botones +
+# el nombre del archivo en un <span> aparte, con espaciado explícito — el <input> original se
+# mantiene oculto pero funcional (el archivo se sigue enviando igual en el formulario).
+_CFILE_CSS = """
+.cfile-wrap{display:flex;align-items:center;flex-wrap:wrap;gap:14px;margin-top:14px}
+.cfile-trigger{padding:9px 16px;border-radius:8px;border:2px solid var(--ac);background:transparent;
+color:var(--ac);font-weight:900;cursor:pointer;font-family:'Segoe UI',system-ui,sans-serif;
+font-size:13px}
+.cfile-trigger:hover{background:var(--ac);color:#0D1117}
+.cfile-name{color:#8B949E;font-weight:700;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif}
+"""
+_CFILE_JS = """
+document.addEventListener('DOMContentLoaded',function(){
+ document.querySelectorAll('input[type=file]').forEach(function(inp){
+  var wrap=document.createElement('div');wrap.className='cfile-wrap';
+  inp.parentNode.insertBefore(wrap,inp);wrap.appendChild(inp);
+  var trig=document.createElement('div');trig.className='cfile-trigger';trig.tabIndex=0;
+  trig.textContent='Seleccionar archivo';
+  var name=document.createElement('span');name.className='cfile-name';
+  name.textContent='Ningún archivo seleccionado';
+  trig.addEventListener('click',function(){inp.click();});
+  inp.addEventListener('change',function(){
+   name.textContent=(inp.files&&inp.files.length)?inp.files[0].name:'Ningún archivo seleccionado';
+  });
+  wrap.appendChild(trig);wrap.appendChild(name);
+  inp.style.display='none';
+ });
+});
+"""
+
 
 def _layout(titulo, contenido, nav=""):
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">

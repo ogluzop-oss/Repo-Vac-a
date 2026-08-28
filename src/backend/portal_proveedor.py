@@ -13,7 +13,7 @@ import logging
 
 from markupsafe import escape
 
-from src.backend.portal_empresa_b2b import _CSEL_CSS, _CSEL_JS
+from src.backend.portal_empresa_b2b import _CFILE_CSS, _CFILE_JS, _CSEL_CSS, _CSEL_JS
 
 logger = logging.getLogger("backend.portal_proveedor")
 
@@ -49,7 +49,7 @@ def _layout(titulo, contenido, nav="", *, token=None):
     `suministradores.notificar_reentrada`). El aviso se SUPRIME si el cierre de página viene de un
     clic interno (navegar entre Panel/Catálogo, enviar un formulario): solo se dispara ante un cierre
     real de la pestaña/navegador, no en cada clic dentro del propio portal."""
-    script = f"<script>{_CSEL_JS}</script>"
+    script = f"<script>{_CSEL_JS}</script><script>{_CFILE_JS}</script>"
     if token:
         script += f"""<script>(function(){{
 var interno=false;
@@ -105,6 +105,7 @@ font-size:11px;font-weight:700}}
 .error{{color:#F85149;font-weight:700}}.ok{{color:#3FB950;font-weight:700}}
 a.enlace{{color:var(--ac);font-weight:700;text-decoration:none}}
 {_CSEL_CSS}
+{_CFILE_CSS}
 </style></head><body>
 <header><span class="logo">📦 Portal de Proveedores</span></header>
 <nav>{nav}</nav>
