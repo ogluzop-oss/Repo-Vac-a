@@ -82,6 +82,14 @@ def crear_app():
     except Exception as e:
         logger.warning("Portal empresa B2B no disponible: %s", e)
 
+    # Smart Suppliers (migración de las 9 pestañas): Gestión (Homologar/Devoluciones/Incidencias/
+    # Evaluación/Recepciones/Facturas/Contratos/Informes/Calidad) dentro de la misma Extranet Empresa.
+    try:
+        from src.backend.portal_empresa_gestion import crear_blueprint as crear_blueprint_portal_gestion
+        app.register_blueprint(crear_blueprint_portal_gestion())
+    except Exception as e:
+        logger.warning("Portal empresa Gestión no disponible: %s", e)
+
     # API REST versionada (/api/v1): Enterprise REST API (Fase III · B2, ver ADR-0001) — sustituye al
     # blueprint legacy `src.backend.api` (Fase A1, @deprecated, ver su docstring). Hasta ahora este
     # backend seguía montando el blueprint legacy porque el cambio de esta línea nunca se completó

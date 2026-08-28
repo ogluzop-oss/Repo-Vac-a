@@ -28,7 +28,8 @@ def _nav_html(token, activo):
     enlaces = (("dashboard", f"{base}/dashboard", "Inicio"),
               ("catalogo", f"{base}/catalogo", "Catálogo B2B"),
               ("reposicion", f"{base}/reposicion", "Desde reposición"),
-              ("carrito", f"{base}/carrito", "Carrito"))
+              ("carrito", f"{base}/carrito", "Carrito"),
+              ("gestion", f"{base}/gestion", "Gestión"))
     return "".join(f'<a href="{href}"{" class=\"on\"" if activo == key else ""}>{label}</a>'
                    for key, href, label in enlaces)
 
