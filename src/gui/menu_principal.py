@@ -1994,6 +1994,17 @@ class MenuPrincipal(QWidget):
 
             # Ahora que el módulo ya está mostrado, revelado y cubriendo la pantalla, se oculta el menú
             # (queda DETRÁS del módulo, así ocultarlo es invisible y no hay parpadeo del fondo).
+            # Se deja en opacity=0 y se fuerza un ciclo de eventos ANTES de `hide()`: así el último
+            # fotograma que Windows cachea para esta ventana (para cuando se vuelva a mostrar al
+            # volver al menú) es transparente, no el menú a pleno color — si no, al reutilizar la
+            # MISMA ventana más tarde (`mostrar_menu_principal`), el compositor de Windows puede
+            # mostrar ese fotograma cacheado un instante antes de que la opacidad 0 vuelva a aplicarse,
+            # y se ve un destello del menú justo antes de la animación de deslizamiento de salida.
+            try:
+                self.setWindowOpacity(0.0)
+                QApplication.processEvents()
+            except Exception:
+                pass
             self.hide()
 
             if identificador == "ubicacion" and hasattr(
