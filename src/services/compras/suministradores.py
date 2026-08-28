@@ -165,9 +165,12 @@ def crear_sesion(id_suministrador, minutos: int = MINUTOS_SESION) -> str:
 
 
 def resolver_sesion(token_sesion: str) -> dict | None:
-    """Valida el token de sesión y devuelve el suministrador. El token es de UN SOLO USO por diseño de
-    magic-link inicial; una vez resuelto, el portal debe mantener su propia sesión de aplicación
-    (cookie) — este token no se vuelve a aceptar una vez consumido en el flujo normal de la vista."""
+    """Valida el token de sesión y devuelve el suministrador. Reutilizable mientras no caduque
+    (`MINUTOS_SESION`) — no es de un solo uso: el mismo token viaja en la URL de cada página del
+    panel (Panel/Catálogo), así que debe seguir siendo válido en cada clic dentro de esa ventana de
+    tiempo. Pasado ese plazo, el proveedor pide un enlace nuevo en `/portal/proveedor/acceso`
+    (`solicitar_acceso`) tantas veces como necesite — es el mecanismo normal de reentrada, no una
+    excepción."""
     if not token_sesion:
         return None
     try:

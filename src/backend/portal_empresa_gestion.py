@@ -75,9 +75,15 @@ contratos, informes y el resumen de Calidad.</p>
 
 # ── Homologar Proveedor ──────────────────────────────────────────────────────
 _ESTADOS_HOMOLOG = ("pendiente", "aprobado", "suspendido", "bloqueado")
+_ESTADOS_KYB = ("pendiente", "en_revision", "verificado", "rechazado")
 
 
-def pagina_homologacion(token, proveedores, *, mensaje=None):
+def pagina_homologacion(token, proveedores, *, estados_kyb=None, mensaje=None):
+    """`estados_kyb`: {id_suministrador: estado_kyb} — la verificación de identidad del proveedor en
+    la PLATAFORMA (`suministradores.estado_kyb`, compartida entre todas las empresas que trabajan con
+    él), distinta de `homologacion_estado` (la aprobación comercial de ESTA empresa en concreto). Solo
+    aplica a proveedores que completaron su alta en el Portal Proveedor (tienen `id_suministrador`)."""
+    estados_kyb = estados_kyb or {}
     base = f"/portal/empresa/{token}/gestion/homologacion"
     filas = []
     for p in proveedores:
@@ -86,14 +92,30 @@ def pagina_homologacion(token, proveedores, *, mensaje=None):
             f'<form method="post" action="{base}/{p["id_proveedor"]}/{est}" style="display:inline">'
             f'<button type="submit" class="{"btn-ghost" if est == estado else ""}">{est}</button></form> '
             for est in _ESTADOS_HOMOLOG)
+        id_sum = p.get("id_suministrador")
+        if id_sum:
+            estado_kyb = estados_kyb.get(id_sum, "pendiente")
+            acciones_kyb = "".join(
+                f'<form method="post" action="{base}/kyb/{id_sum}/{est}" style="display:inline">'
+                f'<button type="submit" class="{"btn-ghost" if est == estado_kyb else ""}">'
+                f'{est}</button></form> ' for est in _ESTADOS_KYB)
+            celda_kyb = (f'<span class="badge{" badge-ok" if estado_kyb == "verificado" else ""}">'
+                        f'{_e(estado_kyb)}</span><br>{acciones_kyb}')
+        else:
+            celda_kyb = '<span class="badge">— (no completó el alta en el Portal Proveedor)</span>'
         filas.append(f"""<tr><td>{_e(p['razon_social'])}<br>
 <span class="badge">{_e(p.get('cif_nif') or 's/CIF')}</span></td>
 <td><span class="badge{' badge-ok' if estado == 'aprobado' else ''}">{_e(estado)}</span></td>
-<td>{acciones}</td></tr>""")
-    tabla = (f"<table><tr><th>Proveedor</th><th>Estado</th><th>Cambiar a</th></tr>{''.join(filas)}"
-            f"</table>") if proveedores else "<p>No hay proveedores dados de alta todavía.</p>"
+<td>{acciones}</td>
+<td>{celda_kyb}</td></tr>""")
+    tabla = (f"<table><tr><th>Proveedor</th><th>Estado comercial</th><th>Cambiar a</th>"
+            f"<th>Verificación de identidad (KYB)</th></tr>{''.join(filas)}</table>"
+            if proveedores else "<p>No hay proveedores dados de alta todavía.</p>")
     return _layout("Homologar Proveedor", f"""
 <div class="card"><h1>Homologar Proveedor</h1>
+<p>El "estado comercial" es tu aprobación como empresa (descuentos/condiciones/bloqueo). La
+"verificación de identidad (KYB)" es la comprobación de la razón social/CIF del proveedor en la
+plataforma — se comparte con el resto de empresas que trabajen con él.</p>
 {_aviso_html(mensaje)}{tabla}
 </div>""", nav=_nav_html(token, "gestion"))
 
@@ -366,7 +388,15 @@ def crear_blueprint():
         ses, err = _sesion_o_error(token)
         if err:
             return err
-        return pagina_homologacion(token, _proveedores(ses))
+        provs = _proveedores(ses)
+        from src.services.compras import suministradores as SUM
+        estados_kyb = {}
+        for p in provs:
+            if p.get("id_suministrador"):
+                sup = SUM.obtener(p["id_suministrador"])
+                if sup:
+                    estados_kyb[p["id_suministrador"]] = sup.get("estado_kyb") or "pendiente"
+        return pagina_homologacion(token, provs, estados_kyb=estados_kyb)
 
     @bp.post("/<token>/gestion/homologacion/<int:id_proveedor>/<estado>")
     def homologacion_cambiar(token, id_proveedor, estado):
@@ -377,6 +407,24 @@ def crear_blueprint():
             return redirect(f"/portal/empresa/{token}/gestion/homologacion")
         from src.db import compras as C
         C.set_homologacion_estado(id_proveedor, estado, ses["id_empresa"])
+        return redirect(f"/portal/empresa/{token}/gestion/homologacion")
+
+    @bp.post("/<token>/gestion/homologacion/kyb/<int:id_suministrador>/<estado>")
+    def homologacion_kyb_cambiar(token, id_suministrador, estado):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        if estado not in _ESTADOS_KYB:
+            return redirect(f"/portal/empresa/{token}/gestion/homologacion")
+        from src.db import proveedores as P
+        # Guarda: la empresa solo puede verificar/rechazar proveedores CON LOS QUE TIENE relación
+        # (no cualquier id_suministrador de la plataforma — es una identidad compartida entre
+        # empresas, pero la acción de verificarla se restringe a quien realmente trabaja con él).
+        propia = any(p.get("id_suministrador") == id_suministrador
+                    for p in P.listar_proveedores(id_empresa=ses["id_empresa"]))
+        if propia:
+            from src.services.compras import suministradores as SUM
+            SUM.fijar_estado_kyb(id_suministrador, estado)
         return redirect(f"/portal/empresa/{token}/gestion/homologacion")
 
     # ── Devoluciones ──

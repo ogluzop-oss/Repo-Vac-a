@@ -31,12 +31,18 @@ def _nav_html(token, activo):
                    for key, href, label in enlaces)
 
 
+_FLECHA_SVG = ("data:image/svg+xml;utf8,"
+              "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E"
+              "%3Cpath d='M1 1l5 5 5-5' stroke='%2300FFC6' stroke-width='2' fill='none' "
+              "stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+
+
 def _layout(titulo, contenido, nav=""):
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_e(titulo)} · Portal de Proveedores</title><style>
 :root{{--ac:#00FFC6;}}
-*{{box-sizing:border-box}}body{{margin:0;font-family:'Segoe UI',system-ui,sans-serif;
+*{{box-sizing:border-box}}body{{margin:0;font-family:'Segoe UI',system-ui,sans-serif;font-weight:700;
 background:#0D1117;color:#E6EDF3}}
 header{{display:flex;align-items:center;gap:16px;padding:14px 24px;background:#111418;
 border-bottom:2px solid var(--ac)}}
@@ -45,19 +51,30 @@ nav{{display:flex;gap:8px;padding:12px 24px;background:#0D1117;border-bottom:1px
 nav a{{color:#8B949E;text-decoration:none;font-weight:700;font-size:13px;padding:6px 10px;
 border-radius:8px}}nav a.on,nav a:hover{{color:#0D1117;background:var(--ac)}}
 main{{max-width:900px;margin:0 auto;padding:24px}}
-h1,h2{{color:var(--ac)}}
+h1,h2{{color:var(--ac);font-weight:900}}
 .card{{background:#161B22;border:1px solid #30363D;border-radius:12px;padding:18px;margin-bottom:16px}}
-label{{display:block;font-size:12px;color:#8B949E;margin:10px 0 4px;font-weight:700}}
+label{{display:block;font-size:14px;color:#8B949E;margin:10px 0 4px;font-weight:700}}
 input,select,textarea{{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #30363D;
-background:#0D1117;color:#E6EDF3;font-size:14px}}
+background:#0D1117;color:#E6EDF3;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif;
+font-weight:700}}
+select{{appearance:none;-webkit-appearance:none;border:2px solid var(--ac);border-radius:10px;
+background-color:#0D1117;background-image:url("{_FLECHA_SVG}");background-repeat:no-repeat;
+background-position:right 14px center;background-size:12px 8px;padding-right:36px;cursor:pointer}}
+select:focus{{outline:none;border-color:var(--ac)}}
+input[type=file]{{border:none;background:transparent;padding:0;width:auto}}
+input[type=file]::file-selector-button{{background:transparent;color:var(--ac);
+border:2px solid var(--ac);border-radius:8px;padding:9px 16px;font-weight:900;
+font-family:'Segoe UI',system-ui,sans-serif;cursor:pointer;margin-right:10px}}
+input[type=file]::file-selector-button:hover{{background:var(--ac);color:#0D1117}}
 button{{margin-top:14px;padding:10px 18px;border-radius:8px;border:none;background:var(--ac);
-color:#0D1117;font-weight:900;cursor:pointer}}
+color:#0D1117;font-weight:900;cursor:pointer;font-family:'Segoe UI',system-ui,sans-serif}}
 table{{width:100%;border-collapse:collapse;margin-top:10px}}
 th,td{{text-align:left;padding:8px;border-bottom:1px solid #21262D;font-size:13px}}
 th{{color:#8B949E}}
 .badge{{display:inline-block;background:#21262D;color:var(--ac);border-radius:6px;padding:2px 8px;
 font-size:11px;font-weight:700}}
 .error{{color:#F85149;font-weight:700}}.ok{{color:#3FB950;font-weight:700}}
+a.enlace{{color:var(--ac);font-weight:700;text-decoration:none}}
 </style></head><body>
 <header><span class="logo">📦 Portal de Proveedores</span></header>
 <nav>{nav}</nav>
@@ -66,7 +83,9 @@ font-size:11px;font-weight:700}}
 
 
 def _pagina_error(titulo, mensaje):
-    return _layout(titulo, f"<div class='card'><h1>{_e(titulo)}</h1><p class='error'>{_e(mensaje)}</p></div>")
+    return _layout(titulo, f"""<div class='card'><h1>{_e(titulo)}</h1><p class='error'>{_e(mensaje)}</p>
+<p><a class="enlace" href="/portal/proveedor/acceso">¿Ya tienes cuenta? Solicita un nuevo enlace de
+acceso →</a></p></div>""")
 
 
 # ── Onboarding (desde el enlace de invitación) ───────────────────────────────
@@ -96,7 +115,9 @@ def pagina_onboarding_completado(url_dashboard):
     return _layout("Alta completada", f"""
 <div class="card"><h1 class="ok">✓ Alta completada</h1>
 <p>Ya puedes acceder a tu panel de proveedor.</p>
-<p><a href="{_e(url_dashboard)}" style="color:var(--ac);font-weight:700">Entrar al panel →</a></p>
+<p><a class="enlace" href="{_e(url_dashboard)}">Entrar al panel →</a></p>
+<p>Guarda este enlace o, si lo pierdes, solicita uno nuevo en cualquier momento desde
+<a class="enlace" href="/portal/proveedor/acceso">Acceder a tu panel</a> con tu email de acceso.</p>
 </div>""")
 
 
