@@ -59,6 +59,8 @@ CATALOGO = {
     "identidad_validacion_centros": ("Identidad · validación de integridad de centros", "identidad", False, 168, "baja", 300, 1, "identidad.ver"),
     "identidad_verificacion_terminales": ("Identidad · verificación de terminales", "identidad", False, 24, "baja", 300, 1, "identidad.ver"),
     "identidad_sincronizacion": ("Identidad · sincronización de identidades", "identidad", False, 24, "baja", 300, 1, "identidad.configurar"),
+    "b2b_escrow_liberacion": ("Smart Suppliers · liberación de fondos B2B por expiración de plazo",
+                              "compras", False, 24, "alta", 300, 1, None),
     # ── PESADOS / dependientes (opt-in, deshabilitados por defecto) ──
     "bi_corp_etl": ("BI Corporativo · ETL Data Warehouse", "bi", True, 24, "baja", 3600, 1, "bi.admin"),
     "bi_corp_alertas": ("BI Corporativo · alertas", "bi", True, 24, "baja", 900, 1, "bi.admin"),
@@ -99,6 +101,7 @@ REGISTRADORES = [
     ("src.services.calidad.calidad_pro", "registrar_jobs_calidad"),
     ("src.services.documental.dms_pro", "registrar_jobs_documental"),
     ("src.services.identidad.identidad", "registrar_jobs_identidad"),
+    ("src.services.compras.b2b_escrow", "registrar_jobs_escrow"),
 ]
 
 _CAMPOS = ("nombre", "categoria", "pesado", "intervalo_horas", "prioridad", "timeout_seg",
