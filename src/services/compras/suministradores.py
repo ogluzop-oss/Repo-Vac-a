@@ -142,13 +142,75 @@ def _enviar_email_acceso(suministrador, token_sesion):
         from src.services import ccp
         import os
         base = os.getenv("PORTAL_PROVEEDOR_URL", "http://localhost:8090/portal/proveedor")
+        # Ruta real del panel: /portal/proveedor/<token>/dashboard (bug corregido — antes apuntaba
+        # a /sesion/<token>, una ruta que nunca existió en el blueprint).
         ccp.enviar_comunicacion(
             destinatario=suministrador["email_login"], asunto="Acceso a tu Portal de Proveedor",
-            cuerpo=f"Accede a tu portal: {base}/sesion/{token_sesion}\n\nEste enlace caduca en "
-                  f"{MINUTOS_SESION} minutos y solo sirve una vez.",
+            cuerpo=f"Accede a tu portal: {base}/{token_sesion}/dashboard\n\nEste enlace caduca en "
+                  f"{MINUTOS_SESION} minutos.",
             contexto="compras.acceso_proveedor")
     except Exception as e:
         logger.debug("_enviar_email_acceso: %s", e)
+
+
+# ── Reentrada automática (sin flujo manual) ────────────────────────────────────
+def notificar_reentrada(id_suministrador, *, cooldown_segundos=60) -> dict:
+    """Envía (best-effort) un enlace de acceso NUEVO al proveedor sin que tenga que pedirlo: lo
+    dispara `backend.portal_proveedor` cuando detecta que cierra la pestaña (beacon en `pagehide`)
+    o cuando pulsa "Cerrar sesión". Es el ÚNICO flujo de reentrada del portal — el proveedor nunca
+    depende de que la empresa lo vuelva a invitar.
+
+    `cooldown_segundos` evita ráfagas de email si el beacon se dispara varias veces seguidas (varias
+    pestañas cerrándose casi a la vez). Se mide contra `ultima_notificacion_reentrada` (escrita SOLO
+    aquí) y NO contra la fila más reciente de `suministrador_sesiones` — esa tabla también guarda la
+    sesión que el proveedor está usando en ese momento (creada al entrar), así que mirarla haría
+    creer que "ya se avisó hace poco" nada más entrar y suprimiría el primer aviso real."""
+    sup = obtener(id_suministrador)
+    if not sup or not sup.get("email_login"):
+        return {"ok": False, "error": "sin_suministrador_o_email_login"}
+    ultima = sup.get("ultima_notificacion_reentrada")
+    if ultima and cooldown_segundos:
+        if isinstance(ultima, str):
+            ultima = datetime.fromisoformat(ultima[:19])
+        if ultima > datetime.now() - timedelta(seconds=cooldown_segundos):
+            return {"ok": True, "omitido": "envio_reciente"}
+    # `crear_sesion` gestiona su PROPIA conexión (INSERT + commit) — NO se anida dentro de otro
+    # `with obtener_conexion()` aquí: dos conexiones abiertas a la vez en el mismo hilo, una de ellas
+    # sin cerrar todavía, es justo el patrón que causó que el UPDATE de más abajo se perdiera en
+    # silencio bajo el servidor Flask (aunque el INSERT sí llegaba a persistir) — no reproducible en
+    # un script suelto, sí bajo el pool de conexiones real del backend.
+    token = crear_sesion(id_suministrador)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE suministradores SET ultima_notificacion_reentrada=NOW() WHERE id=%s",
+                       (id_suministrador,))
+            conn.commit()
+    except Exception as e:
+        logger.error("notificar_reentrada(%s): %s", id_suministrador, e)
+    _enviar_email_acceso(sup, token)
+    return {"ok": True}
+
+
+def cerrar_sesion(token_sesion: str) -> dict:
+    """Cierre EXPLÍCITO de sesión: invalida el token actual (no se puede reutilizar) y dispara de
+    inmediato el envío del enlace siguiente, para que el proveedor pueda volver a entrar sin
+    depender de la empresa."""
+    if not token_sesion:
+        return {"ok": False, "error": "sin_token"}
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id_suministrador FROM suministrador_sesiones WHERE token_sesion=%s",
+                       (token_sesion,))
+            row = cur.fetchone()
+            if not row:
+                return {"ok": False, "error": "sesion_no_encontrada"}
+            id_sum = row[0] if not isinstance(row, dict) else row["id_suministrador"]
+            cur.execute("DELETE FROM suministrador_sesiones WHERE token_sesion=%s", (token_sesion,))
+            conn.commit()
+    except Exception as e:
+        logger.error("cerrar_sesion: %s", e)
+        return {"ok": False, "error": "error_interno"}
+    return notificar_reentrada(id_sum, cooldown_segundos=0)   # cierre explícito: sin cooldown
 
 
 def crear_sesion(id_suministrador, minutos: int = MINUTOS_SESION) -> str:

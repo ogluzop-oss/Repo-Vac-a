@@ -222,4 +222,5 @@ MODULOS = [
     "0221_transaccion_comercial_b2b",
     "0222_b2b_empresa_sesion_carrito",
     "0223_cancelaciones_b2b",
+    "0224_suministrador_notificacion",
 ]

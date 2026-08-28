@@ -23,12 +23,15 @@ def _e(x):
 
 
 def _nav_html(token, activo):
-    """Nav del panel (Panel/Catálogo), construida sin estado global — cada página pasa su propio
-    `token` de sesión y cuál de los dos enlaces está activo."""
+    """Nav del panel (Panel/Catálogo/Cerrar sesión), construida sin estado global — cada página pasa
+    su propio `token` de sesión y cuál de los enlaces está activo."""
     base = f"/portal/proveedor/{token}"
     enlaces = (("dashboard", f"{base}/dashboard", "Panel"), ("catalogo", f"{base}/catalogo", "Catálogo"))
-    return "".join(f'<a href="{href}"{" class=\"on\"" if activo == key else ""}>{label}</a>'
-                   for key, href, label in enlaces)
+    links = "".join(f'<a href="{href}"{" class=\"on\"" if activo == key else ""}>{label}</a>'
+                    for key, href, label in enlaces)
+    logout = (f'<form method="post" action="{base}/logout" style="margin-left:auto">'
+             f'<button type="submit" class="nav-logout">Cerrar sesión</button></form>')
+    return links + logout
 
 
 _FLECHA_SVG = ("data:image/svg+xml;utf8,"
@@ -37,7 +40,23 @@ _FLECHA_SVG = ("data:image/svg+xml;utf8,"
               "stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
 
 
-def _layout(titulo, contenido, nav=""):
+def _layout(titulo, contenido, nav="", *, token=None):
+    """`token`: si se pasa (páginas con sesión activa: panel/catálogo), inyecta el script que avisa
+    al servidor cuando el proveedor cierra la pestaña (`pagehide`, vía `sendBeacon`) para que le
+    llegue un enlace de acceso nuevo sin tener que pedirlo — único flujo de reentrada del portal (ver
+    `suministradores.notificar_reentrada`). El aviso se SUPRIME si el cierre de página viene de un
+    clic interno (navegar entre Panel/Catálogo, enviar un formulario): solo se dispara ante un cierre
+    real de la pestaña/navegador, no en cada clic dentro del propio portal."""
+    script = ""
+    if token:
+        script = f"""<script>(function(){{
+var interno=false;
+document.addEventListener('click',function(){{interno=true;}},true);
+document.addEventListener('submit',function(){{interno=true;}},true);
+window.addEventListener('pagehide',function(){{
+  if(!interno){{navigator.sendBeacon('/portal/proveedor/{_e(token)}/cerrar');}}
+}});
+}})();</script>"""
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_e(titulo)} · Portal de Proveedores</title><style>
@@ -47,9 +66,14 @@ background:#0D1117;color:#E6EDF3}}
 header{{display:flex;align-items:center;gap:16px;padding:14px 24px;background:#111418;
 border-bottom:2px solid var(--ac)}}
 .logo{{font-weight:900;font-size:20px;color:var(--ac)}}
-nav{{display:flex;gap:8px;padding:12px 24px;background:#0D1117;border-bottom:1px solid #21262D}}
+nav{{display:flex;align-items:center;gap:8px;padding:12px 24px;background:#0D1117;
+border-bottom:1px solid #21262D}}
 nav a{{color:#8B949E;text-decoration:none;font-weight:700;font-size:13px;padding:6px 10px;
 border-radius:8px}}nav a.on,nav a:hover{{color:#0D1117;background:var(--ac)}}
+nav .nav-logout{{background:transparent;color:#F85149;border:2px solid #F85149;border-radius:8px;
+font-weight:700;font-size:13px;padding:6px 10px;cursor:pointer;margin-top:0;
+font-family:'Segoe UI',system-ui,sans-serif}}
+nav .nav-logout:hover{{background:#F85149;color:#0D1117}}
 main{{max-width:900px;margin:0 auto;padding:24px}}
 h1,h2{{color:var(--ac);font-weight:900}}
 .card{{background:#161B22;border:1px solid #30363D;border-radius:12px;padding:18px;margin-bottom:16px}}
@@ -79,13 +103,14 @@ a.enlace{{color:var(--ac);font-weight:700;text-decoration:none}}
 <header><span class="logo">📦 Portal de Proveedores</span></header>
 <nav>{nav}</nav>
 <main>{contenido}</main>
+{script}
 </body></html>"""
 
 
 def _pagina_error(titulo, mensaje):
     return _layout(titulo, f"""<div class='card'><h1>{_e(titulo)}</h1><p class='error'>{_e(mensaje)}</p>
-<p><a class="enlace" href="/portal/proveedor/acceso">¿Ya tienes cuenta? Solicita un nuevo enlace de
-acceso →</a></p></div>""")
+<p>Cada vez que cierras tu portal (o pulsas "Cerrar sesión"), te enviamos automáticamente un enlace
+de acceso nuevo a tu email — revisa tu bandeja de entrada.</p></div>""")
 
 
 # ── Onboarding (desde el enlace de invitación) ───────────────────────────────
@@ -116,8 +141,8 @@ def pagina_onboarding_completado(url_dashboard):
 <div class="card"><h1 class="ok">✓ Alta completada</h1>
 <p>Ya puedes acceder a tu panel de proveedor.</p>
 <p><a class="enlace" href="{_e(url_dashboard)}">Entrar al panel →</a></p>
-<p>Guarda este enlace o, si lo pierdes, solicita uno nuevo en cualquier momento desde
-<a class="enlace" href="/portal/proveedor/acceso">Acceder a tu panel</a> con tu email de acceso.</p>
+<p>No hace falta que guardes este enlace: cada vez que cierres tu portal (o pulses "Cerrar
+sesión"), te enviaremos automáticamente uno nuevo a tu email.</p>
 </div>""")
 
 
@@ -135,6 +160,14 @@ def pagina_acceso(*, enviado=False):
     return _layout("Acceso proveedor", f'<div class="card">{cuerpo}</div>')
 
 
+def pagina_sesion_cerrada():
+    return _layout("Sesión cerrada", """
+<div class="card"><h1 class="ok">✓ Sesión cerrada</h1>
+<p>Te hemos enviado un enlace de acceso nuevo a tu email. Úsalo la próxima vez que quieras entrar a
+tu portal — no hace falta que la empresa te vuelva a invitar.</p>
+</div>""")
+
+
 # ── Panel del proveedor ───────────────────────────────────────────────────────
 def pagina_dashboard(token, suministrador):
     estado = suministrador.get("estado_kyb", "pendiente")
@@ -144,7 +177,7 @@ def pagina_dashboard(token, suministrador):
 <p>CIF: {_e(suministrador.get('cif'))} · Estado de verificación:
 <span class="badge">{_e(estado)}</span></p>
 <p>Contacto: {_e(suministrador.get('contacto') or '—')} · Tel: {_e(suministrador.get('telefono') or '—')}</p>
-</div>""", nav=_nav_html(token, "dashboard"))
+</div>""", nav=_nav_html(token, "dashboard"), token=token)
 
 
 def pagina_catalogo(token, articulos, *, mensaje=None, resultado_import=None):
@@ -181,7 +214,7 @@ def pagina_catalogo(token, articulos, *, mensaje=None, resultado_import=None):
 <form method="post" action="{base}/catalogo/importar" enctype="multipart/form-data">
 <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
 <button type="submit">Importar</button>
-</form></div>""", nav=_nav_html(token, "catalogo"))
+</form></div>""", nav=_nav_html(token, "catalogo"), token=token)
 
 
 # ── Blueprint Flask (import perezoso) ────────────────────────────────────────
@@ -195,7 +228,7 @@ def crear_blueprint():
         sup = S.resolver_sesion(token)
         if not sup:
             return None, (_pagina_error("Sesión no válida",
-                          "Tu enlace de acceso ha caducado o no es válido. Solicita uno nuevo."), 401)
+                          "Tu enlace de acceso ha caducado o no es válido."), 401)
         return sup, None
 
     @bp.get("/onboarding/<token>")
@@ -228,6 +261,26 @@ def crear_blueprint():
         from src.services.compras import suministradores as S
         S.solicitar_acceso(request.form.get("email", ""))
         return pagina_acceso(enviado=True)
+
+    @bp.post("/<token>/cerrar")
+    def cerrar_beacon(token):
+        """Objetivo del `navigator.sendBeacon` disparado por el script de `_layout` en `pagehide`
+        (cierre real de pestaña, no navegación interna): reenvía un enlace nuevo sin invalidar el
+        token actual (por si el cierre era solo la pestaña en segundo plano, la sesión sigue
+        sirviendo mientras no caduque). Responde 204 sin cuerpo — sendBeacon no lee la respuesta."""
+        from src.services.compras import suministradores as S
+        sup = S.resolver_sesion(token)
+        if sup:
+            S.notificar_reentrada(sup["id"])
+        return ("", 204)
+
+    @bp.post("/<token>/logout")
+    def logout(token):
+        """Cierre EXPLÍCITO de sesión (botón "Cerrar sesión"): invalida el token actual y envía el
+        siguiente sin esperar al pagehide — único flujo de reentrada del portal."""
+        from src.services.compras import suministradores as S
+        S.cerrar_sesion(token)
+        return pagina_sesion_cerrada()
 
     @bp.get("/<token>/dashboard")
     def dashboard(token):
