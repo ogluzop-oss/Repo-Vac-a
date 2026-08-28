@@ -1,4 +1,15 @@
 """
+@deprecated (fusión de las dos APIs `/api/v1`, ver ADR-0001 y `docs/architecture/adr/
+0001-arquitectura-api-first-por-capas.md`): este blueprint (Fase A1, junio 2026) queda SUSTITUIDO por
+`src.api.crear_api("v1")` (Fase III · B2, Enterprise REST API), que `src/backend/app.py` monta ahora
+en su lugar. Se conserva el archivo por compatibilidad hacia atrás (Strangler Pattern, ver CLAUDE.md)
+y porque un test (`tests/unit/test_comercio_fase10.py::test_pedidos_legacy_deprecado`) verifica que
+su endpoint `/pedidos` siga marcado como deprecado — pero YA NO SE REGISTRA en ningún servidor real.
+`/auth/login|refresh|logout|me` y `/catalogo/productos|categorias` tienen equivalente en la API nueva
+(`src/api/routers/auth.py`, `catalog.py`); `/pedidos` ya apuntaba a `/commerce` como sucesor (Fase 10),
+que también vive en la API nueva (`src/api/routers/commerce.py`). Eliminar este archivo cuando no
+queden referencias (incluida la del test anterior).
+
 API REST de Smart Manager AI (A1) — blueprint versionado `/api/v1`.
 
 Principios:

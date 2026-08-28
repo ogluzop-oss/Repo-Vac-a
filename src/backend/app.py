@@ -68,10 +68,15 @@ def crear_app():
     except Exception as e:
         logger.warning("Storefront no disponible: %s", e)
 
-    # API REST versionada (/api/v1): auth JWT + recursos (A1).
+    # API REST versionada (/api/v1): Enterprise REST API (Fase III · B2, ver ADR-0001) — sustituye al
+    # blueprint legacy `src.backend.api` (Fase A1, @deprecated, ver su docstring). Hasta ahora este
+    # backend seguía montando el blueprint legacy porque el cambio de esta línea nunca se completó
+    # tras Fase III; la app móvil y el resto de la API nueva (customers/suppliers/orders/stock/
+    # notifications/agenda/tasks/incidents/workflow/documents/timeline/catalogo/...) llevaban meses
+    # sin ser alcanzables por ningún servidor real.
     try:
-        from src.backend.api import crear_blueprint_api
-        app.register_blueprint(crear_blueprint_api())
+        from src.api import crear_api
+        app.register_blueprint(crear_api("v1"))
     except Exception as e:
         logger.warning("API REST no disponible: %s", e)
 

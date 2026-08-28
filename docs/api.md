@@ -1,3 +1,16 @@
+# API REST — Smart Manager AI (A1) — @deprecated, ver nota
+
+> **OBSOLETO (2026-08-28)**: este documento describe el blueprint legacy
+> `src/backend/api.py` (Fase A1). `src/backend/app.py` ya NO lo monta — desde la
+> fusión de las dos APIs `/api/v1` que coexistían (ver ADR-0001,
+> `docs/architecture/adr/0001-arquitectura-api-first-por-capas.md`), el backend
+> real sirve `src.api.crear_api("v1")` (Fase III · B2, Enterprise REST API). La
+> fuente de verdad actual de endpoints es el código en `src/api/routers/` (un
+> router por recurso: auth, system, catalog, customers, suppliers, orders,
+> stock, notifications, agenda, tasks, incidents, workflow, documents,
+> timeline, communications, contacts, commerce…), no este archivo. Se conserva
+> por referencia histórica; no reflejar cambios nuevos aquí.
+
 # API REST — Smart Manager AI (A1)
 
 Capa de exposición HTTP **fina** sobre los servicios existentes (la lógica de
