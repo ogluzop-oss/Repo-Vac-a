@@ -2065,22 +2065,36 @@ class MenuPrincipal(QWidget):
         # `self` (MenuPrincipal) NO es una ventana top-level real pese a parecerlo: `main.py` la
         # añade como página del QStackedWidget raíz (`smart_app`), así que `setWindowOpacity` no
         # tiene NINGÚN efecto sobre ella (es una propiedad exclusiva de ventanas top-level de
-        # verdad — a diferencia de un módulo, que sí es una ventana top-level genuina y por eso el
-        # mismo truco de opacidad SÍ le funciona). Confiar en la opacidad aquí dejaba un instante en
-        # el que el menú real ya era visible (por `showMaximized()`) antes de que el overlay llegara
-        # a cubrirlo — el destello que se reportó. En su lugar, el overlay se adjunta, se rellena y
-        # se sube al frente COMO HIJO de `self` ANTES de mostrarla: ningún fotograma real del menú
-        # llega a pintarse sin el overlay ya encima.
+        # verdad). Adjuntar el overlay como HIJO de `self` tampoco basta: al reaparecer, el propio
+        # `showMaximized()` deja un instante con la superficie nativa recién mapeada SIN NADA
+        # pintado todavía (ni el menú real ni el overlay) — un fotograma en negro, antes de que Qt
+        # procese el primer paintEvent tanto del menú como del overlay.
+        #
+        # Por eso el overlay se construye aquí como una ventana TOP-LEVEL PROPIA e INDEPENDIENTE
+        # (sin padre), se muestra y se fuerza su pintado SÍNCRONO (`repaint`) ANTES de tocar `self`
+        # en absoluto. Cuando `self.showMaximized()` se ejecuta después, cualquier cosa que ocurra
+        # en su superficie (negro, contenido viejo, lo que sea) quede completamente TAPADA por esta
+        # ventana ya pintada y siempre-encima — igual que un módulo real jamás destella porque nace
+        # invisible, aquí se logra el mismo resultado con una ventana que nace ya opaca y pintada.
         ov = None
         try:
             if _snap_modulo is not None and not _snap_modulo.isNull():
                 scr = self.screen() or QApplication.primaryScreen()
                 geo = scr.availableGeometry() if scr is not None else self.rect()
-                ov = QLabel(self)
+                ov = QLabel()
+                ov.setWindowFlags(
+                    Qt.WindowType.FramelessWindowHint
+                    | Qt.WindowType.WindowStaysOnTopHint
+                    | Qt.WindowType.Tool
+                )
+                ov.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
                 ov.setPixmap(_snap_modulo)
                 ov.setScaledContents(True)
-                ov.setGeometry(0, 0, geo.width(), geo.height())
+                ov.setGeometry(geo)
+                ov.show()
                 ov.raise_()
+                ov.repaint()
+                QApplication.processEvents()   # el overlay YA está pintado en pantalla antes de seguir
         except Exception:
             ov = None
 
@@ -2095,9 +2109,10 @@ class MenuPrincipal(QWidget):
             ov.raise_()
             a = QPropertyAnimation(ov, b"pos", ov)
             a.setDuration(240)
-            a.setStartValue(QPoint(0, 0))
-            a.setEndValue(QPoint(ov.width(), 0))
+            a.setStartValue(ov.pos())
+            a.setEndValue(QPoint(ov.x() + ov.width(), ov.y()))
             a.setEasingCurve(QEasingCurve.Type.InOutCubic)
+            a.finished.connect(ov.close)
             a.finished.connect(ov.deleteLater)
             a.start()
             ov._a = a
