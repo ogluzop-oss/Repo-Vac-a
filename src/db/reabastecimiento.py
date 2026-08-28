@@ -157,7 +157,7 @@ def obtener_config(codigo: str, id_empresa=None) -> dict | None:
 def crear_propuesta(codigo: str, nombre: str, cantidad: int,
                     origen: str, stock_actual: int, stock_objetivo: int,
                     id_empresa=None, id_almacen=None, id_almacen_origen=None,
-                    id_almacen_destino=None, prevision_usada=None) -> int | None:
+                    id_almacen_destino=None, prevision_usada=None, id_tienda=None) -> int | None:
     id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn:
@@ -166,10 +166,10 @@ def crear_propuesta(codigo: str, nombre: str, cantidad: int,
                     INSERT INTO reab_propuestas
                         (codigo, nombre_articulo, cantidad, origen, stock_actual,
                          stock_objetivo, estado, id_empresa, id_almacen,
-                         id_almacen_origen, id_almacen_destino, prevision_usada)
-                    VALUES (%s, %s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s)
+                         id_almacen_origen, id_almacen_destino, prevision_usada, id_tienda)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'pendiente', %s, %s, %s, %s, %s, %s)
                 """, (codigo, nombre, cantidad, origen, stock_actual, stock_objetivo, id_empresa,
-                      id_almacen, id_almacen_origen, id_almacen_destino, prevision_usada))
+                      id_almacen, id_almacen_origen, id_almacen_destino, prevision_usada, id_tienda))
                 pid = cur.lastrowid
             conn.commit()
             # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
@@ -219,6 +219,56 @@ def listar_propuestas(estados: tuple = None, id_empresa=None) -> list:
                 ]
     except Exception as e:
         logger.error(f"Error listando propuestas: {e}")
+        return []
+
+
+def generar_propuestas_tienda(id_tienda, id_empresa=None) -> int:
+    """Genera (idempotente) una propuesta 'pendiente' por cada artículo bajo mínimos de ESA tienda que
+    todavía no tenga una propuesta activa para ella (evita duplicados si se pulsa "Desde reposición"
+    varias veces). Devuelve cuántas propuestas nuevas se crearon."""
+    id_empresa = _emp(id_empresa)
+    creadas = 0
+    for a in articulos_bajo_umbral_tienda(id_tienda, id_empresa):
+        try:
+            with obtener_conexion() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM reab_propuestas WHERE codigo=%s AND id_empresa=%s "
+                    "AND id_tienda=%s AND estado IN ('pendiente','en_carrito','aprobado','enviado')",
+                    (a["codigo"], id_empresa, id_tienda))
+                r = cur.fetchone()
+                ya_existe = bool(r and r[0] > 0)
+        except Exception as e:
+            logger.error(f"generar_propuestas_tienda comprobación({a['codigo']}): {e}")
+            continue
+        if ya_existe:
+            continue
+        if crear_propuesta(a["codigo"], a["nombre"], a["cantidad"], "Portal B2B", a["stock_actual"],
+                           a["stock_objetivo"], id_empresa=id_empresa, id_tienda=id_tienda):
+            creadas += 1
+    return creadas
+
+
+def listar_propuestas_tienda(id_tienda, estados: tuple = None, id_empresa=None) -> list:
+    """Como `listar_propuestas`, pero acotada a una tienda (Portal de Empresa · Fase B): el carrito de
+    reposición del portal solo debe mostrar/operar sobre la tienda de la sesión activa, nunca sobre
+    todas las de la empresa."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cond, params = ["id_empresa=%s", "id_tienda=%s"], [id_empresa, id_tienda]
+            if estados:
+                placeholders = ",".join(["%s"] * len(estados))
+                cond.append(f"estado IN ({placeholders})")
+                params += list(estados)
+            cur.execute(
+                "SELECT id, codigo, nombre_articulo, cantidad, stock_actual, stock_objetivo, "
+                "estado, fecha_creacion FROM reab_propuestas WHERE " + " AND ".join(cond) +
+                " ORDER BY fecha_creacion DESC", params)
+            return [{"id": r[0], "codigo": r[1], "nombre": r[2], "cantidad": r[3],
+                    "stock_actual": r[4], "stock_objetivo": r[5], "estado": r[6],
+                    "fecha_creacion": r[7]} for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"listar_propuestas_tienda({id_tienda}): {e}")
         return []
 
 
@@ -368,6 +418,37 @@ def articulos_bajo_umbral(id_empresa=None) -> list:
                               "cantidad": max(0, int(r[5]) - int(r[2]))})
     except Exception as e:
         logger.error(f"articulos_bajo_umbral: {e}")
+    return filas
+
+
+def articulos_bajo_umbral_tienda(id_tienda, id_empresa=None) -> list:
+    """Como `articulos_bajo_umbral`, pero para una tienda EXPLÍCITA vía `stock_tienda` (la tabla
+    PERSISTENTE por tienda, ver `src/db/stock.py`), en vez de `articulos.Stock_tienda` — esa columna
+    refleja el stock de trabajo de la tienda ACTUALMENTE ACTIVA en la sesión de escritorio que la
+    escribió, no una tienda arbitraria consultada bajo demanda. Usarla aquí sería incorrecto: el
+    Portal de Empresa (Smart Suppliers · Fase B) puede recibir peticiones concurrentes de usuarios
+    conectados a tiendas distintas, y cada uno debe ver el stock de SU tienda, no el de la que
+    resulte estar activa en ese instante en otra sesión de escritorio."""
+    emp = _emp(id_empresa)
+    filas = []
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT rc.codigo, a.nombre, COALESCE(st.stock,0) AS stock_actual,
+                       rc.umbral_min, rc.stock_objetivo
+                FROM reab_config rc
+                JOIN articulos a ON a.codigo = rc.codigo AND a.id_empresa <=> rc.id_empresa
+                LEFT JOIN stock_tienda st ON st.codigo_articulo = a.codigo
+                       AND st.id_tienda = %s AND st.id_empresa = a.id_empresa
+                WHERE rc.id_empresa <=> %s AND COALESCE(st.stock,0) < rc.umbral_min
+                ORDER BY a.nombre ASC
+            """, (id_tienda, emp))
+            for r in cur.fetchall():
+                filas.append({"codigo": r[0], "nombre": r[1], "stock_actual": int(r[2]),
+                              "umbral_min": int(r[3]), "stock_objetivo": int(r[4]),
+                              "cantidad": max(0, int(r[4]) - int(r[2]))})
+    except Exception as e:
+        logger.error(f"articulos_bajo_umbral_tienda({id_tienda}): {e}")
     return filas
 
 

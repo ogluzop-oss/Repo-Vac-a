@@ -220,4 +220,5 @@ MODULOS = [
     "0219_b2b_catalogo",
     "0220_b2b_escrow",
     "0221_transaccion_comercial_b2b",
+    "0222_b2b_empresa_sesion_carrito",
 ]
