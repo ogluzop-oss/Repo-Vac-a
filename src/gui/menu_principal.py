@@ -1834,13 +1834,29 @@ class MenuPrincipal(QWidget):
 
         def volver_de_tpv():
             instancia = self._ventanas.pop("tpv", None)
+            # Instantánea del TPV para el deslizamiento de SALIDA (mismo patrón que la entrada,
+            # invertido), capturada ANTES de quitarlo del stack mientras aún es la página visible.
+            _snap_tpv = None
             if instancia is not None:
+                try:
+                    _snap_tpv = instancia.grab()
+                except Exception:
+                    _snap_tpv = None
                 try:
                     smart_app.removeWidget(instancia)
                     instancia.deleteLater()
                 except Exception:
                     pass
-            smart_app.setCurrentWidget(self)
+            try:
+                from src.gui.transiciones import deslizar_entrada_modulo
+                deslizar_entrada_modulo(
+                    _snap_tpv, smart_app,
+                    al_cubrir=lambda: smart_app.setCurrentWidget(self))
+            except Exception:
+                try:
+                    smart_app.setCurrentWidget(self)
+                except Exception:
+                    pass
             self.show()
 
         tpv = TPVWindow(
@@ -2006,6 +2022,19 @@ class MenuPrincipal(QWidget):
         ventanas = [v for v in self._ventanas.values() if v is not None]
         self._ventanas = {}
 
+        # Instantánea del módulo actual para la animación de deslizamiento de SALIDA — mismo
+        # lenguaje visual que la entrada (`manejar_apertura`), pero a la inversa: el módulo se
+        # desliza hacia la derecha revelando el menú. Se captura AHORA, con el módulo todavía
+        # visible (antes de programar su cierre). `QApplication.activeWindow()` es la ventana desde
+        # la que se ha llamado a este método (el botón "Volver"/"X" vive dentro de ella).
+        _snap_modulo = None
+        try:
+            origen = QApplication.activeWindow()
+            if origen is not None and origen is not self and origen in ventanas:
+                _snap_modulo = origen.grab()
+        except Exception:
+            _snap_modulo = None
+
         if ventanas:
             def _cerrar_diferido(_ventanas=ventanas):
                 for v in _ventanas:
@@ -2019,10 +2048,27 @@ class MenuPrincipal(QWidget):
                         pass
             QTimer.singleShot(0, _cerrar_diferido)
 
+        # Igual que al entrar a un módulo: se muestra el menú invisible (opacity=0) para que el
+        # primer fotograma visible sea la instantánea del módulo, nunca un destello del menú antes
+        # de tiempo; `deslizar_entrada_modulo` lo revela ya cubierto por esa instantánea.
+        try:
+            self.setWindowOpacity(0.0)
+        except Exception:
+            pass
         self.showMaximized()
         self.raise_()
         self.activateWindow()
         QApplication.processEvents()
+
+        try:
+            from src.gui.transiciones import deslizar_entrada_modulo
+            deslizar_entrada_modulo(_snap_modulo, self, revelar=self)
+        except Exception:
+            try:
+                self.setWindowOpacity(1.0)
+            except Exception:
+                pass
+
         logger.info("Navegación: Regreso al menú principal confirmado.")
 
     # ============================================================
