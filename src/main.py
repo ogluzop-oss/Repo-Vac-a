@@ -121,6 +121,81 @@ def _puerto_backend() -> int:
     return int(os.environ.get("BACKEND_PORT", os.environ.get("PORT", "8090")))
 
 
+def _codigo_backend_mtime() -> float:
+    """Fecha de la modificación MÁS RECIENTE entre los .py de `src/` — usada para saber si un
+    backend que ya está escuchando en el puerto es más viejo que el código actual (arrancado antes
+    de la última sesión de cambios) o no."""
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    mas_reciente = 0.0
+    for base, _dirs, ficheros in os.walk(raiz):
+        for f in ficheros:
+            if f.endswith(".py"):
+                try:
+                    m = os.path.getmtime(os.path.join(base, f))
+                    if m > mas_reciente:
+                        mas_reciente = m
+                except OSError:
+                    pass
+    return mas_reciente
+
+
+def _backend_remoto_info(port: int, timeout: float = 1.5) -> dict | None:
+    """Consulta `/salud` del backend que responde en `port`. None si no responde o no es un
+    backend de Smart Manager identificable (no toca nada que no podamos reconocer con certeza)."""
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/salud", timeout=timeout) as r:
+            datos = json.loads(r.read().decode("utf-8"))
+        return datos if datos.get("servicio") == "smart-manager-backend" else None
+    except Exception:
+        return None
+
+
+def _pid_escuchando_en_puerto(port: int) -> int | None:
+    """PID del proceso en escucha en `port` (Windows, vía `netstat`) — solo se usa para matar un
+    backend propio ya identificado como obsoleto, nunca a ciegas."""
+    try:
+        salida = subprocess.check_output(
+            ["netstat", "-ano", "-p", "TCP"], text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        for linea in salida.splitlines():
+            partes = linea.split()
+            if len(partes) >= 5 and partes[1].endswith(f":{port}") and partes[3] == "LISTENING":
+                return int(partes[-1])
+    except Exception as e:
+        logger.debug("_pid_escuchando_en_puerto(%s): %s", port, e)
+    return None
+
+
+def _matar_backend_obsoleto(port: int) -> bool:
+    """Mata el proceso que ocupa `port`, YA CONFIRMADO como un backend de Smart Manager más viejo
+    que el código actual (ver `iniciar_backend`). Devuelve True si el puerto queda libre."""
+    pid = _pid_escuchando_en_puerto(port)
+    if not pid:
+        logger.warning("Backend obsoleto detectado en el puerto %s pero no se pudo identificar su "
+                       "PID; no se toca.", port)
+        return False
+    try:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True,
+                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        logger.info("Backend obsoleto (PID %s) detenido — se relanza con el código actual.", pid)
+    except Exception as e:
+        logger.warning("No se pudo detener el backend obsoleto (PID %s): %s", pid, e)
+        return False
+    import socket
+    import time
+    for _ in range(20):   # hasta ~2s a que el SO libere el puerto
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        libre = s.connect_ex(("127.0.0.1", port)) != 0
+        s.close()
+        if libre:
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def detener_backend():
     """Termina el backend lanzado por esta instancia. Idempotente. Se registra en atexit/aboutToQuit
     para que NO queden procesos `backend/app.py` huérfanos acumulándose en cada arranque."""
@@ -167,8 +242,24 @@ def iniciar_backend():
         result = sock.connect_ex(("127.0.0.1", port))
         sock.close()
         if result == 0:
-            logger.info("Backend ya está corriendo (puerto %s).", port)
-            return
+            # Ya hay algo en el puerto — pero puede ser un backend HUÉRFANO de una sesión de
+            # desarrollo anterior, arrancado antes de los últimos cambios de código: reutilizarlo
+            # a ciegas (como se hacía antes) sirve endpoints obsoletos sin ningún aviso — así se
+            # pasaron varias rondas de cambios sin verse reflejados en el navegador. Si es
+            # identificable como backend de Smart Manager y es más viejo que el código en disco,
+            # se sustituye por uno nuevo; si no se puede identificar con certeza, se deja intacto
+            # (podría ser otra instancia de Smart Manager compartiendo backend a propósito).
+            info = _backend_remoto_info(port)
+            if info is not None and float(info.get("iniciado_en") or 0) < _codigo_backend_mtime():
+                logger.info("Backend en el puerto %s es más antiguo que el código actual; "
+                           "sustituyendo.", port)
+                if not _matar_backend_obsoleto(port):
+                    logger.warning("No se pudo liberar el puerto %s del backend obsoleto; se deja "
+                                   "el existente.", port)
+                    return
+            else:
+                logger.info("Backend ya está corriendo (puerto %s).", port)
+                return
         logger.info("Iniciando backend API (puerto %s)...", port)
         # Se lanza con `-m src.backend.app` (NO con la ruta directa al .py): ejecutar el script
         # directamente deja `sys.path` sin la raíz del proyecto, así que TODOS los imports

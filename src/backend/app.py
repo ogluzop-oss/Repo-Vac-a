@@ -15,8 +15,13 @@ pueda importar en escritorio sin tener Flask instalado. Ejecutar como servidor:
 
 import logging
 import os
+import time
 
 logger = logging.getLogger("backend.app")
+
+_INICIADO_EN = time.time()   # capturado al IMPORTAR este módulo — usado por `src.main.iniciar_backend`
+                             # para distinguir un backend embebido obsoleto (huérfano de una sesión
+                             # de desarrollo anterior) de uno arrancado con el código actual.
 
 
 def crear_app():
@@ -37,7 +42,8 @@ def crear_app():
 
     @app.get("/salud")
     def salud():
-        return jsonify({"estado": "ok", "servicio": "smart-manager-backend"})
+        return jsonify({"estado": "ok", "servicio": "smart-manager-backend",
+                        "iniciado_en": _INICIADO_EN})
 
     @app.get("/webhooks/pagos/proveedores")
     def proveedores():
