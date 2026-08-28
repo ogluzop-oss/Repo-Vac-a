@@ -2049,19 +2049,6 @@ class MenuPrincipal(QWidget):
         except Exception:
             _snap_modulo = None
 
-        if ventanas:
-            def _cerrar_diferido(_ventanas=ventanas):
-                for v in _ventanas:
-                    try:
-                        v.close()
-                    except Exception:
-                        pass
-                    try:
-                        v.deleteLater()
-                    except Exception:
-                        pass
-            QTimer.singleShot(0, _cerrar_diferido)
-
         # `self` (MenuPrincipal) NO es una ventana top-level real pese a parecerlo: `main.py` la
         # añade como página del QStackedWidget raíz (`smart_app`), así que `setWindowOpacity` no
         # tiene NINGÚN efecto sobre ella (es una propiedad exclusiva de ventanas top-level de
@@ -2098,26 +2085,59 @@ class MenuPrincipal(QWidget):
         except Exception:
             ov = None
 
-        self.showMaximized()
-        self.raise_()
-        self.activateWindow()
-        if ov is not None:
-            ov.raise_()
-        QApplication.processEvents()
+        def _continuar():
+            # Se muestra el menú DESPUÉS de que el overlay ya lleve al menos un ciclo completo de
+            # eventos pintado y estabilizado como "siempre encima" — un pequeño margen (un par de
+            # fotogramas) para que el compositor de Windows fije de verdad su posición en el
+            # Z-order ANTES de que `self.activateWindow()` compita por el primer plano.
+            self.showMaximized()
+            self.raise_()
+            self.activateWindow()
+            if ov is not None:
+                ov.raise_()
+            QApplication.processEvents()
+            if ov is not None:
+                ov.raise_()
+
+            if ov is not None:
+                a = QPropertyAnimation(ov, b"pos", ov)
+                a.setDuration(240)
+                a.setStartValue(ov.pos())
+                a.setEndValue(QPoint(ov.x() + ov.width(), ov.y()))
+                a.setEasingCurve(QEasingCurve.Type.InOutCubic)
+                a.finished.connect(ov.close)
+                a.finished.connect(ov.deleteLater)
+                a.start()
+                ov._a = a
+
+            # El cierre de las ventanas de módulo se difiere hasta AHORA (al final de todo, no antes
+            # de mostrar el menú): si se programa antes y luego se llama a `QApplication.
+            # processEvents()` (como se hace arriba, para el overlay), ese `singleShot(0, ...)` puede
+            # dispararse DENTRO de la propia llamada, todavía anidada en el manejador de evento
+            # "Volver" del módulo — cuando ese manejador retoma el control y llama a `self.close()`
+            # sobre SÍ MISMO, el objeto ya ha sido borrado por `deleteLater()` y explota con
+            # "wrapped C/C++ object ... has been deleted". Al programar el cierre aquí, al final,
+            # con nada más pendiente de ejecutar en esta función, el `singleShot(0)` solo puede
+            # llegar a disparar cuando el manejador "Volver" del módulo YA ha terminado del todo.
+            if ventanas:
+                def _cerrar_diferido(_ventanas=ventanas):
+                    for v in _ventanas:
+                        try:
+                            v.close()
+                        except Exception:
+                            pass
+                        try:
+                            v.deleteLater()
+                        except Exception:
+                            pass
+                QTimer.singleShot(0, _cerrar_diferido)
+
+            logger.info("Navegación: Regreso al menú principal confirmado.")
 
         if ov is not None:
-            ov.raise_()
-            a = QPropertyAnimation(ov, b"pos", ov)
-            a.setDuration(240)
-            a.setStartValue(ov.pos())
-            a.setEndValue(QPoint(ov.x() + ov.width(), ov.y()))
-            a.setEasingCurve(QEasingCurve.Type.InOutCubic)
-            a.finished.connect(ov.close)
-            a.finished.connect(ov.deleteLater)
-            a.start()
-            ov._a = a
-
-        logger.info("Navegación: Regreso al menú principal confirmado.")
+            QTimer.singleShot(16, _continuar)
+        else:
+            _continuar()
 
     # ============================================================
     # MULTITIENDA (F1) — selector / cambio de tienda en caliente
