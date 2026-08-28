@@ -215,4 +215,9 @@ MODULOS = [
     "0214_drop_solicitudes_traspaso",
     "0215_ubicaciones_ambito",
     "0216_incidencias_operativas",
+    "0217_sector_comercial",
+    "0218_b2b_suministradores",
+    "0219_b2b_catalogo",
+    "0220_b2b_escrow",
+    "0221_transaccion_comercial_b2b",
 ]
