@@ -1,7 +1,15 @@
 import logging
 import os
 
-from PyQt6.QtCore import QByteArray, QSize, Qt, QTimer
+from PyQt6.QtCore import (
+    QByteArray,
+    QEasingCurve,
+    QPoint,
+    QPropertyAnimation,
+    QSize,
+    Qt,
+    QTimer,
+)
 from PyQt6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPalette, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
@@ -1994,17 +2002,6 @@ class MenuPrincipal(QWidget):
 
             # Ahora que el módulo ya está mostrado, revelado y cubriendo la pantalla, se oculta el menú
             # (queda DETRÁS del módulo, así ocultarlo es invisible y no hay parpadeo del fondo).
-            # Se deja en opacity=0 y se fuerza un ciclo de eventos ANTES de `hide()`: así el último
-            # fotograma que Windows cachea para esta ventana (para cuando se vuelva a mostrar al
-            # volver al menú) es transparente, no el menú a pleno color — si no, al reutilizar la
-            # MISMA ventana más tarde (`mostrar_menu_principal`), el compositor de Windows puede
-            # mostrar ese fotograma cacheado un instante antes de que la opacidad 0 vuelva a aplicarse,
-            # y se ve un destello del menú justo antes de la animación de deslizamiento de salida.
-            try:
-                self.setWindowOpacity(0.0)
-                QApplication.processEvents()
-            except Exception:
-                pass
             self.hide()
 
             if identificador == "ubicacion" and hasattr(
@@ -2034,14 +2031,20 @@ class MenuPrincipal(QWidget):
         self._ventanas = {}
 
         # Instantánea del módulo actual para la animación de deslizamiento de SALIDA — mismo
-        # lenguaje visual que la entrada (`manejar_apertura`), pero a la inversa: el módulo se
-        # desliza hacia la derecha revelando el menú. Se captura AHORA, con el módulo todavía
-        # visible (antes de programar su cierre). `QApplication.activeWindow()` es la ventana desde
-        # la que se ha llamado a este método (el botón "Volver"/"X" vive dentro de ella).
+        # lenguaje visual que la entrada (`manejar_apertura`), pero a la inversa. Se captura AHORA,
+        # antes de programar el cierre. NO se usa `QApplication.activeWindow()` (como en el primer
+        # intento): varios módulos (Ventas, Logística) llaman a `self.hide()` DENTRO de su propio
+        # botón "Volver" ANTES de invocar este callback — en ese instante la ventana ya no es la
+        # activeWindow() de Qt y la detección fallaba en silencio (sin animación alguna). Se usa en
+        # su lugar la propia lista de ventanas que `MenuPrincipal` ya rastrea en `self._ventanas`:
+        # es la fuente de verdad real de "qué módulo se estaba mostrando", sea cual sea su estado
+        # de visibilidad/foco en el momento exacto de la llamada — `grab()` sigue devolviendo un
+        # pixmap válido de un widget recién oculto (su backing store no se descarta al instante).
         _snap_modulo = None
         try:
-            origen = QApplication.activeWindow()
-            if origen is not None and origen is not self and origen in ventanas:
+            visibles = [v for v in ventanas if v.isVisible()]
+            origen = visibles[0] if len(visibles) == 1 else (ventanas[-1] if ventanas else None)
+            if origen is not None:
                 _snap_modulo = origen.grab()
         except Exception:
             _snap_modulo = None
@@ -2059,26 +2062,45 @@ class MenuPrincipal(QWidget):
                         pass
             QTimer.singleShot(0, _cerrar_diferido)
 
-        # Igual que al entrar a un módulo: se muestra el menú invisible (opacity=0) para que el
-        # primer fotograma visible sea la instantánea del módulo, nunca un destello del menú antes
-        # de tiempo; `deslizar_entrada_modulo` lo revela ya cubierto por esa instantánea.
+        # `self` (MenuPrincipal) NO es una ventana top-level real pese a parecerlo: `main.py` la
+        # añade como página del QStackedWidget raíz (`smart_app`), así que `setWindowOpacity` no
+        # tiene NINGÚN efecto sobre ella (es una propiedad exclusiva de ventanas top-level de
+        # verdad — a diferencia de un módulo, que sí es una ventana top-level genuina y por eso el
+        # mismo truco de opacidad SÍ le funciona). Confiar en la opacidad aquí dejaba un instante en
+        # el que el menú real ya era visible (por `showMaximized()`) antes de que el overlay llegara
+        # a cubrirlo — el destello que se reportó. En su lugar, el overlay se adjunta, se rellena y
+        # se sube al frente COMO HIJO de `self` ANTES de mostrarla: ningún fotograma real del menú
+        # llega a pintarse sin el overlay ya encima.
+        ov = None
         try:
-            self.setWindowOpacity(0.0)
+            if _snap_modulo is not None and not _snap_modulo.isNull():
+                scr = self.screen() or QApplication.primaryScreen()
+                geo = scr.availableGeometry() if scr is not None else self.rect()
+                ov = QLabel(self)
+                ov.setPixmap(_snap_modulo)
+                ov.setScaledContents(True)
+                ov.setGeometry(0, 0, geo.width(), geo.height())
+                ov.raise_()
         except Exception:
-            pass
+            ov = None
+
         self.showMaximized()
         self.raise_()
         self.activateWindow()
+        if ov is not None:
+            ov.raise_()
         QApplication.processEvents()
 
-        try:
-            from src.gui.transiciones import deslizar_entrada_modulo
-            deslizar_entrada_modulo(_snap_modulo, self, revelar=self)
-        except Exception:
-            try:
-                self.setWindowOpacity(1.0)
-            except Exception:
-                pass
+        if ov is not None:
+            ov.raise_()
+            a = QPropertyAnimation(ov, b"pos", ov)
+            a.setDuration(240)
+            a.setStartValue(QPoint(0, 0))
+            a.setEndValue(QPoint(ov.width(), 0))
+            a.setEasingCurve(QEasingCurve.Type.InOutCubic)
+            a.finished.connect(ov.deleteLater)
+            a.start()
+            ov._a = a
 
         logger.info("Navegación: Regreso al menú principal confirmado.")
 
