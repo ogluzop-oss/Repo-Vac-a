@@ -28,8 +28,11 @@ def test_login_ok_y_credenciales_invalidas(db, fab, cliente):
                      json={"usuario": "API_USER_1", "password": "Clave_Api_123456"})
     assert r.status_code == 200
     j = r.get_json()
-    assert j["access"] and j["refresh"] and j["usuario"]["id"] == u["id"]
-    assert j["usuario"]["rol"] == "GERENTE"
+    # Contrato actual (Fase III · B2, ADR-0001): `usuario` es el nombre (string); id/rol se
+    # consultan vía /auth/me con el access emitido.
+    assert j["access"] and j["refresh"] and j["usuario"] == "API_USER_1"
+    me = cliente.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {j['access']}"}).get_json()
+    assert me["usuario"]["id"] == str(u["id"]) and me["usuario"]["perfil"] == "GERENTE"
     # Contraseña incorrecta.
     assert cliente.post("/api/v1/auth/login",
                         json={"usuario": "API_USER_1", "password": "mala"}).status_code == 401
@@ -67,11 +70,13 @@ def test_logout_revoca_refresh(db, fab, cliente):
 def test_tenant_context_desde_token(db, fab, cliente):
     emp_b = fab.empresa("EMP API B")
     _usuario(db, fab, nombre="API_USER_B", id_empresa=emp_b)
+    # Contrato actual: el campo de empresa en el body de login es `id_empresa` (igual que lo envía
+    # el cliente móvil), no `empresa`; y `/auth/me` lo devuelve como `id_empresa`.
     tok = cliente.post("/api/v1/auth/login",
                        json={"usuario": "API_USER_B", "password": "Clave_Api_123456",
-                             "empresa": emp_b}).get_json()["access"]
+                             "id_empresa": emp_b}).get_json()["access"]
     r = cliente.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {tok}"})
-    assert r.get_json()["usuario"]["empresa"] == emp_b
+    assert r.get_json()["usuario"]["id_empresa"] == emp_b
 
 
 def test_cors_lista_blanca(db, fab, cliente, monkeypatch):

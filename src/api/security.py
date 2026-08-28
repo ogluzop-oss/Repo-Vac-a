@@ -77,6 +77,27 @@ def requiere_auth(permiso=None, *, limite=240, ventana=60):
     return deco
 
 
+def limitar(limite: int, ventana_seg: int = 60):
+    """Rate limit por IP+ruta para endpoints PÚBLICOS (sin JWT/API Key previa — p. ej. `/auth/login`,
+    donde `requiere_auth` no aplica porque el usuario aún no tiene token). Portado del blueprint
+    legacy `src.backend.api` al fusionar las dos APIs `/api/v1` (ver ADR-0001): el login carecía de
+    su propio límite de intentos ahí, distinto del genérico de `requiere_auth`."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*a, **k):
+            from flask import jsonify, request
+            try:
+                from src.seguridad import rate_limit
+                clave = f"{request.remote_addr or '?'}:{request.path}"
+                if not rate_limit.permitido(clave, limite, ventana_seg):
+                    return jsonify({"error": "rate_limited"}), 429
+            except Exception:
+                pass
+            return fn(*a, **k)
+        return wrapper
+    return deco
+
+
 def requiere_step_up(accion=None, *, permiso=None, max_edad=300, limite=120, ventana=60):
     """Decorador para endpoints SENSIBLES: además de autenticación + RBAC, exige que la identidad
     HUMANA tenga MFA reciente (step-up). La recencia se DERIVA del token real (`mfa`+`auth_time`), nunca

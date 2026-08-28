@@ -12,8 +12,25 @@ booleano de conveniencia `mfa`. Las API keys / M2M NO pasan por MFA (otra ruta d
 """
 
 
+from src.api.security import limitar as _limitar
+from src.api.security import requiere_auth as _requiere_auth
+
+
+def _registrar_sesion(u, jti, expira, refresh_token):
+    """Persiste la sesión del refresh token (revocable) — sin esto, `/auth/logout` y la comprobación
+    de revocación en `/auth/refresh` no tienen nada que revocar/consultar."""
+    try:
+        from src.db import sesiones
+        from src.seguridad import tokens
+        sesiones.registrar(u["id"], jti, tokens.hash_refresh(refresh_token), expira,
+                           id_empresa=u.get("id_empresa"))
+    except Exception:
+        pass  # best-effort: no bloquea el login si la tabla de sesiones no está disponible
+
+
 def registrar(bp):
     @bp.post("/auth/login")
+    @_limitar(10, 60)
     def login():
         from flask import jsonify, request
         d = request.get_json(silent=True) or {}
@@ -42,9 +59,11 @@ def registrar(bp):
         # tiene, se SEÑALA (sin bloquear el acceso por API para no dejar fuera a nadie; el enrolamiento
         # es de UI). No es un bypass del MFA activo (ese caso ya se atendió arriba).
         import time as _time
+        refresh_token, jti, expira = tokens.emitir_refresh(u)
+        _registrar_sesion(u, jti, expira, refresh_token)
         resp = {"access": tokens.emitir_access(u, amr=["pwd"], auth_time=int(_time.time()),
                                                enrollment_required=bool(dec.get("debe_enrolar"))),
-                "refresh": tokens.emitir_refresh(u)[0],
+                "refresh": refresh_token,
                 "empresa": u.get("id_empresa"), "usuario": u.get("nombre")}
         if dec.get("debe_enrolar"):
             resp["mfa_enrollment_required"] = True
@@ -85,9 +104,11 @@ def registrar(bp):
         u = {"id": uid, "id_empresa": claims.get("empresa"), "tienda_id": claims.get("tienda"),
              "perfil": claims.get("rol"), "nombre": claims.get("nombre")}
         import time as _time
+        refresh_token, rjti, expira = tokens.emitir_refresh(u)
+        _registrar_sesion(u, rjti, expira, refresh_token)
         return jsonify({"access": tokens.emitir_access(u, amr=["pwd", "otp"],
                                                        auth_time=int(_time.time())),
-                        "refresh": tokens.emitir_refresh(u)[0],
+                        "refresh": refresh_token,
                         "empresa": u.get("id_empresa"), "usuario": u.get("nombre")})
 
     @bp.post("/auth/step-up")
@@ -124,12 +145,47 @@ def registrar(bp):
                                                        auth_time=int(_time.time()))})
 
     @bp.post("/auth/refresh")
+    @_limitar(30, 60)
     def refresh():
         from flask import jsonify, request
         d = request.get_json(silent=True) or {}
         from src.seguridad import tokens
-        claims = tokens.verificar(d.get("refresh", ""), "refresh")
+        raw = d.get("refresh", "")
+        claims = tokens.verificar(raw, "refresh")
         if not claims:
             return jsonify({"error": "invalid_token"}), 401
+        # Revocación real: un refresh con firma válida pero YA REVOCADO (logout) no debe servir para
+        # emitir accesos nuevos. Degradable: si la tabla de sesiones no está disponible, no bloquea.
+        try:
+            from src.db import sesiones
+            if not sesiones.es_valido(claims.get("jti"), tokens.hash_refresh(raw)):
+                return jsonify({"error": "invalid_token"}), 401
+        except Exception:
+            pass
         u = {"id": claims.get("sub"), "id_empresa": claims.get("empresa")}
         return jsonify({"access": tokens.emitir_access(u)})
+
+    @bp.post("/auth/logout")
+    @_limitar(30, 60)
+    def logout():
+        """Revoca el refresh token (logout real, portado del blueprint legacy)."""
+        from flask import jsonify, request
+        from src.seguridad import tokens
+        d = request.get_json(silent=True) or {}
+        raw = d.get("refresh") or ""
+        if raw:
+            claims = tokens.verificar(raw, "refresh")
+            if claims and claims.get("jti"):
+                try:
+                    from src.db import sesiones
+                    sesiones.revocar(claims["jti"])
+                except Exception:
+                    pass
+        return jsonify({"ok": True})
+
+    @bp.get("/auth/me")
+    @_requiere_auth()
+    def auth_me():
+        """Datos del usuario del token (portado del blueprint legacy al fusionar las dos APIs)."""
+        from flask import g, jsonify
+        return jsonify({"usuario": g.ctx["usuario"]})

@@ -55,7 +55,9 @@ def test_recursos_no_exponen_secretos(db, fab, cliente):
                 _claves(x, acc)
         return acc
 
-    for ruta in ("/api/v1/catalogo/productos", "/api/v1/catalogo/categorias", "/api/v1/pedidos"):
+    # `/api/v1/pedidos` (pedidos online legacy) se retiró al fusionar las dos APIs /api/v1 (ADR-0001);
+    # se sustituye por /documents, que también sanea su respuesta (ver src/services/documentos.py).
+    for ruta in ("/api/v1/catalogo/productos", "/api/v1/catalogo/categorias", "/api/v1/documents"):
         j = cliente.get(ruta, headers=h).get_json()
         claves = _claves(j, set())
         fugas = {k for k in claves if any(s in k for s in prohibidas)}

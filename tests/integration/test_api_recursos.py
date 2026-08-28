@@ -12,16 +12,18 @@ def cliente(db):
 
 
 def _token(db, fab, nombre, id_empresa=None):
-    fab.usuario(nombre=nombre, password="Clave_Api_123456", perfil="ADMINISTRADOR",
-                id_empresa=id_empresa)
+    u = fab.usuario(nombre=nombre, password="Clave_Api_123456", perfil="ADMINISTRADOR",
+                    id_empresa=id_empresa)
+    # Contrato actual: el campo de empresa en el body de login es `id_empresa` (igual que el
+    # cliente móvil), y `usuario` en la respuesta es el nombre (string), no un objeto con `.id`.
     body = {"usuario": nombre, "password": "Clave_Api_123456"}
     if id_empresa:
-        body["empresa"] = id_empresa
+        body["id_empresa"] = id_empresa
     from src.backend.app import crear_app
     cli = crear_app().test_client()
     r = cli.post("/api/v1/auth/login", json=body)
     tok = r.get_json()["access"]
-    fab.al_limpiar(lambda: _borra_sesiones(db, r.get_json()["usuario"]["id"]))
+    fab.al_limpiar(lambda: _borra_sesiones(db, u["id"]))
     return tok
 
 
@@ -33,12 +35,11 @@ def test_listar_productos_requiere_token(cliente):
     assert cliente.get("/api/v1/catalogo/productos").status_code == 401
 
 
-def test_catalogo_y_pedidos_aislados_por_tenant(db, fab, cliente):
+def test_catalogo_aislado_por_tenant(db, fab, cliente):
     emp_b = fab.empresa("EMP API REC B")
     # Datos SOLO en empresa B.
     cod_b = fab.articulo(id_empresa=emp_b, nombre="ArtAPI B")
     fab.producto_catalogo(cod_b, id_empresa=emp_b, titulo_web="Prod API B", visible_web=1)
-    ped_b = fab.pedido_online(id_empresa=emp_b, total=33.0)
 
     tok_a = _token(db, fab, "API_REC_A")               # empresa por defecto (A)
     tok_b = _token(db, fab, "API_REC_B", id_empresa=emp_b)
@@ -50,15 +51,12 @@ def test_catalogo_y_pedidos_aislados_por_tenant(db, fab, cliente):
     cods_b = {p.get("codigo_articulo") for p in prods_b}
     assert cod_b in cods_b and cod_b not in cods_a
 
-    # Pedidos: A no ve el pedido de B; B sí.
-    peds_a = cliente.get("/api/v1/pedidos", headers=_h(tok_a)).get_json()["pedidos"]
-    peds_b = cliente.get("/api/v1/pedidos", headers=_h(tok_b)).get_json()["pedidos"]
-    assert ped_b not in {p["id_pedido"] for p in peds_a}
-    assert ped_b in {p["id_pedido"] for p in peds_b}
 
-    # Acceso directo cruzado a un pedido de B desde A → 404 (aislamiento).
-    assert cliente.get(f"/api/v1/pedidos/{ped_b}", headers=_h(tok_a)).status_code == 404
-    assert cliente.get(f"/api/v1/pedidos/{ped_b}", headers=_h(tok_b)).status_code == 200
+@pytest.mark.skip(reason="/api/v1/pedidos (pedidos online legacy) se retiró al fusionar las dos APIs "
+                         "/api/v1 (ver ADR-0001); su sucesor /commerce usa un modelo de datos "
+                         "distinto (Transacción Comercial), no un puerto directo de este endpoint.")
+def test_pedidos_aislados_por_tenant_OBSOLETO(db, fab, cliente):
+    pass
 
 
 def test_categorias_endpoint(db, fab, cliente):
@@ -68,18 +66,12 @@ def test_categorias_endpoint(db, fab, cliente):
     assert r.status_code == 200 and "categorias" in r.get_json()
 
 
-def test_sanitizacion_lista_blanca_pedido(db, fab, cliente):
-    # Pedido con referencia de pago (campo interno que NO debe exponerse).
-    pid = fab.pedido_online(total=12.0, referencia_pago="cs_secreto_interno")
-    tok = _token(db, fab, "API_SANEA")
-    r = cliente.get(f"/api/v1/pedidos/{pid}", headers=_h(tok))
-    assert r.status_code == 200
-    j = r.get_json()
-    # Lista blanca: referencia_pago / enlace_pago / estado_pago-interno no se exponen.
-    assert "referencia_pago" not in j and "enlace_pago" not in j
-    # Red anti-secretos: ninguna clave con subcadena sensible.
-    prohibidas = ("secret", "token", "clave", "hash", "password", "api_key")
-    assert not any(any(s in str(k).lower() for s in prohibidas) for k in j)
+@pytest.mark.skip(reason="/api/v1/pedidos (pedidos online legacy) se retiró al fusionar las dos APIs "
+                         "/api/v1 (ver ADR-0001); no hay puerto directo, ver "
+                         "test_pedidos_aislados_por_tenant_OBSOLETO. La red anti-secretos "
+                         "(_sin_secretos) SÍ se portó y cubre customers/suppliers/orders/stock/etc.")
+def test_sanitizacion_lista_blanca_pedido_OBSOLETO(db, fab, cliente):
+    pass
 
 
 def _borra_sesiones(db, uid):
