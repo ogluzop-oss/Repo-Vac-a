@@ -24,9 +24,9 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from src.gui.catalogo_gestion import _BG, _BG2, _CIAN, _DIM, _ROJO, _btn, _dialogo_frameless, _inp
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _ROJO, _btn, _dialogo_frameless, _inp
 from src.utils.i18n import tr
 
 logger = logging.getLogger("gui.compras")
@@ -74,18 +74,19 @@ def _btn_x(slot=None):
 
 def _boton_grande(texto, subtitulo, slot=None):
     """Botón grande de acción principal del dashboard (icono+texto arriba, subtítulo descriptivo
-    debajo), mismo lenguaje visual (contorno cyan + hover swap) que el resto de la app."""
+    debajo). Usa el objectName "btn_primario" — el mismo estilo global (contorno cyan + hover
+    relleno) que el botón "ABRIR ESCÁNER DE ENTRADA" de Recepción (Logística) — sin CSS propio, para
+    quedar visualmente idéntico al resto de botones principales de la app."""
     b = QPushButton()
+    b.setObjectName("btn_primario")
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setMinimumHeight(96)
-    b.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_CIAN};border:2px solid {_CIAN};"
-                    f"border-radius:14px;text-align:left;padding:14px 20px;}}"
-                    f"QPushButton:hover{{background:{_CIAN};}}")
     lay = QVBoxLayout(b); lay.setSpacing(4)
+    lay.setContentsMargins(20, 14, 20, 14)
     t = QLabel(texto); t.setStyleSheet("background:transparent;font-size:17px;font-weight:900;color:inherit;")
     t.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    s = QLabel(subtitulo); s.setStyleSheet(f"background:transparent;font-size:12px;font-weight:600;"
-                                           f"color:{_DIM};")
+    s = QLabel(subtitulo); s.setStyleSheet("background:transparent;font-size:14px;font-weight:600;"
+                                           "color:inherit;")
     s.setWordWrap(True)
     s.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     lay.addWidget(t); lay.addWidget(s)
@@ -127,25 +128,24 @@ class ComprasWindow(QWidget):
         root.addWidget(intro)
 
         self.lbl_tienda = QLabel("")
-        self.lbl_tienda.setStyleSheet(f"color:{_TEXT_TIENDA};font-size:12px;font-weight:700;")
+        self.lbl_tienda.setStyleSheet(f"color:{_TEXT_TIENDA};font-size:14px;font-weight:700;")
         root.addWidget(self.lbl_tienda)
         self._refrescar_estado_tienda()
 
         root.addStretch(1)
-        card = QFrame(); card.setObjectName("card")
-        card.setStyleSheet(f"#card{{background:transparent;}}")
-        cly = QVBoxLayout(card); cly.setSpacing(14)
-        cly.addWidget(_boton_grande(
+        # Sin QFrame contenedor: cada botón lleva su propio contorno (btn_primario) y no hace falta
+        # (ni se quiere) un segundo contorno envolviendo al grupo.
+        root.addWidget(_boton_grande(
             "🏢  " + tr("compras.b2b_entrar", default="Entrar al portal B2B"),
             tr("compras.b2b_entrar_sub",
                default="Catálogo por sector, carrito, reposición y pedidos con custodia de fondos."),
             self._entrar_portal_b2b))
-        cly.addWidget(_boton_grande(
+        root.addSpacing(14)
+        root.addWidget(_boton_grande(
             "✉️  " + tr("compras.b2b_invitar", default="Invitar Proveedor"),
             tr("compras.b2b_invitar_sub",
                default="Envía una invitación por email; el proveedor completa su alta en su propio portal."),
             self._dlg_invitar_proveedor))
-        root.addWidget(card)
         root.addStretch(2)
 
     def _volver_menu(self):

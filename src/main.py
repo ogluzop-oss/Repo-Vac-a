@@ -154,10 +154,8 @@ def iniciar_backend():
         import socket
 
         # El backend es opcional y puede no existir todavía: si no está, se omite.
-        backend_script = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "src", "backend", "app.py",
-        )
+        proyecto_raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        backend_script = os.path.join(proyecto_raiz, "src", "backend", "app.py")
         if not os.path.exists(backend_script):
             logger.info("Backend no encontrado (%s); se omite.", backend_script)
             return
@@ -172,8 +170,15 @@ def iniciar_backend():
             logger.info("Backend ya está corriendo (puerto %s).", port)
             return
         logger.info("Iniciando backend API (puerto %s)...", port)
+        # Se lanza con `-m src.backend.app` (NO con la ruta directa al .py): ejecutar el script
+        # directamente deja `sys.path` sin la raíz del proyecto, así que TODOS los imports
+        # `from src.xxx import ...` fallan dentro del subproceso (Storefront/Portal Proveedor/
+        # Portal Empresa B2B/API REST quedan sin registrar, 404 en todas sus rutas) — bug
+        # detectado al probar "Entrar al portal B2B" desde el escritorio empaquetado. `-m` con
+        # `cwd=proyecto_raiz` reproduce exactamente cómo se arranca en desarrollo/tests.
         _backend_proc = subprocess.Popen(
-            [sys.executable, backend_script],
+            [sys.executable, "-m", "src.backend.app"],
+            cwd=proyecto_raiz,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,

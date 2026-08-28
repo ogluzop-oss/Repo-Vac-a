@@ -66,19 +66,26 @@ def invitar_proveedor(id_empresa, email: str, *, usuario=None) -> dict:
 
 def _enviar_email_invitacion(id_empresa, email, token, *, usuario=None):
     """Best-effort: si el canal de email no está configurado, la invitación queda creada igualmente
-    (el token es válido) — no bloquea el flujo de negocio."""
+    (el token es válido) — no bloquea el flujo de negocio. `enviar_comunicacion` no lanza excepción
+    cuando falla (p. ej. sin buzón corporativo activo en Correo), solo devuelve `ok=False`: se
+    registra en WARNING para que el fallo sea diagnosticable en logs en vez de desaparecer en
+    silencio (antes solo se capturaban excepciones, nunca un resultado `ok=False`)."""
     try:
         from src.services import ccp
         import os
         base = os.getenv("PORTAL_PROVEEDOR_URL", "http://localhost:8090/portal/proveedor")
         enlace = f"{base}/onboarding/{token}"
-        ccp.enviar_comunicacion(
+        r = ccp.enviar_comunicacion(
             id_empresa=id_empresa, destinatario=email,
             asunto="Invitación al Portal de Proveedores de Smart Manager",
             cuerpo=(f"Has sido invitado a darte de alta como proveedor.\n\n"
                    f"Completa tu registro en: {enlace}\n\n"
                    f"Este enlace caduca en {DIAS_VALIDEZ} días."),
             contexto="compras.invitacion_proveedor", usuario=usuario)
+        if not getattr(r, "ok", True):
+            logger.warning("_enviar_email_invitacion(%s): no se pudo enviar (%s) — la invitación "
+                           "sigue siendo válida, comparte el enlace manualmente.", email,
+                           getattr(r, "mensaje", "motivo desconocido"))
     except Exception as e:
         logger.debug("_enviar_email_invitacion(%s): %s", email, e)
 
