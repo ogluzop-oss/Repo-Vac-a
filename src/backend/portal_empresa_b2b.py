@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded',function(){{
   var trig=document.createElement('div');trig.className='csel-trigger';trig.tabIndex=0;
   var lbl=document.createElement('span');
   var arw=document.createElement('span');arw.className='csel-arrow';
-  arw.style.backgroundImage="url('{_FLECHA_SVG}')";
+  arw.style.backgroundImage=`url("{_FLECHA_SVG}")`;
   trig.appendChild(lbl);trig.appendChild(arw);
   var pop=document.createElement('div');pop.className='csel-pop';
   function refrescar(){{var o=sel.options[sel.selectedIndex];lbl.textContent=o?o.textContent:'';}}
@@ -144,7 +144,8 @@ form.inline input[type=number]{{width:70px}}
 a.gestion-card{{display:block;margin-bottom:10px;padding:14px 16px;text-align:left;
 background:transparent;border:2px solid var(--ac);border-radius:10px;text-decoration:none}}
 a.gestion-card b{{color:var(--ac)}}
-a.gestion-card span{{color:#8B949E;font-size:12px}}
+a.gestion-card span{{color:#8B949E;font-size:14px;font-weight:700;
+font-family:'Segoe UI',system-ui,sans-serif}}
 a.gestion-card:hover{{background:var(--ac)}}
 a.gestion-card:hover b,a.gestion-card:hover span{{color:#0D1117}}
 {_CSEL_CSS}

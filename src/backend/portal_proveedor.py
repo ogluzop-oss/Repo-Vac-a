@@ -87,13 +87,14 @@ select{{appearance:none;-webkit-appearance:none;border:2px solid var(--ac);borde
 background-color:#0D1117;background-image:url("{_FLECHA_SVG}");background-repeat:no-repeat;
 background-position:right 14px center;background-size:12px 8px;padding-right:36px;cursor:pointer}}
 select:focus{{outline:none;border-color:var(--ac)}}
-input[type=file]{{border:none;background:transparent;padding:0;width:auto}}
+input[type=file]{{border:none;background:transparent;padding:0;width:auto;margin-right:14px;
+vertical-align:middle}}
 input[type=file]::file-selector-button{{background:transparent;color:var(--ac);
 border:2px solid var(--ac);border-radius:8px;padding:9px 16px;font-weight:900;
 font-family:'Segoe UI',system-ui,sans-serif;cursor:pointer;margin-right:10px}}
 input[type=file]::file-selector-button:hover{{background:var(--ac);color:#0D1117}}
 button{{margin-top:14px;padding:9px 16px;border-radius:8px;border:2px solid var(--ac);
-background:transparent;color:var(--ac);font-weight:900;cursor:pointer;
+background:transparent;color:var(--ac);font-weight:900;cursor:pointer;vertical-align:middle;
 font-family:'Segoe UI',system-ui,sans-serif}}
 button:hover{{background:var(--ac);color:#0D1117}}
 table{{width:100%;border-collapse:collapse;margin-top:10px}}
