@@ -130,6 +130,35 @@ class _NuevoCorreoDialog(QDialog):
         col4.addWidget(self.cb_lic); fila2.addLayout(col4)
         ly.addLayout(fila2)
 
+        # SMTP (host/puerto/usuario/contraseña de aplicación) — SOLO cuando proveedor="smtp": ya
+        # existía el envío real por smtplib (`src.services.correo.servicio._enviar_smtp`) y el
+        # guardado cifrado (`correo_db.guardar_smtp`), pero sin ningún campo en la GUI para
+        # rellenarlos. Alternativa sin OAuth (sin Google Cloud Console): p. ej. Gmail con una
+        # "contraseña de aplicación" de 16 caracteres, host smtp.gmail.com, puerto 587.
+        self.wrap_smtp = QWidget()
+        ly_smtp = QVBoxLayout(self.wrap_smtp); ly_smtp.setContentsMargins(0, 0, 0, 0); ly_smtp.setSpacing(8)
+        fila3 = QHBoxLayout(); fila3.setSpacing(12)
+        col5 = QVBoxLayout(); col5.addWidget(_lbl(tr("correo.smtp_host", default="SERVIDOR SMTP")))
+        self.inp_smtp_host = QLineEdit(); self.inp_smtp_host.setFixedHeight(38)
+        self.inp_smtp_host.setPlaceholderText("smtp.gmail.com")
+        col5.addWidget(self.inp_smtp_host); fila3.addLayout(col5, 2)
+        col6 = QVBoxLayout(); col6.addWidget(_lbl(tr("correo.smtp_port", default="PUERTO")))
+        self.inp_smtp_port = QLineEdit("587"); self.inp_smtp_port.setFixedHeight(38)
+        col6.addWidget(self.inp_smtp_port); fila3.addLayout(col6, 1)
+        ly_smtp.addLayout(fila3)
+        ly_smtp.addWidget(_lbl(tr("correo.smtp_usuario", default="USUARIO SMTP (normalmente la misma dirección)")))
+        self.inp_smtp_usuario = QLineEdit(); self.inp_smtp_usuario.setFixedHeight(38)
+        ly_smtp.addWidget(self.inp_smtp_usuario)
+        ly_smtp.addWidget(_lbl(tr("correo.smtp_password",
+                                  default="CONTRASEÑA DE APLICACIÓN (no la contraseña normal)")))
+        self.inp_smtp_password = QLineEdit(); self.inp_smtp_password.setFixedHeight(38)
+        self.inp_smtp_password.setEchoMode(QLineEdit.EchoMode.Password)
+        ly_smtp.addWidget(self.inp_smtp_password)
+        ly.addWidget(self.wrap_smtp)
+        self.wrap_smtp.setVisible(self.cb_prov.currentData() == "smtp")
+        self.cb_prov.currentIndexChanged.connect(
+            lambda: self.wrap_smtp.setVisible(self.cb_prov.currentData() == "smtp"))
+
         botones = QHBoxLayout(); botones.addStretch()
         bc = QPushButton(tr("correo.cancelar", default="CANCELAR")); bc.setFixedSize(130, 40)
         bc.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -150,12 +179,30 @@ class _NuevoCorreoDialog(QDialog):
                 mostrar_mensaje(self, tr("correo.error_titulo", default="Datos incompletos"),
                                 tr("correo.error_direccion", default="Introduce una dirección de correo válida."), "warning")
             return
+        proveedor = self.cb_prov.currentData()
+        smtp = None
+        if proveedor == "smtp":
+            host = self.inp_smtp_host.text().strip()
+            if not host:
+                if mostrar_mensaje:
+                    mostrar_mensaje(self, tr("correo.error_titulo", default="Datos incompletos"),
+                                    tr("correo.error_smtp_host",
+                                       default="Introduce el servidor SMTP (p. ej. smtp.gmail.com)."),
+                                    "warning")
+                return
+            smtp = {
+                "host": host,
+                "port": self.inp_smtp_port.text().strip() or 587,
+                "usuario": self.inp_smtp_usuario.text().strip() or direccion,
+                "password": self.inp_smtp_password.text(),
+            }
         self.resultado = {
             "direccion": direccion,
-            "proveedor": self.cb_prov.currentData(),
+            "proveedor": proveedor,
             "tipo": self.cb_tipo.currentData(),
             "id_tienda": self.cb_tienda.currentData(),
             "tipo_licencia": self.cb_lic.currentData(),
+            "smtp": smtp,
         }
         self.accept()
 
@@ -432,6 +479,9 @@ class _BuzonesDialog(QDialog):
         lic = correo_db.crear_licencia(tipo_licencia=d["tipo_licencia"], id_tienda=d["id_tienda"])
         cid = correo_db.crear_correo(d["direccion"], proveedor=d["proveedor"], tipo=d["tipo"],
                                      id_tienda=d["id_tienda"], id_licencia=lic)
+        if cid and d.get("smtp"):
+            correo_db.guardar_smtp(cid, host=d["smtp"]["host"], port=d["smtp"]["port"],
+                                   usuario=d["smtp"]["usuario"], password=d["smtp"]["password"])
         if cid and mostrar_mensaje:
             mostrar_mensaje(self, tr("correo.creado_titulo", default="Correo creado"),
                             tr("correo.creado_msg", default="Buzón {dir} dado de alta.", dir=d["direccion"]), "info")
@@ -534,7 +584,13 @@ class CorreoCorporativoWindow(QWidget):
         acc.addWidget(_btn_accion("📊  " + tr("correo.encuestas", default="ENCUESTAS"),
                                   self._nueva_encuesta, primary=True))
         acc.addStretch()
-        acc.addWidget(_btn_accion("✉️  " + tr("correo.buzones", default="CONFIGURAR CORREO"), self._abrir_buzones))
+        bbuz = QPushButton("✉️  " + tr("correo.buzones", default="CONFIGURAR CORREO"))
+        bbuz.setCursor(Qt.CursorShape.PointingHandCursor); bbuz.setFixedHeight(44)
+        bbuz.setStyleSheet(f"QPushButton{{background:transparent;color:{_CIAN};border:2px solid {_CIAN};"
+                           "border-radius:9px;font-weight:900;padding:0 16px;}"
+                           f"QPushButton:hover{{background:{_CIAN};color:{_BG};}}")
+        bbuz.clicked.connect(self._abrir_buzones)
+        acc.addWidget(bbuz)
         root.addLayout(acc)
 
         # Tabla: BANDEJA de circulares y encuestas (los buzones de correo NO se listan aquí; se gestionan en el

@@ -6,7 +6,9 @@ Despacha por proveedor del buzón:
     (documentos/correo_enviados/<EMP>/...) y marca sincronización. Permite que
     todo el flujo (UI, hook de documentos) funcione SIN credenciales ni red.
   * 'google'    → envío real con la API de Gmail usando los tokens OAuth cifrados.
-  * 'smtp'      → reservado (no implementado todavía; degrada a simulado).
+  * 'smtp'      → envío real por SMTP+STARTTLS (`_enviar_smtp`), usando host/puerto/usuario/
+    contraseña de `db.correo.guardar_smtp` (contraseña cifrada en reposo) — alternativa sin OAuth
+    ni Google Cloud Console (p. ej. Gmail con una contraseña de aplicación).
 
 OAuth 2.0 (Google): los tokens se guardan CIFRADOS (ver src/db/correo + cripto).
 NUNCA se guardan contraseñas. El flujo requiere un client OAuth de Google
