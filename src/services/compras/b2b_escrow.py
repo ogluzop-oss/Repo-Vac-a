@@ -269,11 +269,14 @@ def abrir_disputa(id_tx, *, actor=None) -> dict:
     return {"ok": True, "estado_pago": "IN_DISPUTE"}
 
 
-def cancelar_y_reembolsar(id_tx, *, motivo, actor=None) -> dict:
+def cancelar_y_reembolsar(id_tx, *, motivo, actor=None, recargo_pct: float = 0) -> dict:
     """Cancela el pedido. Si no había fondos retenidos todavía (BORRADOR/CONFIRMADA), cancela sin más.
     Si ya se habían retenido, pide el reembolso al PSP antes de marcar CANCELADA — nunca deja el
     dinero retenido sin un pedido activo al que corresponda (Prohibido dejar transacciones colgadas).
-    NO aplica aquí la política de plazos/perecederos (Fase D, `cancelaciones.py`) — este es solo el
+    `recargo_pct` (0-100): penalización de cancelación tardía que la política (Fase D,
+    `cancelaciones.politica`) ya calcula — si es > 0, se reembolsa solo la parte restante y se anota el
+    recargo como movimiento propio en el ledger (nunca se "pierde" en el redondeo sin dejar rastro).
+    NO decide aquí SI se puede cancelar/qué recargo aplica — eso es la política; esto es solo el
     mecanismo financiero una vez la cancelación ya está aprobada."""
     tx = _leer_tx(id_tx)
     if not tx:
@@ -290,9 +293,14 @@ def cancelar_y_reembolsar(id_tx, *, motivo, actor=None) -> dict:
         esc = _fila(cur, row) if row else None
 
     referencia_reembolso = None
+    importe_recargo = 0.0
+    importe_reembolso = 0.0
     if esc and esc["estado_pago"] in ("FUNDS_HELD", "IN_FULFILLMENT"):
-        res = _pasarela().reembolsar(payment_ref=esc["psp_payment_ref"],
-                                     importe=float(esc["importe_retenido"] or 0),
+        importe_total = float(esc["importe_retenido"] or 0)
+        pct = max(0.0, min(100.0, float(recargo_pct or 0)))
+        importe_recargo = round(importe_total * pct / 100.0, 2)
+        importe_reembolso = round(importe_total - importe_recargo, 2)
+        res = _pasarela().reembolsar(payment_ref=esc["psp_payment_ref"], importe=importe_reembolso,
                                      idem_key=f"b2b-reembolso-{id_tx}")
         if not res.get("ok"):
             return {"ok": False, "error": res.get("mensaje", "psp_error")}
@@ -301,8 +309,10 @@ def cancelar_y_reembolsar(id_tx, *, motivo, actor=None) -> dict:
     with transaccion() as conn, conn.cursor() as cur:
         if esc and esc["estado_pago"] in ("FUNDS_HELD", "IN_FULFILLMENT"):
             cur.execute("UPDATE b2b_escrow SET estado_pago='REFUNDED' WHERE id_tx=%s", (id_tx,))
-            _ledger_anotar(cur, id_tx, "REEMBOLSO", float(esc["importe_retenido"] or 0),
-                          actor or "sistema", referencia_reembolso)
+            _ledger_anotar(cur, id_tx, "REEMBOLSO", importe_reembolso, actor or "sistema",
+                          referencia_reembolso)
+            if importe_recargo > 0:
+                _ledger_anotar(cur, id_tx, "RECARGO_CANCELACION", importe_recargo, actor or "sistema")
         actualizadas = cur.execute(
             "UPDATE transaccion_comercial SET estado='CANCELADA' WHERE id_tx=%s AND estado=%s",
             (id_tx, tx["estado"]))
@@ -311,6 +321,46 @@ def cancelar_y_reembolsar(id_tx, *, motivo, actor=None) -> dict:
         _registrar_evento_tx(cur, id_tx, tx["id_empresa"], tx["estado"], "CANCELADA", actor,
                              payload_extra={"motivo": motivo})
     return {"ok": True, "estado": "CANCELADA"}
+
+
+def resolver_disputa_con_reembolso(id_tx, *, motivo, actor=None) -> dict:
+    """Resuelve una disputa YA ABIERTA (`abrir_disputa`) con reembolso íntegro de los fondos que
+    seguían en custodia (IN_DISPUTE): a diferencia de `cancelar_y_reembolsar` (autoservicio, solo antes
+    de ENVIADA), esta es una resolución MEDIADA — el pedido puede llevar ya ENVIADA/ENTREGADA — por eso
+    exige que la disputa esté abierta primero (no es un atajo para cancelar sin pasar por Incidencias/
+    Devoluciones). Sin recargo: una disputa resuelta a favor del comprador no lleva penalización."""
+    tx = _leer_tx(id_tx)
+    if not tx:
+        return {"ok": False, "error": "transaccion_no_encontrada"}
+    if tx["estado"] == "CANCELADA":
+        return {"ok": True, "idempotente": True}
+
+    with obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT estado_pago, psp_payment_ref, importe_retenido FROM b2b_escrow "
+                   "WHERE id_tx=%s", (id_tx,))
+        row = cur.fetchone()
+        esc = _fila(cur, row) if row else None
+    if not esc or esc["estado_pago"] != "IN_DISPUTE":
+        return {"ok": False, "error": f"disputa_no_abierta (estado_pago={esc['estado_pago'] if esc else None})"}
+
+    importe_reembolso = round(float(esc["importe_retenido"] or 0), 2)
+    res = _pasarela().reembolsar(payment_ref=esc["psp_payment_ref"], importe=importe_reembolso,
+                                 idem_key=f"b2b-disputa-reembolso-{id_tx}")
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("mensaje", "psp_error")}
+
+    with transaccion() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE b2b_escrow SET estado_pago='REFUNDED' WHERE id_tx=%s", (id_tx,))
+        _ledger_anotar(cur, id_tx, "REEMBOLSO_DISPUTA", importe_reembolso, actor or "sistema",
+                      res.get("refund_ref"))
+        actualizadas = cur.execute(
+            "UPDATE transaccion_comercial SET estado='CANCELADA' WHERE id_tx=%s AND estado=%s",
+            (id_tx, tx["estado"]))
+        if not actualizadas:
+            raise RuntimeError("estado_de_pedido_cambio_concurrentemente")
+        _registrar_evento_tx(cur, id_tx, tx["id_empresa"], tx["estado"], "CANCELADA", actor,
+                             payload_extra={"motivo": motivo, "via": "disputa"})
+    return {"ok": True, "estado": "CANCELADA", "reembolso": importe_reembolso}
 
 
 # ── Internos ───────────────────────────────────────────────────────────────────

@@ -177,6 +177,110 @@ def _registrar(id_pedido, pol, id_empresa, usuario):
         logger.error("_registrar cancelacion: %s", e)
 
 
+# ── Resolución del contexto de un pedido B2B (Smart Suppliers · Fase D) ──────
+# Mismo motor de decisión PURO (`politica`) que arriba — solo cambia de dónde se resuelven
+# tipo_producto/estado/minutos: de `db.compras` (pedidos legacy) a `transaccion_comercial`
+# (Transacción Comercial B2B, Fase A/B). Ningún cambio en `politica()`.
+def tipo_producto_transaccion(id_tx) -> str:
+    """Como `tipo_producto_pedido`, pero para una Transacción Comercial B2B (líneas en
+    `transaccion_lineas`) en vez del pedido legacy de `db.compras`."""
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT codigo_articulo FROM transaccion_lineas WHERE id_tx=%s", (id_tx,))
+            codigos = [r[0] if not isinstance(r, dict) else r["codigo_articulo"] for r in cur.fetchall()]
+            codigos = [x for x in codigos if x]
+            peor = "no_perecedero"
+            if codigos:
+                marcas = ",".join(["%s"] * len(codigos))
+                cur.execute(f"SELECT perecibilidad FROM articulos WHERE codigo IN ({marcas})",
+                            tuple(codigos))
+                for r in cur.fetchall():
+                    v = r[0] if not isinstance(r, dict) else list(r.values())[0]
+                    if _ORDEN.get(v, 0) > _ORDEN.get(peor, 0):
+                        peor = v
+            return peor
+    except Exception as e:
+        logger.debug("tipo_producto_transaccion(%s): %s", id_tx, e)
+        return "no_perecedero"
+
+
+def estado_politica_transaccion(estado_tx: str) -> str | None:
+    """Traduce el estado de una Transacción Comercial B2B al vocabulario de la política de
+    cancelación. `None` si el pedido ya pasó el punto en el que la cancelación AUTOMÁTICA aplica —
+    a partir de ENVIADA la reclamación va obligatoriamente por Incidencias/Devoluciones (requisito de
+    negocio), no por este mecanismo."""
+    if estado_tx in ("BORRADOR", "CONFIRMADA", "PAGADA"):
+        return "pendiente"
+    if estado_tx == "PREPARANDO":
+        return "en_preparacion"
+    return None
+
+
+def _minutos_desde_confirmacion_tx(id_tx):
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT creada FROM transaccion_comercial WHERE id_tx=%s", (id_tx,))
+            r = cur.fetchone()
+        f = (r[0] if not isinstance(r, dict) else r["creada"]) if r else None
+        if isinstance(f, _dt.datetime):
+            return (_dt.datetime.now() - f).total_seconds() / 60
+    except Exception:
+        pass
+    return None
+
+
+def evaluar_b2b(id_tx, estado_tx) -> dict:
+    """Evalúa (sin cancelar) la política de cancelación de un pedido B2B. Requisito 6 del prompt
+    original: ventana corta (`VENTANA_PERECEDERO_MIN` = 120 min = 2 h) para perecederos en 'pendiente',
+    y bloqueo total en cuanto el proveedor lo pasa a 'en_preparacion' — reutiliza EXACTAMENTE la misma
+    regla que ya existía para el resto de Compras, sin duplicarla."""
+    est = estado_politica_transaccion(estado_tx)
+    if est is None:
+        return {"puede_cancelar": False, "recargo_pct": 0.0, "bloqueado": True, "vinculante": False,
+                "tipo_producto": tipo_producto_transaccion(id_tx), "estado": estado_tx, "origen": "b2b",
+                "motivo": "El pedido ya se envió: la cancelación automática ya no aplica. Tramita una "
+                         "reclamación por Incidencias o Devoluciones."}
+    return politica(tipo_producto_transaccion(id_tx), est, origen="compra_directa",
+                    minutos=_minutos_desde_confirmacion_tx(id_tx))
+
+
+def cancelar_pedido_b2b(id_tx, *, usuario=None, forzar=False) -> dict:
+    """Aplica la política y, si procede (o `forzar`, uso administrativo/mediación de una disputa ya
+    resuelta), cancela el pedido B2B — reembolsando los fondos retenidos (menos el recargo si aplica)
+    vía `b2b_escrow.cancelar_y_reembolsar`."""
+    from src.db.conexion import obtener_conexion
+    with obtener_conexion() as c, c.cursor() as cur:
+        cur.execute("SELECT id_empresa, estado FROM transaccion_comercial WHERE id_tx=%s", (id_tx,))
+        row = cur.fetchone()
+    if not row:
+        return {"ok": False, "error": "transaccion_no_encontrada"}
+    id_empresa, estado_tx = (row if not isinstance(row, dict) else (row["id_empresa"], row["estado"]))
+    pol = evaluar_b2b(id_tx, estado_tx)
+    if not pol["puede_cancelar"] and not forzar:
+        return {"ok": False, "politica": pol, "recargo_pct": pol["recargo_pct"], "error": "no_permitido"}
+    from src.services.compras import b2b_escrow as ESC
+    r = ESC.cancelar_y_reembolsar(id_tx, motivo=pol["motivo"], actor=usuario,
+                                  recargo_pct=pol["recargo_pct"])
+    if r.get("ok"):
+        _registrar_b2b(id_tx, pol, id_empresa, usuario)
+    return {"ok": r.get("ok", False), "politica": pol, "recargo_pct": pol["recargo_pct"], "escrow": r}
+
+
+def _registrar_b2b(id_tx, pol, id_empresa, usuario):
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("INSERT INTO compras_cancelaciones (id_empresa, id_tx, tipo_producto, estado, "
+                        "origen, recargo_pct, motivo, usuario) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, id_tx, pol["tipo_producto"], pol["estado"], pol["origen"],
+                         pol["recargo_pct"], pol["motivo"][:255], usuario))
+            c.commit()
+    except Exception as e:
+        logger.error("_registrar_b2b cancelacion: %s", e)
+
+
 # ── Strike system ────────────────────────────────────────────────────────────
 def strikes(id_empresa=None, dias=STRIKE_DIAS) -> int:
     """Nº de cancelaciones de la empresa en los últimos `dias` (para limitar pujas)."""
