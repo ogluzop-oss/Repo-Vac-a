@@ -26,7 +26,7 @@ import logging
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _ROJO, _btn, _dialogo_frameless, _inp
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _FONT, _ROJO, _btn, _dialogo_frameless, _inp
 from src.utils.i18n import tr
 
 logger = logging.getLogger("gui.compras")
@@ -72,27 +72,49 @@ def _btn_x(slot=None):
     return b
 
 
+class _BotonPrincipal(QPushButton):
+    """Botón grande de acción (título + subtítulo), mismo lenguaje visual que "btn_primario" (el
+    botón "ABRIR ESCÁNER DE ENTRADA" de Recepción/Logística): contorno cyan en reposo, relleno cyan
+    con texto oscuro al pasar el ratón. Qt NO propaga el pseudo-estado `:hover` del botón a los
+    QLabel internos de forma fiable vía QSS puro, así que el color de título/subtítulo se fija a
+    mano en `enterEvent`/`leaveEvent` (mismo patrón que `_BotonOjo` usaba en este módulo)."""
+
+    def __init__(self, texto, subtitulo, slot=None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("btn_primario")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(96)
+        lay = QVBoxLayout(self); lay.setSpacing(4)
+        lay.setContentsMargins(20, 14, 20, 14)
+        self._lbl_titulo = QLabel(texto)
+        self._lbl_titulo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._lbl_sub = QLabel(subtitulo)
+        self._lbl_sub.setWordWrap(True)
+        self._lbl_sub.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        lay.addWidget(self._lbl_titulo); lay.addWidget(self._lbl_sub)
+        self._pintar(hover=False)
+        if slot:
+            self.clicked.connect(slot)
+
+    def _pintar(self, *, hover: bool):
+        color_titulo = _BG if hover else _CIAN
+        color_sub = _BG if hover else _DIM
+        self._lbl_titulo.setStyleSheet(
+            f"background:transparent;font-family:'{_FONT}';font-size:17px;font-weight:900;"
+            f"color:{color_titulo};")
+        self._lbl_sub.setStyleSheet(
+            f"background:transparent;font-family:'{_FONT}';font-size:14px;font-weight:700;"
+            f"color:{color_sub};")
+
+    def enterEvent(self, e):   # noqa: N802 (API Qt)
+        self._pintar(hover=True); super().enterEvent(e)
+
+    def leaveEvent(self, e):   # noqa: N802 (API Qt)
+        self._pintar(hover=False); super().leaveEvent(e)
+
+
 def _boton_grande(texto, subtitulo, slot=None):
-    """Botón grande de acción principal del dashboard (icono+texto arriba, subtítulo descriptivo
-    debajo). Usa el objectName "btn_primario" — el mismo estilo global (contorno cyan + hover
-    relleno) que el botón "ABRIR ESCÁNER DE ENTRADA" de Recepción (Logística) — sin CSS propio, para
-    quedar visualmente idéntico al resto de botones principales de la app."""
-    b = QPushButton()
-    b.setObjectName("btn_primario")
-    b.setCursor(Qt.CursorShape.PointingHandCursor)
-    b.setMinimumHeight(96)
-    lay = QVBoxLayout(b); lay.setSpacing(4)
-    lay.setContentsMargins(20, 14, 20, 14)
-    t = QLabel(texto); t.setStyleSheet("background:transparent;font-size:17px;font-weight:900;color:inherit;")
-    t.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    s = QLabel(subtitulo); s.setStyleSheet("background:transparent;font-size:14px;font-weight:600;"
-                                           "color:inherit;")
-    s.setWordWrap(True)
-    s.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-    lay.addWidget(t); lay.addWidget(s)
-    if slot:
-        b.clicked.connect(slot)
-    return b
+    return _BotonPrincipal(texto, subtitulo, slot)
 
 
 class ComprasWindow(QWidget):
