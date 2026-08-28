@@ -1,86 +1,74 @@
-"""E2-GUI · Ventana de Compras: apertura, navegación, CRUD y flujo completo."""
+"""Smart Suppliers (Fase E) · Ventana de Compras: dashboard de entrada a la Extranet B2B."""
 
 import pytest
 
+pytest.importorskip("PyQt6")
+from PyQt6.QtWidgets import QApplication  # noqa: E402
+
 pytestmark = pytest.mark.db
 
+_app = QApplication.instance() or QApplication([])
 
-def _borra(db, emp, cods=()):
+
+def test_ventana_muestra_botones_b2b(db, fab):
+    from src.db.empresa import contexto_tenant
+    from src.gui.compras_gestion import ComprasWindow
+    emp = fab.empresa("GUI B2B DASH")
+    with contexto_tenant(emp, None):
+        w = ComprasWindow(callback_vuelta=lambda: None, usuario={"id": 1, "nombre": "Tester"})
+        assert hasattr(w, "_entrar_portal_b2b")
+        assert hasattr(w, "_dlg_invitar_proveedor")
+        w.close()
+
+
+def test_sin_tienda_conectada_avisa_y_no_crea_sesion(db, fab, monkeypatch):
+    from src.db.empresa import contexto_tenant
+    import src.gui.compras_gestion as CG
+    emp = fab.empresa("GUI B2B SIN TIENDA")
+    avisos = []
+    monkeypatch.setattr(CG, "_aviso", lambda *a, **k: avisos.append(a))
+    with contexto_tenant(emp, None):   # sin tienda activa
+        w = CG.ComprasWindow(usuario={"id": 1, "nombre": "Tester"})
+        w._entrar_portal_b2b()
+        assert avisos   # avisó en vez de intentar abrir el navegador
+        w.close()
+
+
+def test_entrar_portal_b2b_crea_sesion_real(db, fab, monkeypatch):
+    """Con sector comercial + tienda activa, `_entrar_portal_b2b` crea una sesión real
+    (`b2b_sesiones_empresa`) y abre la URL del portal con su token."""
+    from src.db.empresa import contexto_tenant
+    from src.services.compras import sectores as SEC
+    import src.gui.compras_gestion as CG
+    emp = fab.empresa("GUI B2B CON TIENDA")
+
     with db.obtener_conexion() as conn, conn.cursor() as cur:
-        cur.execute("DELETE FROM compras_facturas WHERE id_empresa=%s", (emp,))
-        cur.execute("DELETE FROM compras_pedidos WHERE id_empresa=%s", (emp,))
-        cur.execute("DELETE FROM proveedores WHERE id_empresa=%s", (emp,))
-        for c in cods:
-            cur.execute("DELETE FROM movimientos_stock WHERE codigo_articulo=%s", (c,))
-        cur.execute("DELETE FROM empresas WHERE id_empresa=%s", (emp,))
+        cur.execute("SELECT id FROM sectores_comerciales LIMIT 1")
+        row = cur.fetchone()
+        sector_id = (row[0] if not isinstance(row, dict) else row["id"]) if row else None
+        if sector_id is None:
+            sector_id = SEC.crear("test-gui-b2b", "Sector de prueba GUI")
+        cur.execute("UPDATE empresas SET sector_id=%s WHERE id_empresa=%s", (sector_id, emp))
         conn.commit()
 
-
-def test_ventana_abre_y_secciones(db, fab):
-    from src.db.empresa import contexto_tenant
-    from src.gui.compras_gestion import ComprasWindow
-    emp = fab.empresa("GUI ABRE")
-    fab.al_limpiar(lambda: _borra(db, emp))
-    with contexto_tenant(emp, None):
-        w = ComprasWindow(callback_vuelta=lambda: None, usuario={"nombre": "Tester"})
-        # Smoke robusto: al menos las secciones base y TODAS navegables (no fija un número exacto,
-        # que cambia al añadir/quitar secciones y rompía el test en cada cambio de UI).
-        n = w.stack.count()
-        assert n >= 5
-        for i in range(n):
-            w._ir(i)
-            assert w.stack.currentIndex() == i
-        w.close()
-
-
-def test_crud_proveedor_desde_gui(db, fab):
-    from src.db import proveedores as P
-    from src.db.empresa import contexto_tenant
-    from src.gui.compras_gestion import ComprasWindow
-    emp = fab.empresa("GUI CRUD")
-    fab.al_limpiar(lambda: _borra(db, emp))
-    with contexto_tenant(emp, None):
-        w = ComprasWindow(usuario={"nombre": "T"})
-        w.in_prov_razon.setText("PROVEEDOR GUI SL")
-        w.in_prov_cif.setText("B99999999")
-        w.in_prov_email.setText("c@gui.test")
-        assert w._guardar_proveedor() is True
-        provs = P.listar_proveedores(id_empresa=emp)
-        assert any(p["razon_social"] == "PROVEEDOR GUI SL" for p in provs)
-        w._load_proveedores()
-        assert w.tbl_prov.rowCount() >= 1
-        w.close()
-
-
-def test_flujo_completo_proveedor_pedido_recepcion_factura(db, fab):
-    from src.db import compras as C
-    from src.db.empresa import contexto_tenant
-    from src.gui.compras_gestion import ComprasWindow
-    emp = fab.empresa("GUI FLUJO")
-    cod = fab.articulo(id_empresa=emp, stock_total=0)
-    fab.al_limpiar(lambda: _borra(db, emp, [cod]))
-    with contexto_tenant(emp, None):
-        w = ComprasWindow(usuario={"nombre": "T"})
-        # 1) Proveedor (vía GUI).
-        w.in_prov_razon.setText("FLUJO PROV"); w._guardar_proveedor()
-        from src.db import proveedores as P
-        prov = P.listar_proveedores(id_empresa=emp)[0]["id_proveedor"]
-        # 2) Pedido (vía método de la ventana).
-        pid = w.crear_pedido(prov, [{"codigo": cod, "cantidad": 8, "precio_unitario": 1.5}])
-        assert pid and C.obtener_pedido(pid, emp)["estado"] == "BORRADOR"
-        # 3) Enviar + recibir todo (vía ventana) → stock actualizado.
-        assert C.enviar_pedido(pid, emp)
-        res = w.recibir_pedido(pid)
-        assert res and res["estado_pedido"] == "RECIBIDO"
+    def _cleanup():
         with db.obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT Stock_total FROM articulos WHERE codigo=%s", (cod,))
-            assert cur.fetchone()[0] == 8
-        # 4) Factura (vía ventana) vinculada al pedido + validación.
-        fid = w.registrar_factura(prov, "F-GUI-1", base=12.0, iva=0.0, id_pedido=pid)
-        assert fid
-        r = C.validar_factura(fid, id_empresa=emp)
-        assert r["estado"] == "validada"        # 8*1.5 = 12.0 == total pedido
+            cur.execute("DELETE FROM b2b_sesiones_empresa WHERE id_empresa=%s", (emp,))
+            conn.commit()
+    fab.al_limpiar(_cleanup)
+
+    abiertas = []
+    monkeypatch.setattr("webbrowser.open", lambda url: abiertas.append(url) or True)
+    with contexto_tenant(emp, 1):   # tienda activa = 1
+        w = CG.ComprasWindow(usuario={"id": 1, "nombre": "Tester"})
+        w._entrar_portal_b2b()
         w.close()
+    assert len(abiertas) == 1 and "/portal/empresa/" in abiertas[0] and "/dashboard" in abiertas[0]
+    with db.obtener_conexion() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM b2b_sesiones_empresa WHERE id_empresa=%s", (emp,))
+        row = cur.fetchone()
+        n = row[0] if not isinstance(row, dict) else row["COUNT(*)"]
+        assert n == 1
 
 
 def test_menu_principal_incluye_compras(db):

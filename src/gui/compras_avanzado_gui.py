@@ -2,6 +2,16 @@
 Compras avanzado (CMP) — GUI de devoluciones, incidencias, evaluación de proveedores y
 condiciones/homologación.
 
+@deprecated (Smart Suppliers · Fase E, Strangler Pattern): estas 4 sub-pestañas (Homologar
+Proveedor/Devoluciones/Incidencias/Evaluación) migran a la Extranet Empresa (`src/backend/
+portal_empresa_b2b.py`) junto con el resto de pestañas de `compras_gestion.py` (Recepciones/
+Facturas/Contratos/Informes/Calidad) — ver el plan "Smart Suppliers". Se mantiene funcional
+hasta que esa migración tenga paridad; no añadir capacidades nuevas aquí.
+
+La sub-pestaña "Comparar proveedores" (enlaces a plataformas B2B externas/lonjas) se RETIRÓ
+por completo (Fase E, a petición explícita): el ecosistema B2B propio (catálogo por sector +
+pedidos con custodia de fondos) la sustituye.
+
 Pantalla NUEVA (no modifica `compras_gestion.py`). Expone las capacidades CMP.1/3/4/8 sin
 tocar el flujo principal proveedor→pedido→recepción→factura. Multiempresa por contexto.
 """
@@ -13,7 +23,7 @@ from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QMessageBox,
                              QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import compras as C, proveedores as P
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo,
+from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_x, _combo,
                                       _dialogo_frameless, _inp, _tabla)
 
 try:
@@ -87,7 +97,6 @@ class ComprasAvanzadoWindow(QWidget):
         tabs.addTab(self._tab_devoluciones(), "Devoluciones")
         tabs.addTab(self._tab_incidencias(), "Incidencias")
         tabs.addTab(self._tab_evaluacion(), "Evaluación")
-        tabs.addTab(self._tab_comparar(), "Comparar proveedores")
         self.tabs = tabs   # expuesto para poder EMBEBER estas sub-pestañas en la sección Proveedores
         root.addWidget(tabs)
 
@@ -115,108 +124,6 @@ class ComprasAvanzadoWindow(QWidget):
             return autorizacion.puede(self.usuario or {}, permiso, id_empresa=self._emp())
         except Exception:
             return True
-
-    # ── Comparar proveedores (plataformas B2B + lonjas del sector + margen objetivo) ──
-    # Acceso a las webs de las plataformas B2B y a las lonjas/directorios del sector.
-    # `q=True` = admite término de búsqueda (se anexa a la URL); `q=False` = portal/web fijo.
-    _COMPARADORES = [
-        ("Consentio", "https://consentio.co/", False),
-        ("Choco", "https://choco.com/", False),
-        ("Prezo", "https://prezo.io/", False),
-        ("B2Brouter (EDI / Factura electrónica)", "https://www.b2brouter.net/", False),
-        ("haddock", "https://www.haddock.app/", False),
-        ("Lonja / Mercado Central — Mercabarna", "https://www.mercabarna.es/es/", False),
-        ("Lonja / Mercado Central — Mercamadrid", "https://www.mercamadrid.es/", False),
-        ("Directorios de Distribuidores de Alimentación",
-         "https://www.google.com/search?q=distribuidores+mayoristas+alimentacion+", True),
-    ]
-
-    def _tab_comparar(self):
-        """Centro de acceso a motores de búsqueda y comparadores de precios del sector (Alimentación /
-        Supermercado / Bakery) + regla de Margen Objetivo (%) para el PVP dinámico en Pedidos. Sin APIs."""
-        from src.db import compras_b2b as CFG
-        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10)
-        cfg = CFG.obtener_config(self._emp())
-
-        t = QLabel("🔎  Comparar proveedores")
-        t.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:14px;")
-        ly.addWidget(t)
-        info = QLabel("Accede a las webs de tus plataformas B2B y a las lonjas/directorios del sector y "
-                      "ábrelas en tu navegador. Smart Manager no conecta con APIs externas: la comparación "
-                      "es manual y el coste real lo fija tu tarifa pactada con el proveedor.")
-        info.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;"); info.setWordWrap(True)
-        ly.addWidget(info)
-
-        fila = QHBoxLayout()
-        c = QLabel("Motor / Lonja / B2B")
-        c.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
-        self.cmp_motor = _combo([(lab, i) for i, (lab, _u, _q) in enumerate(self._COMPARADORES)])
-        self.cmp_motor.setMinimumWidth(420); self.cmp_motor.view().setMinimumWidth(440)
-        fila.addWidget(c); fila.addWidget(self.cmp_motor); fila.addStretch(1)
-        ly.addLayout(fila)
-
-        fila2 = QHBoxLayout()
-        c2 = QLabel("Producto a buscar (opcional)")
-        c2.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
-        self.cmp_query = _inp("harina de trigo, aceite de oliva, leche…")
-        fila2.addWidget(c2); fila2.addWidget(self.cmp_query, 1)
-        ly.addLayout(fila2)
-
-        bopen = QHBoxLayout()
-        bopen.addWidget(_btn("🌐  Abrir comparador en navegador", self._abrir_comparador, primary=True))
-        bopen.addStretch(1)
-        ly.addLayout(bopen)
-
-        t2 = QLabel("📈  PVP dinámico en pedidos")
-        t2.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:14px;padding-top:8px;")
-        ly.addWidget(t2)
-        info2 = QLabel("El PVP sugerido se calcula al TRAMITAR un pedido como: Coste pactado × (1 + Margen / "
-                       "100). Configura aquí el margen objetivo por defecto.")
-        info2.setStyleSheet(f"color:{_DIM};background:transparent;font-size:11px;"); info2.setWordWrap(True)
-        ly.addWidget(info2)
-        rfila = QHBoxLayout()
-        self.cmp_margen = _inp("30"); self.cmp_margen.setFixedWidth(100)
-        self.cmp_margen.setText(f"{cfg.get('margen_objetivo_pct', 30):g}")
-        cm = QLabel("Regla de Margen Objetivo (%)")
-        cm.setStyleSheet(f"color:{_DIM};background:transparent;font-weight:700;")
-        rfila.addWidget(cm); rfila.addWidget(self.cmp_margen)
-        rfila.addWidget(_btn("Supermercado (25%)", lambda: self.cmp_margen.setText("25"), primary=True))
-        rfila.addWidget(_btn("Bakery / Frescos (35%)", lambda: self.cmp_margen.setText("35"), primary=True))
-        rfila.addStretch(1)
-        ly.addLayout(rfila)
-
-        bar = QHBoxLayout()
-        bar.addWidget(_btn("Guardar margen", self._guardar_margen, primary=True))
-        bar.addStretch(1)
-        ly.addLayout(bar)
-        ly.addStretch(1)
-        return w
-
-    def _abrir_comparador(self):
-        """Abre en el navegador del sistema el comparador seleccionado (anexando el término si procede)."""
-        from urllib.parse import quote_plus
-
-        from PyQt6.QtCore import QUrl
-        from PyQt6.QtGui import QDesktopServices
-        idx = self.cmp_motor.currentData() or 0
-        _lab, url, admite_q = self._COMPARADORES[int(idx)]
-        q = (self.cmp_query.text() or "").strip()
-        destino = f"{url}{quote_plus(q)}" if (admite_q and q) else url
-        if not QDesktopServices.openUrl(QUrl(destino)):
-            self._aviso("Comparar precios", "No se pudo abrir el navegador.", "warning")
-
-    def _guardar_margen(self):
-        if not self._puede("compras.editar"):
-            self._aviso("Comparar precios", "Permiso requerido: compras.editar", "warning"); return
-        try:
-            margen = float((self.cmp_margen.text() or "30").replace(",", "."))
-        except ValueError:
-            self._aviso("Comparar precios", "El margen debe ser numérico.", "warning"); return
-        from src.db import compras_b2b as CFG
-        ok = CFG.guardar_config(margen_objetivo_pct=margen, id_empresa=self._emp())
-        self._aviso("Comparar precios",
-                    "Margen objetivo guardado." if ok else "No se pudo guardar el margen.",
-                    "success" if ok else "error")
 
     def _tabla_kv(self):
         """Tabla de 2 columnas (Parámetro · Valor) centrada, con el estilo estándar de la app.
