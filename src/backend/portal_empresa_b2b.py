@@ -34,12 +34,18 @@ def _nav_html(token, activo):
                    for key, href, label in enlaces)
 
 
+_FLECHA_SVG = ("data:image/svg+xml;utf8,"
+              "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E"
+              "%3Cpath d='M1 1l5 5 5-5' stroke='%2300FFC6' stroke-width='2' fill='none' "
+              "stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+
+
 def _layout(titulo, contenido, nav=""):
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_e(titulo)} · Extranet B2B</title><style>
 :root{{--ac:#00FFC6;}}
-*{{box-sizing:border-box}}body{{margin:0;font-family:'Segoe UI',system-ui,sans-serif;
+*{{box-sizing:border-box}}body{{margin:0;font-family:'Segoe UI',system-ui,sans-serif;font-weight:700;
 background:#0D1117;color:#E6EDF3}}
 header{{display:flex;align-items:center;gap:16px;padding:14px 24px;background:#111418;
 border-bottom:2px solid var(--ac)}}
@@ -48,15 +54,24 @@ nav{{display:flex;flex-wrap:wrap;gap:8px;padding:12px 24px;background:#0D1117;bo
 nav a{{color:#8B949E;text-decoration:none;font-weight:700;font-size:13px;padding:6px 10px;
 border-radius:8px}}nav a.on,nav a:hover{{color:#0D1117;background:var(--ac)}}
 main{{max-width:1000px;margin:0 auto;padding:24px}}
-h1,h2{{color:var(--ac)}}
+h1,h2{{color:var(--ac);font-weight:900}}
 .card{{background:#161B22;border:1px solid #30363D;border-radius:12px;padding:18px;margin-bottom:16px}}
-label{{display:block;font-size:12px;color:#8B949E;margin:10px 0 4px;font-weight:700}}
+label{{display:block;font-size:14px;color:#8B949E;margin:10px 0 4px;font-weight:700}}
 input,select{{padding:9px 10px;border-radius:8px;border:1px solid #30363D;
-background:#0D1117;color:#E6EDF3;font-size:14px}}
-button,.btn{{padding:9px 16px;border-radius:8px;border:none;background:var(--ac);
-color:#0D1117;font-weight:900;cursor:pointer;text-decoration:none;display:inline-block;font-size:13px}}
-.btn-ghost{{background:#21262D;color:#E6EDF3;border:1px solid #30363D}}
-.btn-danger{{background:#F85149;color:#0D1117}}
+background:#0D1117;color:#E6EDF3;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif;
+font-weight:700}}
+select{{appearance:none;-webkit-appearance:none;border:2px solid var(--ac);border-radius:10px;
+background-color:#0D1117;background-image:url("{_FLECHA_SVG}");background-repeat:no-repeat;
+background-position:right 12px center;background-size:12px 8px;padding-right:32px;cursor:pointer}}
+select:focus{{outline:none;border-color:var(--ac)}}
+button,.btn{{padding:9px 16px;border-radius:8px;border:2px solid var(--ac);background:transparent;
+color:var(--ac);font-weight:900;cursor:pointer;text-decoration:none;display:inline-block;
+font-size:13px;font-family:'Segoe UI',system-ui,sans-serif}}
+button:hover,.btn:hover{{background:var(--ac);color:#0D1117}}
+.btn-ghost{{background:transparent;color:#8B949E;border:2px solid #30363D}}
+.btn-ghost:hover{{background:#8B949E;color:#0D1117;border-color:#8B949E}}
+.btn-danger{{background:transparent;color:#F85149;border:2px solid #F85149}}
+.btn-danger:hover{{background:#F85149;color:#0D1117}}
 table{{width:100%;border-collapse:collapse;margin-top:10px}}
 th,td{{text-align:left;padding:8px;border-bottom:1px solid #21262D;font-size:13px;vertical-align:middle}}
 th{{color:#8B949E}}

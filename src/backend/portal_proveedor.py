@@ -90,8 +90,10 @@ input[type=file]::file-selector-button{{background:transparent;color:var(--ac);
 border:2px solid var(--ac);border-radius:8px;padding:9px 16px;font-weight:900;
 font-family:'Segoe UI',system-ui,sans-serif;cursor:pointer;margin-right:10px}}
 input[type=file]::file-selector-button:hover{{background:var(--ac);color:#0D1117}}
-button{{margin-top:14px;padding:10px 18px;border-radius:8px;border:none;background:var(--ac);
-color:#0D1117;font-weight:900;cursor:pointer;font-family:'Segoe UI',system-ui,sans-serif}}
+button{{margin-top:14px;padding:9px 16px;border-radius:8px;border:2px solid var(--ac);
+background:transparent;color:var(--ac);font-weight:900;cursor:pointer;
+font-family:'Segoe UI',system-ui,sans-serif}}
+button:hover{{background:var(--ac);color:#0D1117}}
 table{{width:100%;border-collapse:collapse;margin-top:10px}}
 th,td{{text-align:left;padding:8px;border-bottom:1px solid #21262D;font-size:13px}}
 th{{color:#8B949E}}
