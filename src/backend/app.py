@@ -68,6 +68,13 @@ def crear_app():
     except Exception as e:
         logger.warning("Storefront no disponible: %s", e)
 
+    # Smart Suppliers (Fase A): Portal Web del Proveedor (onboarding + catálogo B2B).
+    try:
+        from src.backend.portal_proveedor import crear_blueprint as crear_blueprint_portal_proveedor
+        app.register_blueprint(crear_blueprint_portal_proveedor())
+    except Exception as e:
+        logger.warning("Portal proveedor no disponible: %s", e)
+
     # API REST versionada (/api/v1): Enterprise REST API (Fase III · B2, ver ADR-0001) — sustituye al
     # blueprint legacy `src.backend.api` (Fase A1, @deprecated, ver su docstring). Hasta ahora este
     # backend seguía montando el blueprint legacy porque el cambio de esta línea nunca se completó
