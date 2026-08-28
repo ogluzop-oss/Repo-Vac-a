@@ -39,6 +39,65 @@ _FLECHA_SVG = ("data:image/svg+xml;utf8,"
               "%3Cpath d='M1 1l5 5 5-5' stroke='%2300FFC6' stroke-width='2' fill='none' "
               "stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
 
+# Un <select> nativo solo se puede restilizar en su estado CERRADO — el popup de opciones lo pinta
+# el navegador y ignora casi todo el CSS (colores fijos del SO, sin border-radius/hover propio). Para
+# que el desplegado se parezca de verdad al QComboBox del escritorio (fondo oscuro, contorno cian,
+# fila resaltada en cian al pasar el ratón), se sustituye la interacción por un popup propio en HTML:
+# el <select> original se queda oculto pero sigue existiendo (su valor viaja igual en el formulario),
+# así que si este script no llegara a ejecutarse el desplegable nativo seguiría siendo usable.
+_CSEL_CSS = """
+.csel-wrap{display:block;width:100%;position:relative}
+.csel-trigger{padding:9px 10px;border-radius:10px;border:2px solid var(--ac);background:#0D1117;
+color:#E6EDF3;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif;font-weight:700;
+cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.csel-arrow{width:12px;height:8px;flex:none;background-repeat:no-repeat;background-size:contain}
+.csel-pop{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:50;
+background:#0D1117;border:2px solid var(--ac);border-radius:10px;max-height:240px;
+overflow-y:auto;padding:4px}
+.csel-pop.open{display:block}
+.csel-opt{padding:8px 12px;border-radius:6px;color:#E6EDF3;cursor:pointer;font-weight:700;
+font-size:14px}
+.csel-opt:hover,.csel-opt.sel{background:var(--ac);color:#0D1117}
+"""
+_CSEL_JS = f"""
+document.addEventListener('DOMContentLoaded',function(){{
+ document.querySelectorAll('select').forEach(function(sel){{
+  var wrap=document.createElement('div');wrap.className='csel-wrap';
+  sel.parentNode.insertBefore(wrap,sel);wrap.appendChild(sel);
+  var trig=document.createElement('div');trig.className='csel-trigger';trig.tabIndex=0;
+  var lbl=document.createElement('span');
+  var arw=document.createElement('span');arw.className='csel-arrow';
+  arw.style.backgroundImage="url('{_FLECHA_SVG}')";
+  trig.appendChild(lbl);trig.appendChild(arw);
+  var pop=document.createElement('div');pop.className='csel-pop';
+  function refrescar(){{var o=sel.options[sel.selectedIndex];lbl.textContent=o?o.textContent:'';}}
+  refrescar();
+  Array.prototype.forEach.call(sel.options,function(opt,i){{
+   var row=document.createElement('div');
+   row.className='csel-opt'+(i===sel.selectedIndex?' sel':'');
+   row.textContent=opt.textContent;
+   row.addEventListener('click',function(){{
+    sel.selectedIndex=i;refrescar();
+    pop.querySelectorAll('.csel-opt').forEach(function(r){{r.classList.remove('sel');}});
+    row.classList.add('sel');pop.classList.remove('open');
+    sel.dispatchEvent(new Event('change',{{bubbles:true}}));
+   }});
+   pop.appendChild(row);
+  }});
+  trig.addEventListener('click',function(e){{
+   e.stopPropagation();
+   document.querySelectorAll('.csel-pop.open').forEach(function(p){{if(p!==pop)p.classList.remove('open');}});
+   pop.classList.toggle('open');
+  }});
+  wrap.appendChild(trig);wrap.appendChild(pop);
+  sel.style.display='none';
+ }});
+ document.addEventListener('click',function(){{
+  document.querySelectorAll('.csel-pop.open').forEach(function(p){{p.classList.remove('open');}});
+ }});
+}});
+"""
+
 
 def _layout(titulo, contenido, nav=""):
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
@@ -82,10 +141,18 @@ font-size:11px;font-weight:700}}
 .total{{font-size:20px;font-weight:900;color:var(--ac)}}
 form.inline{{display:flex;gap:8px;align-items:center}}
 form.inline input[type=number]{{width:70px}}
+a.gestion-card{{display:block;margin-bottom:10px;padding:14px 16px;text-align:left;
+background:transparent;border:2px solid var(--ac);border-radius:10px;text-decoration:none}}
+a.gestion-card b{{color:var(--ac)}}
+a.gestion-card span{{color:#8B949E;font-size:12px}}
+a.gestion-card:hover{{background:var(--ac)}}
+a.gestion-card:hover b,a.gestion-card:hover span{{color:#0D1117}}
+{_CSEL_CSS}
 </style></head><body>
 <header><span class="logo">🏢 Extranet B2B</span></header>
 <nav>{nav}</nav>
 <main>{contenido}</main>
+<script>{_CSEL_JS}</script>
 </body></html>"""
 
 

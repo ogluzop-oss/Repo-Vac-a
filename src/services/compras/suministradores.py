@@ -137,18 +137,44 @@ def solicitar_acceso(email_login: str) -> dict:
     return {"ok": True}  # siempre 200: no revela si el email existe
 
 
+def _id_empresa_relacionada(id_suministrador):
+    """Una empresa con la que este proveedor tiene relación — `suministradores` es una identidad
+    COMPARTIDA (sin `id_empresa` propio), pero `enviar_comunicacion` necesita una empresa concreta
+    para elegir el buzón corporativo desde el que enviar. No existe el concepto de "empresa dueña"
+    del proveedor; se toma cualquiera de las que lo invitaron (normalmente solo hay una)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id_empresa FROM proveedores WHERE id_suministrador=%s LIMIT 1",
+                       (id_suministrador,))
+            row = cur.fetchone()
+            return (row[0] if not isinstance(row, dict) else row["id_empresa"]) if row else None
+    except Exception as e:
+        logger.error("_id_empresa_relacionada(%s): %s", id_suministrador, e)
+        return None
+
+
 def _enviar_email_acceso(suministrador, token_sesion):
     try:
         from src.services import ccp
         import os
         base = os.getenv("PORTAL_PROVEEDOR_URL", "http://localhost:8090/portal/proveedor")
+        # Bug corregido: no se pasaba `id_empresa`, así que `enviar_comunicacion` resolvía la
+        # empresa por defecto del contexto (casi nunca la que tiene un buzón corporativo
+        # configurado) y el envío fallaba en silencio con "No hay buzón corporativo activo" —
+        # exactamente el mismo síntoma que ya se había diagnosticado y resuelto para las
+        # invitaciones (`invitaciones._enviar_email_invitacion`), pero sin aplicar aquí.
+        id_empresa = _id_empresa_relacionada(suministrador["id"])
         # Ruta real del panel: /portal/proveedor/<token>/dashboard (bug corregido — antes apuntaba
         # a /sesion/<token>, una ruta que nunca existió en el blueprint).
-        ccp.enviar_comunicacion(
+        r = ccp.enviar_comunicacion(
+            id_empresa=id_empresa,
             destinatario=suministrador["email_login"], asunto="Acceso a tu Portal de Proveedor",
             cuerpo=f"Accede a tu portal: {base}/{token_sesion}/dashboard\n\nEste enlace caduca en "
                   f"{MINUTOS_SESION} minutos.",
             contexto="compras.acceso_proveedor")
+        if not getattr(r, "ok", True):
+            logger.warning("_enviar_email_acceso(%s): no se pudo enviar (%s)",
+                           suministrador.get("email_login"), getattr(r, "mensaje", "motivo desconocido"))
     except Exception as e:
         logger.debug("_enviar_email_acceso: %s", e)
 

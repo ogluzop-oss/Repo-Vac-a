@@ -60,10 +60,9 @@ _SECCIONES = (
 
 def pagina_gestion_index(token):
     base = f"/portal/empresa/{token}/gestion"
-    tarjetas = "".join(f"""<a href="{base}/{sid}" class="btn" style="display:block;margin-bottom:10px;
-text-align:left;background:#161B22;color:#E6EDF3;border:1px solid #30363D">
-<b style="color:var(--ac)">{ic}  {_e(titulo)}</b><br>
-<span style="color:#8B949E;font-size:12px">{_e(desc)}</span></a>"""
+    tarjetas = "".join(f"""<a href="{base}/{sid}" class="gestion-card">
+<b>{ic}  {_e(titulo)}</b><br>
+<span>{_e(desc)}</span></a>"""
                         for sid, ic, titulo, desc in _SECCIONES)
     return _layout("Gestión", f"""
 <div class="card"><h1>Gestión de Compras</h1>
