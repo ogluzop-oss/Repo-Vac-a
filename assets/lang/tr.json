@@ -282,7 +282,7 @@
     "weight_missing_msg": "Ürünü tickete eklemeden önce tartmanız (veya ağırlığı manuel olarak girmeniz) gerekir.",
     "weight_invalid_title": "Geçersiz ağırlık",
     "perm_denied_title": "İzin reddedildi",
-    "perm_denied_msg": "Sadece bir YÖNETİCİ veya YÖNETİCİ toplu satış fiyatlarını düzenleyebilir.",
+    "perm_denied_msg": "Sadece bir YÖNETİCİ toplu satış fiyatlarını düzenleyebilir.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "Yetkilendirme gerekli",
     "header": "🔒  SORUMLU YETKİLENDİRMESİ",
-    "subtitle": "Yalnızca YÖNETICI veya YÖNETİCİ.",
+    "subtitle": "Yalnızca YÖNETİCİ.",
     "user": "Kullanıcı",
     "pin": "PIN / Şifre",
     "authorize": "Yetkilendir",
@@ -1334,7 +1334,7 @@
     "pin_updated_msg": "{nombre} adlı kişinin PIN'i başarıyla güncellendi.",
     "pin_update_err": "PIN güncellenemedi.",
     "access_restricted_title": "Sınırlı erişim",
-    "access_restricted_msg": "Sadece YÖNETİCİ ve MÜDÜR iş takvimlerini yönetebilir.",
+    "access_restricted_msg": "Sadece YÖNETİCİ iş takvimlerini yönetebilir.",
     "borrar": "SİL",
     "asunto_lbl": "KONU:",
     "hora_inicio": "BAŞLAMA SAATİ:",
@@ -1350,7 +1350,7 @@
     "col_value": "DEĞER",
     "col_total": "TOPLAM",
     "divisa_empresa": "💱  ŞİRKET PARABİRİMİ:",
-    "divisa_solo_admin": "Yalnızca YÖNETİCİ / MÜDÜR",
+    "divisa_solo_admin": "Yalnızca YÖNETİCİ",
     "divisa_title": "Parabirimi güncellendi",
     "divisa_msg": "Şirket parabirimi şu anda {code}. Nakit ve tutar tabloları bu parabiriminde gösterilecektir.",
     "divisa_error": "Parabirimi değiştirilemedi.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Diğer para birimleri: {x}",
     "cambio_ok_title": "Kasa değiştirme — {id}",
     "cambio_ok_msg": "{id} {sal} tarafından {ent} tarafına devredildi.\nKasa aktif kalmaya devam ediyor.",
-    "rol_ger_admin": "MÜDÜR veya YÖNETİCİ",
+    "rol_ger_admin": "YÖNETİCİ",
     "auth_abrir_caja": "kasa {id} açmak",
     "auth_cerrar_caja": "kasa kapatmak",
     "auth_cambio_cajero": "kasiyer değişimi yapmak",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "Yönetici",
-    "gerente": "Müdür",
     "operario": "Operatör",
     "superadmin": "Süper Yönetici"
   },

@@ -281,7 +281,7 @@
     "weight_missing_msg": "Anda harus menimbang produk (atau memasukkan berat secara manual) sebelum menambahkannya ke struk.",
     "weight_invalid_title": "Berat tidak valid",
     "perm_denied_title": "Izin ditolak",
-    "perm_denied_msg": "Hanya MANAJER atau ADMINISTRATOR yang dapat mengedit harga eceran.",
+    "perm_denied_msg": "Hanya ADMINISTRATOR yang dapat mengedit harga eceran.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)",
     "total": "TOTAL: {x}"
   },
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "Otorisasi diperlukan",
     "header": "🔒  OTORISASI PENANGGUNG JAWAB",
-    "subtitle": "Hanya MANAJER atau ADMINISTRATOR.",
+    "subtitle": "Hanya ADMINISTRATOR.",
     "user": "Pengguna",
     "pin": "PIN / Kata Sandi",
     "authorize": "Otorisasi",
@@ -1328,7 +1328,7 @@
     "pin_updated_msg": "PIN {nombre} berhasil diperbarui.",
     "pin_update_err": "Tidak dapat memperbarui PIN.",
     "access_restricted_title": "Akses terbatas",
-    "access_restricted_msg": "Hanya ADMINISTRATOR dan MANAJER yang dapat mengelola jadwal.",
+    "access_restricted_msg": "Hanya ADMINISTRATOR yang dapat mengelola jadwal.",
     "borrar": "HAPUS",
     "asunto_lbl": "SUBJEK:",
     "hora_inicio": "JAM MULAI:",
@@ -1350,7 +1350,7 @@
     "col_value": "NILAI",
     "col_total": "TOTAL",
     "divisa_empresa": "💱  MATA UANG PERUSAHAAN:",
-    "divisa_solo_admin": "Hanya ADMINISTRATOR / MANAJER",
+    "divisa_solo_admin": "Hanya ADMINISTRATOR",
     "divisa_title": "Mata uang diperbarui",
     "divisa_msg": "Mata uang perusahaan sekarang adalah {code}. Tabel kas dan jumlah akan ditampilkan dalam mata uang ini.",
     "divisa_error": "Tidak dapat mengubah mata uang.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Mata uang lainnya: {x}",
     "cambio_ok_title": "Perubahan kasir — {id}",
     "cambio_ok_msg": "{id} ditransfer dari {sal} ke {ent}.\nKas tetap aktif.",
-    "rol_ger_admin": "MANAJER atau ADMINISTRATOR",
+    "rol_ger_admin": "ADMINISTRATOR",
     "auth_abrir_caja": "membuka register kas {id}",
     "auth_cerrar_caja": "menutup register kas",
     "auth_cambio_cajero": "melakukan pergantian kasir",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "Administrator",
-    "gerente": "Manajer",
     "operario": "Operator",
     "superadmin": "Superadmin"
   },

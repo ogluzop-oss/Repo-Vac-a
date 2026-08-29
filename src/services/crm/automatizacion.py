@@ -32,7 +32,7 @@ def _notificar(titulo, mensaje, id_empresa, responsable=None):
         from src.services import notificaciones
         notificaciones.emitir("crm", titulo, mensaje, modulo="crm",
                               usuarios=[responsable] if responsable else None,
-                              roles=None if responsable else ["GERENTE", "ADMINISTRADOR"],
+                              roles=None if responsable else ["ADMINISTRADOR"],
                               id_empresa=id_empresa)
     except Exception as e:
         logger.debug("notificar: %s", e)

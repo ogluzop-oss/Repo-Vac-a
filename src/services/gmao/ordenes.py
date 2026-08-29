@@ -258,6 +258,6 @@ def _evento(oid, estado, eid=None):
         from src.services import notificaciones
         if estado in ("abierta", "finalizada"):
             notificaciones.emitir("gmao", f"OT {oid} {estado}", "", modulo="gmao",
-                                  roles=["GERENTE", "ADMINISTRADOR"], id_empresa=eid)
+                                  roles=["ADMINISTRADOR"], id_empresa=eid)
     except Exception:
         pass

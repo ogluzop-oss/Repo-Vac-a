@@ -1,7 +1,7 @@
 """
 Servicio de catálogo: consulta el catálogo y lo serializa según el rol.
 
-WEB PÚBLICA (cliente) y PANEL OPERATIVO (admin/gerente) comparten datos pero NO
+WEB PÚBLICA (cliente) y PANEL OPERATIVO (admin) comparten datos pero NO
 campos: la vista pública nunca expone stock real, almacenes ni datos internos.
 `serializar(prod, interno=...)` decide qué se muestra; `es_vista_interna(rol)`
 resuelve el rol autenticado.
@@ -14,7 +14,7 @@ from src.db import catalogo as cat
 logger = logging.getLogger("catalogo_service")
 
 # Roles con acceso a la vista operativa (interna).
-_ROLES_INTERNOS = {"ADMINISTRADOR", "GERENTE", "SUPERADMIN"}
+_ROLES_INTERNOS = {"ADMINISTRADOR", "SUPERADMIN"}
 
 
 def es_vista_interna(rol=None) -> bool:

@@ -135,7 +135,7 @@ def iniciar_proceso(entidad, entidad_id, *, contexto=None, actor=None, id_empres
 
 
 # Jerarquía de roles del sistema: un rol superior puede aprobar pasos de rol inferior.
-_RANGO_ROL = {"OPERARIO": 1, "GERENTE": 2, "ADMINISTRADOR": 3, "SUPERADMIN": 4}
+_RANGO_ROL = {"OPERARIO": 1, "ADMINISTRADOR": 3, "SUPERADMIN": 4}
 
 
 def _actor_autorizado(tarea, actor) -> bool:

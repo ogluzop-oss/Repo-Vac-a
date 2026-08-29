@@ -5,7 +5,7 @@ Lista los buzones de la empresa activa con su proveedor, estado, tienda, licenci
 y última sincronización; permite dar de alta buzones (con su licencia), conectar
 OAuth 2.0 (Google), enviar un correo de prueba y eliminar (revoca tokens).
 
-Identidad: empresa → tienda → correo. Solo ADMINISTRADOR / GERENTE.
+Identidad: empresa → tienda → correo. Solo ADMINISTRADOR.
 """
 from __future__ import annotations
 

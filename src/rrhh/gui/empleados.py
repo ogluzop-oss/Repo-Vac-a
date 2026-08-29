@@ -87,11 +87,11 @@ from src.utils.logger import LOG_DOCUMENTOS
 class _PinDialog(QDialog):
     """Verificación de PIN de usuario con rol MÍNIMO requerido (jerárquico):
     un perfil de rango igual o superior al exigido también autoriza
-    (p. ej. exigir GERENTE acepta GERENTE, ADMINISTRADOR y SUPERADMIN)."""
+    (p. ej. exigir ADMINISTRADOR acepta ADMINISTRADOR y SUPERADMIN)."""
 
-    _RANK = {"OPERARIO": 1, "GERENTE": 2, "ADMINISTRADOR": 3, "SUPERADMIN": 4}
+    _RANK = {"OPERARIO": 1, "ADMINISTRADOR": 3, "SUPERADMIN": 4}
 
-    def __init__(self, rol_requerido="GERENTE", motivo="autorizar esta acción", parent=None,
+    def __init__(self, rol_requerido="ADMINISTRADOR", motivo="autorizar esta acción", parent=None,
                  roles_label=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
@@ -104,7 +104,7 @@ class _PinDialog(QDialog):
         self._build(motivo)
 
     def _roles_permitidos(self) -> list:
-        base = self._RANK.get(self._rol, 2)
+        base = self._RANK.get(self._rol, 3)
         return [r for r, v in self._RANK.items() if v >= base]
 
     def _build(self, motivo):

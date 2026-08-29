@@ -4122,12 +4122,12 @@ class ConfiguracionWindow(QWidget):
         self._loaded_pages.add(index)
 
     def _cambiar_vista(self, index):
-        # Access control: HORARIO EMPLEADOS (index 3) — ADMINISTRADOR and GERENTE only
+        # Access control: HORARIO EMPLEADOS (index 3) — ADMINISTRADOR only
         if index == 3:
             if not (sesion_global and sesion_global.es_admin()):
                 mostrar_mensaje(
                     self, tr("cfg.access_restricted_title", default="Acceso restringido"),
-                    tr("cfg.access_restricted_msg", default="Solo ADMINISTRADOR y GERENTE pueden gestionar horarios."), "error"
+                    tr("cfg.access_restricted_msg", default="Solo ADMINISTRADOR puede gestionar horarios."), "error"
                 )
                 return
         self._ensure_page(index)
@@ -4463,7 +4463,7 @@ class ConfiguracionWindow(QWidget):
     # --- PESTAÑA 1: GESTIÓN CAJA ---
     def _crear_selector_divisa(self):
         """Selector de DIVISA EMPRESA (global, independiente del idioma). Solo lo
-        pueden cambiar ADMINISTRADOR y GERENTE; al cambiarlo, las tablas de arqueo
+        puede cambiar ADMINISTRADOR; al cambiarlo, las tablas de arqueo
         y los importes pasan a esa divisa (sin reiniciar)."""
         frame = QFrame()
         frame.setObjectName("divisaBox")
@@ -4696,24 +4696,23 @@ class ConfiguracionWindow(QWidget):
         descuadre = abs(diff)
         if descuadre <= 5.0:
             return True
-        rol = "GERENTE" if descuadre <= 20.0 else "ADMINISTRADOR"
         sign = "+" if diff > 0 else ""
-        dlg = _PinDialog(rol, f"continuar con este descuadre de {sign}{divisas.formatear(diff)}", self)
+        dlg = _PinDialog("ADMINISTRADOR", f"continuar con este descuadre de {sign}{divisas.formatear(diff)}", self)
         dlg.exec()
         return dlg.verificado()
 
-    def _autorizar_ger_admin(self, motivo: str):
-        """Exige la verificación de un perfil GERENTE o ADMINISTRADOR (o superior).
+    def _autorizar_admin(self, motivo: str):
+        """Exige la verificación de un perfil ADMINISTRADOR (o superior).
         Devuelve (ok: bool, nombre_usuario: str) del responsable que autoriza."""
-        dlg = _PinDialog("GERENTE", motivo, parent=self,
-                         roles_label=tr("cfg.rol_ger_admin", default="GERENTE o ADMINISTRADOR"))
+        dlg = _PinDialog("ADMINISTRADOR", motivo, parent=self,
+                         roles_label=tr("cfg.rol_ger_admin", default="ADMINISTRADOR"))
         dlg.exec()
         return dlg.verificado(), dlg.usuario_nombre()
 
     # ── Caja: acciones ────────────────────────────────────────────────────────
 
     def _fn_apertura(self):
-        ok, usuario = self._autorizar_ger_admin(
+        ok, usuario = self._autorizar_admin(
             tr("cfg.auth_apertura_fuerte", default="abrir la caja fuerte"))
         if not ok:
             return
@@ -4774,8 +4773,8 @@ class ConfiguracionWindow(QWidget):
         est = self._get_caja_estado()
         n = len(est.get("cajas_activas", [])) + 1
         id_caja = f"CAJA-{n:02d}"
-        # 1. Autorización de GERENTE/ADMINISTRADOR
-        if not self._autorizar_ger_admin(
+        # 1. Autorización de ADMINISTRADOR
+        if not self._autorizar_admin(
                 tr("cfg.auth_abrir_caja", default="abrir la caja registradora {id}", id=id_caja))[0]:
             return
         # 2. Identificación del empleado (operario) al que se le asigna la caja
@@ -4837,8 +4836,8 @@ class ConfiguracionWindow(QWidget):
         if not cajas:
             return
 
-        # 1. Autorización de GERENTE/ADMINISTRADOR
-        if not self._autorizar_ger_admin(
+        # 1. Autorización de ADMINISTRADOR
+        if not self._autorizar_admin(
                 tr("cfg.auth_cerrar_caja", default="cerrar una caja registradora"))[0]:
             return
 
@@ -4937,8 +4936,8 @@ class ConfiguracionWindow(QWidget):
         if not cajas:
             return
 
-        # 0. Autorización de GERENTE/ADMINISTRADOR (responsable de turno → firma del ticket)
-        ok_aut, responsable_turno = self._autorizar_ger_admin(
+        # 0. Autorización de ADMINISTRADOR (responsable de turno → firma del ticket)
+        ok_aut, responsable_turno = self._autorizar_admin(
             tr("cfg.auth_cambio_cajero", default="realizar un cambio de cajero"))
         if not ok_aut:
             return
@@ -5068,7 +5067,7 @@ class ConfiguracionWindow(QWidget):
         return bool(b) and a == b
 
     def _fn_cierre_fuerte(self):
-        ok, usuario = self._autorizar_ger_admin(
+        ok, usuario = self._autorizar_admin(
             tr("cfg.auth_cierre_fuerte", default="cerrar la caja fuerte"))
         if not ok:
             return
@@ -5126,7 +5125,7 @@ class ConfiguracionWindow(QWidget):
                         "success")
 
     def _fn_movimiento(self):
-        ok, usuario = self._autorizar_ger_admin(
+        ok, usuario = self._autorizar_admin(
             tr("cfg.auth_movimiento", default="registrar un movimiento de efectivo"))
         if not ok:
             return
@@ -6842,7 +6841,7 @@ class ConfiguracionWindow(QWidget):
         self.input_pass2.setMaxLength(4)
         self.input_pass2.setStyleSheet(input_css)
 
-        self.combo_perfil = _PerfilDropdown(["OPERARIO", "GERENTE", "ADMINISTRADOR", "SUPERADMIN"])
+        self.combo_perfil = _PerfilDropdown(["OPERARIO", "ADMINISTRADOR", "SUPERADMIN"])
 
         form_layout.addWidget(self.input_nombre)
         form_layout.addWidget(self.input_pass)

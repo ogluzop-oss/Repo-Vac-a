@@ -345,7 +345,7 @@
     "weight_missing_msg": "You must weigh the product (or enter the weight manually) before adding it to the ticket.",
     "weight_invalid_title": "Invalid weight",
     "perm_denied_title": "Permission denied",
-    "perm_denied_msg": "Only a MANAGER or ADMINISTRATOR can edit bulk prices.",
+    "perm_denied_msg": "Only an ADMINISTRATOR can edit bulk prices.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -462,8 +462,8 @@
   },
   "autoriz": {
     "title": "Authorization required",
-    "header": "🔒  MANAGER AUTHORIZATION",
-    "subtitle": "Manager or Administrator only.",
+    "header": "🔒  ADMINISTRATOR AUTHORIZATION",
+    "subtitle": "Administrator only.",
     "user": "User",
     "pin": "PIN / Password",
     "authorize": "Authorize",
@@ -1402,7 +1402,7 @@
     "pin_updated_msg": "PIN for {nombre} updated successfully.",
     "pin_update_err": "Could not update the PIN.",
     "access_restricted_title": "Access restricted",
-    "access_restricted_msg": "Only ADMINISTRADOR and GERENTE can manage schedules.",
+    "access_restricted_msg": "Only ADMINISTRATOR can manage schedules.",
     "borrar": "DELETE",
     "asunto_lbl": "SUBJECT:",
     "hora_inicio": "START TIME:",
@@ -1413,7 +1413,7 @@
     "col_value": "VALUE",
     "col_total": "TOTAL",
     "divisa_empresa": "COMPANY CURRENCY:",
-    "divisa_solo_admin": "Only ADMINISTRATOR / MANAGER",
+    "divisa_solo_admin": "Only ADMINISTRATOR",
     "divisa_title": "Currency updated",
     "divisa_msg": "The company currency is now {code}. Cash tables and amounts will be shown in this currency.",
     "divisa_error": "Could not change the currency.",
@@ -1492,7 +1492,7 @@
     "cambio_otras_divisas": "Other currencies: {x}",
     "cambio_ok_title": "Cashier handover — {id}",
     "cambio_ok_msg": "{id} handed over from {sal} to {ent}.\nThe register stays active.",
-    "rol_ger_admin": "MANAGER or ADMIN",
+    "rol_ger_admin": "ADMIN",
     "auth_abrir_caja": "open register {id}",
     "auth_cerrar_caja": "close a cash register",
     "auth_cambio_cajero": "perform a cashier handover",
@@ -1673,7 +1673,6 @@
   },
   "roles": {
     "administrador": "Administrator",
-    "gerente": "Manager",
     "operario": "Operator",
     "superadmin": "Super Administrator"
   },

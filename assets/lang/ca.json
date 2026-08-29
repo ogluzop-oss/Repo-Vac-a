@@ -281,7 +281,7 @@
     "weight_missing_msg": "Has de pesar el producte (o introduir el pes manualment) abans d'afegir-lo al tiquet.",
     "weight_invalid_title": "Pes no vàlid",
     "perm_denied_title": "Permís denegat",
-    "perm_denied_msg": "Només un GERENT o ADMINISTRADOR pot editar els preus a granel.",
+    "perm_denied_msg": "Només un ADMINISTRADOR pot editar els preus a granel.",
     "total": "TOTAL: {x}",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "Autorització requerida",
     "header": "🔒  AUTORITZACIÓ DE RESPONSABLE",
-    "subtitle": "Només GERENT o ADMINISTRADOR.",
+    "subtitle": "Només ADMINISTRADOR.",
     "user": "Usuari",
     "pin": "PIN / Contrasenya",
     "authorize": "Autoritzar",
@@ -1339,7 +1339,7 @@
     "pin_updated_msg": "PIN de {nombre} actualitzat correctament.",
     "pin_update_err": "No s'ha pogut actualitzar el PIN.",
     "access_restricted_title": "Accés restringit",
-    "access_restricted_msg": "Només ADMINISTRADOR i GERENT poden gestionar horaris.",
+    "access_restricted_msg": "Només ADMINISTRADOR pot gestionar horaris.",
     "borrar": "ESBORRAR",
     "asunto_lbl": "ASSUMPTE:",
     "hora_inicio": "HORA D'INICI:",
@@ -1350,7 +1350,7 @@
     "col_value": "VALOR",
     "col_total": "TOTAL",
     "divisa_empresa": "💱  MONEDA DE L'EMPRESA:",
-    "divisa_solo_admin": "Només ADMINISTRADOR / GERENTE",
+    "divisa_solo_admin": "Només ADMINISTRADOR",
     "divisa_title": "Moneda actualitzada",
     "divisa_msg": "La moneda de l'empresa és ara {code}. Les taules de caixa i imports es mostraran en aquesta moneda.",
     "divisa_error": "No s'ha pogut canviar la moneda.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Altres divises: {x}",
     "cambio_ok_title": "Canvi de caixer — {id}",
     "cambio_ok_msg": "{id} transferida de {sal} a {ent}.\nLa caixa segueix activa.",
-    "rol_ger_admin": "GERЕНТ o ADMINISTRADOR",
+    "rol_ger_admin": "ADMINISTRADOR",
     "auth_abrir_caja": "obrir la caixa registradora {id}",
     "auth_cerrar_caja": "tancar una caixa registradora",
     "auth_cambio_cajero": "realitzar un canvi de caixer",
@@ -1609,7 +1609,6 @@
     "smart_ventas": "Smart VENDES"
   },
   "roles": {
-    "gerente": "Gerent",
     "operario": "Operari",
     "administrador": "Administrador",
     "superadmin": "Superadministrador"

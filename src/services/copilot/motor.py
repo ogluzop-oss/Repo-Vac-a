@@ -136,7 +136,7 @@ class CopilotService:
         # Capacidad directiva: solo roles globales.
         if not seguridad.es_global(ctx["rol"]):
             return {"intent": "ejecucion", "texto": "La ejecucion supervisada esta reservada a "
-                    "perfiles de gestion (administrador/gerente).", "fuentes": ["Seguridad",
+                    "perfiles de gestion (administrador).", "fuentes": ["Seguridad",
                     "ExecutiveActionService"], "contexto": ctx}
         emp, uid, rol = ctx["id_empresa"], ctx["usuario"], ctx["rol"]
         svc = autonomia.servicio()
@@ -188,7 +188,7 @@ class CopilotService:
         # La simulacion estrategica es una capacidad directiva: solo roles globales.
         if not seguridad.es_global(ctx["rol"]):
             return {"intent": "simulacion", "texto": ("La simulacion estrategica esta reservada a "
-                    "perfiles de gestion (administrador/gerente)."), "fuentes": ["Seguridad",
+                    "perfiles de gestion (administrador)."), "fuentes": ["Seguridad",
                     "SimulationService"], "contexto": ctx}
         vs = simulador.lenguaje.parsear(texto)
         if not vs:

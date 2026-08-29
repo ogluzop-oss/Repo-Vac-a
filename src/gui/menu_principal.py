@@ -528,11 +528,11 @@ class MenuPrincipal(QWidget):
                 "documentos",
                 0,
                 5,
-                "ADMINISTRADOR|GERENTE|SUPERADMIN",
+                "ADMINISTRADOR|SUPERADMIN",
                 "#22F4E6",
                 "document",
             ),
-            ("Correo", "correo", 1, 0, "ADMINISTRADOR|GERENTE", "#22F4E6", "mail"),
+            ("Correo", "correo", 1, 0, "ADMINISTRADOR", "#22F4E6", "mail"),
             ("Mermas", "mermas", 1, 1, False, "#22F4E6", "trash"),
             ("Etiquetas", "etiquetas", 1, 2, False, "#22F4E6", "tag"),
             ("Reposición", "reposicion", 1, 3, False, "#22F4E6", "box_refresh"),
@@ -542,7 +542,7 @@ class MenuPrincipal(QWidget):
                 "catalogo",
                 1,
                 5,
-                "ADMINISTRADOR|GERENTE|SUPERADMIN",
+                "ADMINISTRADOR|SUPERADMIN",
                 "#22F4E6",
                 "shopping_bag",
             ),
@@ -560,7 +560,6 @@ class MenuPrincipal(QWidget):
                 elif solo_admin is True:
                     if v_id == "ventas" and self.perfil not in [
                         "ADMINISTRADOR",
-                        "GERENTE",
                     ]:
                         tiene_acceso = False
 
@@ -604,7 +603,7 @@ class MenuPrincipal(QWidget):
                 "Configuración", "configuracion", "#F1E55B", "gear"
             )
 
-        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
             # UX-TPV-01 (P4): acceso directo a la Gestión de Caja existente. Icono caja
             # fuerte en turquesa (color de tarjeta cian, no amarillo).
             btn_caja = self.crear_tarjeta_menu(
@@ -615,7 +614,7 @@ class MenuPrincipal(QWidget):
         # NOTA: Correo, Documentos y Catálogo ya están en la rejilla superior; aquí
         # NO se duplican.
 
-        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
             # Proveedores (antes "Compras"). Compras avanzado vive como pestaña interna.
             btn_compras = self.crear_tarjeta_menu(
                 "Proveedores", "compras", "#22F4E6", "delivery_clipboard"
@@ -626,7 +625,7 @@ class MenuPrincipal(QWidget):
             )
             footer_buttons.append(btn_clientes)
 
-        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
             btn_contab = self.crear_tarjeta_menu(
                 "Contabilidad", "contabilidad", "#22F4E6", "calculator_coins"
             )
@@ -667,7 +666,7 @@ class MenuPrincipal(QWidget):
             )
             footer_buttons.append(btn_cloud)
 
-        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
             btn_rrhh = self.crear_tarjeta_menu("RRHH", "rrhh", "#22F4E6", "people_search")
             footer_buttons.append(btn_rrhh)
 
@@ -679,7 +678,7 @@ class MenuPrincipal(QWidget):
         )
         footer_buttons.append(btn_portal)
 
-        if self.perfil in ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"):
+        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
             # Kárdex, Inventario físico, Stock por almacén y Lotes migrados → Mostrar stock (pestañas).
             btn_gesalm = self.crear_tarjeta_menu(
                 "Almacenes", "almacenes", "#22F4E6", "warehouse"
@@ -708,15 +707,17 @@ class MenuPrincipal(QWidget):
             # ahora 3 apartados: Generar · Certificados · Registros Verifactu, reutilizando `FiscalPanels`).
             # Se evita la doble entrada al mismo módulo. El enrutado v_id "fiscal" se conserva (compatibilidad).
 
-            btn_camaras = self.crear_tarjeta_menu(
-                "Cámaras", "camaras", "#22F4E6", "security_camera"
-            )
-            footer_buttons.append(btn_camaras)
-
             btn_migracion = self.crear_tarjeta_menu(
                 "Migrar datos", "migracion", "#22F4E6", "box_refresh"
             )
             footer_buttons.append(btn_migracion)
+
+        # Cámaras (videovigilancia): SOLO admin/superadmin — acceso restringido a propósito.
+        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
+            btn_camaras = self.crear_tarjeta_menu(
+                "Cámaras", "camaras", "#22F4E6", "security_camera"
+            )
+            footer_buttons.append(btn_camaras)
 
             # Edición PHARMACY: recetas y dispensación (tarjeta gateada por edición).
             try:
@@ -1569,7 +1570,7 @@ class MenuPrincipal(QWidget):
         self._actualizar_logo_label()
 
     def _perfil_traducido(self):
-        """Tipo de perfil traducido SOLO para mostrar (ADMINISTRADOR/GERENTE/OPERARIO →
+        """Tipo de perfil traducido SOLO para mostrar (ADMINISTRADOR/OPERARIO →
         idioma activo). self.perfil se mantiene en español como valor de lógica
         (control de acceso por rol), por eso no se traduce esa variable."""
         return tr("roles." + self.perfil.lower(), default=self.perfil).upper()
@@ -1592,7 +1593,7 @@ class MenuPrincipal(QWidget):
 
     def _actualizar_ref_label(self):
         # En ADMINISTRADOR/SUPERADMIN la referencia se muestra en el chip de tienda;
-        # el piloto verde queda solo para GERENTE/OPERARIO.
+        # el piloto verde queda solo para OPERARIO.
         if self.perfil in ("SUPERADMIN", "ADMINISTRADOR"):
             self.ref_label.hide()
             return
@@ -1668,6 +1669,11 @@ class MenuPrincipal(QWidget):
 
                 self.manejar_apertura(v_id, CentroDocumentalWindow, **kwargs)
             elif v_id == "camaras":
+                # Restringido a admin/superadmin — la tarjeta ya está oculta para el resto de
+                # perfiles, pero esta ruta también es alcanzable sin pasar por la tarjeta (p. ej.
+                # comando de voz "nav_camaras" de SOMA), así que se aplica el mismo filtro aquí.
+                if self.perfil not in ("ADMINISTRADOR", "SUPERADMIN"):
+                    return
                 from src.gui.camaras_gui import CamarasWindow
 
                 self.manejar_apertura(v_id, CamarasWindow, **kwargs)

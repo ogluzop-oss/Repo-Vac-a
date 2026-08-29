@@ -258,7 +258,7 @@ def job_avisos_vencimiento(id_empresa=None) -> dict:
                 msg = f"Tu suscripción ({plan}) vence el {fecha}. Recuerda renovar."
                 pr = "normal"
             notificaciones.emitir("saas_vencimiento", tit, msg, prioridad=pr, modulo="saas",
-                                  roles=["ADMINISTRADOR", "GERENTE"], id_empresa=emp)
+                                  roles=["ADMINISTRADOR"], id_empresa=emp)
             avisadas += 1
         except Exception as e:
             logger.debug("aviso vencimiento empresa %s: %s", emp, e)

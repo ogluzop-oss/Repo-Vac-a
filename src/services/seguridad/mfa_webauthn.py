@@ -20,7 +20,7 @@ import time
 logger = logging.getLogger("seguridad.mfa_webauthn")
 
 # Perfiles de MAYOR riesgo para los que se RECOMIENDA passkey (además de TOTP).
-ROLES_RECOMENDADO = ("SUPERADMIN", "ADMINISTRADOR", "GERENTE")
+ROLES_RECOMENDADO = ("SUPERADMIN", "ADMINISTRADOR")
 
 
 def _rp_id():

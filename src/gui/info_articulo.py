@@ -439,7 +439,7 @@ class _BuscarArticuloPage(QWidget):
 
         # ── FÍSICA DE SEGURIDAD DEL AUTOCOBRO (Capa 1): peso esperado + tolerancia por artículo ──
         # Master data que alimenta el control antifraude de las cajas de autocobro. Editable solo por
-        # gerente/administrador. Vacío = usa los valores por defecto del motor.
+        # administrador. Vacío = usa los valores por defecto del motor.
         self.info_lyt.addSpacing(8)
         self._lbl_fisica = QLabel("⚖  " + tr("info.fisica_title", default="FÍSICA DE SEGURIDAD (AUTOCOBRO)"))
         self._lbl_fisica.setStyleSheet(f"color:{_CIAN};font-size:12px;font-weight:900;border:none;")
@@ -531,7 +531,7 @@ class _BuscarArticuloPage(QWidget):
             pass
 
     def _guardar_fisica(self):
-        """Guarda el peso esperado + tolerancia del artículo cargado (solo gerente/administrador)."""
+        """Guarda el peso esperado + tolerancia del artículo cargado (solo administrador)."""
         if not getattr(self, "_art_codigo", None):
             return
         try:
@@ -539,11 +539,11 @@ class _BuscarArticuloPage(QWidget):
             perfil = ((sesion_global.usuario_actual or {}).get("perfil") or "").upper()
         except Exception:
             perfil = ""
-        if perfil not in ("GERENTE", "ADMINISTRADOR"):
+        if perfil not in ("ADMINISTRADOR",):
             if mostrar_mensaje:
                 mostrar_mensaje(self, tr("info.f_perm_title", default="Permiso denegado"),
                                 tr("info.f_perm_msg",
-                                   default="Solo un gerente o administrador puede editar la física de seguridad."),
+                                   default="Solo un administrador puede editar la física de seguridad."),
                                 nivel="warning")
             return
         from src.db.articulos import guardar_fisica_seguridad

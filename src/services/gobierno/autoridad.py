@@ -21,7 +21,7 @@ _MATRIZ = {
 
 # Perfil del ERP → rol organico por defecto.
 _PERFIL_A_ORG = {"SUPERADMIN": "administrador", "ADMINISTRADOR": "administrador",
-                 "GERENTE": "director", "OPERARIO": "suplente"}
+                 "OPERARIO": "suplente"}
 
 
 def rol_org_de_perfil(perfil) -> str:

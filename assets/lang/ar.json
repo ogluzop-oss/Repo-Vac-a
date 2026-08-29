@@ -282,7 +282,7 @@
     "weight_missing_msg": "يجب وزن المنتج (أو إدخال الوزن يدوياً) قبل إضافته إلى الإيصال.",
     "weight_invalid_title": "وزن غير صحيح",
     "perm_denied_title": "الإذن مرفوض",
-    "perm_denied_msg": "فقط مدير أو مسؤول يمكنه تعديل أسعار البيع بالوزن.",
+    "perm_denied_msg": "فقط مسؤول يمكنه تعديل أسعار البيع بالوزن.",
     "line_name": "{nombre} ({peso} كغ × {precio}/kg)"
   },
   "devol": {
@@ -1335,7 +1335,7 @@
     "pin_updated_msg": "تم تحديث رقم التعريف الشخصي لـ {nombre} بنجاح.",
     "pin_update_err": "تعذر تحديث رقم التعريف الشخصي.",
     "access_restricted_title": "وصول مقيد",
-    "access_restricted_msg": "فقط المسؤول والمدير يمكنهما إدارة الجداول الزمنية.",
+    "access_restricted_msg": "فقط المسؤول يمكنه إدارة الجداول الزمنية.",
     "borrar": "حذف",
     "asunto_lbl": "الموضوع:",
     "hora_inicio": "وقت البدء:",
@@ -1350,7 +1350,7 @@
     "col_value": "القيمة",
     "col_total": "الإجمالي",
     "divisa_empresa": "💱 عملة الشركة:",
-    "divisa_solo_admin": "مسؤول/مدير فقط",
+    "divisa_solo_admin": "مسؤول فقط",
     "divisa_title": "تم تحديث العملة",
     "divisa_msg": "عملة الشركة هي الآن {code}. سيتم عرض جداول النقد والمبالغ بهذه العملة.",
     "divisa_error": "تعذر تغيير العملة.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "العملات الأخرى: {x}",
     "cambio_ok_title": "تغيير أمين الصندوق — {id}",
     "cambio_ok_msg": "تم تحويل {id} من {sal} إلى {ent}.\nالصندوق لا يزال نشطاً.",
-    "rol_ger_admin": "مدير أو مسؤول إداري",
+    "rol_ger_admin": "مسؤول إداري",
     "auth_abrir_caja": "فتح درج النقد {id}",
     "auth_cerrar_caja": "إغلاق درج النقد",
     "auth_cambio_cajero": "إجراء تبديل أمين الصندوق",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "مسؤول",
-    "gerente": "مدير",
     "operario": "عامل",
     "superadmin": "مسؤول فائق"
   },

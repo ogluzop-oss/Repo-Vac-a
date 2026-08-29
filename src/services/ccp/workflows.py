@@ -101,7 +101,7 @@ def _sembrar():
          "cuerpo": "Le recordamos que su factura sigue pendiente."},
         {"tipo": "esperar", "dias": 7},
         {"tipo": "notificar", "titulo": "Factura sin cobrar", "mensaje": "Revisar factura pendiente",
-         "roles": ["ADMINISTRADOR", "GERENTE"]},
+         "roles": ["ADMINISTRADOR"]},
         {"tipo": "incidencia", "titulo": "Impago", "mensaje": "Factura pendiente tras avisos"},
     ], descripcion="Ciclo de recordatorio de facturas pendientes")
 

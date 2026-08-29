@@ -127,7 +127,7 @@ def _job_calibraciones(id_empresa=None) -> dict:
             notificaciones.emitir("calidad_calibracion", "Equipos de medida a calibrar",
                                   f"{len(pend)} equipo(s) requieren calibración en 30 días.",
                                   prioridad="alta", modulo="calidad",
-                                  roles=["ADMINISTRADOR", "GERENTE"], id_empresa=emp)
+                                  roles=["ADMINISTRADOR"], id_empresa=emp)
         except Exception:
             pass
     return {"pendientes": len(pend)}

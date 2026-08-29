@@ -375,7 +375,7 @@ def _job_renovaciones(id_empresa=None) -> str:
             notificaciones.emitir(
                 "proveedor_vencimiento", "Proveedores: vencimientos próximos",
                 f"{n_cert} certificación(es) y {n_acu} acuerdo(s) marco vencen en 30 días.",
-                prioridad="alta", modulo="compras", roles=["ADMINISTRADOR", "GERENTE"], id_empresa=emp)
+                prioridad="alta", modulo="compras", roles=["ADMINISTRADOR"], id_empresa=emp)
         except Exception as e:
             logger.debug("notificar vencimientos: %s", e)
     _audit("PROV_RENOVACIONES", f"cert={n_cert} acuerdos={n_acu} renovados={renovados}",

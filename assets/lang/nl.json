@@ -282,7 +282,7 @@
     "weight_missing_msg": "U moet het product wegen (of het gewicht handmatig invoeren) voordat u het aan de bon toevoegt.",
     "weight_invalid_title": "Gewicht ongeldig",
     "perm_denied_title": "Toestemming geweigerd",
-    "perm_denied_msg": "Alleen een MANAGER of BEHEERDER kan bulkprijzen bewerken.",
+    "perm_denied_msg": "Alleen een BEHEERDER kan bulkprijzen bewerken.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "Autorisatie vereist",
     "header": "🔒  AUTORISATIE VAN VERANTWOORDELIJKE",
-    "subtitle": "Alleen MANAGER of ADMINISTRATOR.",
+    "subtitle": "Alleen ADMINISTRATOR.",
     "user": "Gebruiker",
     "pin": "PINCODE / Wachtwoord",
     "authorize": "Autoriseren",
@@ -1336,7 +1336,7 @@
     "pin_updated_msg": "PIN van {nombre} is correct bijgewerkt.",
     "pin_update_err": "Kon de PIN niet bijwerken.",
     "access_restricted_title": "Toegang beperkt",
-    "access_restricted_msg": "Alleen BEHEERDER en MANAGER kunnen schema's beheren.",
+    "access_restricted_msg": "Alleen BEHEERDER kan schema's beheren.",
     "borrar": "VERWIJDEREN",
     "asunto_lbl": "ONDERWERP:",
     "hora_inicio": "STARTTIJD:",
@@ -1350,7 +1350,7 @@
     "col_value": "WAARDE",
     "col_total": "TOTAAL",
     "divisa_empresa": "💱  BEDRIJFSMUNT:",
-    "divisa_solo_admin": "Alleen BEHEERDER / MANAGER",
+    "divisa_solo_admin": "Alleen BEHEERDER",
     "divisa_title": "Munt bijgewerkt",
     "divisa_msg": "De bedrijfsmunt is nu {code}. De contant- en bedragtabellen worden in deze munt weergegeven.",
     "divisa_error": "De munt kon niet worden gewijzigd.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Andere valuta's: {x}",
     "cambio_ok_title": "Kassawisseling — {id}",
     "cambio_ok_msg": "{id} overgedragen van {sal} aan {ent}.\nDe kassa blijft actief.",
-    "rol_ger_admin": "MANAGER of BEHEERDER",
+    "rol_ger_admin": "BEHEERDER",
     "auth_abrir_caja": "de kassa {id} openen",
     "auth_cerrar_caja": "een kassa sluiten",
     "auth_cambio_cajero": "een kassawisseling uitvoeren",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "Beheerder",
-    "gerente": "Manager",
     "operario": "Operator",
     "superadmin": "Superbeheerder"
   },

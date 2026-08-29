@@ -282,7 +282,7 @@
     "weight_missing_msg": "Bạn phải cân sản phẩm (hoặc nhập cân nặng thủ công) trước khi thêm vào hóa đơn.",
     "weight_invalid_title": "Cân nặng không hợp lệ",
     "perm_denied_title": "Quyền truy cập bị từ chối",
-    "perm_denied_msg": "Chỉ QUẢN LÝ hoặc QUẢN TRỊ VIÊN mới có thể chỉnh sửa giá bán hàng theo cân nặng.",
+    "perm_denied_msg": "Chỉ QUẢN TRỊ VIÊN mới có thể chỉnh sửa giá bán hàng theo cân nặng.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "Cần phải cấp quyền",
     "header": "🔒  CẤP QUYỀN CỦA QUẢN LÝ",
-    "subtitle": "Chỉ QUẢN LÝ hoặc QUẢN TRỊ VIÊN.",
+    "subtitle": "Chỉ QUẢN TRỊ VIÊN.",
     "user": "Người dùng",
     "pin": "PIN / Mật khẩu",
     "authorize": "Cấp quyền",
@@ -1330,7 +1330,7 @@
     "pin_updated_msg": "PIN của {nombre} đã được cập nhật thành công.",
     "pin_update_err": "Không thể cập nhật PIN.",
     "access_restricted_title": "Truy cập bị hạn chế",
-    "access_restricted_msg": "Chỉ QUẢN TRỊ VIÊN và QUẢN LÝ có thể quản lý lịch làm việc.",
+    "access_restricted_msg": "Chỉ QUẢN TRỊ VIÊN có thể quản lý lịch làm việc.",
     "borrar": "XÓA",
     "asunto_lbl": "TIÊU ĐỀ:",
     "hora_inicio": "GIỜ BẮT ĐẦU:",
@@ -1350,7 +1350,7 @@
     "col_value": "GIÁ TRỊ",
     "col_total": "TỔNG CỘNG",
     "divisa_empresa": "💱  TIỀN TỆ CỦA CÔNG TY:",
-    "divisa_solo_admin": "Chỉ QUẢN TRỊ VIÊN / QUẢN LÝ",
+    "divisa_solo_admin": "Chỉ QUẢN TRỊ VIÊN",
     "divisa_title": "Tiền tệ đã được cập nhật",
     "divisa_msg": "Tiền tệ của công ty hiện là {code}. Các bảng tiền mặt và số tiền sẽ được hiển thị bằng tiền tệ này.",
     "divisa_error": "Không thể thay đổi tiền tệ.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Các đơn vị tiền tệ khác: {x}",
     "cambio_ok_title": "Thay đổi thu ngân — {id}",
     "cambio_ok_msg": "{id} được chuyển giao từ {sal} tới {ent}.\nCaja vẫn hoạt động.",
-    "rol_ger_admin": "QUẢN LÝ hoặc QUẢN TRỊ VIÊN",
+    "rol_ger_admin": "QUẢN TRỊ VIÊN",
     "auth_abrir_caja": "mở ngăn tiền {id}",
     "auth_cerrar_caja": "đóng ngăn tiền",
     "auth_cambio_cajero": "thực hiện thay đổi nhân viên quầy",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "Quản trị viên",
-    "gerente": "Quản lý",
     "operario": "Người vận hành",
     "superadmin": "Siêu quản trị viên"
   },

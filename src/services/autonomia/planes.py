@@ -18,15 +18,15 @@ logger = logging.getLogger("autonomia.planes")
 
 # Variable de escenario → (codigo_accion, fase, titulo, rol_responsable)
 _MAPA_VARIABLE = {
-    "plantilla_alta":  ("crear_tarea", 1, "Iniciar proceso de contratacion", "GERENTE"),
+    "plantilla_alta":  ("crear_tarea", 1, "Iniciar proceso de contratacion", "ADMINISTRADOR"),
     "plantilla_baja":  ("despedir_empleado", 3, "Revisar reduccion de plantilla", "ADMINISTRADOR"),
     "salario":         ("solicitar_aprobacion", 2, "Revision salarial", "ADMINISTRADOR"),
     "precio":          ("modificar_precio", 3, "Ajuste de precios", "ADMINISTRADOR"),
-    "descuento":       ("proponer_liquidacion", 2, "Aplicar descuentos/promocion", "GERENTE"),
-    "promocion":       ("proponer_liquidacion", 2, "Lanzar promocion", "GERENTE"),
-    "stock_bajo":      ("crear_propuesta_compra", 2, "Reponer stock", "GERENTE"),
-    "stock_alto":      ("solicitar_inventario", 1, "Revisar sobrestock", "GERENTE"),
-    "proveedor":       ("solicitar_revision", 1, "Evaluar cambio de proveedor", "GERENTE"),
+    "descuento":       ("proponer_liquidacion", 2, "Aplicar descuentos/promocion", "ADMINISTRADOR"),
+    "promocion":       ("proponer_liquidacion", 2, "Lanzar promocion", "ADMINISTRADOR"),
+    "stock_bajo":      ("crear_propuesta_compra", 2, "Reponer stock", "ADMINISTRADOR"),
+    "stock_alto":      ("solicitar_inventario", 1, "Revisar sobrestock", "ADMINISTRADOR"),
+    "proveedor":       ("solicitar_revision", 1, "Evaluar cambio de proveedor", "ADMINISTRADOR"),
     "tiendas":         ("crear_tarea", 1, "Estudio de apertura de tienda", "ADMINISTRADOR"),
     "almacenes":       ("crear_tarea", 1, "Estudio de nuevo almacen", "ADMINISTRADOR"),
     "gastos":          ("solicitar_auditoria", 1, "Auditar gastos", "ADMINISTRADOR"),
@@ -187,7 +187,7 @@ def detalle(id_plan, id_empresa=None) -> dict:
             a["params"] = json.loads(a.get("params_json") or "{}")
         except Exception:
             a["params"] = {}
-        rol = next((v[3] for k, v in _MAPA_VARIABLE.items() if v[0] == cod), "GERENTE")
+        rol = next((v[3] for k, v in _MAPA_VARIABLE.items() if v[0] == cod), "ADMINISTRADOR")
         responsables.add(rol)
     criticas = [a["titulo"] for a in acciones if a.get("critica")]
     return {

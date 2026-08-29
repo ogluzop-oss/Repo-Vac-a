@@ -280,7 +280,7 @@
     "weight_missing_msg": "Deve pesar o produto (ou introduzir o peso manualmente) antes de adicioná-lo ao ticket.",
     "weight_invalid_title": "Peso não válido",
     "perm_denied_title": "Permissão negada",
-    "perm_denied_msg": "Apenas um GERENTE ou ADMINISTRADOR pode editar os preços a granel.",
+    "perm_denied_msg": "Apenas um ADMINISTRADOR pode editar os preços a granel.",
     "weight": "PESO (kg)",
     "total": "TOTAL: {x}",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "Autorização necessária",
     "header": "🔒  AUTORIZAÇÃO DO RESPONSÁVEL",
-    "subtitle": "Apenas GERENTE ou ADMINISTRADOR.",
+    "subtitle": "Apenas ADMINISTRADOR.",
     "user": "Usuário",
     "pin": "PIN / Senha",
     "err_title": "Não autorizado",
@@ -1249,7 +1249,7 @@
     "pin_updated_msg": "PIN de {nombre} atualizado com sucesso.",
     "pin_update_err": "Não foi possível atualizar o PIN.",
     "access_restricted_title": "Acesso restrito",
-    "access_restricted_msg": "Apenas ADMINISTRADOR e GERENTE podem gerenciar horários.",
+    "access_restricted_msg": "Apenas ADMINISTRADOR pode gerenciar horários.",
     "borrar": "APAGAR",
     "asunto_lbl": "ASSUNTO:",
     "hora_inicio": "HORA DE INÍCIO:",
@@ -1350,7 +1350,7 @@
     "col_value": "VALOR",
     "col_total": "TOTAL",
     "divisa_empresa": "💱  MOEDA DA EMPRESA:",
-    "divisa_solo_admin": "Apenas ADMINISTRADOR / GERENTE",
+    "divisa_solo_admin": "Apenas ADMINISTRADOR",
     "divisa_title": "Moeda atualizada",
     "divisa_msg": "A moeda da empresa é agora {code}. As tabelas de caixa e valores serão exibidos nesta moeda.",
     "divisa_error": "Não foi possível alterar a moeda.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Outras moedas: {x}",
     "cambio_ok_title": "Mudança de caixa — {id}",
     "cambio_ok_msg": "{id} transferida de {sal} para {ent}.\nA caixa continua ativa.",
-    "rol_ger_admin": "GERENTE ou ADMINISTRADOR",
+    "rol_ger_admin": "ADMINISTRADOR",
     "auth_abrir_caja": "abrir o caixa registradora {id}",
     "auth_cerrar_caja": "fechar uma caixa registradora",
     "auth_cambio_cajero": "realizar uma troca de caixa",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "Administrador",
-    "gerente": "Gerente",
     "operario": "Operário",
     "superadmin": "Superadministrador"
   },

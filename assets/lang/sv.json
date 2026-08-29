@@ -282,7 +282,7 @@
     "weight_missing_msg": "Du måste väga produkten (eller ange vikten manuellt) innan du lägger till den i kvittot.",
     "weight_invalid_title": "Ogiltig vikt",
     "perm_denied_title": "Behörighet nekad",
-    "perm_denied_msg": "Endast en CHEF eller ADMINISTRATÖR kan redigera bulkpriser.",
+    "perm_denied_msg": "Endast en ADMINISTRATÖR kan redigera bulkpriser.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "Auktorisering krävs",
     "header": "🔒  AUKTORISERING AV ANSVARIG",
-    "subtitle": "Endast CHEF eller ADMINISTRATÖR.",
+    "subtitle": "Endast ADMINISTRATÖR.",
     "user": "Användare",
     "pin": "PIN / Lösenord",
     "authorize": "Auktorisera",
@@ -1336,7 +1336,7 @@
     "pin_updated_msg": "PIN för {nombre} uppdaterat korrekt.",
     "pin_update_err": "Kunde inte uppdatera PIN.",
     "access_restricted_title": "Begränsad åtkomst",
-    "access_restricted_msg": "Endast ADMINISTRATÖR och CHEF kan hantera scheman.",
+    "access_restricted_msg": "Endast ADMINISTRATÖR kan hantera scheman.",
     "borrar": "RADERA",
     "asunto_lbl": "ÄMNE:",
     "hora_inicio": "STARTTID:",
@@ -1350,7 +1350,7 @@
     "col_value": "VÄRDE",
     "col_total": "TOTALT",
     "divisa_empresa": "💱  FÖRETAGETS VALUTA:",
-    "divisa_solo_admin": "Endast ADMINISTRATÖR / CHEF",
+    "divisa_solo_admin": "Endast ADMINISTRATÖR",
     "divisa_title": "Valuta uppdaterad",
     "divisa_msg": "Företagets valuta är nu {code}. Kassatabeller och belopp visas i denna valuta.",
     "divisa_error": "Det gick inte att ändra valutan.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Övriga valutor: {x}",
     "cambio_ok_title": "Kassörväxling — {id}",
     "cambio_ok_msg": "{id} överförd från {sal} till {ent}.\nKassan förblir aktiv.",
-    "rol_ger_admin": "CHEF eller ADMINISTRATÖR",
+    "rol_ger_admin": "ADMINISTRATÖR",
     "auth_abrir_caja": "öppna kassaregistret {id}",
     "auth_cerrar_caja": "stänga ett kassaregister",
     "auth_cambio_cajero": "genomföra ett kassiörbyte",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "Administratör",
-    "gerente": "Chef",
     "operario": "Operatör",
     "superadmin": "Superadministratör"
   },

@@ -282,7 +282,7 @@
     "weight_missing_msg": "Musisz zważyć produkt (lub ręcznie wpisać wagę) przed dodaniem do paragonu.",
     "weight_invalid_title": "Waga nieprawidłowa",
     "perm_denied_title": "Dostęp odmówiony",
-    "perm_denied_msg": "Tylko KIEROWNIK lub ADMINISTRATOR może edytować ceny luzem.",
+    "perm_denied_msg": "Tylko ADMINISTRATOR może edytować ceny luzem.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -399,8 +399,8 @@
   },
   "autoriz": {
     "title": "Wymagana autoryzacja",
-    "header": "🔒  AUTORYZACJA KIEROWNIKA",
-    "subtitle": "Tylko MENEDŻER lub ADMINISTRATOR.",
+    "header": "🔒  AUTORYZACJA ADMINISTRATORA",
+    "subtitle": "Tylko ADMINISTRATOR.",
     "user": "Użytkownik",
     "pin": "PIN / Hasło",
     "authorize": "Autoryzuj",
@@ -1334,7 +1334,7 @@
     "pin_updated_msg": "PIN pracownika {nombre} został pomyślnie zaktualizowany.",
     "pin_update_err": "Nie udało się zaktualizować PIN.",
     "access_restricted_title": "Dostęp ograniczony",
-    "access_restricted_msg": "Tylko ADMINISTRATOR i KIEROWNIK mogą zarządzać harmonogramami.",
+    "access_restricted_msg": "Tylko ADMINISTRATOR może zarządzać harmonogramami.",
     "borrar": "USUŃ",
     "asunto_lbl": "TEMAT:",
     "hora_inicio": "GODZINA ROZPOCZĘCIA:",
@@ -1350,7 +1350,7 @@
     "col_value": "WARTOŚĆ",
     "col_total": "RAZEM",
     "divisa_empresa": "💱  WALUTA FIRMY:",
-    "divisa_solo_admin": "Tylko ADMINISTRATOR / KIEROWNIK",
+    "divisa_solo_admin": "Tylko ADMINISTRATOR",
     "divisa_title": "Waluta zaktualizowana",
     "divisa_msg": "Waluta firmy to teraz {code}. Tabele gotówkowe i kwoty będą wyświetlane w tej walucie.",
     "divisa_error": "Nie udało się zmienić waluty.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Inne waluty: {x}",
     "cambio_ok_title": "Zmiana kasjera — {id}",
     "cambio_ok_msg": "{id} przeniesiona od {sal} do {ent}.\nKasa pozostaje aktywna.",
-    "rol_ger_admin": "MENEDŻER lub ADMINISTRATOR",
+    "rol_ger_admin": "ADMINISTRATOR",
     "auth_abrir_caja": "otworzyć kasę rejestracyjną {id}",
     "auth_cerrar_caja": "zamknąć kasę rejestracyjną",
     "auth_cambio_cajero": "dokonać zmiany kasjera",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "Administrator",
-    "gerente": "Menedżer",
     "operario": "Operator",
     "superadmin": "Superadministrator"
   },

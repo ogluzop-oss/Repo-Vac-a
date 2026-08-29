@@ -114,7 +114,7 @@ def emitir_alertas(*, id_empresa=None) -> dict:
         for a in alertas:
             if a["severidad"] in ("alta", "critica"):
                 notificaciones.emitir("bi", f"Alerta BI: {a['tipo']}", a["mensaje"], modulo="bi_corp",
-                                      prioridad="alta", roles=["GERENTE", "ADMINISTRADOR"], id_empresa=eid)
+                                      prioridad="alta", roles=["ADMINISTRADOR"], id_empresa=eid)
                 emitidas += 1
     except Exception as e:
         logger.debug("emitir_alertas: %s", e)

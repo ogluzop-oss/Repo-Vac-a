@@ -95,7 +95,7 @@ def _escalar(ticket, eid):
     try:
         from src.services import notificaciones
         notificaciones.emitir("sat", f"SLA incumplido ticket {ticket['id']}", ticket.get("asunto", ""),
-                              modulo="sat", prioridad="critica", roles=["GERENTE", "ADMINISTRADOR"], id_empresa=eid)
+                              modulo="sat", prioridad="critica", roles=["ADMINISTRADOR"], id_empresa=eid)
     except Exception:
         pass
 

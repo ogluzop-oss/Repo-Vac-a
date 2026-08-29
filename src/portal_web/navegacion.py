@@ -36,7 +36,7 @@ SECCIONES = (
     {"clave": "documentos", "titulo": "Documentos", "icono": "documentos", "modulo": None, "capability": None,
      "servicio": "db.documentos / storage.documentos", "acciones": ["consultar", "descargar", "subir"]},
     {"clave": "configuracion", "titulo": "Configuración", "icono": "config", "modulo": None, "capability": None,
-     "roles": ("ADMINISTRADOR", "GERENTE", "SUPERADMIN"),
+     "roles": ("ADMINISTRADOR", "SUPERADMIN"),
      "servicio": "db.empresa / db.usuario / db.rbac", "acciones": ["empresa", "usuarios", "permisos", "roles"]},
 )
 

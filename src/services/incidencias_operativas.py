@@ -57,7 +57,7 @@ def abrir(tipo, titulo, descripcion="", *, prioridad="normal", ubicacion=None, r
             from src.services import notificaciones
             notificaciones.emitir(
                 "incidencia_operativa", f"Nueva incidencia: {titulo}", descripcion or "",
-                modulo="incidencias", prioridad=prioridad, roles=["GERENTE", "ADMINISTRADOR"],
+                modulo="incidencias", prioridad=prioridad, roles=["ADMINISTRADOR"],
                 ref_entidad="incidencia_operativa", ref_id=iid, id_empresa=id_empresa)
         except Exception:
             pass

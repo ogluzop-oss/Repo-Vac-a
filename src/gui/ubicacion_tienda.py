@@ -1582,7 +1582,7 @@ class UbicacionTiendaWindow(QMainWindow):
             if isinstance(self.usuario_actual, dict)
             else getattr(self.usuario_actual, "perfil", "OPERARIO")
         )
-        self.btn_nav_admin.setVisible(perfil in ["ADMINISTRADOR", "GERENTE"])
+        self.btn_nav_admin.setVisible(perfil in ["ADMINISTRADOR"])
 
         lyt_sidebar.addStretch()
 

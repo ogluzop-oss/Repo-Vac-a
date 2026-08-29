@@ -247,7 +247,7 @@ def _job_alertas_contratos(id_empresa=None) -> dict:
         notificaciones.emitir("contrato_vencimiento", "Contratos próximos a vencer",
                               f"{len(venc)} contrato(s) vencen en los próximos 60 días.",
                               prioridad="alta", modulo="contratos",
-                              roles=["ADMINISTRADOR", "GERENTE"], id_empresa=emp)
+                              roles=["ADMINISTRADOR"], id_empresa=emp)
     except Exception as e:
         logger.debug("notificar vencimientos: %s", e)
     return {"avisos": len(venc)}

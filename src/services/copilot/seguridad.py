@@ -4,7 +4,7 @@ puede consultar tesoreria, nominas, RRHH ni beneficios globales. Solo se respond
 por el rol. Reutiliza el concepto de perfiles del ERP (no crea un RBAC nuevo).
 """
 
-_ROLES_GLOBALES = {"ADMINISTRADOR", "GERENTE", "SUPERADMIN"}
+_ROLES_GLOBALES = {"ADMINISTRADOR", "SUPERADMIN"}
 
 # Dominios sensibles vetados a roles no directivos.
 DOMINIOS_SENSIBLES = {"tesoreria", "rrhh", "nominas", "beneficios", "contabilidad",

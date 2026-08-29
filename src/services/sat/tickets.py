@@ -215,6 +215,6 @@ def _notificar(tid, asunto, prioridad, eid):
         from src.services import notificaciones
         notificaciones.emitir("sat", f"Nuevo ticket {tid}", asunto, modulo="sat",
                               prioridad="critica" if prioridad == "critica" else "alta",
-                              roles=["GERENTE", "ADMINISTRADOR"], id_empresa=eid)
+                              roles=["ADMINISTRADOR"], id_empresa=eid)
     except Exception:
         pass

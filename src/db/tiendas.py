@@ -67,7 +67,7 @@ def obtener_tienda(id_tienda) -> dict | None:
 
 def puede_acceder(id_tienda) -> bool:
     """True si el usuario en sesión puede operar la tienda dada:
-    SUPERADMIN → cualquiera; ADMINISTRADOR/GERENTE → solo las de SU empresa."""
+    SUPERADMIN → cualquiera; ADMINISTRADOR → solo las de SU empresa."""
     try:
         from src.db.usuario import sesion_global
         if sesion_global.es_superadmin():

@@ -345,7 +345,7 @@
     "weight_missing_msg": "Debes pesar el producto (o introducir el peso manualmente) antes de añadirlo al ticket.",
     "weight_invalid_title": "Peso no válido",
     "perm_denied_title": "Permiso denegado",
-    "perm_denied_msg": "Sólo un GERENTE o ADMINISTRADOR puede editar los precios a granel.",
+    "perm_denied_msg": "Sólo un ADMINISTRADOR puede editar los precios a granel.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -463,7 +463,7 @@
   "autoriz": {
     "title": "Autorización requerida",
     "header": "🔒  AUTORIZACIÓN DE RESPONSABLE",
-    "subtitle": "Sólo GERENTE o ADMINISTRADOR.",
+    "subtitle": "Sólo ADMINISTRADOR.",
     "user": "Usuario",
     "pin": "PIN / Contraseña",
     "authorize": "Autorizar",
@@ -1402,7 +1402,7 @@
     "pin_updated_msg": "PIN de {nombre} actualizado correctamente.",
     "pin_update_err": "No se pudo actualizar el PIN.",
     "access_restricted_title": "Acceso restringido",
-    "access_restricted_msg": "Solo ADMINISTRADOR y GERENTE pueden gestionar horarios.",
+    "access_restricted_msg": "Solo ADMINISTRADOR puede gestionar horarios.",
     "borrar": "BORRAR",
     "asunto_lbl": "ASUNTO:",
     "hora_inicio": "HORA INICIO:",
@@ -1413,7 +1413,7 @@
     "col_value": "VALOR",
     "col_total": "TOTAL",
     "divisa_empresa": "DIVISA DE LA EMPRESA:",
-    "divisa_solo_admin": "Solo ADMINISTRADOR / GERENTE",
+    "divisa_solo_admin": "Solo ADMINISTRADOR",
     "divisa_title": "Divisa actualizada",
     "divisa_msg": "La divisa de la empresa es ahora {code}. Las tablas de efectivo e importes se mostrarán en esta divisa.",
     "divisa_error": "No se pudo cambiar la divisa.",
@@ -1492,7 +1492,7 @@
     "cambio_otras_divisas": "Otras divisas: {x}",
     "cambio_ok_title": "Cambio de cajero — {id}",
     "cambio_ok_msg": "{id} traspasada de {sal} a {ent}.\nLa caja sigue activa.",
-    "rol_ger_admin": "GERENTE o ADMINISTRADOR",
+    "rol_ger_admin": "ADMINISTRADOR",
     "auth_abrir_caja": "abrir la caja registradora {id}",
     "auth_cerrar_caja": "cerrar una caja registradora",
     "auth_cambio_cajero": "realizar un cambio de cajero",
@@ -1673,7 +1673,6 @@
   },
   "roles": {
     "administrador": "Administrador",
-    "gerente": "Gerente",
     "operario": "Operario",
     "superadmin": "Superadministrador"
   },

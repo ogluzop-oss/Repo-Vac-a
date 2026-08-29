@@ -22,7 +22,7 @@ PLANTILLAS = {
         "pasos": [
             {"orden": 10, "nombre": "Aprobación responsable", "permiso": "compras.aprobar", "sla_horas": 48},
             {"orden": 20, "nombre": "Segunda aprobación", "permiso": "compras.aprobar", "sla_horas": 48},
-            {"orden": 30, "nombre": "Gerencia", "rol": "GERENTE", "sla_horas": 72},
+            {"orden": 30, "nombre": "Dirección", "rol": "ADMINISTRADOR", "sla_horas": 72},
         ],
         "reglas": [(10, "importe", ">=", 500), (20, "importe", ">=", 5000), (30, "importe", ">=", 20000)],
     },
@@ -30,7 +30,7 @@ PLANTILLAS = {
         "codigo": "WF_TESO_PAGO", "nombre": "Aprobación de pago a proveedor",
         "pasos": [
             {"orden": 10, "nombre": "Aprobación tesorería", "permiso": "tesoreria.movimientos", "sla_horas": 24},
-            {"orden": 20, "nombre": "Doble aprobación", "rol": "GERENTE", "sla_horas": 48},
+            {"orden": 20, "nombre": "Doble aprobación", "rol": "ADMINISTRADOR", "sla_horas": 48},
         ],
         "reglas": [(10, "importe", ">=", 1000), (20, "importe", ">=", 10000)],
     },
@@ -38,7 +38,7 @@ PLANTILLAS = {
         "codigo": "WF_TESO_TRF", "nombre": "Aprobación de transferencia",
         "pasos": [
             {"orden": 10, "nombre": "Aprobación tesorería", "permiso": "tesoreria.movimientos", "sla_horas": 24},
-            {"orden": 20, "nombre": "Doble aprobación", "rol": "GERENTE", "sla_horas": 48},
+            {"orden": 20, "nombre": "Doble aprobación", "rol": "ADMINISTRADOR", "sla_horas": 48},
         ],
         "reglas": [(10, "importe", ">=", 1000), (20, "importe", ">=", 10000)],
     },
@@ -51,7 +51,7 @@ PLANTILLAS = {
         "codigo": "WF_CONTAB_CIERRE", "nombre": "Aprobación de cierre contable",
         "pasos": [
             {"orden": 10, "nombre": "Contabilidad", "permiso": "contabilidad.cierre", "sla_horas": 48},
-            {"orden": 20, "nombre": "Gerencia", "rol": "GERENTE", "sla_horas": 72},
+            {"orden": 20, "nombre": "Dirección", "rol": "ADMINISTRADOR", "sla_horas": 72},
         ],
         "reglas": [],
     },

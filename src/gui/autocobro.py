@@ -111,7 +111,7 @@ class AutocobroWindow(QWidget):
     # ── ZONA DE ASISTENCIA OCULTA (triple toque en la esquina superior derecha) ──────────────────
     # El kiosco NUNCA se transforma en el TPV del cajero. Para intervenciones puntuales (desbloquear
     # peso, anular una línea, cerrar el terminal), el personal hace 3 toques rápidos en la esquina
-    # superior derecha y se autoriza con credenciales de un responsable (GERENTE/ADMIN).
+    # superior derecha y se autoriza con credenciales de un ADMINISTRADOR.
     def mousePressEvent(self, e):
         try:
             import time

@@ -101,7 +101,7 @@ def validar_plazo(fecha_venta: datetime) -> tuple[bool, int, int]:
 
 def verificar_autorizacion(nombre: str, pin: str) -> tuple[bool, str]:
     """
-    Checks that the employee exists, has GERENTE/ADMINISTRADOR profile
+    Checks that the employee exists, has ADMINISTRADOR profile
     and the PIN matches. Returns (authorized, message).
     """
     try:
@@ -110,7 +110,7 @@ def verificar_autorizacion(nombre: str, pin: str) -> tuple[bool, str]:
         if not user:
             return False, "Credenciales incorrectas."
         perfil = user.get("perfil", "").upper()
-        if perfil not in ("GERENTE", "ADMINISTRADOR"):
+        if perfil not in ("ADMINISTRADOR",):
             return False, f"{nombre} no tiene permiso para autorizar devoluciones."
         return True, nombre
     except Exception as e:

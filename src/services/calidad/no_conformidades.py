@@ -114,6 +114,6 @@ def _notificar(nid, descripcion, severidad, eid):
         from src.services import notificaciones
         notificaciones.emitir("calidad", f"Nueva NC {nid}", descripcion, modulo="calidad",
                               prioridad="critica" if severidad == "alta" else "alta",
-                              roles=["GERENTE", "ADMINISTRADOR"], id_empresa=eid)
+                              roles=["ADMINISTRADOR"], id_empresa=eid)
     except Exception:
         pass

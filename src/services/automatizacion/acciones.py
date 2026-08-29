@@ -20,7 +20,7 @@ def _emitir(tipo, titulo, mensaje, *, modulo, prioridad="MEDIA", id_empresa=None
     try:
         from src.services import notificaciones as N
         N.emitir(tipo, titulo, mensaje, prioridad=_PRIO.get(str(prioridad).upper(), "normal"),
-                 modulo=modulo, roles=["ADMINISTRADOR", "GERENTE"], ref_entidad=ref_entidad,
+                 modulo=modulo, roles=["ADMINISTRADOR"], ref_entidad=ref_entidad,
                  ref_id=ref_id, id_empresa=id_empresa)
         return f"Notificacion emitida ({modulo})"
     except Exception as e:

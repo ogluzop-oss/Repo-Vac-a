@@ -3,13 +3,13 @@ Alcance de la actividad por usuario y empresa (Fase 3, SUBFASE 3.5/3.6).
 
 - 3.6 Multiempresa REAL: la empresa A nunca ve la actividad de la empresa B (todo se filtra
   siempre por id_empresa).
-- 3.5 Por usuario: el administrador/gerente ve TODA la actividad de su empresa; un operario
+- 3.5 Por usuario: el administrador ve TODA la actividad de su empresa; un operario
   ve solo lo de SU tienda y lo que el mismo origino.
 
 Devuelve una clausula SQL (fragmento + params) que se anexa a las consultas sobre `eventos`.
 """
 
-_ROLES_GLOBALES = {"ADMINISTRADOR", "GERENTE", "SUPERADMIN"}
+_ROLES_GLOBALES = {"ADMINISTRADOR", "SUPERADMIN"}
 
 
 def _uid(usuario):

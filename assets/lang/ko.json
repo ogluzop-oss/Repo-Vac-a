@@ -282,7 +282,7 @@
     "weight_missing_msg": "티켓에 추가하기 전에 상품의 무게를 측정하거나 수동으로 입력해야 합니다.",
     "weight_invalid_title": "유효하지 않은 무게",
     "perm_denied_title": "권한 거부됨",
-    "perm_denied_msg": "대량 판매 가격은 관리자 또는 시스템 관리자만 수정할 수 있습니다.",
+    "perm_denied_msg": "대량 판매 가격은 시스템 관리자만 수정할 수 있습니다.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "승인 필요",
     "header": "🔒  책임자 승인",
-    "subtitle": "MANAGER 또는 ADMINISTRATOR만 가능합니다.",
+    "subtitle": "관리자만 가능합니다.",
     "user": "사용자",
     "pin": "PIN / 비밀번호",
     "authorize": "승인",
@@ -1330,7 +1330,7 @@
     "pin_updated_msg": "{nombre}의 PIN이 정상적으로 업데이트되었습니다.",
     "pin_update_err": "PIN을 업데이트할 수 없습니다.",
     "access_restricted_title": "제한된 액세스",
-    "access_restricted_msg": "ADMINISTRADOR 및 GERENTE만 일정을 관리할 수 있습니다.",
+    "access_restricted_msg": "관리자만 일정을 관리할 수 있습니다.",
     "borrar": "삭제",
     "asunto_lbl": "제목:",
     "hora_inicio": "시작 시간:",
@@ -1350,7 +1350,7 @@
     "col_value": "값",
     "col_total": "총계",
     "divisa_empresa": "💱  회사 통화:",
-    "divisa_solo_admin": "관리자 / 매니저만",
+    "divisa_solo_admin": "관리자만",
     "divisa_title": "통화 업데이트됨",
     "divisa_msg": "회사 통화는 이제 {code}입니다. 현금 및 금액 테이블이 이 통화로 표시됩니다.",
     "divisa_error": "통화를 변경할 수 없습니다.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "기타 통화: {x}",
     "cambio_ok_title": "계산대 변경 — {id}",
     "cambio_ok_msg": "{id}이(가) {sal}에서 {ent}로 이전되었습니다.\n계산대는 계속 활성 상태입니다.",
-    "rol_ger_admin": "관리자 또는 관리인",
+    "rol_ger_admin": "관리인",
     "auth_abrir_caja": "계산대 {id} 열기",
     "auth_cerrar_caja": "계산대 닫기",
     "auth_cambio_cajero": "계산원 변경하기",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "관리자",
-    "gerente": "관리자",
     "operario": "작업자",
     "superadmin": "슈퍼관리자"
   },

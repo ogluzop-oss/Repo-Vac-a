@@ -307,7 +307,7 @@ class SesionUsuario:
         if not self.usuario_actual:
             return False
         perfil = str(self.usuario_actual.get("perfil", "")).upper()
-        return perfil in ["SUPERADMIN", "ADMINISTRADOR", "GERENTE"]
+        return perfil in ["SUPERADMIN", "ADMINISTRADOR"]
 
     def es_superadmin(self):
         """SUPERADMIN: rol por encima de la empresa (visión de todas las empresas
@@ -544,7 +544,7 @@ def validar_pin_fichaje(pin: str) -> dict | None:
 
 def validar_pin_por_rol(pin: str, roles) -> dict | None:
     """Valida un PIN/contraseña exigiendo un perfil dentro de `roles` (lista de perfiles
-    permitidos, p. ej. ['GERENTE','ADMINISTRADOR','SUPERADMIN']). Verifica FILA A FILA con
+    permitidos, p. ej. ['ADMINISTRADOR','SUPERADMIN']). Verifica FILA A FILA con
     soporte dual Argon2id/SHA-256 + rehash transparente (Argon2id no admite comparación por
     igualdad en SQL). Devuelve {id, nombre, perfil} del autorizador o None."""
     pin = (pin or "").strip()

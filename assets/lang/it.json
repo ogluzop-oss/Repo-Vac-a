@@ -281,7 +281,7 @@
     "weight_missing_msg": "Devi pesare il prodotto (o inserire il peso manualmente) prima di aggiungerlo allo scontrino.",
     "weight_invalid_title": "Peso non valido",
     "perm_denied_title": "Permesso negato",
-    "perm_denied_msg": "Solo un GERENTE o AMMINISTRATORE può modificare i prezzi in sfuso.",
+    "perm_denied_msg": "Solo un AMMINISTRATORE può modificare i prezzi in sfuso.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)",
     "weight": "PESO (kg)"
   },
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "Autorizzazione richiesta",
     "header": "🔒  AUTORIZZAZIONE DEL RESPONSABILE",
-    "subtitle": "Solo GERENTE o AMMINISTRATORE.",
+    "subtitle": "Solo AMMINISTRATORE.",
     "user": "Utente",
     "pin": "PIN / Password",
     "authorize": "Autorizzare",
@@ -1328,7 +1328,7 @@
     "pin_updated_msg": "PIN di {nombre} aggiornato correttamente.",
     "pin_update_err": "Impossibile aggiornare il PIN.",
     "access_restricted_title": "Accesso limitato",
-    "access_restricted_msg": "Solo AMMINISTRATORE e DIRIGENTE possono gestire gli orari.",
+    "access_restricted_msg": "Solo AMMINISTRATORE può gestire gli orari.",
     "borrar": "ELIMINARE",
     "asunto_lbl": "OGGETTO:",
     "hora_inicio": "ORA INIZIO:",
@@ -1350,7 +1350,7 @@
     "col_value": "VALORE",
     "col_total": "TOTALE",
     "divisa_empresa": "💱  VALUTA AZIENDALE:",
-    "divisa_solo_admin": "Solo AMMINISTRATORE / MANAGER",
+    "divisa_solo_admin": "Solo AMMINISTRATORE",
     "divisa_title": "Valuta aggiornata",
     "divisa_msg": "La valuta aziendale è ora {code}. Le tabelle di cassa e gli importi verranno visualizzati in questa valuta.",
     "divisa_error": "Non è stato possibile modificare la valuta.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Altre valute: {x}",
     "cambio_ok_title": "Cambio di cassiere — {id}",
     "cambio_ok_msg": "{id} trasferita da {sal} a {ent}.\nLa cassa rimane attiva.",
-    "rol_ger_admin": "GERENTE o AMMINISTRATORE",
+    "rol_ger_admin": "AMMINISTRATORE",
     "auth_abrir_caja": "aprire il registratore di cassa {id}",
     "auth_cerrar_caja": "chiudere un registratore di cassa",
     "auth_cambio_cajero": "effettuare un cambio cassiere",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "Amministratore",
-    "gerente": "Gestore",
     "operario": "Operatore",
     "superadmin": "Superamministratore"
   },

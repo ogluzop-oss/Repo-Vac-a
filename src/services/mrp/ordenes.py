@@ -249,7 +249,7 @@ def _evento_workflow(oid, estado):
         from src.services import notificaciones
         if estado in ("liberada", "finalizada"):
             notificaciones.emitir("fabricacion", f"OF {oid} {estado}", "", modulo="mrp",
-                                  roles=["GERENTE", "ADMINISTRADOR"])
+                                  roles=["ADMINISTRADOR"])
     except Exception:
         pass
 

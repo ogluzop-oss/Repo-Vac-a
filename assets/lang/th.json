@@ -282,7 +282,7 @@
     "weight_missing_msg": "คุณต้องชั่งสินค้า (หรือป้อนน้ำหนักด้วยตนเอง) ก่อนเพิ่มลงในใบเสร็จ",
     "weight_invalid_title": "น้ำหนักไม่ถูกต้อง",
     "perm_denied_title": "ปฏิเสธการอนุญาต",
-    "perm_denied_msg": "เฉพาะผู้จัดการหรือผู้ดูแลระบบเท่านั้นที่สามารถแก้ไขราคาส่วนนอก",
+    "perm_denied_msg": "เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถแก้ไขราคาส่วนนอก",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "ต้องการอนุมัติ",
     "header": "🔒  อนุมัติจากผู้รับผิดชอบ",
-    "subtitle": "เฉพาะ GERENTE หรือ ADMINISTRADOR เท่านั้น",
+    "subtitle": "เฉพาะ ADMINISTRADOR เท่านั้น",
     "user": "ผู้ใช้",
     "pin": "PIN / รหัสผ่าน",
     "authorize": "อนุมัติ",
@@ -1333,7 +1333,7 @@
     "pin_updated_msg": "PIN ของ {nombre} อัปเดตเรียบร้อยแล้ว",
     "pin_update_err": "ไม่สามารถอัปเดต PIN ได้",
     "access_restricted_title": "การเข้าถึงถูกจำกัด",
-    "access_restricted_msg": "เฉพาะ ADMIN และ MANAGER เท่านั้นที่สามารถจัดการตารางเวลาได้",
+    "access_restricted_msg": "เฉพาะ ADMIN เท่านั้นที่สามารถจัดการตารางเวลาได้",
     "borrar": "ลบ",
     "asunto_lbl": "เรื่อง:",
     "hora_inicio": "เวลาเริ่มต้น:",
@@ -1350,7 +1350,7 @@
     "col_value": "มูลค่า",
     "col_total": "รวม",
     "divisa_empresa": "💱  สกุลเงินของบริษัท:",
-    "divisa_solo_admin": "เฉพาะ ผู้จัดการระบบ / ผู้จัดการ",
+    "divisa_solo_admin": "เฉพาะ ผู้จัดการระบบ",
     "divisa_title": "สกุลเงินได้รับการอัปเดต",
     "divisa_msg": "สกุลเงินของบริษัทเป็น {code} แล้ว ตารางเงินสดและจำนวนเงินจะแสดงในสกุลเงินนี้",
     "divisa_error": "ไม่สามารถเปลี่ยนสกุลเงินได้",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "通货其他: {x}",
     "cambio_ok_title": "การเปลี่ยนแปลงแคชเชียร์ — {id}",
     "cambio_ok_msg": "{id} โอนจาก {sal} ไปยัง {ent}\nเงินสดยังคงใช้งานอยู่",
-    "rol_ger_admin": "ผู้จัดการ หรือ ผู้บริหาร",
+    "rol_ger_admin": "ผู้บริหาร",
     "auth_abrir_caja": "เปิดลงทะเบียนเงินสด {id}",
     "auth_cerrar_caja": "ปิดลงทะเบียนเงินสด",
     "auth_cambio_cajero": "ทำการเปลี่ยนแคชเชียร์",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "ผู้ดูแลระบบ",
-    "gerente": "ผู้จัดการ",
     "operario": "ผู้ปฏิบัติการ",
     "superadmin": "ผู้ดูแลระบบสูงสุด"
   },

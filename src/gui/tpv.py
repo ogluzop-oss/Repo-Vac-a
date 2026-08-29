@@ -1925,11 +1925,11 @@ class _PagoDialog(QDialog):
 # ============================================================
 
 
-def _es_gerente_o_admin() -> bool:
-    """True si el usuario en sesión es GERENTE o ADMINISTRADOR."""
+def _es_admin() -> bool:
+    """True si el usuario en sesión es ADMINISTRADOR."""
     try:
         u = sesion_global.usuario_actual or {}
-        return (u.get("perfil", "") or "").upper() in ("GERENTE", "ADMINISTRADOR")
+        return (u.get("perfil", "") or "").upper() in ("ADMINISTRADOR",)
     except Exception:
         return False
 
@@ -2080,7 +2080,7 @@ class _BasculaDialog(QDialog):
         return self._linea_resultado
 
     def _abrir_gestion(self):
-        if not _es_gerente_o_admin():
+        if not _es_admin():
             QMessageBox.warning(
                 self, tr("bascula.perm_denied_title"), tr("bascula.perm_denied_msg")
             )
@@ -3743,7 +3743,7 @@ class _CobroDialog(QDialog):
 
 
 class _GestionGranelDialog(QDialog):
-    """Gestión de productos a granel (precio, estado, alta). Sólo gerente/admin."""
+    """Gestión de productos a granel (precio, estado, alta). Sólo admin."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -4137,7 +4137,7 @@ class _EditarGranelDialog(QDialog):
 
 
 class _AutorizacionDialog(QDialog):
-    """Pide credenciales de un GERENTE/ADMINISTRADOR para autorizar."""
+    """Pide credenciales de un ADMINISTRADOR para autorizar."""
 
     def __init__(self, parent=None):
         super().__init__(parent)

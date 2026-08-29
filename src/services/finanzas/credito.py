@@ -196,7 +196,7 @@ def _alerta(id_cliente, tipo, importe, eid):
             conn.commit()
         from src.services import notificaciones
         notificaciones.emitir("credito", f"Alerta credito cliente {id_cliente}", tipo, modulo="finanzas",
-                              prioridad="alta", roles=["GERENTE", "ADMINISTRADOR"], id_empresa=eid)
+                              prioridad="alta", roles=["ADMINISTRADOR"], id_empresa=eid)
     except Exception as e:
         logger.debug("_alerta: %s", e)
 

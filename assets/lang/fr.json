@@ -281,7 +281,7 @@
     "weight_missing_msg": "Vous devez peser le produit (ou entrer le poids manuellement) avant de l'ajouter au ticket.",
     "weight_invalid_title": "Poids non valide",
     "perm_denied_title": "Permission refusée",
-    "perm_denied_msg": "Seul un GÉRANT ou un ADMINISTRATEUR peut modifier les prix en vrac.",
+    "perm_denied_msg": "Seul un ADMINISTRATEUR peut modifier les prix en vrac.",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)",
     "total": "TOTAL: {x}"
   },
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "Autorisation requise",
     "header": "🔒  AUTORISATION DU RESPONSABLE",
-    "subtitle": "GÉRANT ou ADMINISTRATEUR uniquement.",
+    "subtitle": "ADMINISTRATEUR uniquement.",
     "user": "Utilisateur",
     "pin": "NIP / Mot de passe",
     "authorize": "Autoriser",
@@ -1334,7 +1334,7 @@
     "pin_updated_msg": "PIN de {nombre} mis à jour correctement.",
     "pin_update_err": "Impossible de mettre à jour le PIN.",
     "access_restricted_title": "Accès restreint",
-    "access_restricted_msg": "Seuls l'ADMINISTRATEUR et le GÉRANT peuvent gérer les horaires.",
+    "access_restricted_msg": "Seul l'ADMINISTRATEUR peut gérer les horaires.",
     "borrar": "SUPPRIMER",
     "asunto_lbl": "OBJET :",
     "hora_inicio": "HEURE DE DÉBUT :",
@@ -1350,7 +1350,7 @@
     "col_value": "VALEUR",
     "col_total": "TOTAL",
     "divisa_empresa": "💱  DEVISE DE L'ENTREPRISE:",
-    "divisa_solo_admin": "Administrateur/Gérant uniquement",
+    "divisa_solo_admin": "Administrateur uniquement",
     "divisa_title": "Devise mise à jour",
     "divisa_msg": "La devise de l'entreprise est maintenant {code}. Les tableaux de caisse et les montants s'afficheront dans cette devise.",
     "divisa_error": "Impossible de modifier la devise.",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "Autres devises : {x}",
     "cambio_ok_title": "Changement de caissier — {id}",
     "cambio_ok_msg": "{id} transférée de {sal} à {ent}.\nLa caisse reste active.",
-    "rol_ger_admin": "GÉRANT ou ADMINISTRATEUR",
+    "rol_ger_admin": "ADMINISTRATEUR",
     "auth_abrir_caja": "ouvrir le tiroir-caisse {id}",
     "auth_cerrar_caja": "fermer un tiroir-caisse",
     "auth_cambio_cajero": "effectuer un changement de caissier",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "Administrateur",
-    "gerente": "Gestionnaire",
     "operario": "Opérateur",
     "superadmin": "Superadministrateur"
   },

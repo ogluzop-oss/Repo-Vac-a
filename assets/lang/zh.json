@@ -282,7 +282,7 @@
     "weight_missing_msg": "在将产品添加到小票前，您需要称重产品（或手动输入重量）。",
     "weight_invalid_title": "重量无效",
     "perm_denied_title": "权限被拒绝",
-    "perm_denied_msg": "只有经理或管理员可以编辑散装价格。",
+    "perm_denied_msg": "只有管理员可以编辑散装价格。",
     "line_name": "{nombre} ({peso} kg × {precio}/kg)"
   },
   "devol": {
@@ -400,7 +400,7 @@
   "autoriz": {
     "title": "需要授权",
     "header": "🔒  负责人授权",
-    "subtitle": "仅限经理或管理员。",
+    "subtitle": "仅限管理员。",
     "user": "用户",
     "pin": "PIN / 密码",
     "authorize": "授权",
@@ -1334,7 +1334,7 @@
     "pin_updated_msg": "{nombre}的PIN已成功更新。",
     "pin_update_err": "无法更新PIN。",
     "access_restricted_title": "访问受限",
-    "access_restricted_msg": "仅ADMINISTRADOR和GERENTE可以管理日程。",
+    "access_restricted_msg": "仅管理员可以管理日程。",
     "borrar": "删除",
     "asunto_lbl": "主题:",
     "hora_inicio": "开始时间:",
@@ -1350,7 +1350,7 @@
     "col_value": "价值",
     "col_total": "总计",
     "divisa_empresa": "💱 公司货币:",
-    "divisa_solo_admin": "仅限管理员/经理",
+    "divisa_solo_admin": "仅限管理员",
     "divisa_title": "货币已更新",
     "divisa_msg": "公司货币现为 {code}。现金表和金额将以此货币显示。",
     "divisa_error": "无法更改货币。",
@@ -1429,7 +1429,7 @@
     "cambio_otras_divisas": "其他货币：{x}",
     "cambio_ok_title": "收银员交接 — {id}",
     "cambio_ok_msg": "{id}已从{sal}转移至{ent}。\n现金箱仍处于活跃状态。",
-    "rol_ger_admin": "经理或管理员",
+    "rol_ger_admin": "管理员",
     "auth_abrir_caja": "打开收银机 {id}",
     "auth_cerrar_caja": "关闭收银机",
     "auth_cambio_cajero": "进行收银员交接",
@@ -1610,7 +1610,6 @@
   },
   "roles": {
     "administrador": "管理员",
-    "gerente": "经理",
     "operario": "操作员",
     "superadmin": "超级管理员"
   },

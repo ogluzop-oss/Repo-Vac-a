@@ -5,7 +5,7 @@ Corporate Rules Engine (Fase III · B5) — fachada pública.
     rules.crear_regla("Factura grande", evento="InvoiceGenerated",
                       condiciones=[{"campo":"importe","op":">","valor":5000}],
                       acciones=[{"tipo":"lanzar_evento","evento":"BigInvoice"},
-                                {"tipo":"notificar","titulo":"Factura alta","roles":["GERENTE"]}])
+                                {"tipo":"notificar","titulo":"Factura alta","roles":["ADMINISTRADOR"]}])
     rules.evaluar_evento("InvoiceGenerated", {"importe": 6000}, id_empresa=...)
 
 Reglas SIN código (datos). Toda acción pasa por los servicios (CCP/eventos/notificaciones/workflow).
