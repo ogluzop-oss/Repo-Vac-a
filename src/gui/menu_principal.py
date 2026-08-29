@@ -2192,6 +2192,17 @@ class MenuPrincipal(QWidget):
             # Esto se hace SIEMPRE (vigente o no): son ventanas de módulo reales que hay que cerrar
             # de todas formas, independientemente de si esta transición concreta sigue siendo la
             # última palabra sobre qué se ve en pantalla.
+            #
+            # El RETRASO exacto sí importa: si hay una animación de salida en marcha (`ov_vigente and
+            # vigente`), cerrar el módulo a 0 ms lo pone a competir por el hilo de eventos con los
+            # propios fotogramas de `QPropertyAnimation` durante sus 240 ms — para un módulo "pesado"
+            # (p. ej. Contabilidad, con muchos widgets/modelos ligados a datos que desconectar/destruir
+            # en `close()`/`deleteLater()`), ese trabajo síncrono puede acaparar el bucle de eventos el
+            # tiempo suficiente para que la animación, basada en reloj real, ya haya "terminado" en el
+            # momento en que por fin se pinta el siguiente fotograma — se ve solo el cuadro final, sin
+            # movimiento intermedio ("va a trompicones"). Por eso, cuando hay animación en curso, el
+            # cierre se retrasa hasta después de su duración, para no robarle ciclos de CPU mientras
+            # está en pantalla; sin animación (o si quedó obsoleta), se cierra de inmediato como antes.
             if ventanas:
                 def _cerrar_diferido(_ventanas=ventanas):
                     for v in _ventanas:
@@ -2203,7 +2214,8 @@ class MenuPrincipal(QWidget):
                             v.deleteLater()
                         except Exception:
                             pass
-                QTimer.singleShot(0, _cerrar_diferido)
+                retraso_cierre = 260 if (ov_vigente and vigente) else 0
+                QTimer.singleShot(retraso_cierre, _cerrar_diferido)
 
             if vigente:
                 logger.info("Navegación: Regreso al menú principal confirmado.")
