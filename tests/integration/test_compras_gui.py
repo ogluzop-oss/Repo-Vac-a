@@ -71,16 +71,22 @@ def test_entrar_portal_b2b_crea_sesion_real(db, fab, monkeypatch):
         assert n == 1
 
 
-def test_menu_principal_incluye_compras(db):
-    """La tarjeta 'Compras' aparece para ADMINISTRADOR y enruta a ComprasWindow."""
+def test_menu_principal_incluye_compras_solo_superadmin(db):
+    """La tarjeta 'Compras'/Proveedores SOLO aparece para SUPERADMIN (restringido a
+    propósito) y enruta a ComprasWindow; ADMINISTRADOR ya no la ve."""
     from src.db.usuario import sesion_global
     from src.gui import menu_principal as M
     prev = sesion_global.usuario_actual
-    sesion_global.usuario_actual = {"perfil": "ADMINISTRADOR", "nombre": "ADMIN"}
     try:
+        sesion_global.usuario_actual = {"perfil": "SUPERADMIN", "nombre": "SUPER"}
         menu = M.MenuPrincipal()
         assert "compras" in menu._cards
         menu.close()
+
+        sesion_global.usuario_actual = {"perfil": "ADMINISTRADOR", "nombre": "ADMIN"}
+        menu2 = M.MenuPrincipal()
+        assert "compras" not in menu2._cards
+        menu2.close()
     finally:
         sesion_global.usuario_actual = prev
     # Routing declarado en abrir_ventana_por_id.

@@ -614,12 +614,15 @@ class MenuPrincipal(QWidget):
         # NOTA: Correo, Documentos y Catálogo ya están en la rejilla superior; aquí
         # NO se duplican.
 
-        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
-            # Proveedores (antes "Compras"). Compras avanzado vive como pestaña interna.
+        # Proveedores (antes "Compras"): SOLO superadmin — acceso restringido a propósito, a
+        # diferencia del resto de tarjetas de este bloque. Compras avanzado vive como pestaña interna.
+        if self.perfil == "SUPERADMIN":
             btn_compras = self.crear_tarjeta_menu(
                 "Proveedores", "compras", "#22F4E6", "delivery_clipboard"
             )
             footer_buttons.append(btn_compras)
+
+        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
             btn_clientes = self.crear_tarjeta_menu(
                 "Clientes", "clientes_crm", "#22F4E6", "people"
             )
@@ -1709,14 +1712,20 @@ class MenuPrincipal(QWidget):
                 from src.gui.catalogo_gestion import CatalogoWindow
 
                 self.manejar_apertura(v_id, CatalogoWindow, **kwargs)
-            elif v_id == "compras":
-                from src.gui.compras_gestion import ComprasWindow
+            elif v_id in ("compras", "compras_avanzado"):
+                # Proveedores: restringido a superadmin — la tarjeta ya está oculta para el resto
+                # de perfiles, pero esta ruta también es alcanzable sin pasar por la tarjeta (p. ej.
+                # comando de voz de SOMA), así que se aplica el mismo filtro aquí.
+                if self.perfil != "SUPERADMIN":
+                    return
+                if v_id == "compras":
+                    from src.gui.compras_gestion import ComprasWindow
 
-                self.manejar_apertura(v_id, ComprasWindow, **kwargs)
-            elif v_id == "compras_avanzado":
-                from src.gui.compras_avanzado_gui import ComprasAvanzadoWindow
+                    self.manejar_apertura(v_id, ComprasWindow, **kwargs)
+                else:
+                    from src.gui.compras_avanzado_gui import ComprasAvanzadoWindow
 
-                self.manejar_apertura(v_id, ComprasAvanzadoWindow, **kwargs)
+                    self.manejar_apertura(v_id, ComprasAvanzadoWindow, **kwargs)
             elif v_id == "clientes_crm":
                 # Dominio CRM: la entrada es el Cuadro de mando Comercial (CRMDashboard), que hospeda
                 # como pestañas la gestión de Clientes y el SAT/postventa. Reutiliza las ventanas
