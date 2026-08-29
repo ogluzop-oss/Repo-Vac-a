@@ -31,6 +31,7 @@ class CRMDashboardWindow(QWidget):
         super().__init__(parent)
         self._volver = callback_vuelta
         self.usuario = usuario or {}
+        self._main = main
         self.setStyleSheet(f"background:{_BG};")
         root = QVBoxLayout(self)
         cab = QHBoxLayout()
@@ -54,27 +55,63 @@ class CRMDashboardWindow(QWidget):
         self.tbl_camp = _tabla(["ID", "Nombre", "Canal", "Segmento", "Estado", "Presupuesto"])
         self.tbl_obj = _tabla(["Responsable", "Tipo", "Objetivo", "Real", "%", "Cumplido"])
         self.tbl_rutas = _tabla(["ID", "Nombre", "Responsable", "Fecha", "Estado"])
-        self.tabs.addTab(self.tbl_leads, "Contactos")
-        self.tabs.addTab(self._tab_oportunidades(), "Oportunidades")
-        self.tabs.addTab(self.tbl_kpi, "KPIs / Previsión")
-        self.tabs.addTab(self.tbl_camp, "Campañas")
-        self.tabs.addTab(self.tbl_obj, "Objetivos")
-        self.tabs.addTab(self.tbl_rutas, "Rutas")
+        self.tabs.addTab(self.tbl_leads, "Contactos")               # idx 0
+        self.tabs.addTab(self._tab_oportunidades(), "Oportunidades")  # idx 1
+        self.tabs.addTab(self.tbl_kpi, "KPIs / Previsión")            # idx 2
+        self.tabs.addTab(self.tbl_camp, "Campañas")                  # idx 3
+        self.tabs.addTab(self.tbl_obj, "Objetivos")                   # idx 4
+        self.tabs.addTab(self.tbl_rutas, "Rutas")                     # idx 5
+
+        # Lazy loading (init en primer acceso): las 6 pestañas de arriba ya existen como widgets
+        # (tablas), pero poblarlas TODAS de golpe (6 consultas a BD seguidas) en __init__ es lo que
+        # hacía tardar la apertura. Solo se carga de inmediato la pestaña visible (Contactos); el
+        # resto carga sus datos la primera vez que el usuario la visita.
+        self._load_tab_map = {
+            0: self._load_leads, 1: self._load_oportunidades, 2: self._load_kpis,
+            3: self._load_campanias, 4: self._load_objetivos, 5: self._load_rutas,
+        }
+        self._datos_cargados = set()
+        self.tabs.currentChanged.connect(self._asegurar_datos_tab)
+        self._asegurar_datos_tab(self.tabs.currentIndex())
+
         # Submódulos del dominio CRM (reutilizan las ventanas existentes, sin duplicarlas): gestión de
-        # clientes y servicio postventa (SAT). El Cuadro de mando es la entrada; estas son sus áreas.
+        # clientes y servicio postventa (SAT). Embeben ventanas completas con su propia carga pesada,
+        # así que también se difieren hasta el primer acceso (instalar_pestanas_lazy, añadidas tras
+        # las 6 pestañas de datos → índices 6+).
+        from src.gui.transiciones import instalar_pestanas_lazy
+        instalar_pestanas_lazy(self.tabs, [
+            ("Clientes", self._construir_tab_clientes),
+            ("SAT / Postventa", self._construir_tab_sat),
+        ])
+        root.addWidget(self.tabs)
+
+    def _asegurar_datos_tab(self, idx):
+        if idx in self._datos_cargados:
+            return
+        fn = self._load_tab_map.get(idx)
+        if fn is None:
+            return
+        self._datos_cargados.add(idx)
+        try:
+            fn()
+        except Exception as e:
+            logger.debug("load CRM pestaña %s: %s", idx, e)
+
+    def _construir_tab_clientes(self):
         try:
             from src.gui.clientes_gui import ClientesWindow
-            self.tabs.addTab(ClientesWindow(callback_vuelta=None, usuario=usuario, main=main), "Clientes")
+            return ClientesWindow(callback_vuelta=None, usuario=self.usuario, main=self._main)
         except Exception as e:
             logger.debug("tab clientes: %s", e)
+            return QWidget()
+
+    def _construir_tab_sat(self):
         try:
             from src.gui.sat_dashboard import SATDashboardWindow
-            self.tabs.addTab(SATDashboardWindow(callback_vuelta=None, usuario=usuario, main=main),
-                             "SAT / Postventa")
+            return SATDashboardWindow(callback_vuelta=None, usuario=self.usuario, main=self._main)
         except Exception as e:
             logger.debug("tab SAT: %s", e)
-        root.addWidget(self.tabs)
-        self._load()
+            return QWidget()
 
     def _tab_oportunidades(self):
         """Pestaña Oportunidades = tabla + barra con 'Convertir a factura' (genera una proforma)."""
@@ -146,52 +183,74 @@ class CRMDashboardWindow(QWidget):
         self._load()
 
     def _load(self):
+        """Recarga TODAS las pestañas de datos (botón «Actualizar»), sin importar cuáles se hayan
+        visitado ya — a diferencia de `_asegurar_datos_tab`, que solo carga una vez por pestaña."""
+        for idx, fn in self._load_tab_map.items():
+            self._datos_cargados.add(idx)
+            try:
+                fn()
+            except Exception as e:
+                logger.debug("load CRM pestaña %s: %s", idx, e)
+
+    def _load_leads(self):
         eid = _empresa()
-        try:
-            from src.services.crm import analitica, leads, oportunidades
-            ls = leads.listar_leads(id_empresa=eid)
-            self.tbl_leads.setRowCount(len(ls))
-            for i, l in enumerate(ls):
-                for j, v in enumerate([l.get("id"), l.get("nombre"), l.get("empresa"), l.get("estado"),
-                                       l.get("prioridad"), l.get("valor_estimado"), l.get("score")]):
-                    self.tbl_leads.setItem(i, j, _it(v))
-            ops = oportunidades.listar(id_empresa=eid)
-            self.tbl_ops.setRowCount(len(ops))
-            for i, o in enumerate(ops):
-                doc = o.get("id_factura")
-                proy = o.get("id_proyecto")
-                for j, v in enumerate([o.get("id"), o.get("titulo"), o.get("estado"), o.get("valor"),
-                                       o.get("probabilidad"), o.get("fecha_cierre_prevista"),
-                                       f"#{doc}" if doc else "—", f"#{proy}" if proy else "—"]):
-                    self.tbl_ops.setItem(i, j, _it(v))
-            k = analitica.kpis(id_empresa=eid)
-            self.tbl_kpi.setRowCount(len(k))
-            for i, (nombre, val) in enumerate(k.items()):
-                self.tbl_kpi.setItem(i, 0, _it(nombre)); self.tbl_kpi.setItem(i, 1, _it(val))
-            self.lbl.setText(f"Forecast ponderado: {k.get('forecast', 0)} € · Conversión: {k.get('conversion_pct', 0)}%")
-        except Exception as e:
-            logger.error("load CRM: %s", e)
-            self.lbl.setText(f"Error: {e}")
-        # Enriquecimiento CRM (Módulo 1): campañas · objetivos · rutas.
-        try:
-            from src.services.crm import campanias, objetivos, rutas
-            cps = campanias.listar(id_empresa=eid)
-            self.tbl_camp.setRowCount(len(cps))
-            for i, cp in enumerate(cps):
-                for j, v in enumerate([cp.get("id"), cp.get("nombre"), cp.get("canal"),
-                                       cp.get("segmento_objetivo"), cp.get("estado"), cp.get("presupuesto")]):
-                    self.tbl_camp.setItem(i, j, _it(v))
-            obs = objetivos.progreso(id_empresa=eid)
-            self.tbl_obj.setRowCount(len(obs))
-            for i, o in enumerate(obs):
-                for j, v in enumerate([o.get("responsable"), o.get("tipo"), o.get("objetivo_valor"),
-                                       o.get("real"), o.get("pct"), "Sí" if o.get("cumplido") else "No"]):
-                    self.tbl_obj.setItem(i, j, _it(v))
-            rts = rutas.listar_rutas(id_empresa=eid)
-            self.tbl_rutas.setRowCount(len(rts))
-            for i, rt in enumerate(rts):
-                for j, v in enumerate([rt.get("id"), rt.get("nombre"), rt.get("responsable"),
-                                       rt.get("fecha"), rt.get("estado")]):
-                    self.tbl_rutas.setItem(i, j, _it(v))
-        except Exception as e:
-            logger.debug("load CRM enriquecimiento: %s", e)
+        from src.services.crm import leads
+        ls = leads.listar_leads(id_empresa=eid)
+        self.tbl_leads.setRowCount(len(ls))
+        for i, l in enumerate(ls):
+            for j, v in enumerate([l.get("id"), l.get("nombre"), l.get("empresa"), l.get("estado"),
+                                   l.get("prioridad"), l.get("valor_estimado"), l.get("score")]):
+                self.tbl_leads.setItem(i, j, _it(v))
+
+    def _load_oportunidades(self):
+        eid = _empresa()
+        from src.services.crm import oportunidades
+        ops = oportunidades.listar(id_empresa=eid)
+        self.tbl_ops.setRowCount(len(ops))
+        for i, o in enumerate(ops):
+            doc = o.get("id_factura")
+            proy = o.get("id_proyecto")
+            for j, v in enumerate([o.get("id"), o.get("titulo"), o.get("estado"), o.get("valor"),
+                                   o.get("probabilidad"), o.get("fecha_cierre_prevista"),
+                                   f"#{doc}" if doc else "—", f"#{proy}" if proy else "—"]):
+                self.tbl_ops.setItem(i, j, _it(v))
+
+    def _load_kpis(self):
+        eid = _empresa()
+        from src.services.crm import analitica
+        k = analitica.kpis(id_empresa=eid)
+        self.tbl_kpi.setRowCount(len(k))
+        for i, (nombre, val) in enumerate(k.items()):
+            self.tbl_kpi.setItem(i, 0, _it(nombre)); self.tbl_kpi.setItem(i, 1, _it(val))
+        self.lbl.setText(f"Forecast ponderado: {k.get('forecast', 0)} € · Conversión: {k.get('conversion_pct', 0)}%")
+
+    # Enriquecimiento CRM (Módulo 1): campañas · objetivos · rutas.
+    def _load_campanias(self):
+        eid = _empresa()
+        from src.services.crm import campanias
+        cps = campanias.listar(id_empresa=eid)
+        self.tbl_camp.setRowCount(len(cps))
+        for i, cp in enumerate(cps):
+            for j, v in enumerate([cp.get("id"), cp.get("nombre"), cp.get("canal"),
+                                   cp.get("segmento_objetivo"), cp.get("estado"), cp.get("presupuesto")]):
+                self.tbl_camp.setItem(i, j, _it(v))
+
+    def _load_objetivos(self):
+        eid = _empresa()
+        from src.services.crm import objetivos
+        obs = objetivos.progreso(id_empresa=eid)
+        self.tbl_obj.setRowCount(len(obs))
+        for i, o in enumerate(obs):
+            for j, v in enumerate([o.get("responsable"), o.get("tipo"), o.get("objetivo_valor"),
+                                   o.get("real"), o.get("pct"), "Sí" if o.get("cumplido") else "No"]):
+                self.tbl_obj.setItem(i, j, _it(v))
+
+    def _load_rutas(self):
+        eid = _empresa()
+        from src.services.crm import rutas
+        rts = rutas.listar_rutas(id_empresa=eid)
+        self.tbl_rutas.setRowCount(len(rts))
+        for i, rt in enumerate(rts):
+            for j, v in enumerate([rt.get("id"), rt.get("nombre"), rt.get("responsable"),
+                                   rt.get("fecha"), rt.get("estado")]):
+                self.tbl_rutas.setItem(i, j, _it(v))
