@@ -52,6 +52,7 @@ def test_carga_datos_contables(db, fab):
         w._load_plan(); assert w.tbl_plan.rowCount() > 0          # plan cargado
         w._load_diario(); assert w.tbl_diario.rowCount() == 1     # 1 asiento
         w._load_balances(); assert "cuadra" in w.lbl_bal.text()
+        w._ir(2)  # Mayor: lazy loading, la página se construye al navegar a ella
         w.in_mayor_cta.setText("700"); w._load_mayor()
         assert w.tbl_mayor.rowCount() == 1
         w._load_iva("repercutido"); assert "cuota 21.0" in w.lbl_iva.text()

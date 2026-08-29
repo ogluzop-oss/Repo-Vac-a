@@ -78,18 +78,20 @@ class ContabilidadWindow(QWidget):
         right = QWidget(); rcol = QVBoxLayout(right)
         rcol.setContentsMargins(24, 18, 24, 18); rcol.setSpacing(14)
         rcol.addLayout(self._header())
+        # Lazy loading (init en primer acceso): construir las 11 páginas por adelantado —
+        # 2 de ellas embeben ventanas completas (AEAT + FiscalPanels en _page_aeat) — es lo
+        # que hacía que el módulo tardara demasiado en abrirse. Solo se construye de verdad
+        # la página que se va a mostrar; el resto queda como placeholder hasta que el usuario
+        # pulsa esa sección del sidebar (ver `_asegurar_pagina`).
         self.stack = QStackedWidget()
-        self.stack.addWidget(self._page_plan())
-        self.stack.addWidget(self._page_diario())
-        self.stack.addWidget(self._page_mayor())
-        self.stack.addWidget(self._page_balances())
-        self.stack.addWidget(self._page_gastos())
-        self.stack.addWidget(self._page_iva())
-        self.stack.addWidget(self._page_cierres())
-        self.stack.addWidget(self._page_aeat())
-        self.stack.addWidget(self._page_libro_ingresos())
-        self.stack.addWidget(self._page_libro_gastos())
-        self.stack.addWidget(self._page_auditoria())
+        self._page_factories = [
+            self._page_plan, self._page_diario, self._page_mayor, self._page_balances,
+            self._page_gastos, self._page_iva, self._page_cierres, self._page_aeat,
+            self._page_libro_ingresos, self._page_libro_gastos, self._page_auditoria,
+        ]
+        self._paginas_listas = set()
+        for _ in self._page_factories:
+            self.stack.addWidget(QWidget())
         rcol.addWidget(self.stack, 1)
         root.addWidget(right, 1)
         self._ir(0)
@@ -163,7 +165,21 @@ class ContabilidadWindow(QWidget):
             f"border:none;border-left:4px solid transparent;border-radius:0px;font-size:13px;font-weight:900;}}"
             f"QPushButton:hover{{background:#FFFFFF;color:{_SIDEBAR};}}")
 
+    def _asegurar_pagina(self, idx):
+        """Construye la página `idx` la primera vez que se visita (lazy loading) y la
+        sustituye por su placeholder en el stack, conservando la posición."""
+        if idx in self._paginas_listas:
+            return
+        nuevo = self._page_factories[idx]()
+        viejo = self.stack.widget(idx)
+        self.stack.removeWidget(viejo)
+        self.stack.insertWidget(idx, nuevo)
+        if viejo is not None:
+            viejo.deleteLater()
+        self._paginas_listas.add(idx)
+
     def _ir(self, idx):
+        self._asegurar_pagina(idx)
         self.stack.setCurrentIndex(idx)
         for i, b in enumerate(self._sb):
             b.setChecked(i == idx)   # estilo via QSS global #btn_sidebar:checked
@@ -330,6 +346,7 @@ class ContabilidadWindow(QWidget):
         return w
 
     def _load_plan(self):
+        self._asegurar_pagina(0)   # lazy loading: garantiza tbl_plan aunque se llame sin pasar por _ir()
         filas = K.listar_cuentas(texto=self.in_plan_buscar.text().strip() or None)
         self._fill(self.tbl_plan, filas, ("codigo", "nombre", "grupo", "tipo", "naturaleza"))
 
@@ -346,6 +363,7 @@ class ContabilidadWindow(QWidget):
         return w
 
     def _load_diario(self):
+        self._asegurar_pagina(1)
         filas = A.listar_diario(anio=self.anio)
         self._fill(self.tbl_diario, filas,
                    ("numero", "fecha", "concepto", "origen", "total_debe", "total_haber", "estado"))
@@ -366,6 +384,7 @@ class ContabilidadWindow(QWidget):
         return w
 
     def _load_mayor(self):
+        self._asegurar_pagina(2)
         cod = self.in_mayor_cta.text().strip()
         if not cod:
             return
@@ -388,6 +407,7 @@ class ContabilidadWindow(QWidget):
         return w
 
     def _load_balances(self):
+        self._asegurar_pagina(3)
         b = I.balance_sumas_saldos(anio=self.anio)
         self._fill(self.tbl_bal, b["cuentas"], ("codigo", "nombre", "debe", "haber", "saldo"))
         bs = I.balance_situacion(anio=self.anio)
@@ -516,6 +536,7 @@ class ContabilidadWindow(QWidget):
             _aviso(self, "Gastos", tr("contab.g_no_anulado", default="No se pudo anular."), "warning")
 
     def _load_gastos(self):
+        self._asegurar_pagina(4)
         self._gastos_cache = Pg.listar_gastos(anio=self.anio)
         self.tbl_gastos.setRowCount(0)
         for a in self._gastos_cache:
@@ -540,6 +561,7 @@ class ContabilidadWindow(QWidget):
         return w
 
     def _load_iva(self, tipo="repercutido"):
+        self._asegurar_pagina(5)
         lib = IVA.libro_iva(tipo, anio=self.anio)
         self._fill(self.tbl_iva, lib["lineas"], ("fecha", "numero", "ref", "tipo_iva", "base", "cuota"))
         self.lbl_iva.setText(f"{tipo}: base {lib['total_base']} · cuota {lib['total_cuota']}")
