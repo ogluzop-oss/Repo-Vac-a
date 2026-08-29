@@ -272,6 +272,8 @@ class MenuPrincipal(QWidget):
         self.setWindowTitle(f"Smart Manager - [{self.perfil}]")
         self.setObjectName("panel_raiz")
         self._ventanas = {}
+        self._overlay_salida = None   # overlay top-level de la animación de salida (ver mostrar_menu_principal)
+        self._nav_token = 0   # se incrementa en cada navegación; invalida animaciones de salida obsoletas
         self._cerrando = False
         # Registros para la re-traducción en caliente (i18n)
         self._cards = {}  # v_id -> MenuCardButton
@@ -1909,6 +1911,14 @@ class MenuPrincipal(QWidget):
         self.hide()   # el menú ya no es la página actual del stack; ocultarlo es invisible
 
     def manejar_apertura(self, identificador, clase_ventana, **kwargs):
+        # Cada navegación (abrir módulo o volver al menú) invalida cualquier transición de SALIDA
+        # todavía pendiente (`_continuar`, programada con `QTimer.singleShot`): si el usuario navega
+        # muy rápido, esa transición abandonada podría dispararse MÁS TARDE, después de que este
+        # módulo (a veces pesado y lento en construirse) ya esté abierto, y volver a mostrar `self`
+        # (el menú) en primer plano — exactamente el "se ve el menú en vez del módulo nuevo"
+        # reportado. Ver `mostrar_menu_principal`/`_limpiar_overlay_salida`.
+        self._nav_token += 1
+        self._limpiar_overlay_salida()
         # Gate SaaS (P0.1/P0.3): el plan y el estado de pago restringen el acceso a módulos.
         # Legacy (sin licencia) → siempre permitido. El portal SaaS nunca se bloquea.
         try:
@@ -2022,11 +2032,41 @@ class MenuPrincipal(QWidget):
             )
             self.mostrar_menu_principal()
 
+    def _limpiar_overlay_salida(self):
+        """Cierra/destruye a la fuerza el overlay de la animación de SALIDA si quedó vivo — p. ej.
+        si el usuario navega muy rápido y abre otro módulo (o vuelve a pulsar "Volver") antes de
+        que la animación anterior terminara. Sin esto, esa ventana "siempre encima" puede quedar
+        huérfana cubriendo parte de la pantalla indefinidamente (el destello negro localizado en un
+        punto fijo, o el módulo recién abierto que no llega a verse, reportados por el usuario)."""
+        ov = getattr(self, "_overlay_salida", None)
+        self._overlay_salida = None
+        if ov is None:
+            return
+        try:
+            a = getattr(ov, "_a", None)
+            if a is not None:
+                a.stop()
+        except Exception:
+            pass
+        try:
+            ov.close()
+        except Exception:
+            pass
+        try:
+            ov.deleteLater()
+        except Exception:
+            pass
+
     def mostrar_menu_principal(self):
         # Al volver al menú se CIERRAN los módulos abiertos para no acumular
         # ventanas en la barra de tareas de Windows. El cierre se DIFIERE (singleShot)
         # porque este método suele invocarse desde el propio botón "Volver" de la
         # ventana: destruirla dentro de su manejador de evento sería inseguro.
+        self._nav_token += 1
+        mi_token = self._nav_token   # `_continuar` comprueba esto: si alguien navegó de nuevo
+                                     # mientras esta transición estaba en curso, se sabe que quedó
+                                     # obsoleta y no debe volver a robarle el primer plano a nada.
+        self._limpiar_overlay_salida()
         ventanas = [v for v in self._ventanas.values() if v is not None]
         self._ventanas = {}
 
@@ -2084,31 +2124,61 @@ class MenuPrincipal(QWidget):
                 QApplication.processEvents()   # el overlay YA está pintado en pantalla antes de seguir
         except Exception:
             ov = None
+        self._overlay_salida = ov
 
         def _continuar():
-            # Se muestra el menú DESPUÉS de que el overlay ya lleve al menos un ciclo completo de
-            # eventos pintado y estabilizado como "siempre encima" — un pequeño margen (un par de
-            # fotogramas) para que el compositor de Windows fije de verdad su posición en el
-            # Z-order ANTES de que `self.activateWindow()` compita por el primer plano.
-            self.showMaximized()
-            self.raise_()
-            self.activateWindow()
-            if ov is not None:
+            # `vigente=False` significa que, mientras esta transición esperaba su turno (el margen
+            # de 16 ms, o simplemente por lo lento que tardó en llegar aquí), el usuario YA navegó
+            # a otro sitio (otra vuelta al menú, o abrió un módulo nuevo — a veces uno pesado que
+            # tarda en construirse). En ese caso NO se debe tocar `self` (mostrarla/activarla
+            # robaría el primer plano a lo que sea que se abrió después: el "se ve el menú en negro
+            # en vez del módulo nuevo" reportado) — solo se limpia lo que quedó pendiente.
+            vigente = self._nav_token == mi_token
+
+            if vigente:
+                # Se muestra el menú DESPUÉS de que el overlay ya lleve al menos un ciclo completo
+                # de eventos pintado y estabilizado como "siempre encima" — un pequeño margen para
+                # que el compositor de Windows fije de verdad su posición en el Z-order ANTES de
+                # que `self.activateWindow()` compita por el primer plano.
+                self.showMaximized()
+                self.raise_()
+                self.activateWindow()
+
+            ov_vigente = ov is not None and getattr(self, "_overlay_salida", None) is ov
+            if ov_vigente and vigente:
                 ov.raise_()
-            QApplication.processEvents()
-            if ov is not None:
+                QApplication.processEvents()
                 ov.raise_()
 
-            if ov is not None:
+                def _al_terminar(_ov=ov):
+                    if getattr(self, "_overlay_salida", None) is _ov:
+                        self._overlay_salida = None
+                    try:
+                        _ov.close()
+                    except Exception:
+                        pass
+                    try:
+                        _ov.deleteLater()
+                    except Exception:
+                        pass
                 a = QPropertyAnimation(ov, b"pos", ov)
                 a.setDuration(240)
                 a.setStartValue(ov.pos())
                 a.setEndValue(QPoint(ov.x() + ov.width(), ov.y()))
                 a.setEasingCurve(QEasingCurve.Type.InOutCubic)
-                a.finished.connect(ov.close)
-                a.finished.connect(ov.deleteLater)
+                a.finished.connect(_al_terminar)
                 a.start()
                 ov._a = a
+                # Red de seguridad: si por lo que sea `finished` no llegara a disparar (animación
+                # interrumpida, objeto ya borrado, etc.), garantiza que el overlay no quede huérfano
+                # "siempre encima" para siempre — se limpia igualmente pasado un margen generoso.
+                QTimer.singleShot(1000, lambda _ov=ov: self._limpiar_overlay_salida()
+                                  if getattr(self, "_overlay_salida", None) is _ov else None)
+            elif ov_vigente:
+                # Vigente=False: alguien navegó de nuevo antes de que le tocara el turno a esta
+                # transición. El overlay ya no pinta nada útil (ni el menú ni el módulo nuevo están
+                # detrás de él necesariamente) — se retira sin animar, de inmediato.
+                self._limpiar_overlay_salida()
 
             # El cierre de las ventanas de módulo se difiere hasta AHORA (al final de todo, no antes
             # de mostrar el menú): si se programa antes y luego se llama a `QApplication.
@@ -2119,6 +2189,9 @@ class MenuPrincipal(QWidget):
             # "wrapped C/C++ object ... has been deleted". Al programar el cierre aquí, al final,
             # con nada más pendiente de ejecutar en esta función, el `singleShot(0)` solo puede
             # llegar a disparar cuando el manejador "Volver" del módulo YA ha terminado del todo.
+            # Esto se hace SIEMPRE (vigente o no): son ventanas de módulo reales que hay que cerrar
+            # de todas formas, independientemente de si esta transición concreta sigue siendo la
+            # última palabra sobre qué se ve en pantalla.
             if ventanas:
                 def _cerrar_diferido(_ventanas=ventanas):
                     for v in _ventanas:
@@ -2132,7 +2205,8 @@ class MenuPrincipal(QWidget):
                             pass
                 QTimer.singleShot(0, _cerrar_diferido)
 
-            logger.info("Navegación: Regreso al menú principal confirmado.")
+            if vigente:
+                logger.info("Navegación: Regreso al menú principal confirmado.")
 
         if ov is not None:
             QTimer.singleShot(16, _continuar)
