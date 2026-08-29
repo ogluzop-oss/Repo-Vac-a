@@ -120,6 +120,127 @@ def buscar_para_empresa(sector_ids: set, *, texto: str | None = None, limite: in
         return []
 
 
+def obtener_activo(id_suministrador, codigo: str) -> dict | None:
+    """Un artículo concreto y activo del proveedor, o None (no existe / desactivado). Usado al
+    re-resolver líneas de una plantilla (b2b_plantillas) contra el catálogo VIVO."""
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM b2b_catalogo WHERE id_suministrador=%s AND codigo=%s "
+                        "AND activo=1", (id_suministrador, codigo))
+            row = cur.fetchone()
+            return _fila(cur, row) if row else None
+    except Exception as e:
+        logger.error("obtener_activo(%s,%s): %s", id_suministrador, codigo, e)
+        return None
+
+
+# ── Precios escalonados por volumen (rappels) ────────────────────────────────
+def guardar_escalones(id_suministrador, id_articulo, escalones: list[dict]) -> dict:
+    """Reemplaza TODOS los escalones del artículo por los indicados. `escalones` =
+    [{cantidad_desde, precio_unitario}, ...]. Verifica que el artículo pertenece al proveedor;
+    valida cantidad_desde >= 1 y sin duplicados antes de tocar nada."""
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM b2b_catalogo WHERE id=%s AND id_suministrador=%s",
+                        (id_articulo, id_suministrador))
+            if not cur.fetchone():
+                return {"ok": False, "error": "articulo_no_encontrado"}
+            limpios = []
+            vistos = set()
+            for e in escalones:
+                try:
+                    cdesde = int(e.get("cantidad_desde"))
+                    precio = float(e.get("precio_unitario"))
+                except (TypeError, ValueError):
+                    return {"ok": False, "error": "escalon_invalido"}
+                if cdesde < 1 or precio < 0:
+                    return {"ok": False, "error": "escalon_invalido"}
+                if cdesde in vistos:
+                    return {"ok": False, "error": "cantidad_desde_duplicada"}
+                vistos.add(cdesde)
+                limpios.append((cdesde, precio))
+            cur.execute("DELETE FROM b2b_catalogo_escalones WHERE id_articulo=%s", (id_articulo,))
+            for cdesde, precio in limpios:
+                cur.execute(
+                    "INSERT INTO b2b_catalogo_escalones (id_articulo, cantidad_desde, "
+                    "precio_unitario) VALUES (%s,%s,%s)", (id_articulo, cdesde, precio))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        logger.error("guardar_escalones(%s,%s): %s", id_suministrador, id_articulo, e)
+        return {"ok": False, "error": "error_interno"}
+
+
+def escalones_de(id_articulo) -> list[dict]:
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM b2b_catalogo_escalones WHERE id_articulo=%s "
+                        "ORDER BY cantidad_desde", (id_articulo,))
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("escalones_de(%s): %s", id_articulo, e)
+        return []
+
+
+def precio_para_cantidad(articulo: dict, cantidad) -> float:
+    """Precio unitario aplicable: el `precio_unitario` base del artículo (piso, válido desde el MOQ)
+    salvo que exista un escalón con cantidad_desde <= cantidad, en cuyo caso se usa el de mayor
+    cantidad_desde aplicable. Degradable: si no hay escalones o falla la consulta, devuelve el precio
+    base — nunca rompe el flujo de compra."""
+    precio = float(articulo["precio_unitario"])
+    try:
+        cantidad = int(cantidad)
+    except (TypeError, ValueError):
+        return precio
+    try:
+        for esc in escalones_de(articulo["id"]):
+            if int(esc["cantidad_desde"]) <= cantidad:
+                precio = float(esc["precio_unitario"])
+    except Exception as e:
+        logger.debug("precio_para_cantidad(%s): %s", articulo.get("id"), e)
+    return precio
+
+
+# ── Métricas de visibilidad (vistas/clics) ───────────────────────────────────
+def registrar_evento(id_articulo, id_empresa, tipo: str) -> None:
+    """Best-effort: un evento de telemetría nunca debe romper la navegación/compra del catálogo. Como
+    mucho una fila por artículo/empresa/tipo/día (INSERT IGNORE sobre la UNIQUE de la tabla)."""
+    if tipo not in ("vista", "click"):
+        return
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT IGNORE INTO b2b_catalogo_eventos (id_articulo, id_empresa, tipo, fecha) "
+                "VALUES (%s,%s,%s,CURDATE())", (id_articulo, id_empresa, tipo))
+            conn.commit()
+    except Exception as e:
+        logger.debug("registrar_evento(%s,%s,%s): %s", id_articulo, id_empresa, tipo, e)
+
+
+def metricas_de_suministrador(id_suministrador, *, dias: int = 30) -> list[dict]:
+    """[{codigo, nombre, vistas, clics}] de los últimos `dias` días, artículos más vistos primero."""
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT c.codigo, c.nombre, "
+                "COALESCE(SUM(e.tipo='vista'),0) AS vistas, "
+                "COALESCE(SUM(e.tipo='click'),0) AS clics "
+                "FROM b2b_catalogo c LEFT JOIN b2b_catalogo_eventos e "
+                "ON e.id_articulo = c.id AND e.fecha >= DATE_SUB(CURDATE(), INTERVAL %s DAY) "
+                "WHERE c.id_suministrador=%s "
+                "GROUP BY c.id, c.codigo, c.nombre ORDER BY vistas DESC, clics DESC",
+                (int(dias), id_suministrador))
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("metricas_de_suministrador(%s): %s", id_suministrador, e)
+        return []
+
+
 def importar_lote(id_suministrador, filas: list[dict], *, archivo_nombre: str | None = None) -> dict:
     """Alta masiva. `filas` = [{codigo, nombre, unidad_medida, moq, precio_unitario, descripcion?}, ...]
     ya parseadas por la vista. Cada fila se valida de forma independiente (una fila inválida no aborta

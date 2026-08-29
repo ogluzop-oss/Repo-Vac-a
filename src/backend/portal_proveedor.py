@@ -24,11 +24,13 @@ def _e(x):
     return str(escape(x if x is not None else ""))
 
 
-def _nav_html(token, activo):
-    """Nav del panel (Panel/Catálogo/Cerrar sesión), construida sin estado global — cada página pasa
-    su propio `token` de sesión y cuál de los enlaces está activo."""
+def _nav_html(token, activo, *, no_leidos=0):
+    """Nav del panel (Panel/Catálogo/Pedidos/Cerrar sesión), construida sin estado global — cada
+    página pasa su propio `token` de sesión y cuál de los enlaces está activo."""
     base = f"/portal/proveedor/{token}"
-    enlaces = (("dashboard", f"{base}/dashboard", "Panel"), ("catalogo", f"{base}/catalogo", "Catálogo"))
+    badge = f' <span class="badge-alerta">{no_leidos}</span>' if no_leidos else ""
+    enlaces = (("dashboard", f"{base}/dashboard", "Panel"), ("catalogo", f"{base}/catalogo", "Catálogo"),
+              ("pedidos", f"{base}/pedidos", f"Pedidos{badge}"))
     links = "".join(f'<a href="{href}"{" class=\"on\"" if activo == key else ""}>{label}</a>'
                     for key, href, label in enlaces)
     logout = (f'<form method="post" action="{base}/logout" style="margin-left:auto">'
@@ -104,6 +106,17 @@ th{{color:#8B949E}}
 font-size:11px;font-weight:700}}
 .error{{color:#F85149;font-weight:700}}.ok{{color:#3FB950;font-weight:700}}
 a.enlace{{color:var(--ac);font-weight:700;text-decoration:none}}
+.badge-alerta{{display:inline-block;min-width:16px;padding:1px 6px;border-radius:999px;
+background:#F85149;color:#fff;font-size:11px;font-weight:900;text-align:center}}
+.chat{{display:flex;flex-direction:column;gap:10px;max-height:420px;overflow-y:auto;margin-bottom:12px}}
+.msg{{max-width:75%;padding:8px 12px;border-radius:12px;background:#0D1117;border:1px solid #30363D}}
+.msg-propio{{align-self:flex-end;border-color:var(--ac)}}
+.msg-otro{{align-self:flex-start}}
+.msg-autor{{font-size:11px;color:var(--ac);font-weight:900;margin-bottom:2px}}
+.msg-cuerpo{{font-size:14px;color:#E6EDF3;white-space:pre-wrap;word-break:break-word}}
+.msg-fecha{{font-size:10px;color:#8B949E;margin-top:4px}}
+.escalon-fila{{display:flex;gap:10px;align-items:center;margin-bottom:8px}}
+.escalon-fila input{{width:auto;flex:1}}
 {_CSEL_CSS}
 {_CFILE_CSS}
 </style></head><body>
@@ -176,23 +189,34 @@ tu portal — no hace falta que la empresa te vuelva a invitar.</p>
 
 
 # ── Panel del proveedor ───────────────────────────────────────────────────────
-def pagina_dashboard(token, suministrador):
+def pagina_dashboard(token, suministrador, *, metricas=None, no_leidos=0):
     estado = suministrador.get("estado_kyb", "pendiente")
+    panel_metricas = ""
+    if metricas:
+        filas_met = "".join(f"<tr><td>{_e(m['codigo'])}</td><td>{_e(m['nombre'])}</td>"
+                            f"<td>{m['vistas']}</td><td>{m['clics']}</td></tr>" for m in metricas)
+        panel_metricas = f"""<div class="card"><h2>Visibilidad de tu catálogo (últimos 30 días)</h2>
+<table><tr><th>Código</th><th>Nombre</th><th>Vistas</th><th>Clics</th></tr>{filas_met}</table>
+</div>"""
     return _layout("Panel", f"""
 <div class="card">
 <h1>{_e(suministrador.get('razon_social'))}</h1>
 <p>CIF: {_e(suministrador.get('cif'))} · Estado de verificación:
 <span class="badge">{_e(estado)}</span></p>
 <p>Contacto: {_e(suministrador.get('contacto') or '—')} · Tel: {_e(suministrador.get('telefono') or '—')}</p>
-</div>""", nav=_nav_html(token, "dashboard"), token=token)
+</div>
+{panel_metricas}""", nav=_nav_html(token, "dashboard", no_leidos=no_leidos), token=token)
 
 
-def pagina_catalogo(token, articulos, *, mensaje=None, resultado_import=None):
+def pagina_catalogo(token, articulos, *, mensaje=None, resultado_import=None, no_leidos=0):
+    base_esc = f"/portal/proveedor/{token}/catalogo"
     filas = "".join(f"""<tr><td>{_e(a['codigo'])}</td><td>{_e(a['nombre'])}</td>
 <td>{_ETIQUETA_UNIDAD.get(a['unidad_medida'], a['unidad_medida'])}</td>
-<td>{a['moq']}</td><td>{a['precio_unitario']} €</td></tr>""" for a in articulos)
+<td>{a['moq']}</td><td>{a['precio_unitario']} €</td>
+<td><a class="enlace" href="{base_esc}/{a['id']}/escalones">Precios por volumen</a></td></tr>"""
+                   for a in articulos)
     tabla = (f"<table><tr><th>Código</th><th>Nombre</th><th>Unidad</th><th>MOQ</th>"
-            f"<th>Precio</th></tr>{filas}</table>") if articulos else "<p>Aún no has publicado artículos.</p>"
+            f"<th>Precio</th><th></th></tr>{filas}</table>") if articulos else "<p>Aún no has publicado artículos.</p>"
     aviso = f'<p class="ok">{_e(mensaje)}</p>' if mensaje else ""
     resumen_import = ""
     if resultado_import:
@@ -221,7 +245,92 @@ def pagina_catalogo(token, articulos, *, mensaje=None, resultado_import=None):
 <form method="post" action="{base}/catalogo/importar" enctype="multipart/form-data">
 <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required>
 <button type="submit">Importar</button>
-</form></div>""", nav=_nav_html(token, "catalogo"), token=token)
+</form></div>""", nav=_nav_html(token, "catalogo", no_leidos=no_leidos), token=token)
+
+
+# ── Precios escalonados por volumen (rappels) ────────────────────────────────
+def pagina_escalones(token, articulo, escalones, *, mensaje=None, no_leidos=0):
+    base = f"/portal/proveedor/{token}/catalogo/{articulo['id']}/escalones"
+    filas_js = "".join(f"""<div class="escalon-fila">
+<input type="number" name="cantidad_desde" min="1" value="{e['cantidad_desde']}" placeholder="A partir de…">
+<input type="number" name="precio_unitario" step="0.01" min="0" value="{e['precio_unitario']}" placeholder="Precio (€)">
+<button type="button" class="btn-quitar-escalon" onclick="this.parentElement.remove()">Quitar</button>
+</div>""" for e in escalones)
+    aviso = f'<p class="ok">{_e(mensaje)}</p>' if mensaje else ""
+    return _layout("Precios por volumen", f"""
+<div class="card">
+<h1>Precios por volumen — {_e(articulo['nombre'])}</h1>
+<p>Precio base (desde el MOQ de {articulo['moq']}): <b>{articulo['precio_unitario']} €</b>. Añade
+escalones "a partir de X unidades → precio Y" para que el carrito de la empresa recalcule el precio
+automáticamente según la cantidad.</p>
+{aviso}
+<form method="post" action="{base}">
+<div id="escalones-filas">{filas_js}</div>
+<button type="button" id="btn-anadir-escalon">+ Añadir escalón</button>
+<button type="submit">Guardar precios por volumen</button>
+</form>
+</div>
+<script>
+document.getElementById('btn-anadir-escalon').addEventListener('click', function(){{
+ var fila = document.createElement('div'); fila.className = 'escalon-fila';
+ fila.innerHTML = '<input type="number" name="cantidad_desde" min="1" placeholder="A partir de…">' +
+   '<input type="number" name="precio_unitario" step="0.01" min="0" placeholder="Precio (€)">' +
+   '<button type="button" class="btn-quitar-escalon" onclick="this.parentElement.remove()">Quitar</button>';
+ document.getElementById('escalones-filas').appendChild(fila);
+}});
+</script>""", nav=_nav_html(token, "catalogo", no_leidos=no_leidos), token=token)
+
+
+# ── Mis pedidos + detalle (chat) ───────────────────────────────────────────────
+_ETIQUETA_ESTADO = {"BORRADOR": "Borrador", "CONFIRMADA": "Confirmado", "PAGADA": "Pagado",
+                    "PREPARANDO": "Preparando", "ENVIADA": "Enviado", "ENTREGADA": "Entregado",
+                    "FACTURADA": "Facturado", "DEVUELTA": "Devuelto", "ABONADA": "Abonado",
+                    "CANCELADA": "Cancelado", "EXPIRADA": "Expirado"}
+
+
+def pagina_mis_pedidos(token, pedidos, *, no_leidos=0):
+    base = f"/portal/proveedor/{token}"
+    filas = "".join(f"""<tr><td><code>{_e(p['id_tx'])}</code></td>
+<td>{_e(_ETIQUETA_ESTADO.get(p['estado'], p['estado']))}</td>
+<td>{p['total']} €</td><td>{p['creada']}</td>
+<td><a class="enlace" href="{base}/pedido/{p['id_tx']}">Ver / chat</a></td></tr>""" for p in pedidos)
+    tabla = (f"<table><tr><th>Pedido</th><th>Estado</th><th>Total</th><th>Fecha</th>"
+            f"<th></th></tr>{filas}</table>") if pedidos else "<p>Aún no has recibido ningún pedido B2B.</p>"
+    return _layout("Pedidos", f"""<div class="card"><h1>Pedidos recibidos</h1>{tabla}</div>""",
+        nav=_nav_html(token, "pedidos", no_leidos=no_leidos), token=token)
+
+
+def _burbujas_chat_html(mensajes, lado):
+    if not mensajes:
+        return "<p>Aún no hay mensajes en este pedido.</p>"
+    burbujas = []
+    for m in mensajes:
+        propio = m["autor_tipo"] == lado
+        clase = "msg-propio" if propio else "msg-otro"
+        burbujas.append(f"""<div class="msg {clase}">
+<div class="msg-autor">{_e(m.get('autor_nombre') or m['autor_tipo'].capitalize())}</div>
+<div class="msg-cuerpo">{_e(m['cuerpo'])}</div>
+<div class="msg-fecha">{m['creado_en']}</div></div>""")
+    return f'<div class="chat">{"".join(burbujas)}</div>'
+
+
+def pagina_pedido_detalle(token, tx, lineas, mensajes, *, no_leidos=0):
+    base = f"/portal/proveedor/{token}"
+    filas_lineas = "".join(f"<tr><td>{_e(l['nombre'])}</td><td>{l['cantidad']}</td>"
+                           f"<td>{l['precio_unitario']} €</td></tr>" for l in lineas)
+    chat = _burbujas_chat_html(mensajes, "proveedor")
+    return _layout(f"Pedido {tx['id_tx'][:8]}", f"""
+<div class="card"><h1>Pedido <code>{_e(tx['id_tx'])}</code></h1>
+<p>Estado: <span class="badge">{_e(_ETIQUETA_ESTADO.get(tx['estado'], tx['estado']))}</span> ·
+Total: <b>{tx['total']} €</b> · Fecha: {tx['creada']}</p>
+<table><tr><th>Artículo</th><th>Cantidad</th><th>Precio</th></tr>{filas_lineas}</table>
+</div>
+<div class="card"><h2>Comunicación sobre este pedido</h2>
+{chat}
+<form method="post" action="{base}/pedido/{tx['id_tx']}/mensaje" style="margin-top:12px">
+<textarea name="cuerpo" rows="3" placeholder="Escribe un mensaje…" required></textarea>
+<button type="submit" style="margin-top:8px">Enviar</button>
+</form></div>""", nav=_nav_html(token, "pedidos", no_leidos=no_leidos), token=token)
 
 
 # ── Blueprint Flask (import perezoso) ────────────────────────────────────────
@@ -289,12 +398,21 @@ def crear_blueprint():
         S.cerrar_sesion(token)
         return pagina_sesion_cerrada()
 
+    def _no_leidos(sup):
+        try:
+            from src.services.compras import b2b_chat as CHAT
+            return CHAT.no_leidos_totales_proveedor(sup["id"])
+        except Exception:
+            return 0
+
     @bp.get("/<token>/dashboard")
     def dashboard(token):
         sup, err = _suministrador_o_error(token)
         if err:
             return err
-        return pagina_dashboard(token, sup)
+        from src.services.compras import b2b_catalogo as C
+        return pagina_dashboard(token, sup, metricas=C.metricas_de_suministrador(sup["id"]),
+                               no_leidos=_no_leidos(sup))
 
     @bp.get("/<token>/catalogo")
     def catalogo(token):
@@ -302,7 +420,7 @@ def crear_blueprint():
         if err:
             return err
         from src.services.compras import b2b_catalogo as C
-        return pagina_catalogo(token, C.listar_por_suministrador(sup["id"]))
+        return pagina_catalogo(token, C.listar_por_suministrador(sup["id"]), no_leidos=_no_leidos(sup))
 
     @bp.post("/<token>/catalogo/nuevo")
     def catalogo_nuevo(token):
@@ -318,8 +436,76 @@ def crear_blueprint():
             sector_id=sup.get("sector_id"))
         arts = C.listar_por_suministrador(sup["id"])
         if not r.get("ok"):
-            return pagina_catalogo(token, arts, mensaje=None), 400
+            return pagina_catalogo(token, arts, mensaje=None, no_leidos=_no_leidos(sup)), 400
         return redirect(f"/portal/proveedor/{token}/catalogo")
+
+    @bp.get("/<token>/catalogo/<int:id_articulo>/escalones")
+    def escalones(token, id_articulo):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_catalogo as C
+        articulo = next((a for a in C.listar_por_suministrador(sup["id"], solo_activos=False)
+                        if a["id"] == id_articulo), None)
+        if not articulo:
+            return _pagina_error("Artículo no encontrado", "Ese artículo no existe o no es tuyo."), 404
+        return pagina_escalones(token, articulo, C.escalones_de(id_articulo), no_leidos=_no_leidos(sup))
+
+    @bp.post("/<token>/catalogo/<int:id_articulo>/escalones")
+    def escalones_guardar(token, id_articulo):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_catalogo as C
+        articulo = next((a for a in C.listar_por_suministrador(sup["id"], solo_activos=False)
+                        if a["id"] == id_articulo), None)
+        if not articulo:
+            return _pagina_error("Artículo no encontrado", "Ese artículo no existe o no es tuyo."), 404
+        desdes = request.form.getlist("cantidad_desde")
+        precios = request.form.getlist("precio_unitario")
+        escalones_form = [{"cantidad_desde": d, "precio_unitario": p}
+                          for d, p in zip(desdes, precios) if str(d).strip() and str(p).strip()]
+        r = C.guardar_escalones(sup["id"], id_articulo, escalones_form)
+        if not r.get("ok"):
+            return pagina_escalones(token, articulo, C.escalones_de(id_articulo),
+                                    mensaje=f"Error: {r.get('error')}", no_leidos=_no_leidos(sup)), 400
+        return pagina_escalones(token, articulo, C.escalones_de(id_articulo),
+                                mensaje="Precios por volumen guardados.", no_leidos=_no_leidos(sup))
+
+    @bp.get("/<token>/pedidos")
+    def pedidos(token):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_pedidos as PED
+        return pagina_mis_pedidos(token, PED.listar_para_suministrador(sup["id"]),
+                                  no_leidos=_no_leidos(sup))
+
+    @bp.get("/<token>/pedido/<id_tx>")
+    def pedido_detalle(token, id_tx):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_pedidos as PED, b2b_chat as CHAT
+        tx = PED.obtener_para_proveedor(id_tx, sup["id"])
+        if not tx:
+            return _pagina_error("Pedido no encontrado", "Ese pedido no existe o no es tuyo."), 404
+        CHAT.marcar_leido(id_tx, "proveedor")
+        return pagina_pedido_detalle(token, tx, tx["lineas"], CHAT.listar_mensajes(id_tx),
+                                     no_leidos=_no_leidos(sup))
+
+    @bp.post("/<token>/pedido/<id_tx>/mensaje")
+    def pedido_mensaje(token, id_tx):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_pedidos as PED, b2b_chat as CHAT
+        tx = PED.obtener_para_proveedor(id_tx, sup["id"])
+        if not tx:
+            return _pagina_error("Pedido no encontrado", "Ese pedido no existe o no es tuyo."), 404
+        CHAT.enviar_mensaje(id_tx, "proveedor", sup.get("contacto") or sup.get("razon_social"),
+                           request.form.get("cuerpo", ""))
+        return redirect(f"/portal/proveedor/{token}/pedido/{id_tx}")
 
     @bp.post("/<token>/catalogo/importar")
     def catalogo_importar(token):
@@ -329,7 +515,8 @@ def crear_blueprint():
         from src.services.compras import b2b_catalogo as C
         f = request.files.get("archivo")
         if not f or not f.filename:
-            return pagina_catalogo(token, C.listar_por_suministrador(sup["id"])), 400
+            return pagina_catalogo(token, C.listar_por_suministrador(sup["id"]),
+                                   no_leidos=_no_leidos(sup)), 400
         try:
             import pandas as pd
             df = pd.read_csv(f) if f.filename.lower().endswith(".csv") else pd.read_excel(f)
@@ -337,8 +524,9 @@ def crear_blueprint():
         except Exception as e:
             logger.warning("catalogo_importar parseo(%s): %s", f.filename, e)
             return pagina_catalogo(token, C.listar_por_suministrador(sup["id"]),
-                                   mensaje=None), 400
+                                   mensaje=None, no_leidos=_no_leidos(sup)), 400
         resultado = C.importar_lote(sup["id"], filas, archivo_nombre=f.filename)
-        return pagina_catalogo(token, C.listar_por_suministrador(sup["id"]), resultado_import=resultado)
+        return pagina_catalogo(token, C.listar_por_suministrador(sup["id"]), resultado_import=resultado,
+                               no_leidos=_no_leidos(sup))
 
     return bp

@@ -57,6 +57,52 @@ def tramitar(token_sesion) -> dict:
     return {"ok": True, "pedidos": pedidos_creados}
 
 
+def _fila(cur, r):
+    return r if isinstance(r, dict) else dict(zip([d[0] for d in cur.description], r))
+
+
+def obtener_para_proveedor(id_tx, id_suministrador) -> dict | None:
+    """Autorización del lado Proveedor: la Transacción Comercial genérica (transacciones.obtener) solo
+    filtra por id_empresa (lado Empresa) — no existía ningún filtro por id_suministrador sobre una
+    transacción individual. Mismo patrón de lectura directa que b2b_disputas._contexto_transaccion.
+    Incluye `lineas`, igual que `transacciones.obtener()`, para que ambos portales usen la misma forma."""
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM transaccion_comercial WHERE id_tx=%s AND id_suministrador=%s",
+                        (id_tx, id_suministrador))
+            row = cur.fetchone()
+            if not row:
+                return None
+            tx = _fila(cur, row)
+            cur.execute("SELECT * FROM transaccion_lineas WHERE id_tx=%s ORDER BY id", (id_tx,))
+            tx["lineas"] = [_fila(cur, r) for r in cur.fetchall()]
+            return tx
+    except Exception as e:
+        logger.error("obtener_para_proveedor(%s,%s): %s", id_tx, id_suministrador, e)
+        return None
+
+
+def listar_para_suministrador(id_suministrador, *, estado=None, limite: int = 200) -> list[dict]:
+    """Pedidos B2B del proveedor. `transacciones.listar()` solo filtra por id_empresa (lado Empresa);
+    el lado Proveedor nunca tuvo una vista de sus propios pedidos, así que se consulta directamente."""
+    try:
+        from src.db.conexion import obtener_conexion
+        q = "SELECT * FROM transaccion_comercial WHERE id_suministrador=%s"
+        params = [id_suministrador]
+        if estado:
+            q += " AND estado=%s"
+            params.append(estado)
+        q += " ORDER BY creada DESC LIMIT %s"
+        params.append(int(limite))
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(q, params)
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_para_suministrador(%s): %s", id_suministrador, e)
+        return []
+
+
 def _fijar_suministrador_y_unidades(id_tx, id_suministrador, id_tienda, lineas):
     """Completa las columnas propias de Smart Suppliers (migración 0221) que `transacciones.crear`
     no conoce — sin tocar esa función existente (aditivo, cabecera + líneas del motor genérico ya

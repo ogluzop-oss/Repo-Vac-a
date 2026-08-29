@@ -45,6 +45,12 @@ _AISLAMIENTO_REVISADO = {
     # única empresa+tienda (services/compras/b2b_sesion_empresa.crear_sesion), y es un secreto
     # aleatorio de 32 bytes (secrets.token_urlsafe) — no adivinable entre sesiones de otra empresa.
     "b2b_carrito_lineas",
+    # Smart Suppliers B2B (Fase 3, services/compras/b2b_plantillas.py/b2b_catalogo.py/b2b_chat.py):
+    # hijas por FK de una tabla que sí tiene id_empresa (mismo razonamiento que b2b_escrow arriba).
+    "b2b_plantilla_lineas",             # FK id_plantilla -> b2b_plantillas.id (que sí tiene id_empresa)
+    "b2b_pedido_mensajes", "b2b_pedido_lecturas",  # FK/clave id_tx -> transaccion_comercial.id_tx
+    # hija de b2b_catalogo (plataforma global, ver arriba) — mismo razonamiento.
+    "b2b_catalogo_escalones",           # FK id_articulo -> b2b_catalogo.id
 }
 
 
