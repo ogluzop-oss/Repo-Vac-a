@@ -134,10 +134,78 @@ CATALOGO = [
     "banca.sincronizar",          # descargar movimientos e importarlos a conciliación
 ]
 
-# Roles del sistema (codigo → conjunto de permisos). SUPERADMIN es comodín (todo).
+# Roles del sistema (codigo → conjunto de permisos). SUPERADMIN es comodín (todo); ADMINISTRADOR
+# tiene la lista EXPLÍCITA de abajo (antes asignada al rol GERENTE, retirado — ver migración 0225).
+# No usar comodín "*" en ADMINISTRADOR: un permiso nuevo que se añada al catálogo en el futuro NO
+# llega automáticamente a ADMINISTRADOR (solo a SUPERADMIN) hasta que se incluya aquí a propósito.
 ROLES_SISTEMA = {
     "SUPERADMIN": {"nombre": "Superadministrador", "permisos": "*"},
-    "ADMINISTRADOR": {"nombre": "Administrador", "permisos": "*"},
+    "ADMINISTRADOR": {"nombre": "Administrador", "permisos": [
+        "inventario.ver", "inventario.crear", "inventario.editar", "inventario.ajustar",
+        "stock.consultar_desde_tpv",
+        "compras.ver", "compras.crear", "compras.editar", "compras.aprobar", "compras.facturar",
+        "ventas.ver", "ventas.crear", "ventas.facturar", "ventas.devolver", "ventas.anular",
+        "clientes.ver", "clientes.editar", "proveedores.ver", "proveedores.editar",
+        "rrhh.ver", "rrhh.editar", "rrhh.nominas.generar", "rrhh.contratos.firmar",
+        "contabilidad.ver", "contabilidad.asiento", "contabilidad.cierre",
+        "tesoreria.ver", "tesoreria.movimientos", "tesoreria.remesas.generar",
+        "tesoreria.remesas.ejecutar", "tesoreria.conciliar",
+        "aeat.ver", "aeat.generar", "aeat.presentar", "verifactu.emitir", "facturae.emitir",
+        "documentos.ver", "documentos.exportar", "documentos.eliminar",
+        "auditoria.ver", "configuracion.ver",
+        "notificaciones.ver", "mensajeria.usar", "correo.enviar", "correo.recibir",
+        "scheduler.gestionar", "integraciones.usar", "calendario.gestionar",
+        "tareas.gestionar", "webhooks.gestionar",
+        "incidencias.reportar", "incidencias.gestionar",
+        "bi.ver", "bi.kpi", "bi.dashboard", "bi.forecasting", "bi.exportar",
+        "saas.portal", "saas.branding",
+        "crm.ver", "crm.leads", "crm.oportunidades", "crm.pipeline", "crm.actividades",
+        "crm.forecast", "crm.crm_saas", "crm.admin", "dr.ver",
+        "mrp.ver", "mrp.bom", "mrp.planificar", "mrp.admin",
+        "fabricacion.ver", "fabricacion.crear", "fabricacion.liberar", "fabricacion.ejecutar",
+        "fabricacion.finalizar", "fabricacion.costes",
+        "calidad.ver", "inspecciones.ver", "inspecciones.crear", "nc.ver", "nc.crear",
+        "nc.gestionar", "capa.ver", "capa.gestionar", "auditorias.ver", "auditorias.gestionar",
+        "calidad.admin",
+        "gmao.ver", "gmao.admin", "activos.ver", "activos.gestionar", "ot.ver", "ot.crear",
+        "ot.ejecutar", "ot.finalizar", "sat.ver", "sat.admin", "tickets.ver", "tickets.crear",
+        "tickets.gestionar", "sla.ver", "sla.gestionar", "kb.ver", "kb.gestionar",
+        "intervenciones.gestionar",
+        "finanzas.ver", "finanzas.admin", "presupuestos.ver", "presupuestos.gestionar",
+        "financiacion.ver", "financiacion.gestionar", "credito.ver", "credito.gestionar",
+        "finanzas.simulacion", "finanzas.kpis",
+        "bi_corp.ver", "bi_corp.dw", "bi_corp.olap", "bi_corp.consolidado", "bi_corp.forecast",
+        "bi_corp.alertas", "bi_corp.export", "bi_corp.ia", "bi_corp.admin",
+        "resiliencia.ver", "resiliencia.sync", "resiliencia.offline", "resiliencia.breakers",
+        "resiliencia.watchdog", "resiliencia.chaos", "resiliencia.admin",
+        # Comercio Digital (C0.P1): el Administrador gobierna todo el dominio comercial.
+        "comercio.ver", "comercio.admin", "comercio.transaccion", "comercio.checkout",
+        "comercio.catalogo", "comercio.publicaciones", "comercio.presencia",
+        "comercio.canales", "comercio.conexiones", "comercio.sync", "comercio.marketplaces",
+        "comercio.pagos", "comercio.logistica",
+        "comercio.campanas", "comercio.feeds", "comercio.automatizacion",
+        "pickup.preparar", "pickup.entregar", "pickup.cancelar",
+        "canal_web.ver", "canal_web.crear", "canal_web.administrar",
+        "canal_web.dominios.ver", "canal_web.dominios.comprar", "canal_web.dominios.renovar",
+        "canal_web.dominios.transferir", "canal_web.dominios.administrar",
+        # Inteligencia (Etapa C): el Administrador ve y decide sobre las recomendaciones.
+        "inteligencia.ver", "inteligencia.decidir", "inteligencia.admin",
+        # IA predictiva (Fase 6): ver/entrenar/activar/gestionar modelos.
+        "prediccion.ver", "prediccion.entrenar", "prediccion.activar", "prediccion.gestionar",
+        # MFA: el Administrador gestiona su propio factor, ayuda a resetear a su personal, gestiona
+        # los dispositivos de confianza de sus terminales y consulta la auditoría MFA — forzar/
+        # desactivar la POLÍTICA de la empresa queda reservado a SUPERADMIN (comodín).
+        "mfa.self.manage", "mfa.admin.reset", "mfa.devices.manage", "mfa.events.view",
+        # ESL / Etiquetas electrónicas: el Administrador gobierna todo (ver/vincular/sincronizar/
+        # configurar).
+        "esl.ver", "esl.vincular", "esl.sincronizar", "esl.admin",
+        # Precio dinámico: el Administrador define reglas y las aplica.
+        "precio_dinamico.ver", "precio_dinamico.gestionar", "precio_dinamico.aplicar",
+        # Proyectos: el Administrador gobierna proyectos, tablero, horas y costes.
+        "proyectos.ver", "proyectos.gestionar", "proyectos.horas",
+        # Banca online: el Administrador configura y sincroniza la conexión bancaria.
+        "banca.ver", "banca.conectar", "banca.sincronizar",
+    ]},
     "OPERARIO": {"nombre": "Operario", "permisos": [
         "inventario.ver", "stock.consultar_desde_tpv",
         "ventas.ver", "ventas.crear", "ventas.facturar", "ventas.devolver",

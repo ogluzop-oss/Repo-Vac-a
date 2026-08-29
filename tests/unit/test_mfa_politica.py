@@ -27,10 +27,15 @@ def test_rbac_catalogo_mfa():
     seis = {"mfa.self.manage", "mfa.admin.enforce", "mfa.admin.reset", "mfa.admin.disable",
             "mfa.devices.manage", "mfa.events.view"}
     assert seis <= set(C.CATALOGO)
-    # El factor propio lo gestionan todos los roles; enforce/disable/reset/devices/events
-    # quedan para admin (comodín — cubre las 4 automáticamente).
+    # El factor propio lo gestionan todos los roles. ADMINISTRADOR gestiona su propio factor,
+    # resetea el de su personal, gestiona dispositivos de confianza y consulta la auditoría — pero
+    # NO puede forzar/desactivar la POLÍTICA de la empresa (enforce/disable quedan reservados a
+    # SUPERADMIN, comodín "*").
     assert "mfa.self.manage" in C.ROLES_SISTEMA["OPERARIO"]["permisos"]
-    assert C.ROLES_SISTEMA["ADMINISTRADOR"]["permisos"] == "*"
+    admin_perms = set(C.ROLES_SISTEMA["ADMINISTRADOR"]["permisos"])
+    assert {"mfa.self.manage", "mfa.admin.reset", "mfa.devices.manage", "mfa.events.view"} <= admin_perms
+    assert "mfa.admin.enforce" not in admin_perms and "mfa.admin.disable" not in admin_perms
+    assert C.ROLES_SISTEMA["SUPERADMIN"]["permisos"] == "*"
 
 
 def test_politica_defecto_opcional(limpia):
