@@ -29,7 +29,7 @@ def test_ventana_tesoreria(db):
             n = w.tabs.count()
             assert n >= 8
             titulos = [w.tabs.tabText(i) for i in range(n)]
-            assert "Cuentas" in titulos and "Remesas SEPA" in titulos and "Cash Flow" in titulos
+            assert "Cuentas" in titulos and "Remesas SEPA" in titulos and "Flujo de caja" in titulos
             # la tabla de cuentas se ha poblado con la cuenta creada
             assert w.tbl_cuentas.rowCount() >= 1
             assert w.tbl_mov.rowCount() >= 1

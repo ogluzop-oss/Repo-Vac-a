@@ -111,7 +111,12 @@ def _sql_valor(v):
         return "NULL"
     if isinstance(v, (int, float)):
         return str(v)
-    s = str(v).replace("\\", "\\\\").replace("'", "\\'")
+    # Escapa también saltos de línea literales (\n, \r): sin esto, un campo de texto
+    # multilínea (p. ej. observaciones/notas) deja un salto de línea CRUDO dentro de la
+    # cadena — sintácticamente válido para MySQL, pero rompe la división del fichero de
+    # backup en sentencias por ";\n" que hace _restaurar_pymysql (ver más abajo).
+    s = (str(v).replace("\\", "\\\\").replace("'", "\\'")
+         .replace("\n", "\\n").replace("\r", "\\r"))
     return f"'{s}'"
 
 
@@ -199,9 +204,37 @@ def _mysql_cli(ruta_sql: str, db: str) -> bool:
     return False
 
 
+_RESTORE_LOTE_MAX = 4 * 1024 * 1024   # bytes por lote — muy por debajo de max_allowed_packet (16MB
+                                       # por defecto en MariaDB); un backup grande (export_logico de
+                                       # una BD con muchas filas) enviado ENTERO en un único
+                                       # cur.execute() supera ese límite y el servidor corta la
+                                       # conexión ("MySQL server has gone away").
+
+
+def _lotes_restauracion(sql: str, tam_max: int = _RESTORE_LOTE_MAX):
+    """Divide el script en lotes de sentencias completas (cada una ya termina en ';\\n' — formato
+    fijo escrito por `_export_logico`/`_sql_valor`, que escapa saltos de línea dentro de los
+    valores) sin superar `tam_max` bytes por lote. Ejecutar en lotes, no sentencia a sentencia,
+    mantiene la restauración rápida para tablas con muchas filas."""
+    lote, tam_lote = [], 0
+    for sentencia in sql.split(";\n"):
+        sentencia = sentencia.strip()
+        if not sentencia:
+            continue
+        trozo = sentencia + ";\n"
+        if lote and tam_lote + len(trozo) > tam_max:
+            yield "".join(lote)
+            lote, tam_lote = [], 0
+        lote.append(trozo)
+        tam_lote += len(trozo)
+    if lote:
+        yield "".join(lote)
+
+
 def _restaurar_pymysql(ruta_sql: str, db: str) -> bool:
     """Restauración portable vía PyMySQL (multi-statement) para el formato lógico.
-    Asegura la BD destino y ejecuta el script completo."""
+    Asegura la BD destino y ejecuta el script en lotes acotados en tamaño (ver
+    `_lotes_restauracion`)."""
     import pymysql
     cfg = {k: v for k, v in DB_CONFIG.items() if k != "database"}
     cfg["client_flag"] = pymysql.constants.CLIENT.MULTI_STATEMENTS
@@ -212,10 +245,11 @@ def _restaurar_pymysql(ruta_sql: str, db: str) -> bool:
             cur.execute(f"CREATE DATABASE IF NOT EXISTS `{db}` DEFAULT CHARACTER SET utf8mb4")
         conn.commit()
         conn.select_db(db)                        # selecciona la BD destino
-        with conn.cursor() as cur:
-            cur.execute(sql)                      # multi-statement
-            while cur.nextset():                  # agota todos los result sets
-                pass
+        for lote in _lotes_restauracion(sql):
+            with conn.cursor() as cur:
+                cur.execute(lote)                 # multi-statement, acotado en tamaño
+                while cur.nextset():               # agota todos los result sets
+                    pass
         conn.commit()
         return True
     finally:

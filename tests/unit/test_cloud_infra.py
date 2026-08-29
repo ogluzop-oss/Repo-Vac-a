@@ -28,6 +28,23 @@ _AISLAMIENTO_REVISADO = {
     # plataforma global (no son datos de un tenant)
     "cloud_feature_flags", "saas_regiones", "ioc_grupos_empresariales",
     # (Las tablas de la Lonja B2B se retiraron en la refactorización del módulo Proveedores.)
+    # Smart Suppliers B2B (Fase 2, services/compras/b2b_*): el PROVEEDOR (suministrador) es una
+    # identidad única de PLATAFORMA, independiente de cada empresa compradora — sirve a varias
+    # empresas a la vez, así que su catálogo y su ficha NO tienen (ni deben tener) id_empresa propio;
+    # el filtrado por empresa ocurre en el servicio (por sector_id + tienda activa), no por fila.
+    "suministradores", "sectores_comerciales",
+    # hijas de una tabla de plataforma (mismo razonamiento que la de arriba, vía FK)
+    "suministrador_sesiones",          # FK id_suministrador -> suministradores
+    "sectores_compatibles",            # FK sector_id -> sectores_comerciales
+    "b2b_catalogo",                    # FK id_suministrador -> suministradores
+    "b2b_catalogo_import_lotes",       # FK id_suministrador -> suministradores
+    # hijas por FK de transaccion_comercial (que SÍ tiene id_empresa)
+    "b2b_escrow", "b2b_escrow_ledger",  # FK id_tx -> transaccion_comercial.id
+    # el carrito de la Extranet de Empresa se aísla por token_sesion, no por columna id_empresa
+    # directa: cada token se emite en b2b_sesiones_empresa (que SÍ tiene id_empresa) ligado a una
+    # única empresa+tienda (services/compras/b2b_sesion_empresa.crear_sesion), y es un secreto
+    # aleatorio de 32 bytes (secrets.token_urlsafe) — no adivinable entre sesiones de otra empresa.
+    "b2b_carrito_lineas",
 }
 
 
