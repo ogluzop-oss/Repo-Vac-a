@@ -45,8 +45,15 @@ def test_migracion_reversible(db):
     # FK_CHECKS=0: migraciones posteriores (0018 control horario, 0019 firma) añaden
     # tablas/columnas que dependen de 0017; revertir 0017 aislado no debe bloquearse.
     # Tras reaplicar 0017 se reaplican también las posteriores para restaurar el esquema
-    # completo (idempotentes: CREATE/ADD COLUMN IF NOT EXISTS).
-    posteriores = [x for x in descubrir() if x.version in ("0017", "0018", "0019")]
+    # completo (idempotentes: CREATE/ADD COLUMN IF NOT EXISTS). OJO: 0017.revertir() hace
+    # DROP TABLE rrhh_empleados y 0017.aplicar() la recrea desde cero con id_tienda VARCHAR
+    # (su definición original) — 0195 (posterior, unifica id_tienda a INT en rrhh_empleados)
+    # también debe reaplicarse aquí o la tabla queda regresada a VARCHAR para el resto de la
+    # sesión/base de datos, aunque schema_migraciones siga marcando 0195 como ya aplicada
+    # (este test llama a .aplicar()/.revertir() directamente, sin pasar por el runner, así
+    # que no actualiza esa tabla de seguimiento — detectado porque dejaba
+    # test_id_tienda_rrhh.py::test_empleado_id_tienda_int fallando en sesiones posteriores).
+    posteriores = [x for x in descubrir() if x.version in ("0017", "0018", "0019", "0195")]
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("SET FOREIGN_KEY_CHECKS=0")
         try:
