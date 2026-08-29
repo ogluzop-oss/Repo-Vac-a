@@ -52,7 +52,7 @@ assets/              Estilo global, fuentes, logos, traducciones (assets/lang/)
 documentos/          Salida en tiempo de ejecución (PDF, etiquetas, informes…)
 ```
 
-- **Roles**: `ADMINISTRADOR`, `GERENTE`, `OPERARIO` (controlan qué módulos se ven).
+- **Roles**: `SUPERADMIN`, `ADMINISTRADOR`, `OPERARIO` (controlan qué módulos se ven).
 - **Sin ORM**: consultas directas con PyMySQL y pool de conexiones.
 - **Hilos**: trabajos pesados (RFID, búsquedas, importación) en `QThread`; la UI
   se actualiza solo vía señales/slots.

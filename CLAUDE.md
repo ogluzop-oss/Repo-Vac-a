@@ -48,7 +48,7 @@ documentos/               Runtime output directory (PDFs, labels, reports)
 ### Application Lifecycle
 
 1. `SmartManagerApp.__init__` starts a Flask backend subprocess (planned: `src/backend/app.py`), initializes the DB connection pool, and shows `LoginWindow`.
-2. On login, a `SesionUsuario` singleton holds the active user (role: `ADMINISTRADOR`, `GERENTE`, or `OPERARIO`). Role gates which menu cards are visible.
+2. On login, a `SesionUsuario` singleton holds the active user (role: `SUPERADMIN`, `ADMINISTRADOR`, or `OPERARIO`). Role gates which menu cards are visible.
 3. `MenuPrincipal` renders `MenuCardButton` widgets; each routes to a feature module pushed onto the `QStackedWidget`.
 4. A `RFIDWorker` (QThread) runs continuously, polling `LectorZebraGateway` (Zebra FX/RFD HTTP API). It emits signals consumed by the reception and location screens.
 
