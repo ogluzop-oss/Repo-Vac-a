@@ -10,9 +10,9 @@ def test_legacy_profile_login_desactivado_por_defecto(db, fab, monkeypatch):
     aun con credenciales correctas, devuelve None si no está el flag legacy."""
     from src.db import usuario as U
     monkeypatch.delenv("SMART_MANAGER_LEGACY_PROFILE_LOGIN", raising=False)
-    fab.usuario(nombre="LEG_OFF_1", perfil="GERENTE", password="Clave_Compartida_123")
+    fab.usuario(nombre="LEG_OFF_1", perfil="ADMINISTRADOR", password="Clave_Compartida_123")
     assert U.legacy_profile_login_habilitado() is False
-    assert U.validar_login("GERENTE", "Clave_Compartida_123") is None   # legacy OFF
+    assert U.validar_login("ADMINISTRADOR", "Clave_Compartida_123") is None   # legacy OFF
 
 
 def test_legacy_profile_login_solo_con_flag(db, fab, monkeypatch):

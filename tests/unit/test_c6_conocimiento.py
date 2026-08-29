@@ -11,7 +11,7 @@ import inspect
 import pytest
 
 EMP = "T-KNW-A"
-GER = {"id": "g", "perfil": "GERENTE"}     # ve contratos+facturas+pedidos
+GER = {"id": "g", "perfil": "ADMINISTRADOR"}     # ve contratos+facturas+pedidos
 OPE = {"id": "o", "perfil": "OPERARIO"}    # solo ventas.ver → pedidos
 
 
@@ -33,7 +33,7 @@ def docs(db):
         conn.commit()
 
 
-def test_gerente_ve_todos_los_tipos(docs):
+def test_administrador_ve_todos_los_tipos(docs):
     from src.services.inteligencia import conocimiento
     res = conocimiento.buscar("alquiler", id_empresa=EMP, usuario=GER)
     tipos = {d["tipo"] for d in res}
@@ -52,7 +52,7 @@ def test_filtro_por_tipo_no_autorizado(docs):
     from src.services.inteligencia import conocimiento
     # OPERARIO pide explícitamente contratos → no autorizado → vacío.
     assert conocimiento.buscar("alquiler", id_empresa=EMP, usuario=OPE, tipo="contrato") == []
-    # GERENTE sí.
+    # ADMINISTRADOR sí.
     assert conocimiento.buscar("alquiler", id_empresa=EMP, usuario=GER, tipo="contrato")
 
 

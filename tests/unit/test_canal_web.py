@@ -14,7 +14,7 @@ from src.services.comercio_digital import canal_web
 pytestmark = pytest.mark.db
 
 EMP = "T-CW"
-GER = {"perfil": "GERENTE", "id": "g"}
+GER = {"perfil": "ADMINISTRADOR", "id": "g"}
 
 
 @pytest.fixture()

@@ -23,7 +23,7 @@ def test_info_version_publica(cliente):
 
 
 def test_login_ok_y_credenciales_invalidas(db, fab, cliente):
-    u = _usuario(db, fab, nombre="API_USER_1", perfil="GERENTE")
+    u = _usuario(db, fab, nombre="API_USER_1", perfil="ADMINISTRADOR")
     r = cliente.post("/api/v1/auth/login",
                      json={"usuario": "API_USER_1", "password": "Clave_Api_123456"})
     assert r.status_code == 200
@@ -32,7 +32,7 @@ def test_login_ok_y_credenciales_invalidas(db, fab, cliente):
     # consultan vía /auth/me con el access emitido.
     assert j["access"] and j["refresh"] and j["usuario"] == "API_USER_1"
     me = cliente.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {j['access']}"}).get_json()
-    assert me["usuario"]["id"] == str(u["id"]) and me["usuario"]["perfil"] == "GERENTE"
+    assert me["usuario"]["id"] == str(u["id"]) and me["usuario"]["perfil"] == "ADMINISTRADOR"
     # Contraseña incorrecta.
     assert cliente.post("/api/v1/auth/login",
                         json={"usuario": "API_USER_1", "password": "mala"}).status_code == 401

@@ -15,7 +15,7 @@ from src.services.comercio_digital.canal_web import gestion_dominios as DOM
 pytestmark = pytest.mark.db
 
 EMP = "T-CWD"
-GER = {"perfil": "GERENTE", "id": "g"}
+GER = {"perfil": "ADMINISTRADOR", "id": "g"}
 
 
 @pytest.fixture()

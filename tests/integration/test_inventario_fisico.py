@@ -169,7 +169,7 @@ def test_gui(db, fab):
     INV.registrar_recuento(iid, cod, 38)
     with contexto_tenant(EMPRESA_DEFAULT_ID, None):
         from src.gui.inventario_fisico import InventarioFisicoWindow
-        w = InventarioFisicoWindow(usuario={"nombre": "ana", "perfil": "GERENTE"})
+        w = InventarioFisicoWindow(usuario={"nombre": "ana", "perfil": "ADMINISTRADOR"})
         i = w.cmb_inv.findData(iid)
         assert i >= 0
         w.cmb_inv.setCurrentIndex(i)

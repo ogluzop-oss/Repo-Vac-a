@@ -55,7 +55,7 @@ def test_guard_requiere_step_up(monkeypatch):
         return jsonify({"ok": True})
 
     cli = app.test_client()
-    fresco = tokens.emitir_access({"id": 1, "id_empresa": "E", "perfil": "GERENTE"},
+    fresco = tokens.emitir_access({"id": 1, "id_empresa": "E", "perfil": "ADMINISTRADOR"},
                                   amr=["pwd", "otp"], auth_time=int(time.time()))
     assert cli.post("/sensible", headers={"Authorization": f"Bearer {fresco}"}).status_code == 200
     viejo = tokens.emitir_access({"id": 1, "id_empresa": "E"}, amr=["pwd", "otp"],
@@ -83,7 +83,7 @@ def test_auth_step_up_refresca_recencia(limpia):
     app.register_blueprint(bp)
     cli = app.test_client()
     # Token humano SIN recencia (pwd-only) → step-up con TOTP → access nuevo reciente.
-    acc = tokens.emitir_access({"id": UID, "id_empresa": EMP, "perfil": "GERENTE", "nombre": "g"},
+    acc = tokens.emitir_access({"id": UID, "id_empresa": EMP, "perfil": "ADMINISTRADOR", "nombre": "g"},
                                amr=["pwd"], auth_time=int(time.time()) - 9999)
     r = cli.post("/auth/step-up", headers={"Authorization": f"Bearer {acc}"},
                  json={"codigo": mfa.codigo_actual(mfa._secreto(UID)), "accion": "finanzas.critica"})

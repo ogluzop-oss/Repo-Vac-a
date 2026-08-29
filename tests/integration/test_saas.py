@@ -106,10 +106,10 @@ def test_usuarios_multiempresa(db):
     uid = 770001
     try:
         ME.vincular(uid, e1, rol="ADMINISTRADOR", tipo_relacion="consultor")
-        ME.vincular(uid, e2, rol="GERENTE", tipo_relacion="asesoria")
+        ME.vincular(uid, e2, rol="OPERARIO", tipo_relacion="asesoria")
         emps = {x["id_empresa"]: x["rol"] for x in ME.empresas_de_usuario(uid)}
-        assert emps.get(e1) == "ADMINISTRADOR" and emps.get(e2) == "GERENTE"
-        assert ME.rol_en_empresa(uid, e2) == "GERENTE"
+        assert emps.get(e1) == "ADMINISTRADOR" and emps.get(e2) == "OPERARIO"
+        assert ME.rol_en_empresa(uid, e2) == "OPERARIO"
     finally:
         with db.obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM usuarios_empresas WHERE id_usuario=%s", (uid,))

@@ -11,7 +11,7 @@ import inspect
 import pytest
 
 EMP = "T-INT-A"
-GER = {"id": "g", "perfil": "GERENTE"}
+GER = {"id": "g", "perfil": "ADMINISTRADOR"}
 OPE = {"id": "o", "perfil": "OPERARIO"}
 
 
@@ -61,7 +61,7 @@ def test_rbac_ver_y_decidir(limpio):
     # OPERARIO VE pero NO decide.
     assert inteligencia.decisiones(EMP, usuario=OPE)          # ver ok
     assert inteligencia.aceptar(did, usuario=OPE, id_empresa=EMP)["ok"] is False
-    # GERENTE decide.
+    # ADMINISTRADOR decide.
     assert inteligencia.aceptar(did, usuario=GER, id_empresa=EMP)["ok"] is True
     # Ya no aparece como propuesta.
     assert not [x for x in inteligencia.decisiones(EMP, usuario=GER) if x["id"] == did]

@@ -8,14 +8,14 @@ from src.seguridad import tokens
 
 pytestmark = pytest.mark.unit
 
-_USR = {"id": 7, "id_empresa": "EMP-1", "tienda_id": 3, "perfil": "GERENTE", "nombre": "Ana"}
+_USR = {"id": 7, "id_empresa": "EMP-1", "tienda_id": 3, "perfil": "ADMINISTRADOR", "nombre": "Ana"}
 
 
 def test_access_roundtrip_y_claims():
     tok = tokens.emitir_access(_USR)
     datos = tokens.verificar(tok, tipo="access")
     assert datos and datos["sub"] == "7" and datos["empresa"] == "EMP-1"
-    assert datos["rol"] == "GERENTE" and datos["tienda"] == 3
+    assert datos["rol"] == "ADMINISTRADOR" and datos["tienda"] == 3
 
 
 def test_tipo_incorrecto_rechaza():

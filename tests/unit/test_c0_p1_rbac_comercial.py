@@ -23,13 +23,11 @@ def test_permisos_comerciales_en_catalogo():
 def test_roles_del_sistema():
     from src.services.seguridad import catalogo as cat
     admin = cat.permisos_de_perfil("ADMINISTRADOR")
-    gerente = cat.permisos_de_perfil("GERENTE")
     operario = cat.permisos_de_perfil("OPERARIO")
-    # ADMIN/SUPERADMIN heredan todo por comodín "*".
+    # ADMIN/SUPERADMIN heredan todo por comodín "*" (ADMINISTRADOR gobierna todo el
+    # dominio comercial).
     assert set(COMERCIO) <= admin
     assert set(COMERCIO) <= cat.permisos_de_perfil("SUPERADMIN")
-    # GERENTE gobierna todo el dominio comercial.
-    assert set(COMERCIO) <= gerente
     # OPERARIO: operativa de venta, sin administración/sincronización.
     assert "comercio.ver" in operario and "comercio.checkout" in operario
     assert "comercio.admin" not in operario and "comercio.sync" not in operario
@@ -37,7 +35,7 @@ def test_roles_del_sistema():
 
 def test_resolucion_puede():
     from src.services import autorizacion as az
-    assert az.puede({"id": "g", "perfil": "GERENTE"}, "comercio.logistica") is True
+    assert az.puede({"id": "a", "perfil": "ADMINISTRADOR"}, "comercio.logistica") is True
     assert az.puede({"id": "o", "perfil": "OPERARIO"}, "comercio.ver") is True
     assert az.puede({"id": "o", "perfil": "OPERARIO"}, "comercio.sync") is False
     assert az.puede({"id": "a", "perfil": "ADMINISTRADOR"}, "comercio.pagos") is True

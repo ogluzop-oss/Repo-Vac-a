@@ -27,10 +27,9 @@ def test_rbac_catalogo_mfa():
     seis = {"mfa.self.manage", "mfa.admin.enforce", "mfa.admin.reset", "mfa.admin.disable",
             "mfa.devices.manage", "mfa.events.view"}
     assert seis <= set(C.CATALOGO)
-    # El factor propio lo gestionan todos los roles; enforce/disable quedan para admin (comodín).
+    # El factor propio lo gestionan todos los roles; enforce/disable/reset/devices/events
+    # quedan para admin (comodín — cubre las 4 automáticamente).
     assert "mfa.self.manage" in C.ROLES_SISTEMA["OPERARIO"]["permisos"]
-    assert {"mfa.self.manage", "mfa.admin.reset", "mfa.devices.manage", "mfa.events.view"} <= set(
-        C.ROLES_SISTEMA["GERENTE"]["permisos"])
     assert C.ROLES_SISTEMA["ADMINISTRADOR"]["permisos"] == "*"
 
 

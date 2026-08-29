@@ -86,9 +86,9 @@ def test_ciclo_recogida_ejecuta_salida_oficial(art, db):
     tx = _reservar(emp, "CCART2", 4)["id_tx"]
     assert pickup.pagar(tx, id_empresa=emp)["estado"] == "PAGADA"
     assert _stock(db, "CCART2", emp) == 10                 # el pago NO mueve stock
-    assert pickup.preparar(tx, id_empresa=emp, usuario={"perfil": "GERENTE"})["ok"]
+    assert pickup.preparar(tx, id_empresa=emp, usuario={"perfil": "ADMINISTRADOR"})["ok"]
     assert _stock(db, "CCART2", emp) == 10                 # preparar NO mueve stock
-    rec = pickup.recoger(tx, id_empresa=emp, usuario={"perfil": "GERENTE"})
+    rec = pickup.recoger(tx, id_empresa=emp, usuario={"perfil": "ADMINISTRADOR"})
     assert rec["ok"] and rec["estado"] == "FINALIZADA" and rec["salidas_stock"] >= 1
     assert _stock(db, "CCART2", emp) == 6                  # salida física SOLO en la recogida (10-4)
     assert (transacciones.obtener(tx, emp) or {}).get("estado") == "FACTURADA"
@@ -100,7 +100,7 @@ def test_cancelacion_libera_y_reembolsa(art, db):
     art("CCART3", emp, stock=10)
     tx = _reservar(emp, "CCART3", 2)["id_tx"]
     pickup.pagar(tx, id_empresa=emp)
-    res = pickup.cancelar(tx, id_empresa=emp, usuario={"perfil": "GERENTE"})
+    res = pickup.cancelar(tx, id_empresa=emp, usuario={"perfil": "ADMINISTRADOR"})
     assert res["ok"] and res["estado"] == "CANCELADA"
     assert res["reservas_liberadas"] >= 1
     assert res["reembolso"] and res["reembolso"]["estado"] == "reembolsado"

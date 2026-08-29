@@ -10,7 +10,7 @@ import inspect
 import pytest
 
 EMP = "T-COP-A"
-GER = {"id": "g", "perfil": "GERENTE"}
+GER = {"id": "g", "perfil": "ADMINISTRADOR"}
 
 
 @pytest.fixture()

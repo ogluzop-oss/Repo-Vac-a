@@ -25,7 +25,7 @@ def test_navegacion_secciones():
 def test_acceso_rol_configuracion():
     from src.portal_web import acceso, navegacion
     conf = navegacion.seccion("configuracion")
-    # Sólo roles admin/gerente/superadmin ven Configuración.
+    # Sólo roles admin/superadmin ven Configuración.
     assert acceso.puede_ver(conf, {"perfil": "ADMINISTRADOR"}) is True
     assert acceso.puede_ver(conf, {"perfil": "OPERARIO"}) is False
 
@@ -36,9 +36,9 @@ def test_acceso_entitlement_logistica(monkeypatch):
     from src.services.saas import entitlements
     # Con la capability → visible; sin ella → oculta. Se controla vía el resolver central (no propio).
     monkeypatch.setattr(entitlements, "has", lambda cap, id_empresa=None: cap != "multi_tienda.enabled")
-    assert acceso.puede_ver(log, {"perfil": "GERENTE"}) is False
+    assert acceso.puede_ver(log, {"perfil": "ADMINISTRADOR"}) is False
     monkeypatch.setattr(entitlements, "has", lambda cap, id_empresa=None: True)
-    assert acceso.puede_ver(log, {"perfil": "GERENTE"}) is True
+    assert acceso.puede_ver(log, {"perfil": "ADMINISTRADOR"}) is True
 
 
 def test_secciones_visibles_legacy():
@@ -54,7 +54,7 @@ def test_secciones_visibles_legacy():
 # ── Layout / sidebar / navbar ─────────────────────────────────────────────────
 def test_layout_estructura():
     from src.portal_web import layout
-    lay = layout.layout({"id": 1, "nombre": "Ana", "perfil": "GERENTE"}, "PW-1", id_tienda=3)
+    lay = layout.layout({"id": 1, "nombre": "Ana", "perfil": "ADMINISTRADOR"}, "PW-1", id_tienda=3)
     assert lay["tipo"] == "back_office"
     assert lay["navbar"]["id_empresa"] == "PW-1" and lay["navbar"]["id_tienda"] == 3
     assert "secciones" in lay["sidebar"] and lay["contenido"]["reutilizable_movil"] is True

@@ -160,9 +160,9 @@ def test_decorador_y_auditoria(db):
 def test_multiempresa_roles_sistema(db, fab):
     emp2 = fab.empresa("RBAC B")
     res = C.sincronizar_roles_sistema(emp2)
-    assert res["roles"] >= 4
+    assert res["roles"] >= 3
     roles_b = {r["codigo"] for r in R.listar_roles(emp2)}
-    assert {"OPERARIO", "GERENTE", "ADMINISTRADOR", "SUPERADMIN"} <= roles_b
+    assert {"OPERARIO", "ADMINISTRADOR", "SUPERADMIN"} <= roles_b
     # los roles de emp2 no aparecen en la empresa por defecto salvo que existan allí también
     assert all(r["id_empresa"] == emp2 for r in R.listar_roles(emp2))
 

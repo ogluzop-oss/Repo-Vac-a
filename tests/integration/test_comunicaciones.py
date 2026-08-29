@@ -18,13 +18,13 @@ E = EMPRESA_DEFAULT_ID
 def test_notificaciones(db):
     from src.services import notificaciones as N
     nid = N.emitir("info", "Aviso", "cuerpo", prioridad="alta", modulo="test",
-                   usuarios=[4101], roles=["GERENTE"], id_empresa=E)
+                   usuarios=[4101], roles=["ADMINISTRADOR"], id_empresa=E)
     try:
         assert nid
         pend = N.pendientes_usuario({"id": 4101, "perfil": "OPERARIO"}, id_empresa=E)
         assert any(n["id"] == nid for n in pend)
         # por rol
-        pend_g = N.pendientes_usuario({"id": 9999, "perfil": "GERENTE"}, id_empresa=E)
+        pend_g = N.pendientes_usuario({"id": 9999, "perfil": "ADMINISTRADOR"}, id_empresa=E)
         assert any(n["id"] == nid for n in pend_g)
         # marcar leída → desaparece
         N.marcar_leida(nid, 4101, id_empresa=E)
@@ -209,7 +209,7 @@ def test_workflow_emite_notificacion(db):
         WE.iniciar_proceso("compras_pedido", eid, contexto={"importe": 6000},
                            actor={"id": 1, "perfil": "ADMINISTRADOR", "id_empresa": E}, id_empresa=E)
         # se notificó al rol del paso (compras.aprobar → sin rol; el paso 1 usa permiso, no rol)
-        # el paso 3 (Gerencia) sí es rol GERENTE; con importe 6000 no aplica. Verificamos módulo workflow:
+        # el paso 3 (Dirección) sí es rol ADMINISTRADOR; con importe 6000 no aplica. Verificamos módulo workflow:
         notifs = N.listar(modulo="workflow", id_empresa=E)
         assert isinstance(notifs, list)   # emisión best-effort no rompe
     finally:
@@ -220,7 +220,7 @@ def test_workflow_emite_notificacion(db):
                 cur.execute("DELETE FROM wf_tareas WHERE id_instancia=%s", (iid,))
                 cur.execute("DELETE FROM wf_log WHERE id_instancia=%s", (iid,))
                 cur.execute("DELETE FROM wf_instancias WHERE id=%s", (iid,))
-            cur.execute("DELETE FROM notificaciones_destinatarios WHERE rol_destino='GERENTE'")
+            cur.execute("DELETE FROM notificaciones_destinatarios WHERE rol_destino='ADMINISTRADOR'")
             cur.execute("DELETE FROM notificaciones WHERE modulo='workflow'")
             conn.commit()
 

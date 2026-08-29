@@ -123,7 +123,7 @@ def test_login_multiempresa(db):
     uid = 990111
     try:
         ME.vincular(uid, e1, rol="ADMINISTRADOR")
-        ME.vincular(uid, e2, rol="GERENTE")
+        ME.vincular(uid, e2, rol="OPERARIO")
         disp = {x["id_empresa"] for x in ME.empresas_disponibles(uid)}
         assert e1 in disp and e2 in disp
         assert ME.cambiar_empresa_activa(uid, e1) is True

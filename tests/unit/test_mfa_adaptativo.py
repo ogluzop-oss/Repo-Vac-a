@@ -41,10 +41,10 @@ def test_politica_adaptativa_matriz(limpia):
     # Contexto NO humano / autoservicio: nunca obligatorio interactivo.
     assert P.politica_efectiva({"perfil": "ADMINISTRADOR"}, id_empresa=E1, contexto="api")["obligatorio"] is False
     assert P.politica_efectiva({"perfil": "OPERARIO"}, id_empresa=E1, contexto="autocobro")["obligatorio"] is False
-    # Override por rol (empresa opcional que obliga a GERENTE).
-    P.guardar_politica(E1, modo="opcional", roles_obligatorios="GERENTE")
-    assert P.politica_efectiva({"perfil": "GERENTE"}, id_empresa=E1)["obligatorio"] is True
-    assert P.politica_efectiva({"perfil": "OPERARIO"}, id_empresa=E1)["obligatorio"] is False
+    # Override por rol (empresa opcional que obliga a OPERARIO específicamente, aunque su
+    # perfil no forme parte del suelo crítico).
+    P.guardar_politica(E1, modo="opcional", roles_obligatorios="OPERARIO")
+    assert P.politica_efectiva({"perfil": "OPERARIO"}, id_empresa=E1)["obligatorio"] is True
 
 
 def test_decision_combinada(limpia):

@@ -207,6 +207,6 @@ def test_cmp_gui(db, fab):
     QApplication.instance() or QApplication([])
     with contexto_tenant(E, None):
         from src.gui.compras_avanzado_gui import ComprasAvanzadoWindow
-        w = ComprasAvanzadoWindow(usuario={"nombre": "ana", "perfil": "GERENTE"})
+        w = ComprasAvanzadoWindow(usuario={"nombre": "ana", "perfil": "ADMINISTRADOR"})
         w._carga_dev(); w._carga_inc()
         w.close()

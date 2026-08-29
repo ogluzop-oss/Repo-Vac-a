@@ -27,7 +27,7 @@ def _crear_usuario(db, nombre, password, id_empresa):
         cur = c.cursor()
         cols = _columnas_usuarios(cur)
         cur.execute("DELETE FROM usuarios WHERE nombre=%s", (nombre,))
-        campos, vals = ["nombre", "password", "perfil"], [nombre, h, "GERENTE"]
+        campos, vals = ["nombre", "password", "perfil"], [nombre, h, "ADMINISTRADOR"]
         if "id_empresa" in cols:
             campos.append("id_empresa"); vals.append(id_empresa)
         if "tienda_id" in cols:

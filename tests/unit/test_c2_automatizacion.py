@@ -11,7 +11,7 @@ import inspect
 import pytest
 
 EMP = "T-AUT2-A"
-GER = {"id": "g", "perfil": "GERENTE"}
+GER = {"id": "g", "perfil": "ADMINISTRADOR"}
 
 
 @pytest.fixture()
