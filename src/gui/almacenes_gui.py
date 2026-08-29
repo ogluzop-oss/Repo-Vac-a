@@ -29,6 +29,7 @@ class AlmacenesWindow(QWidget):
         super().__init__(parent)
         self._volver = callback_vuelta
         self.usuario = usuario or {}
+        self._main = main
         self.setStyleSheet(f"background:{_BG};")
 
         # La ventana se convierte en ANFITRIONA con pestañas (reutilizando su acceso de menú): la
@@ -74,7 +75,10 @@ class AlmacenesWindow(QWidget):
         acc.addStretch()
         root.addLayout(acc)
 
-        # Primera pestaña: gestión de almacenes (contenido original). Luego los dominios de operaciones.
+        # Primera pestaña: gestión de almacenes (contenido original, ligera). Luego los dominios de
+        # operaciones — MRP/GMAO embeben ventanas completas y Distribución/Rutas hace su propia
+        # consulta a BD durante la construcción, así que se cargan de forma perezosa (lazy loading:
+        # solo al visitarlas) en vez de todas de golpe, que es lo que hacía tardar la apertura.
         self.tabs.addTab(_pagina, "Almacenes")
         # La pestaña MRP / Fabricación (industrial) se adapta a la EDICIÓN: en Bakery se sustituye por el Obrador,
         # así que no se muestra aquí (gate por `verticales`). En el resto se muestra salvo que la matriz lo oculte.
@@ -83,24 +87,33 @@ class AlmacenesWindow(QWidget):
             _mrp_visible = _vert.visible("almacenes.mrp")
         except Exception:
             _mrp_visible = True
+        entradas = []
         if _mrp_visible:
-            try:
-                from src.gui.mrp_dashboard import MRPDashboardWindow
-                self.tabs.addTab(MRPDashboardWindow(callback_vuelta=None, usuario=self.usuario, main=main),
-                                 "MRP / Fabricación")
-            except Exception as e:
-                logger.debug("tab MRP: %s", e)
-        try:
-            from src.gui.gmao_dashboard import GMAODashboardWindow
-            self.tabs.addTab(GMAODashboardWindow(callback_vuelta=None, usuario=self.usuario, main=main),
-                             "GMAO / Mantenimiento")
-        except Exception as e:
-            logger.debug("tab GMAO: %s", e)
-        self._tab_slotting()
+            entradas.append(("MRP / Fabricación", self._construir_tab_mrp))
+        entradas.append(("GMAO / Mantenimiento", self._construir_tab_gmao))
+        entradas.append(("Distribución / Rutas", self._construir_tab_slotting))
+        from src.gui.transiciones import instalar_pestanas_lazy
+        instalar_pestanas_lazy(self.tabs, entradas)
         self._cargar()
 
+    def _construir_tab_mrp(self):
+        try:
+            from src.gui.mrp_dashboard import MRPDashboardWindow
+            return MRPDashboardWindow(callback_vuelta=None, usuario=self.usuario, main=self._main)
+        except Exception as e:
+            logger.debug("tab MRP: %s", e)
+            return QWidget()
+
+    def _construir_tab_gmao(self):
+        try:
+            from src.gui.gmao_dashboard import GMAODashboardWindow
+            return GMAODashboardWindow(callback_vuelta=None, usuario=self.usuario, main=self._main)
+        except Exception as e:
+            logger.debug("tab GMAO: %s", e)
+            return QWidget()
+
     # ── Slotting inteligente + rutas de picking (WMS, sin coste externo) ───────
-    def _tab_slotting(self):
+    def _construir_tab_slotting(self):
         w = QWidget(); ly = QVBoxLayout(w)
         ly.addWidget(QLabel("Distribución inteligente — coloca los productos de más rotación en las "
                             "ubicaciones más accesibles"))
@@ -122,8 +135,8 @@ class AlmacenesWindow(QWidget):
         ly.addLayout(bar2)
         self.tbl_ruta = _tabla(["Orden", "Producto", "Cantidad", "Ubicación", "Pasillo"])
         ly.addWidget(self.tbl_ruta)
-        self.tabs.addTab(w, "Distribución / Rutas")
         self._cargar_pickings()
+        return w
 
     def _slotting_analizar(self):
         from src.services.inventario import slotting as SL
