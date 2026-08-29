@@ -16,7 +16,7 @@ API:
 import logging
 
 from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtWidgets import QLabel, QWidget
 
 logger = logging.getLogger("gui.transiciones")
 
@@ -195,3 +195,42 @@ def instalar_transiciones_en(widget):
     except Exception as e:
         logger.debug("instalar_transiciones_en: %s", e)
     return widget
+
+
+def instalar_pestanas_lazy(tabs, entradas):
+    """Registra pestañas de `tabs` (QTabWidget) con carga perezosa (lazy loading): añade un
+    placeholder por cada `(titulo, factory)` de `entradas` y construye el contenido real —
+    `factory()`, una función sin argumentos que devuelve el QWidget de esa pestaña — la primera
+    vez que el usuario la visita, sustituyendo el placeholder sin perder su posición ni su título.
+
+    Pensado para módulos con varias pestañas caras de construir (consultas a BD o ventanas
+    completas embebidas durante su propio __init__): antes había que construirlas TODAS antes de
+    mostrar el módulo. La pestaña que ya está visible al llamar a esta función (`tabs.currentIndex()`,
+    normalmente la 0, añadida por el propio módulo ANTES de llamar aquí) se construye de inmediato;
+    el resto solo al visitarlas. Idempotente por pestaña; a prueba de fallos (una `factory` que
+    lance una excepción simplemente no se atrapa aquí — debe degradar internamente, como ya hacen
+    `_construir_tab_*` en los módulos que usan esto)."""
+    pendientes = {}
+    for titulo, factory in entradas:
+        idx = tabs.addTab(QWidget(), titulo)
+        pendientes[idx] = factory
+
+    def _asegurar(idx):
+        factory = pendientes.pop(idx, None)
+        if factory is None:
+            return
+        nuevo = factory()
+        titulo_tab = tabs.tabText(idx)
+        viejo = tabs.widget(idx)
+        tabs.blockSignals(True)   # removeTab/insertTab también emiten currentChanged
+        try:
+            tabs.removeTab(idx)
+            tabs.insertTab(idx, nuevo, titulo_tab)
+            tabs.setCurrentIndex(idx)
+        finally:
+            tabs.blockSignals(False)
+        if viejo is not None:
+            viejo.deleteLater()
+
+    tabs.currentChanged.connect(_asegurar)
+    _asegurar(tabs.currentIndex())

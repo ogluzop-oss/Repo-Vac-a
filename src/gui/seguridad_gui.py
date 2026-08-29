@@ -61,39 +61,15 @@ class SeguridadWindow(QWidget):
         # Lazy loading (init en primer acceso): Roles/Asignaciones/Reglas de acceso hacen su propia
         # consulta a BD durante la construcción y Gobierno embebe un panel completo — construir las
         # 4 de golpe es lo que hacía que el módulo tardara en abrirse. Se registra un placeholder por
-        # pestaña y el contenido real se construye la primera vez que el usuario la visita
-        # (`_asegurar_pestana_lazy`, enganchado a `currentChanged`).
-        self._pestanas_lazy = {}
-        for titulo, factory in (
+        # pestaña y el contenido real se construye la primera vez que el usuario la visita.
+        from src.gui.transiciones import instalar_pestanas_lazy
+        instalar_pestanas_lazy(self.tabs, [
             ("Roles", self._construir_tab_roles),
             ("Asignaciones", self._construir_tab_asignaciones),
             ("Reglas de acceso", self._construir_tab_acl),
             ("Gobierno", self._construir_tab_gobierno),
-        ):
-            idx = self.tabs.addTab(QWidget(), titulo)
-            self._pestanas_lazy[idx] = factory
+        ])
         self._tab_continuidad()   # infra/continuidad: DR + Resiliencia (dashboards embebidos)
-        self.tabs.currentChanged.connect(self._asegurar_pestana_lazy)
-        self._asegurar_pestana_lazy(self.tabs.currentIndex())
-
-    def _asegurar_pestana_lazy(self, idx):
-        """Construye el contenido real de la pestaña `idx` la primera vez que se visita y lo
-        sustituye por su placeholder, conservando la posición y el título."""
-        factory = self._pestanas_lazy.pop(idx, None)
-        if factory is None:
-            return
-        nuevo = factory()
-        titulo = self.tabs.tabText(idx)
-        viejo = self.tabs.widget(idx)
-        self.tabs.blockSignals(True)   # removeTab/insertTab también emiten currentChanged
-        try:
-            self.tabs.removeTab(idx)
-            self.tabs.insertTab(idx, nuevo, titulo)
-            self.tabs.setCurrentIndex(idx)
-        finally:
-            self.tabs.blockSignals(False)
-        if viejo is not None:
-            viejo.deleteLater()
 
     def _tab_continuidad(self):
         """Aloja los paneles de infraestructura/continuidad (Disaster Recovery y Resiliencia/Offline)
