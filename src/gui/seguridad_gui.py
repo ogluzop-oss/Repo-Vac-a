@@ -57,11 +57,43 @@ class SeguridadWindow(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet(T.qss_tabs())   # mismo diseño de pestañas que el Centro de Inteligencia
         root.addWidget(self.tabs)
-        self._tab_roles()
-        self._tab_asignaciones()
-        self._tab_acl()
-        self._tab_gobierno()
+
+        # Lazy loading (init en primer acceso): Roles/Asignaciones/Reglas de acceso hacen su propia
+        # consulta a BD durante la construcción y Gobierno embebe un panel completo — construir las
+        # 4 de golpe es lo que hacía que el módulo tardara en abrirse. Se registra un placeholder por
+        # pestaña y el contenido real se construye la primera vez que el usuario la visita
+        # (`_asegurar_pestana_lazy`, enganchado a `currentChanged`).
+        self._pestanas_lazy = {}
+        for titulo, factory in (
+            ("Roles", self._construir_tab_roles),
+            ("Asignaciones", self._construir_tab_asignaciones),
+            ("Reglas de acceso", self._construir_tab_acl),
+            ("Gobierno", self._construir_tab_gobierno),
+        ):
+            idx = self.tabs.addTab(QWidget(), titulo)
+            self._pestanas_lazy[idx] = factory
         self._tab_continuidad()   # infra/continuidad: DR + Resiliencia (dashboards embebidos)
+        self.tabs.currentChanged.connect(self._asegurar_pestana_lazy)
+        self._asegurar_pestana_lazy(self.tabs.currentIndex())
+
+    def _asegurar_pestana_lazy(self, idx):
+        """Construye el contenido real de la pestaña `idx` la primera vez que se visita y lo
+        sustituye por su placeholder, conservando la posición y el título."""
+        factory = self._pestanas_lazy.pop(idx, None)
+        if factory is None:
+            return
+        nuevo = factory()
+        titulo = self.tabs.tabText(idx)
+        viejo = self.tabs.widget(idx)
+        self.tabs.blockSignals(True)   # removeTab/insertTab también emiten currentChanged
+        try:
+            self.tabs.removeTab(idx)
+            self.tabs.insertTab(idx, nuevo, titulo)
+            self.tabs.setCurrentIndex(idx)
+        finally:
+            self.tabs.blockSignals(False)
+        if viejo is not None:
+            viejo.deleteLater()
 
     def _tab_continuidad(self):
         """Aloja los paneles de infraestructura/continuidad (Disaster Recovery y Resiliencia/Offline)
@@ -79,17 +111,18 @@ class SeguridadWindow(QWidget):
         except Exception as e:
             logger.debug("tab resiliencia: %s", e)
 
-    def _tab_gobierno(self):
+    def _construir_tab_gobierno(self):
         """Enterprise 7: Gobierno Corporativo (Organigrama/Autoridad/Delegaciones/Políticas/
         Escalados) alojado en Seguridad. Aditivo; no altera las pestañas existentes."""
         try:
             from src.gui.paneles.panel_gobierno import PanelGobierno
-            self.tabs.addTab(PanelGobierno(usuario=self.usuario), "Gobierno")
+            return PanelGobierno(usuario=self.usuario)
         except Exception as e:
             logger.debug("tab gobierno: %s", e)
+            return QWidget()
 
     # ── Roles + permisos ──────────────────────────────────────────────────────
-    def _tab_roles(self):
+    def _construir_tab_roles(self):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         bar = QHBoxLayout()
         bar.addWidget(_btn("Nuevo rol", self._nuevo_rol, primary=True)); bar.addStretch()
@@ -108,9 +141,9 @@ class SeguridadWindow(QWidget):
         der.addWidget(self.tbl_permisos)
         cw = QWidget(); cw.setLayout(der); cuerpo.addWidget(cw, 1)
         lay.addLayout(cuerpo)
-        self.tabs.addTab(w, "Roles")
         self._sel_rol_id = None
         self._load_roles()
+        return w
 
     def _load_roles(self):
         filas = _R.listar_roles(_empresa())
@@ -164,7 +197,7 @@ class SeguridadWindow(QWidget):
             self._load_permisos()
 
     # ── Asignación rol ↔ usuario ──────────────────────────────────────────────
-    def _tab_asignaciones(self):
+    def _construir_tab_asignaciones(self):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         f = QHBoxLayout()
         self.in_uid = _inp("ID usuario"); self.in_uid.setFixedWidth(110)
@@ -178,7 +211,7 @@ class SeguridadWindow(QWidget):
         lay.addLayout(f)
         self.tbl_asig = _tabla(["Rol ID", "Código", "Nombre"])
         lay.addWidget(self.tbl_asig)
-        self.tabs.addTab(w, "Asignaciones")
+        return w
 
     def _refrescar_asig(self):
         try:
@@ -216,15 +249,15 @@ class SeguridadWindow(QWidget):
                 self.tbl_asig.setItem(i, j, _it(v))
 
     # ── ACL ───────────────────────────────────────────────────────────────────
-    def _tab_acl(self):
+    def _construir_tab_acl(self):
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         bar = QHBoxLayout(); bar.addStretch()
         bar.addWidget(_btn("🔄  Actualizar", self._load_acl, primary=True))
         lay.addLayout(bar)
         self.tbl_acl = _tabla(["Recurso", "ID", "Sujeto", "Sujeto ID", "Acción", "Permitido"])
         lay.addWidget(self.tbl_acl)
-        self.tabs.addTab(w, "Reglas de acceso")
         self._load_acl()
+        return w
 
     def _load_acl(self):
         filas = _R.listar_acl(id_empresa=_empresa())
@@ -236,8 +269,14 @@ class SeguridadWindow(QWidget):
                 self.tbl_acl.setItem(i, j, _it(v))
 
     def refrescar(self):
-        for fn in (self._load_roles, self._load_acl):
+        # Roles/ACL solo tienen tbl_roles/tbl_acl si el usuario ya visitó esa pestaña (lazy loading).
+        if hasattr(self, "tbl_roles"):
             try:
-                fn()
+                self._load_roles()
             except Exception as e:
-                logger.debug("refrescar: %s", e)
+                logger.debug("refrescar roles: %s", e)
+        if hasattr(self, "tbl_acl"):
+            try:
+                self._load_acl()
+            except Exception as e:
+                logger.debug("refrescar acl: %s", e)
