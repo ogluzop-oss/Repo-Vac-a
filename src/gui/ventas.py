@@ -2213,9 +2213,19 @@ class VentasAnaliticaWindow(QWidget):
         self.stack = QStackedWidget()
         self.stack.setStyleSheet(f"background: {BG};")
         # BUSCAR VENTAS se ha migrado a la ventana de BÚSQUEDA/REIMPRESIÓN del TPV.
-        self.stack.addWidget(self._panel_resumen_ventas())
-        self.stack.addWidget(self._panel_prevision())
-        self.stack.addWidget(self._panel_rendimiento())
+        # Lazy loading (init en primer acceso): construir las 3 pestañas por adelantado —
+        # PREVISIÓN y RENDIMIENTO cargan datos históricos vía consultas a BD durante su propia
+        # construcción — es lo que causaba tanto la apertura lenta del módulo como el parpadeo
+        # de la animación de entrada (el primer fotograma real, ya con tablas pobladas, tardaba
+        # más en pintarse de lo que la animación esperaba). Solo se construye de verdad la
+        # pestaña que se va a mostrar; el resto queda como placeholder hasta que el usuario la
+        # visita por primera vez (ver `_asegurar_panel`).
+        self._panel_factories = [
+            self._panel_resumen_ventas, self._panel_prevision, self._panel_rendimiento,
+        ]
+        self._paneles_listos = set()
+        for _ in self._panel_factories:
+            self.stack.addWidget(QWidget())
         root.addWidget(self.stack)
 
         self._cambiar_tab(0)
@@ -2266,7 +2276,21 @@ class VentasAnaliticaWindow(QWidget):
 
         return sidebar
 
+    def _asegurar_panel(self, idx: int):
+        """Construye la pestaña `idx` la primera vez que se visita (lazy loading) y la
+        sustituye por su placeholder en el stack, conservando la posición."""
+        if idx in self._paneles_listos:
+            return
+        nuevo = self._panel_factories[idx]()
+        viejo = self.stack.widget(idx)
+        self.stack.removeWidget(viejo)
+        self.stack.insertWidget(idx, nuevo)
+        if viejo is not None:
+            viejo.deleteLater()
+        self._paneles_listos.add(idx)
+
     def _cambiar_tab(self, idx: int):
+        self._asegurar_panel(idx)
         self.stack.setCurrentIndex(idx)
         for i, btn in enumerate(self._sidebar_btns):
             btn.setStyleSheet(_SS_SIDEBAR_BTN_ACTIVE if i == idx else _SS_SIDEBAR_BTN)
@@ -2882,7 +2906,8 @@ class VentasAnaliticaWindow(QWidget):
         self.btn_rend_guardar.clicked.connect(self._guardar_rendimiento)
         br.addWidget(self.btn_rend_guardar); root.addLayout(br)
 
-        self._cargar_rendimiento()
+        # La carga inicial la dispara `_cambiar_tab` (idx==2) justo después de construir esta
+        # pestaña por primera vez (lazy loading) — no se duplica aquí.
         t.cellChanged.connect(self._rend_on_edit)
         return page
 
