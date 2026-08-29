@@ -380,11 +380,14 @@ class RRHHWindow(QWidget):
         # cueste montar sus widgets. Hilo demonio, silencioso ante cualquier fallo.
         self._precargar_imports_en_segundo_plano()
 
-        # Pre-cacheo de pestañas: se construyen en segundo plano (orden de la barra lateral: las de
-        # arriba, más usadas, primero) para que el cambio de pestaña sea INSTANTÁNEO. El coste real de
-        # montar un formulario es el *polish* del QSS de Qt (~60-200ms), inevitable al construir; se
-        # hace aquí, ocioso y espaciado, en vez de al primer clic. Arranque suave tras asentar la UI.
-        QTimer.singleShot(350, self._precachear_laboral)
+        # NOTA: el pre-cacheo en segundo plano de las pestañas laborales (construirlas todas tras
+        # abrir, para que el cambio de pestaña fuera instantáneo) se RETIRÓ: cada formulario
+        # (`DocumentoInlineForm` y similares) hace una consulta a BD síncrona en su propio __init__
+        # (`_cargar_empleados`), así que el "pre-cacheo ocioso" en realidad bloqueaba el hilo de
+        # eventos una vez por pestaña — la ventana se veía abierta pero no respondía a clics/teclado
+        # durante varios segundos tras abrir RRHH. Ahora cada pestaña laboral se construye
+        # ÚNICAMENTE en su primer acceso real (ver `_ir`/`_construir_laboral`), con un pequeño coste
+        # solo en ese primer clic, en vez de congelar toda la ventana de antemano.
 
         # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
         try:
@@ -461,25 +464,6 @@ class RRHHWindow(QWidget):
         if lz:
             phl, ic, lab, tipo, sub = lz
             phl.addWidget(self._page_laboral(ic, lab, tipo, sub))
-
-    # Orden de pre-cacheo: de la pestaña MÁS LIGERA a la más pesada (coste de montaje medido). Así los
-    # primeros tirones de fondo son mínimos (imperceptibles) y los formularios grandes (Nóminas,
-    # Contratos) se montan al final, con la UI ya asentada. Índices de _LABORAL_SECCIONES (1..9).
-    _PRECACHE_ORDEN = [4, 7, 8, 6, 3, 5, 9, 2, 1]
-
-    def _precachear_laboral(self):
-        """Construye en segundo plano (idle) la siguiente pestaña pendiente (más ligera primero) y se
-        reprograma hasta terminar. Deja las pestañas listas para un cambio de pestaña instantáneo."""
-        pend = getattr(self, "_lazy_laboral", None)
-        if not pend:
-            return
-        siguiente = next((i for i in self._PRECACHE_ORDEN if i in pend), min(pend))
-        try:
-            self._construir_laboral(siguiente)
-        except Exception:
-            logger.exception("pre-cacheo pestaña laboral")
-        if self._lazy_laboral:
-            QTimer.singleShot(90, self._precachear_laboral)
 
     def _ir(self, idx):
         # Lazy loading: construir el contenido real de la pestaña laboral en su primer acceso
