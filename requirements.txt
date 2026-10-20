@@ -13,7 +13,7 @@ python-dotenv==1.2.2         # carga de configuración desde .env
 pandas==2.3.3                # datos / importación-exportación
 numpy==2.2.6
 openpyxl==3.1.5              # lectura/escritura Excel (.xlsx)
-reportlab==4.4.10            # generación de PDF (tickets, contratos, nóminas…)
+reportlab==5.0.0            # generación de PDF (tickets, contratos, nóminas…)
 Pillow==11.3.0               # imágenes / logo
 python-barcode==0.16.1       # códigos de barras
 qrcode==8.2                  # códigos QR (ubicaciones)
