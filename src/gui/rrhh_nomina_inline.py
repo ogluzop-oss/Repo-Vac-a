@@ -5,6 +5,7 @@ generar el recibo de salarios se rellenan directamente en la pestaña. Reutiliza
 """
 
 import logging
+import os
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -16,10 +17,12 @@ from assets.estilo_global import (
     COLOR_ACCION_TEXTO, COLOR_BORDE, COLOR_CIAN, COLOR_FONDO_APP, COLOR_FONDO_WIDGET,
     COLOR_TEXTO_SECUNDARIO, mostrar_mensaje,
 )
+from src.gui.rrhh_doc_list_widget import EmpleadoRegistrosList
 from src.rrhh.documents.render.nomina_pdf import (
     DEVENGOS_NO_SALARIALES, DEVENGOS_SALARIALES, EMPRESA_CAMPOS, INFO_ADICIONAL,
     OTRAS_DEDUCCIONES, PERIODO_CAMPOS, TRABAJADOR_CAMPOS, generar_nomina_pdf,
 )
+from src.rrhh.nomina_servicio import GestionNominaError, num
 
 logger = logging.getLogger("gui.rrhh.nomina_inline")
 
@@ -51,7 +54,8 @@ class NominaInlineForm(QWidget):
         self.cb_emp.setMinimumWidth(280)
         self.cb_emp.setStyleSheet(
             f"QComboBox{{background:{COLOR_FONDO_WIDGET};color:#FFF;border:1px solid {COLOR_BORDE};"
-            f"border-radius:8px;padding:6px 10px;font-family:'Segoe UI';font-size:14px;}}")
+            f"border-radius:8px;padding:6px 10px;font-family:'Segoe UI';font-size:14px;}}"
+            f"QComboBox::drop-down{{border:none;width:22px;background:transparent;}}")
         self.cb_emp.currentIndexChanged.connect(self._on_empleado)
         top.addWidget(self.cb_emp, 1)
         top.addWidget(self._btn("Autocompletar", self._autollenar_actual))
@@ -85,6 +89,20 @@ class NominaInlineForm(QWidget):
         self._seccion("Información adicional")
         self._grid_texto(INFO_ADICIONAL)
 
+        # Nóminas ya generadas para el empleado seleccionado (`rrhh_nominas`, alimentada por
+        # `persistencia.registrar_generacion` al generar el PDF — ver `_generar`). Vive DENTRO del
+        # mismo QScrollArea que el resto del formulario (una sección más de `_form_ly`, no un
+        # bloque fijo aparte fuera de él): así queda literalmente debajo de los campos, en el
+        # mismo flujo desplazable de arriba a abajo, en vez de competir por altura fija con el
+        # formulario cuando la ventana es pequeña.
+        self._lista = EmpleadoRegistrosList(
+            "Nóminas generadas del empleado",
+            [("anio", "Año"), ("mes", "Mes"), ("bruto", "Bruto"), ("neto", "Neto"),
+             ("estado", "Estado")],
+            self._listar_nominas_empleado, self._id_empresa,
+            abrir_fn=self._abrir_documento, boton="Reabrir")
+        self._form_ly.addWidget(self._lista)
+
         self._form_ly.addStretch()
         scroll.setWidget(cont)
         root.addWidget(scroll, 1)
@@ -99,8 +117,19 @@ class NominaInlineForm(QWidget):
         bottom.addWidget(self._btn("Generar nómina (PDF)", self._generar, primary=True))
         root.addLayout(bottom)
 
-        # Valores por defecto sensatos.
-        self._set("num_pagas", "12"); self._set("irpf_pct", "15")
+        # Valores por defecto sensatos. El IRPF YA NO se precarga a un 15% fijo (Fase F.2): se
+        # autorrellena desde `rrhh_datos_fiscales.irpf_pct_calculado` al elegir empleado
+        # (`_autollenar`) — este campo queda vacío hasta entonces, editable como excepción puntual
+        # igual que el resto de campos del formulario.
+        self._set("num_pagas", "12")
+
+        # Prellenado automático del prorrateo de pagas extra (mismo motor que el cálculo final —
+        # `nomina_motor.calcular_prorrateo_pagas_extra`) cuando cambian "Salario base" o "Nº
+        # pagas/año". Solo PREFILL: si el usuario edita después el campo a mano, no se vuelve a
+        # pisar mientras no cambien de nuevo esos dos campos de origen (ver `_actualizar_prorrateo_auto`).
+        self._prorrateo_auto = None
+        self._inputs["salario_base"].textChanged.connect(self._actualizar_prorrateo_auto)
+        self._inputs["num_pagas"].textChanged.connect(self._actualizar_prorrateo_auto)
 
     def _lbl(self, txt):
         l = QLabel(txt); l.setStyleSheet(_LBL_SS); return l
@@ -109,10 +138,10 @@ class NominaInlineForm(QWidget):
         b = QPushButton(txt); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFixedHeight(40)
         if primary:
             b.setStyleSheet(
-                f"QPushButton{{background:{COLOR_CIAN};color:{COLOR_ACCION_TEXTO};border:none;"
+                f"QPushButton{{background:{COLOR_FONDO_WIDGET};color:{COLOR_CIAN};border:2px solid {COLOR_CIAN};"
                 f"border-radius:10px;padding:8px 18px;font-family:'Segoe UI';font-weight:bold;font-size:15px;}}"
-                f"QPushButton:hover{{background:{COLOR_ACCION_TEXTO};color:{COLOR_CIAN};"
-                f"border:2px solid {COLOR_CIAN};}}")
+                f"QPushButton:hover{{background:{COLOR_CIAN};color:{COLOR_ACCION_TEXTO};"
+                f"border-color:{COLOR_CIAN};}}")
         else:
             b.setStyleSheet(
                 f"QPushButton{{background:transparent;color:{COLOR_CIAN};border:2px solid {COLOR_CIAN};"
@@ -156,6 +185,28 @@ class NominaInlineForm(QWidget):
         if clave in self._inputs:
             self._inputs[clave].setText("" if valor is None else str(valor))
 
+    def _actualizar_prorrateo_auto(self):
+        """Prellena 'Pagas extraordinarias prorrateadas' con el mismo cálculo del motor
+        (`salario_base * max(num_pagas-12,0)/12`) al cambiar salario base o nº de pagas. No
+        bloquea el campo: si el usuario ya lo editó a mano a un valor distinto del último
+        auto-rellenado, no se lo pisa (solo prefill, nunca fuerza)."""
+        campo = self._inputs.get("pagas_extra_prorrateadas")
+        if campo is None:
+            return
+        try:
+            from src.rrhh.nomina_motor import calcular_prorrateo_pagas_extra
+            salario = num(self._inputs["salario_base"].text())
+            num_pagas = int(num(self._inputs["num_pagas"].text()) or 12) or 12
+            valor = calcular_prorrateo_pagas_extra(salario, num_pagas)
+        except Exception as e:
+            logger.debug("actualizar prorrateo auto: %s", e); return
+        actual = num(campo.text())
+        if self._prorrateo_auto is None or abs(actual - self._prorrateo_auto) < 0.005:
+            campo.blockSignals(True)
+            campo.setText(str(valor) if valor else "0")
+            campo.blockSignals(False)
+            self._prorrateo_auto = valor
+
     def _cargar_empleados(self):
         try:
             from src.rrhh.db import empleados
@@ -170,8 +221,21 @@ class NominaInlineForm(QWidget):
             self.cb_emp.addItem(f"{nom}  ·  {e.get('nif','')}", e)
         self.cb_emp.blockSignals(False)
 
+    def _listar_nominas_empleado(self, id_empleado, id_empresa):
+        from src.rrhh.db import nominas as NM
+        return NM.listar_nominas(id_empleado, id_empresa)
+
+    def _abrir_documento(self, fila):
+        ruta = fila.get("ref_documento")
+        if ruta and os.path.exists(ruta):
+            from src.utils import plataforma
+            plataforma.abrir_archivo(ruta)
+        else:
+            mostrar_mensaje(self, "Nóminas", "El documento no está disponible en disco.", "warning")
+
     def _on_empleado(self, _idx):
         emp = self.cb_emp.currentData()
+        self._lista.refrescar(emp.get("id") if emp else None)
         if emp:
             self._autollenar(emp)
 
@@ -201,23 +265,101 @@ class NominaInlineForm(QWidget):
                 self._set(k, v)
         if emp.get("convenio"):
             self._set("convenio", emp.get("convenio"))
-        # Salario base.
+        # IBAN de domiciliación (petición explícita): se cablea con el expediente del empleado,
+        # pero SOLO la máscara (4 últimos dígitos) — el IBAN completo nunca se muestra ni se
+        # imprime en la nómina generada, se queda cifrado en `rrhh_empleados.iban`.
+        if emp.get("iban_mascara"):
+            self._set("iban", emp.get("iban_mascara"))
+        # Salario base (mensual). `rrhh_empleados.salario_base` YA es mensual (fuente de partida
+        # si aún no hay contrato con datos propios).
         if emp.get("salario_base"):
             self._set("salario_base", emp.get("salario_base"))
-        # Contrato MAESTRO: unifica salario/jornada/convenio con el resto de documentos (fuente única).
+
+        # Contrato MAESTRO: unifica jornada/convenio/modelo de pago con el resto de documentos.
+        K = {}
         try:
             from src.rrhh import maestros
-            K = maestros.entidad_contrato(emp.get("id"), self._id_empresa())
-            if K.get("salario"):
-                self._set("salario_base", K.get("salario"))
+            K = maestros.entidad_contrato(emp.get("id"), self._id_empresa()) or {}
             if K.get("jornada"):
                 self._set("jornada", K.get("jornada"))
         except Exception as e:
             logger.debug("nomina contrato maestro: %s", e)
+        self._contrato_actual = K
+
+        modelo_pago = str(K.get("modelo_pago") or "fijo").strip().lower()
+        if modelo_pago == "hora":
+            # Fase F.3: el bruto NUNCA sale de un salario fijo — se calcula a partir de las horas
+            # REALMENTE fichadas en el periodo (misma fuente que la Fase E,
+            # `db.usuario.listar_fichajes_empleado`) × la tarifa/hora del contrato. Estimación con
+            # el periodo actualmente seleccionado (o el mes en curso si aún no se ha elegido) —
+            # "Autocompletar" recalcula si se cambia el periodo.
+            horas = self._horas_fichadas_periodo(emp)
+            tarifa = num(K.get("tarifa_hora"))
+            self._set("salario_base", round(horas * tarifa, 2))
+        elif K.get("salario"):
+            # Bug F4.3.0 (Fase F.1): el contrato guarda el salario en BRUTO ANUAL — hay que
+            # dividir entre el Nº DE PAGAS (mismo criterio que `NominaInput.desde_anual`, no un
+            # /12 fijo) antes de volcarlo al campo MENSUAL del formulario. Antes de esta corrección
+            # se copiaba el importe anual tal cual, tratándolo como si fuera ya mensual.
+            try:
+                num_pagas = int(num(self._inputs["num_pagas"].text()) or 12) or 12
+            except Exception:
+                num_pagas = 12
+            self._set("salario_base", round(num(K.get("salario")) / num_pagas, 2))
+
+        # IRPF real (Fase F.2): ya NO se precarga un 15% fijo — se lee
+        # `rrhh_datos_fiscales.irpf_pct_calculado` (Fase B2, `IRPFCalculatorService`), el ÚNICO
+        # campo del que la nómina debe tomar el IRPF. Queda editable como excepción puntual.
+        try:
+            from src.rrhh.db import datos_fiscales as _df
+            df = _df.obtener_datos_fiscales(emp.get("id"), self._id_empresa())
+            if df and df.get("irpf_pct_calculado") is not None:
+                self._set("irpf_pct", df.get("irpf_pct_calculado"))
+        except Exception as e:
+            logger.debug("nomina irpf_pct_calculado: %s", e)
+
+    def _horas_fichadas_periodo(self, emp) -> float:
+        """Horas REALMENTE fichadas por `emp` en el periodo actualmente seleccionado en el
+        formulario (o el mes en curso si aún no se ha elegido ninguno) — Fase F.3, misma fuente
+        de fichajes que la bolsa de horas de la Fase E."""
+        id_usuario = emp.get("id_usuario")
+        if not id_usuario:
+            return 0.0
+        try:
+            from src.rrhh.nomina_servicio import _resolver_periodo
+            # OJO: lee los campos de periodo DIRECTAMENTE de los widgets (no vía `_recoger()`,
+            # que a su vez puede invocar este método → recursión infinita).
+            periodo = {"periodo_anio": self._inputs["periodo_anio"].text().strip(),
+                      "periodo_mes": self._inputs["periodo_mes"].text().strip()}
+            anio, mes = _resolver_periodo(periodo)
+        except Exception:
+            import datetime as _dt
+            hoy = _dt.date.today()
+            anio, mes = hoy.year, hoy.month
+        try:
+            from src.db.usuario import listar_fichajes_empleado
+            fichajes = listar_fichajes_empleado(id_usuario, anio=anio, mes=mes) or []
+            return round(sum(int(f.get("segundos") or 0) for f in fichajes) / 3600.0, 2)
+        except Exception as e:
+            logger.debug("horas fichadas periodo (%s): %s", id_usuario, e)
+            return 0.0
 
     def _recoger(self) -> dict:
         datos = {k: (w.text().strip() if isinstance(w, QLineEdit) else "") for k, w in self._inputs.items()}
         datos.update(self._empresa_valores())     # datos de empresa inyectados automáticamente
+        # Fase F: id_empleado/id_empresa habilitan el enriquecimiento automático de
+        # `calcular_desde_datos` (IRPF real ya viene precargado arriba; IT y bolsa de horas se
+        # resuelven aquí, en el momento del cálculo, para reflejar siempre el periodo vigente).
+        emp = self.cb_emp.currentData()
+        if emp:
+            datos["id_empleado"] = emp.get("id")
+            modelo_pago = str(getattr(self, "_contrato_actual", {}).get("modelo_pago") or "fijo")
+            datos["modelo_pago"] = modelo_pago.strip().lower()
+            if datos["modelo_pago"] == "hora":
+                datos.setdefault("tarifa_hora", str(num(self._contrato_actual.get("tarifa_hora"))))
+                datos.setdefault("horas_trabajadas_periodo",
+                                 str(self._horas_fichadas_periodo(emp)))
+        datos["id_empresa"] = self._id_empresa()
         return datos
 
     def _empresa_valores(self) -> dict:
@@ -246,6 +388,8 @@ class NominaInlineForm(QWidget):
             self.lbl_resumen.setText(
                 f"Devengado: {eur(round(total_dev,2))}   ·   Deducciones: {eur(total_ded)}   ·   "
                 f"Líquido: {eur(liq)}")
+        except GestionNominaError as e:
+            mostrar_mensaje(self, "Nóminas", str(e), "error")
         except Exception as e:
             logger.error("calcular nómina: %s", e)
             mostrar_mensaje(self, "Nóminas", "No se pudo calcular la nómina.", "error")
@@ -255,6 +399,20 @@ class NominaInlineForm(QWidget):
         if not (datos.get("trab_nombre") or datos.get("nif")):
             mostrar_mensaje(self, "Nóminas", "Indica al menos el trabajador (nombre o NIF).", "warning")
             return
+        id_emp = (self.cb_emp.currentData() or {}).get("id")
+        if id_emp:
+            # Hereda anticipos/conceptos recurrentes aprobados (`rrhh_gestion.py`) que hasta ahora nunca
+            # llegaban a la nómina generada. Solo se rellenan las claves que el usuario ha dejado en
+            # blanco: `preparar_datos_nomina` usa `dict.setdefault`, que no pisaría un valor ya tecleado,
+            # pero `_recoger()` ya crea TODAS las claves (aunque sea con ""), así que hay que pasarle solo
+            # las vacías y fusionar el resultado de vuelta — si no, el setdefault nunca dispara.
+            try:
+                from src.services.rrhh import nominas_pro
+                rellenos = {k: v for k, v in datos.items() if v in ("", None)}
+                enriquecido = nominas_pro.preparar_datos_nomina(id_emp, rellenos, id_empresa=self._id_empresa())
+                datos.update({k: v for k, v in enriquecido.items() if k in rellenos})
+            except Exception as e:
+                logger.debug("preparar_datos_nomina: %s", e)
         try:
             ruta = generar_nomina_pdf(datos)
             try:
@@ -264,6 +422,56 @@ class NominaInlineForm(QWidget):
                                     referencia=str(datos.get("nif") or ""))
             except Exception:
                 pass
+            # Fase F.7: reconecta el camino de escritura a `rrhh_nominas`, hoy huérfano (solo
+            # alcanzable desde el wizard antiguo, ya sin uso). Reutiliza SIEMPRE
+            # `persistencia.registrar_generacion` → `_registrar_nomina` (nunca duplica su mapeo
+            # de columnas) — mismo `datos` "engine-ready" (`_preparar_engine`) que ya usa el PDF,
+            # así lo persistido coincide exactamente con lo mostrado. Nace SIEMPRE en
+            # `estado='borrador'` (columna por defecto): un humano la aprueba desde el listado de
+            # nóminas del expediente, nunca se aprueba automáticamente.
+            try:
+                from src.rrhh.documents.render.nomina_pdf import _preparar_engine
+                from src.rrhh.nomina_servicio import _resolver_periodo
+                import calendar as _cal
+                import datetime as _dt_
+                anio_p, mes_p = _resolver_periodo(datos)
+                fecha_periodo = _dt_.date(anio_p, mes_p, _cal.monthrange(anio_p, mes_p)[1])
+                datos_persist = _preparar_engine(datos)
+                datos_persist["fecha"] = fecha_periodo.strftime("%d/%m/%Y")
+                from src.rrhh import persistencia
+                persistencia.registrar_generacion("NÓMINA", datos_persist, ruta,
+                                                   id_empresa=self._id_empresa())
+            except Exception as e:
+                logger.error("registrar nómina en expediente (rrhh_nominas): %s", e)
+            if id_emp:
+                # No es idempotente (rebajaría la cuota dos veces si se regenera el mismo PDF) — se pide
+                # confirmación explícita al humano antes de aplicarla, nunca automático.
+                try:
+                    from assets.estilo_global import mostrar_confirmacion
+                    if mostrar_confirmacion(
+                            self, "Anticipos",
+                            "¿Aplicar la cuota de anticipo pendiente de este empleado a esta nómina?"):
+                        from src.services.rrhh import nominas_pro
+                        nominas_pro.amortizar_anticipos(id_emp, id_empresa=self._id_empresa())
+                except Exception as e:
+                    logger.debug("amortizar_anticipos: %s", e)
+                # Gastos de viaje aprobados (petición explícita): igual de explícito/no-automático
+                # que los anticipos — ya se inyectaron en "dietas" al generar el PDF
+                # (`nominas_pro.preparar_datos_nomina`), aquí solo se marcan como reembolsados.
+                try:
+                    from src.services.gastos_viaje import gastos as gastos_viaje
+                    pendiente = gastos_viaje.total_pendiente_reembolso(id_emp, id_empresa=self._id_empresa())
+                    if pendiente:
+                        from assets.estilo_global import mostrar_confirmacion
+                        if mostrar_confirmacion(
+                                self, "Gastos de viaje",
+                                f"Esta nómina incluye {pendiente:.2f}€ de gastos de viaje aprobados "
+                                "(ya sumados en «Dietas»). ¿Marcarlos como reembolsados?"):
+                            gastos_viaje.marcar_reembolsados(id_emp, id_empresa=self._id_empresa())
+                except Exception as e:
+                    logger.debug("marcar_reembolsados gastos de viaje: %s", e)
+            if id_emp:
+                self._lista.refrescar(id_emp)
             self._calcular()
             mostrar_mensaje(self, "Nóminas",
                             "Nómina generada correctamente en /documentos/nominas.", "success")
@@ -272,6 +480,8 @@ class NominaInlineForm(QWidget):
                 plataforma.abrir_carpeta(ruta.rsplit("\\", 1)[0].rsplit("/", 1)[0])
             except Exception:
                 pass
+        except GestionNominaError as e:
+            mostrar_mensaje(self, "Nóminas", str(e), "error")
         except Exception as e:
             logger.error("generar nómina: %s", e)
             mostrar_mensaje(self, "Nóminas", "No se pudo generar la nómina.", "error")

@@ -47,7 +47,7 @@ def global_() -> dict:
     except Exception:
         pass
     try:
-        from src.platform import health as ph
+        from src.plataforma import health as ph
         plataforma = ph.global_()
     except Exception:
         plataforma = {}

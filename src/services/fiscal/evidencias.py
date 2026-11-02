@@ -18,7 +18,7 @@ _CLASES = {
     "xml":   ("factura", "xml"),     # factura/ticket XML (Verifactu/Facturae)
     "firma": ("certificado", "xml"),  # firma XAdES / artefacto firmado
     "acuse": ("auditoria", "xml"),   # acuse/respuesta de la hacienda/integrador
-    "qr":    ("otros", "png"),       # imagen del QR de cotejo
+    "qr":    ("fiscal", "png"),       # imagen del QR de cotejo (evidencia fiscal, no "otros")
 }
 
 

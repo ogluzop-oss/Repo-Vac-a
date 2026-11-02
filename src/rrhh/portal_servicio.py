@@ -86,6 +86,23 @@ def solicitar_vacaciones(id_empleado, fecha_inicio, fecha_fin, id_empresa=None) 
     return vacaciones_servicio.solicitar(id_empleado, fecha_inicio, fecha_fin, id_empresa=id_empresa)
 
 
+def gastos_propios(id_empleado, id_empresa=None, estado=None) -> list:
+    """Gastos de viaje del trabajador (petición explícita — autoservicio móvil). Reutiliza
+    `services.gastos_viaje.gastos`; nunca ve los de otros compañeros (siempre filtrado por
+    `id_empleado`)."""
+    from src.services.gastos_viaje import gastos
+    return gastos.listar_gastos(id_empleado=id_empleado, estado=estado, id_empresa=id_empresa)
+
+
+def registrar_gasto_propio(id_empleado, fecha_gasto, categoria, importe, *, concepto=None,
+                           ruta_ticket=None, ocr_origen=False, id_empresa=None) -> dict:
+    """El trabajador registra SU gasto de viaje (reutiliza `services.gastos_viaje.gastos`, misma
+    función que usa la pestaña de gestión de escritorio — ningún motor paralelo)."""
+    from src.services.gastos_viaje import gastos
+    return gastos.crear_gasto(id_empleado, fecha_gasto, categoria, importe, concepto=concepto,
+                              ruta_ticket=ruta_ticket, ocr_origen=ocr_origen, id_empresa=id_empresa)
+
+
 def exportar_control_horario(id_empleado, id_empresa=None, anio=None) -> str:
     """CSV del control horario propio (reutiliza control_horario, sin recalcular)."""
     from src.rrhh import control_horario

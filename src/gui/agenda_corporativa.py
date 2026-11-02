@@ -56,13 +56,24 @@ class AgendaCorporativaDialog(QDialog):
         sub.setStyleSheet(f"color:{_DIM};font-family:'Segoe UI';font-size:11px;")
         sub.setWordWrap(True); root.addWidget(sub)
 
+        fila_busq = QHBoxLayout(); fila_busq.setSpacing(8)
         self.inp = QLineEdit(); self.inp.setFixedHeight(38)
-        self.inp.setPlaceholderText("Buscar por nombre, empresa, CIF, correo, teléfono…")
+        self.inp.setPlaceholderText("🔍 Buscar por nombre, empresa, CIF, correo, teléfono…")
         self.inp.setStyleSheet(
             f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_CIAN};border-radius:10px;"
             f"padding:6px 12px;font-family:'Segoe UI';font-size:13px;}}")
         self.inp.textEdited.connect(lambda _=None: self._timer.start())
-        root.addWidget(self.inp)
+        self.inp.returnPressed.connect(self._cargar)
+        fila_busq.addWidget(self.inp, 1)
+        # 48x48 (no 38x38/44x44): evita que el glifo emoji 🔍 se vea recortado.
+        btn_buscar = QPushButton("🔍"); btn_buscar.setFixedSize(48, 48)
+        btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_buscar.setStyleSheet(f"QPushButton{{background:transparent;color:{_CIAN};border:2px solid {_CIAN};"
+                                 f"border-radius:10px;font-weight:900;padding:0;}}"
+                                 f"QPushButton:hover{{background:{_CIAN};color:{_BG};}}")
+        btn_buscar.clicked.connect(self._cargar)
+        fila_busq.addWidget(btn_buscar)
+        root.addLayout(fila_busq)
 
         self.tbl = QTableWidget(0, 4)
         self.tbl.setHorizontalHeaderLabels(["Nombre", "Correo", "Tipo", "Aviso"])

@@ -26,8 +26,23 @@ GLOBALES = {
     "schema_migraciones", "bi_kpi_def", "eventos_tipo",
     # Catálogos fiscales de país (referencia global).
     "pais_fiscal", "configuracion_iva_pais", "regimen_fiscal_pais",
+    # Catálogo IAE (epígrafes + deducciones sectoriales por epígrafe, migr. 0273): mismo criterio
+    # que los catálogos fiscales de arriba — referencia nacional, no dato de una empresa concreta
+    # (la asignación POR empresa vive en `fiscal_empresa_epigrafe`, que sí tiene id_empresa).
+    "fiscal_iae_epigrafes", "fiscal_deducciones_sectoriales",
     # Infra/sistema (DR, no dato de empresa).
     "dr_drills",
+    # Catálogo de familias a granel (báscula del TPV, `services.tpv.familias_granel_imagenes`/
+    # `familias_granel_subfamilias`, migraciones 0306/0308): MISMO criterio, consciente, que
+    # `productos_granel` (la tabla de productos a granel en sí) — `productos_granel` SÍ tiene la
+    # columna `id_empresa` (añadida de forma genérica a toda tabla operativa por la Fase 0b de
+    # `conexion.py`), pero su servicio real (`services.tpv.bulk_products_service`) no la usa en
+    # NINGUNA de sus consultas: todo el catálogo a granel (productos, familias canónicas de
+    # `familias_granel.py`, y por tanto también sus apartados/imágenes personalizados) es hoy
+    # compartido entre empresas de la misma instalación, de forma consistente en todo el módulo —
+    # no una fuga aislada de estas dos tablas. Aislar solo estas dos sin tocar el resto del módulo
+    # dejaría una mezcla incoherente (parte del catálogo a granel por empresa, el resto global).
+    "familias_granel_imagenes", "familias_granel_subfamilias",
 }
 
 # Tablas de DETALLE aisladas vía su tabla PADRE (que sí tiene id_empresa). Se aíslan al unir con ella.
@@ -44,6 +59,13 @@ VIA_PADRE = {
     "wf_reglas": "wf_definiciones",
     "mfa_recovery_codes": "mfa_usuarios",
     "eventos_incidentes": "eventos",
+    # Bultos de recepción logística (migr. 0313, desglose por bulto de un palé): hijas por FK de
+    # `documentos_logisticos`/`documentos_logisticos_bultos` respectivamente (ambas con
+    # id_empresa en la cadena) — confirmado en `db/logistica.py::generar_bultos_para_pale`/
+    # `confirmar_recepcion_bulto`, que siempre resuelven el palé/documento padre filtrando por
+    # `id_empresa` antes de tocar estas tablas de detalle.
+    "documentos_logisticos_bultos": "documentos_logisticos",
+    "documentos_logisticos_bultos_lineas": "documentos_logisticos_bultos",
 }
 
 # Tablas aisladas por USUARIO (el usuario pertenece a una empresa).

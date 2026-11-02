@@ -12,6 +12,7 @@ datos MAESTROS unificada (`src.rrhh.maestros`).
 """
 
 import logging
+import os
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -20,8 +21,10 @@ from PyQt6.QtWidgets import (
 )
 
 from assets.estilo_global import (
-    COLOR_ACCION_TEXTO, COLOR_BORDE, COLOR_CIAN, COLOR_FONDO_WIDGET, mostrar_mensaje,
+    COLOR_ACCION_TEXTO, COLOR_BORDE, COLOR_CIAN, COLOR_FONDO_WIDGET, mostrar_confirmacion,
+    mostrar_mensaje,
 )
+from src.gui.rrhh_doc_list_widget import EmpleadoRegistrosList
 
 logger = logging.getLogger("gui.rrhh.contrato_inline")
 
@@ -49,6 +52,21 @@ CLAUSULAS = [
     "Interrupción del período de prueba por IT/nacimiento",
     "Vacaciones en días laborables",
     "Obligación de comunicar baja/alta médica de forma inmediata",
+]
+
+# Fase B (RRHH — Contratos: modelo de pago, cláusula de bolsa de horas y complemento de
+# convenio por IT). Deliberadamente SIN IRPF: vive en `rrhh_datos_fiscales` (Fase B2), nunca
+# en el contrato. (etiqueta, valor guardado en `rrhh_contratos`).
+MODELO_PAGO = [("Fijo mensual", "fijo"), ("Tarifa por hora", "hora")]
+COMPENSACION_BOLSA = [
+    ("Descanso compensatorio", "descanso"),
+    ("A elección del trabajador", "eleccion_trabajador"),
+    ("Siempre en pago", "pago"),
+]
+COMPLEMENTO_IT_TIPO = [
+    ("Porcentaje hasta", "porcentaje_hasta"),
+    ("Importe fijo", "importe_fijo"),
+    ("Ninguno", "ninguno"),
 ]
 
 # (clave en _datos del asistente, etiqueta, tipo). tipo: "line" | ("combo", opciones)
@@ -110,8 +128,11 @@ class ContratoInlineForm(QWidget):
         self._wz = None            # motor de generación (asistente), perezoso
         self._combo_centro = None
         self._combo_rep = None
+        self._id_contrato_actual = None    # Fase B: id real en rrhh_contratos (None = sin generar aún)
+        self._contrato_firmado = False     # Fase B: estado `firmado` del contrato cargado/generado
         self._build()
         self._cargar_empleados()
+        self._actualizar_visibilidad_firmado()
 
     # ── Motor de generación (asistente existente, reutilizado sin modificar) ────
     def _wizard(self):
@@ -157,6 +178,11 @@ class ContratoInlineForm(QWidget):
         self._grid_combos_empresa()
         self._seccion("Retribución y condiciones")
         self._grid(_RETRIBUCION)
+        self._grid_modelo_pago()
+        self._seccion("Cláusula de bolsa de horas (distribución irregular de jornada)")
+        self._grid_bolsa_horas()
+        self._seccion("Complemento de convenio por IT")
+        self._grid_complemento_it()
         self._seccion("Asistencia legal de los trabajadores")
         self._grid(_ASISTENCIA)
         self._seccion("Cofinanciación y cláusulas adicionales")
@@ -169,11 +195,30 @@ class ContratoInlineForm(QWidget):
             cb = QCheckBox(txt); cb.setChecked(True); cb.setStyleSheet(_LBL_SS)
             self._form_ly.addWidget(cb); self._checks.append((txt, cb))
 
+        # Contratos ya generados para el empleado seleccionado (`rrhh_contratos`, alimentada por
+        # `registrar_generacion` al generar el PDF — ver `_generar`). Vive DENTRO del mismo
+        # QScrollArea que el resto del formulario (una sección más de `_form_ly`, no un bloque fijo
+        # aparte fuera de él): así queda literalmente debajo de los campos, en el mismo flujo
+        # desplazable de arriba a abajo, en vez de competir por altura fija con el formulario cuando
+        # la ventana es pequeña.
+        self._lista = EmpleadoRegistrosList(
+            "Contratos generados del empleado",
+            [("modalidad", "Modalidad"), ("fecha_inicio", "Inicio"), ("fecha_fin", "Fin"),
+             ("salario", "Salario"), ("estado", "Estado")],
+            self._listar_contratos_empleado, self._id_empresa,
+            abrir_fn=self._abrir_documento, boton="Reabrir")
+        self._form_ly.addWidget(self._lista)
+
         self._form_ly.addStretch()
         scroll.setWidget(cont)
         root.addWidget(scroll, 1)
 
         bottom = QHBoxLayout(); bottom.addStretch()
+        # Firmado: solo SUPERADMIN, y solo una vez el contrato tiene un id real (generado/
+        # guardado) — oculto en cualquier otro caso (ver `_actualizar_visibilidad_firmado`).
+        self.btn_firmado = self._btn("Firmado", self._marcar_firmado_click)
+        self.btn_firmado.setVisible(False)
+        bottom.addWidget(self.btn_firmado)
         bottom.addWidget(self._btn("Generar contrato (PDF)", self._generar, primary=True))
         root.addLayout(bottom)
 
@@ -184,9 +229,9 @@ class ContratoInlineForm(QWidget):
         b = QPushButton(txt); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFixedHeight(40)
         if primary:
             b.setStyleSheet(
-                f"QPushButton{{background:{COLOR_CIAN};color:{COLOR_ACCION_TEXTO};border:none;"
+                f"QPushButton{{background:{COLOR_FONDO_WIDGET};color:{COLOR_CIAN};border:2px solid {COLOR_CIAN};"
                 f"border-radius:10px;padding:8px 18px;font-family:'Segoe UI';font-weight:bold;font-size:15px;}}"
-                f"QPushButton:hover{{background:{COLOR_ACCION_TEXTO};color:{COLOR_CIAN};border:2px solid {COLOR_CIAN};}}")
+                f"QPushButton:hover{{background:{COLOR_CIAN};color:{COLOR_ACCION_TEXTO};border-color:{COLOR_CIAN};}}")
         else:
             b.setStyleSheet(
                 f"QPushButton{{background:transparent;color:{COLOR_CIAN};border:2px solid {COLOR_CIAN};"
@@ -241,6 +286,133 @@ class ContratoInlineForm(QWidget):
         holder = QWidget(); holder.setLayout(grid)
         self._form_ly.addWidget(holder)
 
+    def _combo_valores(self, pares, valor_defecto=None):
+        """Combo (etiqueta, valor) — a diferencia de `_grid()` (que usa el texto tal cual),
+        estos combos guardan un valor de BD distinto de la etiqueta visible (p. ej.
+        "Fijo mensual" → 'fijo'), así que usan `currentData()`/`findData()`."""
+        cb = QComboBox(); cb.setStyleSheet(f"QComboBox{{{_CB_SS}}}")
+        for etiqueta, valor in pares:
+            cb.addItem(etiqueta, valor)
+        if valor_defecto is not None:
+            i = cb.findData(valor_defecto)
+            if i >= 0:
+                cb.setCurrentIndex(i)
+        return cb
+
+    def _grid_modelo_pago(self):
+        """Modelo de pago (Fijo mensual / Tarifa por hora). En modo "hora" se muestra la
+        tarifa/hora y se des-enfatiza (deshabilita) el salario bruto anual, que deja de
+        aplicar — ambos modelos coexisten por contrato, nunca se mezclan."""
+        grid = QGridLayout(); grid.setHorizontalSpacing(18); grid.setVerticalSpacing(8)
+        c1 = QVBoxLayout(); c1.setSpacing(2)
+        c1.addWidget(self._lbl("Modelo de pago"))
+        self.cb_modelo_pago = self._combo_valores(MODELO_PAGO, "fijo")
+        self.cb_modelo_pago.currentIndexChanged.connect(self._actualizar_visibilidad_modelo_pago)
+        c1.addWidget(self.cb_modelo_pago)
+        w1 = QWidget(); w1.setLayout(c1); grid.addWidget(w1, 0, 0)
+        c2 = QVBoxLayout(); c2.setSpacing(2)
+        c2.addWidget(self._lbl("Tarifa por hora (€)"))
+        self.inp_tarifa_hora = QLineEdit(); self.inp_tarifa_hora.setStyleSheet(f"QLineEdit{{{_INP_SS}}}")
+        c2.addWidget(self.inp_tarifa_hora)
+        w2 = QWidget(); w2.setLayout(c2); grid.addWidget(w2, 0, 1)
+        self._w_tarifa_hora = w2
+        holder = QWidget(); holder.setLayout(grid)
+        self._form_ly.addWidget(holder)
+        self._actualizar_visibilidad_modelo_pago()
+
+    def _actualizar_visibilidad_modelo_pago(self, *_args):
+        es_hora = self.cb_modelo_pago.currentData() == "hora"
+        self._w_tarifa_hora.setVisible(es_hora)
+        salario_w = self._inputs.get("salario")
+        if salario_w is not None:
+            salario_w.setEnabled(not es_hora)
+
+    def _grid_bolsa_horas(self):
+        """Cláusula opcional (checkbox) — vigencia/compensación/plus/regularización. Los 4
+        campos se deshabilitan en bloque mientras la cláusula no esté activada (Qt propaga
+        `setEnabled` al contenedor y a sus hijos)."""
+        self.chk_bolsa_horas = QCheckBox("Activar cláusula de bolsa de horas")
+        self.chk_bolsa_horas.setStyleSheet(_LBL_SS)
+        self.chk_bolsa_horas.toggled.connect(self._actualizar_visibilidad_bolsa_horas)
+        self._form_ly.addWidget(self.chk_bolsa_horas)
+
+        grid = QGridLayout(); grid.setHorizontalSpacing(18); grid.setVerticalSpacing(8)
+        c1 = QVBoxLayout(); c1.setSpacing(2)
+        c1.addWidget(self._lbl("Vigencia (meses)"))
+        self.inp_bolsa_vigencia = QLineEdit("12"); self.inp_bolsa_vigencia.setStyleSheet(f"QLineEdit{{{_INP_SS}}}")
+        c1.addWidget(self.inp_bolsa_vigencia)
+        grid.addWidget(self._envolver(c1), 0, 0)
+
+        c2 = QVBoxLayout(); c2.setSpacing(2)
+        c2.addWidget(self._lbl("Compensación de las horas"))
+        self.cb_bolsa_compensacion = self._combo_valores(COMPENSACION_BOLSA, "descanso")
+        c2.addWidget(self.cb_bolsa_compensacion)
+        grid.addWidget(self._envolver(c2), 0, 1)
+
+        c3 = QVBoxLayout(); c3.setSpacing(2)
+        c3.addWidget(self._lbl("Plus por disponibilidad (€) — opcional"))
+        self.inp_bolsa_plus = QLineEdit(); self.inp_bolsa_plus.setStyleSheet(f"QLineEdit{{{_INP_SS}}}")
+        c3.addWidget(self.inp_bolsa_plus)
+        grid.addWidget(self._envolver(c3), 1, 0)
+
+        c4 = QVBoxLayout(); c4.setSpacing(2)
+        c4.addWidget(self._lbl("Periodo de regularización (meses)"))
+        self.inp_bolsa_regularizacion = QLineEdit("12")
+        self.inp_bolsa_regularizacion.setStyleSheet(f"QLineEdit{{{_INP_SS}}}")
+        c4.addWidget(self.inp_bolsa_regularizacion)
+        grid.addWidget(self._envolver(c4), 1, 1)
+
+        self._w_bolsa_campos = QWidget(); self._w_bolsa_campos.setLayout(grid)
+        self._w_bolsa_campos.setEnabled(False)
+        self._form_ly.addWidget(self._w_bolsa_campos)
+
+    def _actualizar_visibilidad_bolsa_horas(self, activa):
+        self._w_bolsa_campos.setEnabled(bool(activa))
+
+    def _grid_complemento_it(self):
+        """Cláusula opcional independiente de la anterior — alimenta el motor de
+        Incapacidad Temporal (Fase F), que no forma parte de esta fase."""
+        self.chk_complemento_it = QCheckBox("Activar complemento de convenio por IT")
+        self.chk_complemento_it.setStyleSheet(_LBL_SS)
+        self.chk_complemento_it.toggled.connect(self._actualizar_visibilidad_complemento_it)
+        self._form_ly.addWidget(self.chk_complemento_it)
+
+        grid = QGridLayout(); grid.setHorizontalSpacing(18); grid.setVerticalSpacing(8)
+        c1 = QVBoxLayout(); c1.setSpacing(2)
+        c1.addWidget(self._lbl("Tipo de complemento"))
+        self.cb_it_tipo = self._combo_valores(COMPLEMENTO_IT_TIPO, "ninguno")
+        c1.addWidget(self.cb_it_tipo)
+        grid.addWidget(self._envolver(c1), 0, 0)
+
+        c2 = QVBoxLayout(); c2.setSpacing(2)
+        c2.addWidget(self._lbl("Porcentaje (%) — p. ej. 100"))
+        self.inp_it_porcentaje = QLineEdit(); self.inp_it_porcentaje.setStyleSheet(f"QLineEdit{{{_INP_SS}}}")
+        c2.addWidget(self.inp_it_porcentaje)
+        grid.addWidget(self._envolver(c2), 0, 1)
+
+        c3 = QVBoxLayout(); c3.setSpacing(2)
+        c3.addWidget(self._lbl("Tramo de días — inicio"))
+        self.inp_it_tramo_inicio = QLineEdit(); self.inp_it_tramo_inicio.setStyleSheet(f"QLineEdit{{{_INP_SS}}}")
+        c3.addWidget(self.inp_it_tramo_inicio)
+        grid.addWidget(self._envolver(c3), 1, 0)
+
+        c4 = QVBoxLayout(); c4.setSpacing(2)
+        c4.addWidget(self._lbl("Tramo de días — fin"))
+        self.inp_it_tramo_fin = QLineEdit(); self.inp_it_tramo_fin.setStyleSheet(f"QLineEdit{{{_INP_SS}}}")
+        c4.addWidget(self.inp_it_tramo_fin)
+        grid.addWidget(self._envolver(c4), 1, 1)
+
+        self._w_it_campos = QWidget(); self._w_it_campos.setLayout(grid)
+        self._w_it_campos.setEnabled(False)
+        self._form_ly.addWidget(self._w_it_campos)
+
+    def _actualizar_visibilidad_complemento_it(self, activa):
+        self._w_it_campos.setEnabled(bool(activa))
+
+    @staticmethod
+    def _envolver(cel_layout):
+        w = QWidget(); w.setLayout(cel_layout); return w
+
     # ── Datos ─────────────────────────────────────────────────────────────────
     def _set(self, clave, valor):
         w = self._inputs.get(clave)
@@ -274,6 +446,191 @@ class ContratoInlineForm(QWidget):
         datos["id_representante"] = self._combo_rep.currentData() if self._combo_rep else None
         return datos
 
+    # ── Fase B: modelo de pago / bolsa de horas / complemento IT ───────────────
+    @staticmethod
+    def _num_or_none(txt):
+        txt = (txt or "").strip().replace(",", ".")
+        if not txt:
+            return None
+        try:
+            return float(txt)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _int_or_default(txt, defecto):
+        txt = (txt or "").strip()
+        if not txt:
+            return defecto
+        try:
+            return int(float(txt))
+        except ValueError:
+            return defecto
+
+    @staticmethod
+    def _int_or_none(txt):
+        txt = (txt or "").strip()
+        if not txt:
+            return None
+        try:
+            return int(float(txt))
+        except ValueError:
+            return None
+
+    def _recoger_campos_extendidos(self) -> dict:
+        """Campos nuevos de `rrhh_contratos` (Fase B) — persistidos vía `actualizar_contrato`,
+        NUNCA vía `_datos` del asistente (que solo conoce los campos base del PDF)."""
+        modelo = self.cb_modelo_pago.currentData() or "fijo"
+        activa_bh = self.chk_bolsa_horas.isChecked()
+        activa_it = self.chk_complemento_it.isChecked()
+        return {
+            "modelo_pago": modelo,
+            "tarifa_hora": self._num_or_none(self.inp_tarifa_hora.text()) if modelo == "hora" else None,
+            "bolsa_horas_activa": 1 if activa_bh else 0,
+            "bolsa_horas_vigencia_meses": self._int_or_default(self.inp_bolsa_vigencia.text(), 12),
+            "bolsa_horas_compensacion": self.cb_bolsa_compensacion.currentData() or "descanso",
+            "bolsa_horas_plus_disponibilidad": self._num_or_none(self.inp_bolsa_plus.text()),
+            "bolsa_horas_periodo_regularizacion_meses":
+                self._int_or_default(self.inp_bolsa_regularizacion.text(), 12),
+            "complemento_it_activo": 1 if activa_it else 0,
+            "complemento_it_tipo": self.cb_it_tipo.currentData() or "ninguno",
+            "complemento_it_porcentaje": self._num_or_none(self.inp_it_porcentaje.text()),
+            "complemento_it_tramo_dias_inicio": self._int_or_none(self.inp_it_tramo_inicio.text()),
+            "complemento_it_tramo_dias_fin": self._int_or_none(self.inp_it_tramo_fin.text()),
+        }
+
+    def _set_valores_extendidos(self, contrato):
+        """Vuelca en los widgets el contrato ya guardado — el equivalente de `_autollenar`
+        para los campos de esta fase, para que "editar" (reseleccionar el empleado) muestre
+        lo último guardado en vez de siempre partir de los valores por defecto."""
+        i = self.cb_modelo_pago.findData(contrato.get("modelo_pago") or "fijo")
+        if i >= 0:
+            self.cb_modelo_pago.setCurrentIndex(i)
+        tarifa = contrato.get("tarifa_hora")
+        self.inp_tarifa_hora.setText("" if tarifa is None else str(tarifa))
+        self._actualizar_visibilidad_modelo_pago()
+
+        activa_bh = bool(contrato.get("bolsa_horas_activa"))
+        self.chk_bolsa_horas.setChecked(activa_bh)
+        self.inp_bolsa_vigencia.setText(str(contrato.get("bolsa_horas_vigencia_meses") or 12))
+        j = self.cb_bolsa_compensacion.findData(contrato.get("bolsa_horas_compensacion") or "descanso")
+        if j >= 0:
+            self.cb_bolsa_compensacion.setCurrentIndex(j)
+        plus = contrato.get("bolsa_horas_plus_disponibilidad")
+        self.inp_bolsa_plus.setText("" if plus is None else str(plus))
+        self.inp_bolsa_regularizacion.setText(
+            str(contrato.get("bolsa_horas_periodo_regularizacion_meses") or 12))
+        self._w_bolsa_campos.setEnabled(activa_bh)
+
+        activa_it = bool(contrato.get("complemento_it_activo"))
+        self.chk_complemento_it.setChecked(activa_it)
+        k = self.cb_it_tipo.findData(contrato.get("complemento_it_tipo") or "ninguno")
+        if k >= 0:
+            self.cb_it_tipo.setCurrentIndex(k)
+        pct = contrato.get("complemento_it_porcentaje")
+        self.inp_it_porcentaje.setText("" if pct is None else str(pct))
+        ti = contrato.get("complemento_it_tramo_dias_inicio")
+        tf = contrato.get("complemento_it_tramo_dias_fin")
+        self.inp_it_tramo_inicio.setText("" if ti is None else str(ti))
+        self.inp_it_tramo_fin.setText("" if tf is None else str(tf))
+        self._w_it_campos.setEnabled(activa_it)
+
+    def _resetear_campos_extendidos(self):
+        self.cb_modelo_pago.setCurrentIndex(0)
+        self.inp_tarifa_hora.clear()
+        self._actualizar_visibilidad_modelo_pago()
+        self.chk_bolsa_horas.setChecked(False)
+        self.inp_bolsa_vigencia.setText("12")
+        self.cb_bolsa_compensacion.setCurrentIndex(0)
+        self.inp_bolsa_plus.clear()
+        self.inp_bolsa_regularizacion.setText("12")
+        self._w_bolsa_campos.setEnabled(False)
+        self.chk_complemento_it.setChecked(False)
+        i = self.cb_it_tipo.findData("ninguno")
+        self.cb_it_tipo.setCurrentIndex(i if i >= 0 else 0)
+        self.inp_it_porcentaje.clear()
+        self.inp_it_tramo_inicio.clear()
+        self.inp_it_tramo_fin.clear()
+        self._w_it_campos.setEnabled(False)
+
+    def _cargar_contrato_vigente(self, emp):
+        """Al elegir un empleado, carga el contrato más reciente que ya tenga (si existe) en
+        los campos de esta fase — y habilita el botón "Firmado" si corresponde. No crea nada:
+        solo lectura hasta que se pulse "Generar contrato (PDF)" o "Firmado"."""
+        self._id_contrato_actual = None
+        self._contrato_firmado = False
+        contrato = None
+        try:
+            from src.rrhh.db import contratos as CT
+            lista = CT.listar_contratos(emp.get("id"), self._id_empresa())
+            contrato = lista[0] if lista else None
+        except Exception as e:
+            logger.debug("cargar contrato vigente: %s", e)
+        if contrato:
+            self._id_contrato_actual = contrato.get("id")
+            self._contrato_firmado = bool(contrato.get("firmado"))
+            self._set_valores_extendidos(contrato)
+        else:
+            self._resetear_campos_extendidos()
+        self._actualizar_visibilidad_firmado()
+
+    def _actualizar_visibilidad_firmado(self):
+        visible = False
+        try:
+            from src.db.usuario import sesion_global
+            visible = (sesion_global.es_superadmin() and bool(self._id_contrato_actual)
+                       and not self._contrato_firmado)
+        except Exception as e:
+            logger.debug("visibilidad firmado: %s", e)
+        self.btn_firmado.setVisible(visible)
+
+    def _marcar_firmado_click(self):
+        from src.db.usuario import sesion_global
+        if not sesion_global.es_superadmin() or not self._id_contrato_actual:
+            return
+        if not mostrar_confirmacion(
+                self, "Firmar contrato",
+                "¿Confirmas que el contrato ha sido firmado por el trabajador?\n\n"
+                "Se marcará el contrato como firmado y, si tiene activada la cláusula de "
+                "bolsa de horas, se dará de alta su seguimiento (vigencia y plazo de "
+                "regularización) a partir de hoy."):
+            return
+        try:
+            from src.rrhh.db import contratos as CT
+            usuario = getattr(sesion_global, "usuario_actual", None) or {}
+            ok = CT.marcar_firmado(self._id_contrato_actual, self._id_empresa(),
+                                   creado_por=usuario.get("id"))
+        except Exception as e:
+            logger.error("marcar_firmado: %s", e)
+            ok = False
+        if ok:
+            self._contrato_firmado = True
+            self._actualizar_visibilidad_firmado()
+            mostrar_mensaje(self, "Contrato", "Contrato marcado como firmado.", "success")
+        else:
+            mostrar_mensaje(self, "Contrato", "No se pudo marcar el contrato como firmado.", "error")
+
+    def _persistir_campos_extendidos(self, nif, ruta):
+        """Tras `_generar_pdf()` (que ya disparó, best-effort, `registrar_generacion` →
+        `contratos.crear_contrato` con los campos base), localiza esa fila recién creada por
+        `ref_documento=ruta` (único por generación — evita depender del orden de
+        fecha_inicio/id, que puede no reflejar "la más reciente" si se backdata una fecha de
+        inicio) y la completa con los campos nuevos de esta fase."""
+        from src.rrhh.db import contratos as CT, empleados
+        emp = empleados.obtener_por_nif((nif or "").strip(), self._id_empresa())
+        if not emp:
+            return
+        id_contrato = None
+        for c in CT.listar_contratos(emp["id"], self._id_empresa()):
+            if c.get("ref_documento") == ruta:
+                id_contrato = c.get("id")
+                break
+        if not id_contrato:
+            return
+        CT.actualizar_contrato(id_contrato, self._id_empresa(), **self._recoger_campos_extendidos())
+        self._id_contrato_actual = id_contrato
+        self._contrato_firmado = False
+
     def _cargar_empleados(self):
         try:
             from src.rrhh.db import empleados
@@ -287,10 +644,29 @@ class ContratoInlineForm(QWidget):
             self.cb_emp.addItem(f"{nom}  ·  {e.get('nif','')}", e)
         self.cb_emp.blockSignals(False)
 
+    def _listar_contratos_empleado(self, id_empleado, id_empresa):
+        from src.rrhh.db import contratos as CT
+        return CT.listar_contratos(id_empleado, id_empresa)
+
+    def _abrir_documento(self, fila):
+        ruta = fila.get("ref_documento")
+        if ruta and os.path.exists(ruta):
+            from src.utils import plataforma
+            plataforma.abrir_archivo(ruta)
+        else:
+            mostrar_mensaje(self, "Contrato", "El documento no está disponible en disco.", "warning")
+
     def _on_empleado(self, _i):
         emp = self.cb_emp.currentData()
+        self._lista.refrescar(emp.get("id") if emp else None)
         if emp:
             self._autollenar(emp)
+            self._cargar_contrato_vigente(emp)
+        else:
+            self._resetear_campos_extendidos()
+            self._id_contrato_actual = None
+            self._contrato_firmado = False
+            self._actualizar_visibilidad_firmado()
 
     def _autollenar_actual(self):
         emp = self.cb_emp.currentData()
@@ -349,6 +725,19 @@ class ContratoInlineForm(QWidget):
                                     referencia=str(datos.get("nif") or ""))
             except Exception:
                 pass
+            # Fase B: la fila base en rrhh_contratos ya la creó `_generar_pdf` (best-effort,
+            # vía `registrar_generacion`) — aquí solo la completamos con los campos nuevos de
+            # esta fase, que el motor genérico del asistente no conoce.
+            self._id_contrato_actual = None
+            self._contrato_firmado = False
+            try:
+                self._persistir_campos_extendidos(datos.get("nif"), ruta)
+            except Exception as e:
+                logger.debug("persistir campos extendidos del contrato: %s", e)
+            self._actualizar_visibilidad_firmado()
+            emp_sel = self.cb_emp.currentData()
+            if emp_sel and emp_sel.get("id"):
+                self._lista.refrescar(emp_sel["id"])
             mostrar_mensaje(self, "Contrato", "Contrato generado correctamente.", "success")
             try:
                 from src.utils import plataforma

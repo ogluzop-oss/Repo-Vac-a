@@ -38,7 +38,7 @@ def test_recuperar_inbox_idempotente(db):
 
 
 def test_estado_ha_nodos_y_failover(db):
-    from src.platform.cloud import nodes
+    from src.plataforma.cloud import nodes
     nodes.registrar("nodo-f3-test", region="eu")
     try:
         ha = recuperacion.estado_ha("T-F3")

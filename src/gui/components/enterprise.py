@@ -4,7 +4,8 @@ Librería visual Enterprise (Components). Widgets reutilizables con identidad ú
 datos ya calculados por los servicios.
 
 Componentes: EnterpriseCard · EnterpriseStatusBadge · EnterpriseRiskIndicator · EnterpriseSearch ·
-EnterpriseFilter · EnterpriseToolbar · EnterpriseTable · EnterpriseDashboardGrid · EnterpriseTimeline.
+EnterpriseFilter · EnterpriseToolbar · EnterpriseTable · EnterpriseDashboardGrid · EnterpriseTimeline ·
+EnterpriseInlineBanner · EnterpriseHelpTooltip.
 """
 
 import logging
@@ -144,6 +145,11 @@ class EnterpriseFilter(QComboBox):
         self.setStyleSheet(f"QComboBox{{background:{T.BG2};color:{T.TEXT};border:2px solid {T.BORDE};"
                            f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{T.FONT}';}}"
                            f"QComboBox:hover,QComboBox:on{{border-color:{T.INFO};}}"
+                           # ::drop-down explícito (no confiar en la herencia del QSS global): el
+                           # botón de la flecha debe fundirse con el fondo del propio combo, sin
+                           # parche de tono distinto — mismo tratamiento que el resto de combos
+                           # locales de la app (ver `assets/estilo_global.py::QComboBox::drop-down`).
+                           f"QComboBox::drop-down{{border:none;width:22px;background:transparent;}}"
                            f"QComboBox QAbstractItemView{{background:{T.BG2};color:{T.TEXT};"
                            f"border:1px solid {T.INFO};selection-background-color:{T.INFO};"
                            f"selection-color:{T.BG};outline:none;}}")
@@ -172,6 +178,20 @@ class EnterpriseToolbar(QWidget):
             self.search = EnterpriseSearch()
             self.search.setFixedWidth(240)
             self._lay.addWidget(self.search)
+            # Disparador explícito: reaplica el mismo filtro en vivo (textChanged) que ya conecte
+            # quien use esta barra de herramientas — no hay lógica de filtro propia que duplicar aquí.
+            btn_buscar = QPushButton("🔍")
+            btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
+            # 44x44 (no 32x32): un cuadro más pequeño recorta visualmente el glifo emoji — mismo bug
+            # ya visto y corregido en `catalogo_gestion._btn`/`remote_scan.py` (ahí a 46x46).
+            btn_buscar.setFixedSize(48, 48)
+            btn_buscar.setStyleSheet(
+                f"QPushButton{{background:{T.BG2};color:{T.INFO};border:2px solid {T.INFO};"
+                f"border-radius:8px;font-weight:900;font-size:14px;padding:0;}}"
+                f"QPushButton:hover{{background:{T.INFO};color:{T.BG};}}")
+            btn_buscar.clicked.connect(lambda: self.search.textChanged.emit(self.search.text()))
+            self._lay.addWidget(btn_buscar)
+            self.btn_buscar = btn_buscar
         if con_export:
             self._lay.addWidget(self._boton(_icons.etiqueta("exportar", "Excel"), self._export, T.ANALISIS))
         self._on_export_datos = None
@@ -211,13 +231,14 @@ class EnterpriseToolbar(QWidget):
 # ── EnterpriseTable — tabla única (búsqueda + paginación + menú contextual) ────
 class EnterpriseTable(QWidget):
     def __init__(self, columnas=None, *, con_busqueda=True, pagina=0, con_actualizar=None,
-                 contador_abajo=False, actualizar_pos="busqueda", parent=None):
+                 contador_abajo=False, actualizar_pos="busqueda", mostrar_contador=True, parent=None):
         super().__init__(parent)
         self._cols = list(columnas or [])
         self._datos = []           # lista de listas (todas las filas)
         self._pagina = 0
         self._por_pagina = int(pagina) if pagina else 0   # 0 = sin paginación
         self._contador_abajo = bool(contador_abajo)
+        self._mostrar_contador = bool(mostrar_contador)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(T.SPACING_S)
@@ -233,10 +254,23 @@ class EnterpriseTable(QWidget):
                 self.search = EnterpriseSearch()
                 self.search.textChanged.connect(self._aplicar_filtro)
                 barra.addWidget(self.search)
+                # Disparador explícito de búsqueda (antes solo filtraba en vivo al teclear): mismo
+                # contorno cian compacto que `_nav_btn`, ajustado a un único glifo junto al campo.
+                btn_buscar = QPushButton("🔍")
+                btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
+                # 44x44 (no 32x32): mismo ajuste anti-recorte de glifo que en `EnterpriseToolbar`.
+                btn_buscar.setFixedSize(48, 48)
+                btn_buscar.setStyleSheet(
+                    f"QPushButton{{background:{T.BG2};color:{T.INFO};border:2px solid {T.INFO};"
+                    f"border-radius:8px;font-weight:900;font-size:14px;padding:0;}}"
+                    f"QPushButton:hover{{background:{T.INFO};color:{T.BG};}}")
+                btn_buscar.clicked.connect(self._aplicar_filtro)
+                barra.addWidget(btn_buscar)
+                self.btn_buscar = btn_buscar
             if con_actualizar and actualizar_pos == "busqueda":
                 barra.addWidget(self._btn_actualizar(con_actualizar))
             barra.addStretch(1)
-            if not self._contador_abajo:
+            if not self._contador_abajo and self._mostrar_contador:
                 barra.addWidget(self.lbl_pag)
             if con_actualizar and actualizar_pos == "derecha":
                 barra.addWidget(self._btn_actualizar(con_actualizar))
@@ -264,9 +298,9 @@ class EnterpriseTable(QWidget):
             _corner_cover(self.tabla, 12, bg=T.BG)
 
         # Fila inferior: contador abajo-izquierda (opcional) + navegación abajo-derecha (paginación).
-        if self._contador_abajo or self._por_pagina:
+        if (self._contador_abajo and self._mostrar_contador) or self._por_pagina:
             pie = QHBoxLayout()
-            if self._contador_abajo:
+            if self._contador_abajo and self._mostrar_contador:
                 pie.addWidget(self.lbl_pag)
             pie.addStretch(1)
             if self._por_pagina:
@@ -279,7 +313,17 @@ class EnterpriseTable(QWidget):
         b = QPushButton("🔄 Actualizar")
         b.setCursor(Qt.CursorShape.PointingHandCursor)
         b.setStyleSheet(T.qss_boton(T.INFO))
-        b.clicked.connect(slot)
+
+        def _run():
+            orig = b.text()
+            b.setText("⏳ Actualizando…"); b.setEnabled(False)
+            try:
+                from PyQt6.QtWidgets import QApplication
+                QApplication.processEvents()   # fuerza el repintado del estado de carga
+                slot()
+            finally:
+                b.setText(orig); b.setEnabled(True)
+        b.clicked.connect(_run)
         return b
 
     def _nav_btn(self, txt, slot):
@@ -429,3 +473,187 @@ class EnterpriseTimeline(QScrollArea):
             w = it.widget()
             if w:
                 w.deleteLater()
+
+
+# ── EnterpriseInlineBanner — aviso inline de ancho completo, NO modal ─────────
+class EnterpriseInlineBanner(QFrame):
+    """Aviso inline de ancho completo, no-modal: un frame más dentro del layout de la pantalla, con
+    fondo oscuro + acento de color de borde según rol semántico (`T.color(rol)`), mensaje en negrita
+    del mismo color y un botón de acción opcional (relleno con el color del rol, texto en `T.BG`).
+
+    DISTINTO de `assets/estilo_global.mostrar_mensaje`/`mostrar_confirmacion`: esos son DIÁLOGOS
+    MODALES (bloquean la ventana hasta que el usuario los cierra). `EnterpriseInlineBanner` es un
+    widget normal que se inserta en un layout — no interrumpe el flujo, no bloquea el resto de la
+    UI, y puede convivir con otros widgets en la misma pantalla (p. ej. varios avisos a la vez).
+
+    Roles: 'info' · 'analisis' · 'advertencia' · 'critico' · 'ok' (mismo catálogo semántico que
+    `tokens.color`/el resto de la librería — `EnterpriseStatusBadge`, `EnterpriseRiskIndicator`).
+    """
+
+    accion_pulsada = pyqtSignal()
+
+    def __init__(self, mensaje, *, rol="info", texto_accion=None, concepto=None, parent=None):
+        super().__init__(parent)
+        acento = T.color(rol)
+        self.setStyleSheet(f"background:{T.BG2};border:1px solid {T.BORDE};"
+                           f"border-left:4px solid {acento};border-radius:{T.RADIO}px;")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(T.SPACING_M)
+
+        self._lbl = QLabel(_icons.etiqueta(concepto, mensaje) if concepto else str(mensaje))
+        self._lbl.setStyleSheet(f"color:{acento};font-size:13px;font-weight:800;"
+                                f"background:transparent;border:none;")
+        self._lbl.setWordWrap(True)
+        lay.addWidget(self._lbl, 1)
+
+        self._btn = None
+        if texto_accion:
+            b = QPushButton(str(texto_accion))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(f"QPushButton{{background:{acento};color:{T.BG};border:none;"
+                            f"border-radius:8px;font-weight:900;padding:6px 14px;}}"
+                            f"QPushButton:hover{{background:{T.BG2};color:{acento};"
+                            f"border:2px solid {acento};}}")
+            b.clicked.connect(self.accion_pulsada.emit)
+            lay.addWidget(b)
+            self._btn = b
+
+    def set_mensaje(self, mensaje):
+        self._lbl.setText(str(mensaje))
+
+
+# ── EnterpriseHelpTooltip — icono "?" con popover de ayuda en lenguaje claro ──
+def _ensamblar_texto_ayuda(texto_o_partes) -> str:
+    """Ensambla un dict tipo SOMA (`resumen`/`por_que`/`datos`/`ejemplo`/`consecuencias`) en un
+    párrafo legible en lenguaje claro — mismo patrón de ensamblado que
+    `soma/direccion/iniciativas.py::explicar` (por_qué/datos/consecuencias → texto), aquí generalizado
+    como plantilla reutilizable por cualquier pantalla, no una llamada a esa función SOMA-específica.
+    Una cadena plana se devuelve tal cual."""
+    if isinstance(texto_o_partes, dict):
+        partes = []
+        if texto_o_partes.get("resumen"):
+            partes.append(str(texto_o_partes["resumen"]))
+        if texto_o_partes.get("por_que"):
+            partes.append(f"¿Por qué? {texto_o_partes['por_que']}")
+        datos = texto_o_partes.get("datos")
+        if datos:
+            if isinstance(datos, dict):
+                datos = ", ".join(f"{k}: {v}" for k, v in datos.items())
+            partes.append(f"Datos: {datos}.")
+        if texto_o_partes.get("ejemplo"):
+            partes.append(f"Ejemplo: {texto_o_partes['ejemplo']}")
+        if texto_o_partes.get("consecuencias"):
+            partes.append(f"Consecuencias: {texto_o_partes['consecuencias']}")
+        return " ".join(partes) or "Sin información adicional."
+    return str(texto_o_partes)
+
+
+class _HelpPopover(QFrame):
+    """Popover NO MODAL (`Qt.WindowType.Popup`): Qt lo cierra solo al pulsar fuera de él (o al perder
+    el foco), sin bloquear el resto de la ventana — incluye además una 'X' explícita para cerrarlo
+    sin depender de acertar el clic fuera (accesibilidad/teclado)."""
+
+    def __init__(self, texto, *, titulo=None, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Sin esto, `close()` solo OCULTA el popup (no destruye el objeto C++) — el padre
+        # (`EnterpriseHelpTooltip`) necesita la señal `destroyed` real para saber que ya no hay
+        # popover abierto y permitir reabrirlo con un clic normal.
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setFixedWidth(320)
+        self.setStyleSheet(f"background:{T.BG2};border:2px solid {T.INFO};border-radius:{T.RADIO}px;")
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 10, 14, 12)
+        lay.setSpacing(6)
+
+        cab = QHBoxLayout()
+        lt = QLabel(titulo or "Ayuda")
+        lt.setStyleSheet(f"color:{T.INFO};font-size:13px;font-weight:900;"
+                         f"background:transparent;border:none;")
+        cab.addWidget(lt, 1)
+        btn_cerrar = QPushButton("✕")
+        btn_cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_cerrar.setFixedSize(20, 20)
+        btn_cerrar.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{T.DIM};border:none;font-weight:900;}}"
+            f"QPushButton:hover{{color:{T.CRITICO};}}")
+        btn_cerrar.clicked.connect(self.close)
+        cab.addWidget(btn_cerrar)
+        lay.addLayout(cab)
+
+        lbl = QLabel(str(texto))
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(f"color:{T.TEXT};font-size:12px;background:transparent;border:none;")
+        lay.addWidget(lbl)
+
+    def mostrar_en(self, punto_global):
+        self.move(punto_global)
+        self.show()
+
+
+class EnterpriseHelpTooltip(QWidget):
+    """Icono "?" pequeño (18-20px) que, al PULSARLO (no al pasar el ratón — interacción explícita y
+    predecible, mismo criterio que el resto de la librería: nada se dispara solo por hover), muestra
+    un popover NO MODAL (`_HelpPopover`) con una explicación en lenguaje claro, sin jerga. Mismo
+    espíritu no-modal que `EnterpriseInlineBanner`: no bloquea el resto de la pantalla y se cierra
+    solo (pulsar fuera) o con su 'X'.
+
+    `texto_o_partes`: una cadena plana YA redactada, o un dict `{resumen, por_que, datos,
+    ejemplo, consecuencias}` que se ensambla en un párrafo legible (`_ensamblar_texto_ayuda`) — pensado
+    para reutilizarse en cualquier pantalla que necesite ayuda contextual (Calculadora Fiscal, SOMA,
+    o cualquier futura), no solo el caso que lo originó."""
+
+    def __init__(self, texto_o_partes, *, titulo=None, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background:transparent;")
+        self._titulo = titulo
+        self._texto = _ensamblar_texto_ayuda(texto_o_partes)
+        self._popover = None
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self._btn = QPushButton("?")
+        self._btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn.setFixedSize(19, 19)
+        self._btn.setStyleSheet(
+            f"QPushButton{{background:{T.BG2};color:{T.INFO};border:1px solid {T.INFO};"
+            f"border-radius:9px;font-weight:900;font-size:11px;padding:0;}}"
+            f"QPushButton:hover{{background:{T.INFO};color:{T.BG};}}")
+        self._btn.clicked.connect(self._alternar)
+        lay.addWidget(self._btn)
+
+    def _alternar(self):
+        # `esta_abierto()` (no un simple `is not None`): un clic FUERA del popover lo oculta solo
+        # (dismissal automático de `Qt.WindowType.Popup`) sin pasar por `_cerrar()`/`closeEvent` — la
+        # referencia puede seguir viva pero OCULTA. Comprobar visibilidad real evita que un segundo
+        # clic en "?" se interprete como "cerrar" cuando en realidad ya estaba cerrado.
+        if self.esta_abierto():
+            self._cerrar()
+            return
+        self._abrir()
+
+    def _abrir(self):
+        if self._popover is not None:
+            # Referencia previa OCULTA (dismissal automático por clic fuera) que nunca pasó por
+            # `closeEvent` — se cierra explícitamente para no dejarla viva sin motivo antes de crear
+            # la nueva instancia.
+            self._popover.close()
+        self._popover = _HelpPopover(self._texto, titulo=self._titulo)
+        self._popover.destroyed.connect(self._on_popover_destruido)
+        punto = self._btn.mapToGlobal(self._btn.rect().bottomLeft())
+        self._popover.mostrar_en(punto)
+
+    def _on_popover_destruido(self, *_args):
+        self._popover = None
+
+    def _cerrar(self):
+        if self._popover is not None:
+            self._popover.close()
+
+    def esta_abierto(self) -> bool:
+        return self._popover is not None and self._popover.isVisible()
+
+    def set_texto(self, texto_o_partes):
+        self._texto = _ensamblar_texto_ayuda(texto_o_partes)

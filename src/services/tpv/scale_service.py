@@ -177,12 +177,22 @@ class ScaleManager:
         self._callbacks: list[Callable[[float | None], None]] = []
         self._poll_thread: threading.Thread | None = None
         self._polling = False
+        self._detectado = False
 
-    def detect_and_connect(self, port: str = "COM1", baud: int = 9600) -> str:
+    def detect_and_connect(self, port: str = "COM1", baud: int = 9600, force: bool = False) -> str:
         """
         Try to connect to a real scale on <port>.
         Returns mode string: 'serial' | 'manual'
+
+        Idempotente por defecto: el manager es un singleton (`get_scale_manager`) y esto se llama
+        cada vez que se abre una ventana de venta a granel (ninguna familia sabe de antemano si va
+        a necesitar pesar) — sin esta guarda, cada apertura reintentaba la conexión serie entera
+        y volvía a registrar "Scale connect failed"/"No hardware scale found" en el log, con el
+        puerto real ya descartado desde la primera vez. `force=True` fuerza un redescubrimiento
+        real (p. ej. si el superadmin conecta una báscula a media sesión).
         """
+        if self._detectado and not force:
+            return self._driver.mode
         driver = SerialScaleDriver(port, baud)
         if driver.connect():
             self._driver = driver
@@ -190,6 +200,7 @@ class ScaleManager:
         else:
             self._driver = SimulatedScaleDriver()
             logger.info("No hardware scale found — using manual entry mode.")
+        self._detectado = True
         return self._driver.mode
 
     def read_weight(self) -> float | None:

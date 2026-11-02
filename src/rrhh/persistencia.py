@@ -26,6 +26,12 @@ _TIPO_DOC = {
 _VAC_TIPO = {"SOLICITUD": "solicitud", "APROBACIÓN": "aprobacion", "DENEGACIÓN": "denegacion"}
 _VAC_ESTADO = {"SOLICITUD": "pendiente", "APROBACIÓN": "aprobada", "DENEGACIÓN": "denegada"}
 
+# "Repositorio cifrado" (petición explícita, migr. 0322): tipo_doc que los generadores YA cifran en
+# disco (`utils.cripto.cifrar_archivo_en_disco`, llamado dentro de cada `generar_*_pdf`) — solo
+# informativo (la detección de lectura es por contenido, no por esta columna), para que el Centro
+# Documental pueda mostrar qué documentos están cifrados.
+_TIPOS_CIFRADOS = {"nomina", "certificado", "cert_laboral", "modelo145"}
+
 
 def _fecha_iso(valor):
     """DD/MM/AAAA → YYYY-MM-DD (o None si no parseable)."""
@@ -79,7 +85,8 @@ def registrar_generacion(tipo, datos, ruta, id_empresa=None) -> int | None:
 
         # 1) Documento genérico (siempre)
         documentos.crear_documento(eid, id_empresa, tipo_doc=tipo_doc, fecha=fecha,
-                                   ref_documento=ruta, datos_snapshot=snap)
+                                   ref_documento=ruta, datos_snapshot=snap,
+                                   cifrado=tipo_doc in _TIPOS_CIFRADOS)
 
         # 2) Especializados según tipo
         if tipo == "CONTRATO":

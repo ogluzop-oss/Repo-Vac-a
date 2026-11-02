@@ -219,8 +219,17 @@ class MiraviaAdapter(_MiraviaPreparado):
                        "precio": _num(li.get("price"))} for li in filas]
             if not lineas:
                 continue
+            # Dirección de envío: mismo criterio defensivo de claves alternativas que el resto de
+            # este adaptador (`address_shipping` es el nombre Lazada/Miravia Open Platform).
+            addr = o.get("address_shipping") or o.get("shipping_address") or o.get("address") or {}
+            cp = (addr.get("post_code") or addr.get("zip") or addr.get("postcode")
+                 or addr.get("postal_code"))
+            direccion_envio = ", ".join(str(x) for x in (
+                addr.get("address1") or addr.get("address"), addr.get("city"),
+                addr.get("province") or addr.get("state"), cp, addr.get("country")) if x)
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="miravia", referencia_externa=ref)
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="miravia", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido miravia %s: %s", ref, e)

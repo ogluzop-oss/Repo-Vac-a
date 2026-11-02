@@ -13,13 +13,12 @@ import os
 from datetime import datetime
 
 import pandas as pd
-from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDialog,
-    QFileDialog,
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
@@ -44,6 +43,7 @@ from src.db.conexion import (
     ensure_schema,
     modificar_stock_completo,
 )
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.utils import i18n
 from src.utils.i18n import tr
 
@@ -112,26 +112,50 @@ QPushButton:focus {{
 }}
 """
 
+# Compact icon-only button (lupa de búsqueda): mismo contorno cian, relleno oscuro en reposo,
+# hover swap a relleno cian — igual criterio que _BTN_CIAN_SS pero sin estirar para un solo glifo.
+_BTN_LUPA_SS = f"""
+QPushButton {{
+    background-color: #0E1117;
+    color: {_CIAN};
+    font-weight: bold;
+    border-radius: 12px;
+    font-size: 16px;
+    font-family: 'Segoe UI';
+    border: 2px solid {_CIAN};
+    outline: none;
+    padding: 0px;
+}}
+QPushButton:hover {{
+    background-color: {_CIAN};
+    color: #0E1117;
+    border: 2px solid {_CIAN};
+}}
+"""
+# `padding: 0px` explícito: sin él, hereda el `padding: 10px 16px` del `QPushButton{}` GLOBAL
+# (estilo_global.py), que recorta el glifo 🔍 por los lados en un botón de un solo icono.
+
 # Green save button
 _BTN_VERDE_SS = """
 QPushButton {
-    background-color: #2EA043;
-    color: #000000;
+    background-color: #0E1117;
+    color: #2EA043;
     font-weight: bold;
     border-radius: 12px;
     padding: 10px 28px;
     font-size: 13px;
     font-family: 'Segoe UI';
-    border: none;
+    border: 2px solid #2EA043;
     outline: none;
 }
 QPushButton:hover {
-    background-color: #FFFFFF;
+    background-color: #2EA043;
     color: #000000;
 }
 QPushButton:pressed {
     background-color: #238636;
     color: #000000;
+    border: 2px solid #238636;
 }
 QPushButton:focus {
     outline: none;
@@ -170,16 +194,9 @@ _DESC_SS = (
 
 # Textos descriptivos por defecto (fallback si falta la clave i18n).
 _IMPORT_DESC_DEFAULT = (
-    "Importa artículos y niveles de stock desde un fichero Excel (.xlsx) o CSV/TXT. "
-    "Las columnas del fichero deben coincidir con los campos de la base de datos. "
-    "Columnas requeridas:\n"
-    "  • codigo          → Código del artículo (obligatorio, clave única)\n"
-    "  • nombre          → Nombre del artículo\n"
-    "  • Stock_tienda    → Stock lineal (expuesto en tienda)\n"
-    "  • Stock_total     → Stock almacén tienda\n"
-    "  • Stock_central   → Stock almacén central\n"
-    "  • Stock_esperado  → Stock mínimo esperado en el lineal\n\n"
-    "Columnas opcionales: descripcion, categoria, seccion, precio"
+    "La importación de artículos y stock se hace ahora desde el módulo «Migrar datos» "
+    "(Productos / Catálogo), centralizado para toda la app: mapeo de columnas asistido, "
+    "validación previa y upsert seguro por empresa."
 )
 _EXPORT_DESC_DEFAULT = (
     "Genera un informe Excel con todos los niveles de stock actuales. "
@@ -334,11 +351,19 @@ class _StockTiendaPage(QWidget):
 
         fila_busq = QHBoxLayout(); fila_busq.setSpacing(10)
         self.buscador = QLineEdit()
-        self.buscador.setPlaceholderText(tr("stock.search_ph", default="Buscar por código o nombre…"))
+        self.buscador.setPlaceholderText(tr("stock.search_ph", default="🔍 Buscar por código o nombre…"))
         self.buscador.setStyleSheet(_NEON_INPUT_SS)
         self.buscador.setFixedHeight(44)
         self.buscador.textChanged.connect(self._filtrar)
+        instalar_sugerencias_articulo(self.buscador)
         fila_busq.addWidget(self.buscador, 1)
+
+        self.btn_buscar = QPushButton("🔍")
+        self.btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_buscar.setFixedSize(48, 48)
+        self.btn_buscar.setStyleSheet(_BTN_LUPA_SS)
+        self.btn_buscar.clicked.connect(lambda: self._filtrar(self.buscador.text()))
+        fila_busq.addWidget(self.btn_buscar)
 
         # Filtro por FAMILIA de producto (reutiliza db/familias; "Todas" = sin filtro).
         self.cmb_familia = QComboBox()
@@ -354,6 +379,14 @@ class _StockTiendaPage(QWidget):
         self._recargar_familias()
         self.cmb_familia.currentIndexChanged.connect(self._filtrar)
         fila_busq.addWidget(self.cmb_familia)
+
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC. `setText()` ya
+        # dispara `_filtrar` sola (vía `textChanged`).
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=self.buscador.setText, contexto="stock.tienda")
+        fila_busq.addWidget(btn_escaneo_movil)
+
         layout.addLayout(fila_busq)
 
         # Fase 8 (IA predictiva VISIBLE en Smart Stock): tarjeta de previsión de demanda + riesgo de rotura,
@@ -404,7 +437,7 @@ class _StockTiendaPage(QWidget):
 
     def _retraducir(self):
         self._lbl.setText(tr("stock.title_store", default="Stock Tienda"))
-        self.buscador.setPlaceholderText(tr("stock.search_ph", default="Buscar por código o nombre…"))
+        self.buscador.setPlaceholderText(tr("stock.search_ph", default="🔍 Buscar por código o nombre…"))
         self.tabla.setHorizontalHeaderLabels(self._cols())
 
     def _recargar_familias(self):
@@ -427,7 +460,10 @@ class _StockTiendaPage(QWidget):
         self._aplicar()
 
     def _aplicar(self):
-        self._poblar(_buscar_articulos(self.buscador.text().strip(), self.cmb_familia.currentData()))
+        q = self.buscador.text().strip()
+        if "–" in q:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            q = q.split("–")[0].strip()
+        self._poblar(_buscar_articulos(q, self.cmb_familia.currentData()))
 
     def _poblar(self, rows):
         self.tabla.setRowCount(len(rows))
@@ -626,7 +662,7 @@ class _EditStockDialog(QDialog):
 
         layout.addSpacing(6)
 
-        btn_guardar = QPushButton(tr("stock.save", default="GUARDAR"))
+        btn_guardar = QPushButton(tr("stock.save", default="Guardar"))
         btn_guardar.setStyleSheet(_BTN_VERDE_SS)
         btn_guardar.setFixedHeight(46)
         btn_guardar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -689,11 +725,28 @@ class _EditarStockPage(QWidget):
         layout.addWidget(lbl)
 
         self.buscador = QLineEdit()
-        self.buscador.setPlaceholderText(tr("stock.search_ph_ean", default="Buscar por EAN o nombre…"))
+        self.buscador.setPlaceholderText(tr("stock.search_ph_ean", default="🔍 Buscar por EAN o nombre…"))
         self.buscador.setStyleSheet(_NEON_INPUT_SS)
         self.buscador.setFixedHeight(44)
         self.buscador.textChanged.connect(self._filtrar)
-        layout.addWidget(self.buscador)
+        instalar_sugerencias_articulo(self.buscador)
+
+        self.btn_buscar = QPushButton("🔍")
+        self.btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_buscar.setFixedSize(48, 48)
+        self.btn_buscar.setStyleSheet(_BTN_LUPA_SS)
+        self.btn_buscar.clicked.connect(lambda: self._filtrar(self.buscador.text()))
+
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=self.buscador.setText, contexto="stock.editar")
+
+        fila_busq = QHBoxLayout()
+        fila_busq.addWidget(self.buscador, 1)
+        fila_busq.addWidget(self.btn_buscar)
+        fila_busq.addWidget(btn_escaneo_movil)
+        layout.addLayout(fila_busq)
 
         contenedor, self.tabla = _crear_tabla(self, self._cols())
         hh = self.tabla.horizontalHeader()
@@ -720,7 +773,7 @@ class _EditarStockPage(QWidget):
 
     def _retraducir(self):
         self._lbl.setText(tr("stock.title_edit", default="Editar Stock"))
-        self.buscador.setPlaceholderText(tr("stock.search_ph_ean", default="Buscar por EAN o nombre…"))
+        self.buscador.setPlaceholderText(tr("stock.search_ph_ean", default="🔍 Buscar por EAN o nombre…"))
         self.tabla.setHorizontalHeaderLabels(self._cols())
 
     def cargar(self):
@@ -728,7 +781,10 @@ class _EditarStockPage(QWidget):
         self._poblar(self._todos)
 
     def _filtrar(self, texto):
-        texto = texto.strip().lower()
+        texto = texto.strip()
+        if "–" in texto:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            texto = texto.split("–")[0].strip()
+        texto = texto.lower()
         if not texto:
             self._poblar(self._todos)
         else:
@@ -822,49 +878,6 @@ class _EditarStockPage(QWidget):
             )
 
 
-class _ImportarHilo(QThread):
-    """@deprecated (Strangler) — sustituido por el importador maestro `services.importacion` + la ventana
-    `gui.migracion_gui.MigracionDatosWindow` (menú → "Migración de datos"), que hace upsert seguro por columnas
-    mapeadas con `id_empresa`, familias y stock por kárdex, dry-run e idempotencia. Este hilo solo tocaba
-    `articulos` y hacía `ALTER TABLE` por cada cabecera desconocida. Se conserva un ciclo y se eliminará cuando
-    no queden referencias."""
-
-    finalizado = pyqtSignal(str)
-
-    def __init__(self, ruta):
-        super().__init__()
-        self.ruta = ruta
-
-    def run(self):
-        try:
-            ext = os.path.splitext(self.ruta)[1].lower()
-            if ext == ".xlsx":
-                df = pd.read_excel(self.ruta)
-            elif ext in (".csv", ".txt"):
-                try:
-                    df = pd.read_csv(self.ruta, sep="\t")
-                except Exception:
-                    df = pd.read_csv(self.ruta, sep=",")
-            else:
-                self.finalizado.emit(
-                    tr("stock.fmt_incompatible",
-                       default="Formato no compatible. Usa Excel (.xlsx) o CSV/TXT.")
-                )
-                return
-            if df.empty:
-                self.finalizado.emit(tr("stock.file_empty", default="El fichero está vacío."))
-                return
-            df.columns = [c.strip().lower() for c in df.columns]
-            # Cliente fino (Fase 3): importación (ALTER dinámico + upsert) COMPARTIDA en la capa de datos.
-            from src.db.articulos import importar_articulos_df
-            importar_articulos_df(df)
-            self.finalizado.emit(
-                tr("stock.import_ok", default="Stock importado correctamente desde:\n{ruta}", ruta=self.ruta)
-            )
-        except Exception as e:
-            self.finalizado.emit(tr("stock.import_err", default="Error al importar:\n{e}", e=e))
-
-
 class _ImportarStockPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -892,12 +905,14 @@ class _ImportarStockPage(QWidget):
         icon_lbl.setFixedHeight(200)
         layout.addWidget(icon_lbl)
 
-        self._btn = btn = QPushButton(tr("stock.import_btn", default="IMPORTAR STOCK"))
+        # Importación centralizada en "Migrar datos" (automatización/limpieza): esta pestaña pasa
+        # a ser un punto de redirección, igual criterio que "Web propia → Canal Web" del Catálogo.
+        self._btn = btn = QPushButton(tr("stock.import_btn", default="IR A MIGRAR DATOS"))
         btn.setStyleSheet(_BTN_CIAN_SS)
         btn.setMinimumSize(160, 62); btn.setMaximumWidth(320)  # responsive (P2): antes fijo 200x62
         btn.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn.clicked.connect(self._importar)
+        btn.clicked.connect(self._abrir_migracion_datos)
         _sombra_cian(btn)
         layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
@@ -912,26 +927,19 @@ class _ImportarStockPage(QWidget):
     def _retraducir(self):
         self._lbl_titulo.setText(tr("stock.title_import", default="Importar Stock"))
         self._lbl_desc.setText(tr("stock.import_desc", default=_IMPORT_DESC_DEFAULT))
-        self._btn.setText(tr("stock.import_btn", default="IMPORTAR STOCK"))
+        self._btn.setText(tr("stock.import_btn", default="IR A MIGRAR DATOS"))
 
-    def _importar(self):
-        _all = tr("stock.all_files", default="Todos los archivos")
-        ruta, _ = QFileDialog.getOpenFileName(
-            self,
-            tr("stock.file_dialog_title", default="Selecciona un fichero de stock"),
-            "",
-            f"Excel (*.xlsx);;CSV/TXT (*.csv *.txt);;{_all} (*)",
-        )
-        if not ruta:
-            return
-        self.lbl_resultado.setText(tr("stock.importing", default="Importando…"))
-        self.lbl_resultado.setVisible(True)
-        self._hilo = _ImportarHilo(ruta)
-        self._hilo.finalizado.connect(self._on_finalizado)
-        self._hilo.start()
-
-    def _on_finalizado(self, mensaje):
-        self.lbl_resultado.setText(mensaje)
+    def _abrir_migracion_datos(self):
+        try:
+            from src.gui.migracion_gui import MigracionDatosWindow
+            self._migracion_win = MigracionDatosWindow(parent=self)
+            self._migracion_win.setWindowFlag(Qt.WindowType.Window)
+            self._migracion_win.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+            self._migracion_win.showMaximized()
+        except Exception as e:
+            self.lbl_resultado.setText(
+                tr("stock.migracion_err", default="No se pudo abrir Migrar datos: {e}", e=e))
+            self.lbl_resultado.setVisible(True)
 
 
 class _ExportarStockPage(QWidget):
@@ -1102,7 +1110,42 @@ class _ExportarStockPage(QWidget):
                 self._doc_win = CentroDocumentalWindow(
                     usuario=getattr(self._host, "usuario_actual", None),
                     categoria_inicial="exportacion")
+                # Ventana hija abierta fuera de manejar_apertura: sin este flag se ve con la
+                # barra de título nativa de Windows (inconsistente con el resto de módulos,
+                # todos frameless). Replica el mismo tratamiento + animación de deslizamiento.
+                try:
+                    self._doc_win.setWindowFlags(
+                        self._doc_win.windowFlags() | Qt.WindowType.FramelessWindowHint)
+                except Exception:
+                    pass
+                snap = None
+                try:
+                    from src.gui.transiciones import capturar_pantalla
+                    snap = capturar_pantalla(self._host or self)
+                except Exception:
+                    pass
+                try:
+                    from PyQt6.QtWidgets import QApplication
+                    self._doc_win.setWindowOpacity(0.0)
+                    scr = self._doc_win.screen() or QApplication.primaryScreen()
+                    if scr is not None:
+                        self._doc_win.setGeometry(scr.availableGeometry())
+                except Exception:
+                    pass
                 self._doc_win.showMaximized()
+                try:
+                    from PyQt6.QtWidgets import QApplication
+                    QApplication.processEvents()
+                except Exception:
+                    pass
+                try:
+                    from src.gui.transiciones import deslizar_entrada_modulo
+                    deslizar_entrada_modulo(snap, self._doc_win, revelar=self._doc_win)
+                except Exception:
+                    try:
+                        self._doc_win.setWindowOpacity(1.0)
+                    except Exception:
+                        pass
         except Exception as e:
             self.lbl_resultado.setStyleSheet("color:#F85149;font-size:14px;font-weight:bold;")
             self.lbl_resultado.setText(tr("stock.export_nav_err",
@@ -1146,9 +1189,30 @@ class MostrarStockWindow(QWidget):
         # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
         try:
             from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
-            instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario_actual, clave="stock")
+            toggle_btn = instalar_sidebar_colapsable(
+                self, self.sidebar, usuario=self.usuario_actual, clave="stock")
         except Exception:
-            pass
+            toggle_btn = None
+
+        # Restricciones por perfil (Ajuste post-lanzamiento · Módulo 1). Se aplica DESPUÉS de
+        # instalar_sidebar_colapsable porque este, al restaurar el estado expandido/colapsado, vuelve
+        # a mostrar todos los botones de la sidebar — y se reconecta al toggle porque cada
+        # colapsar/expandir repite ese mismo "mostrar todos".
+        # Editar/Importar/Exportar stock: ADMINISTRADOR|SUPERADMIN. OPERARIO solo ve Stock tienda,
+        # Stock almacén, Inventario y Lotes. Kárdex: SOLO SUPERADMIN.
+        _idx_ocultar = []
+        if self.perfil not in ("ADMINISTRADOR", "SUPERADMIN"):
+            for k in ("stock.tab_edit", "stock.tab_import", "stock.tab_export"):
+                _idx_ocultar.append(self._tab_keys.index(k))
+        if self.perfil != "SUPERADMIN":
+            _idx_ocultar.append(self._tab_keys.index("stock.tab_kardex"))
+        if _idx_ocultar:
+            def _ocultar_restringidas():
+                for i in _idx_ocultar:
+                    self._nav_btns[i].setVisible(False)
+            _ocultar_restringidas()
+            if toggle_btn:
+                toggle_btn.clicked.connect(_ocultar_restringidas)
 
     def _setup_ui(self):
         self.setWindowTitle(tr("stock.smart_stock", default="Smart Stock"))
@@ -1166,7 +1230,7 @@ class MostrarStockWindow(QWidget):
         side_ly.setContentsMargins(0, 40, 0, 20)
         side_ly.setSpacing(0)
 
-        lbl_titulo = QLabel(tr("stock.smart_stock_2", default="SMART STOCK"))
+        lbl_titulo = QLabel(tr("stock.smart_stock_2", default="SMART STOCK").upper())
         lbl_titulo.setObjectName("sidebar_title")
         side_ly.addWidget(lbl_titulo)
 
@@ -1175,12 +1239,12 @@ class MostrarStockWindow(QWidget):
             "stock.tab_import", "stock.tab_export", "stock.tab_inventory",
             "stock.tab_kardex", "stock.tab_lotes",
         ]
-        _tab_def = ["STOCK TIENDA", "STOCK ALMACÉN", "EDITAR STOCK",
+        _tab_def = ["STOCK TIENDA", "STOCK ALMACENES", "EDITAR STOCK",
                     "IMPORTAR STOCK", "EXPORTAR STOCK", "INVENTARIO", "KÁRDEX", "LOTES"]
 
         self._nav_btns = []
         for idx, key in enumerate(self._tab_keys):
-            btn = _SidebarBtn(tr(key, default=_tab_def[idx]))
+            btn = _SidebarBtn(tr(key, default=_tab_def[idx]).upper())
             btn.setObjectName("btn_sidebar")
             btn.setCheckable(True)
             btn.setAutoExclusive(True)
@@ -1193,7 +1257,7 @@ class MostrarStockWindow(QWidget):
 
         side_ly.addStretch()
 
-        self._btn_exit = btn_exit = _SidebarBtn(tr("stock.exit", default="SALIR AL MENÚ"))
+        self._btn_exit = btn_exit = _SidebarBtn(tr("stock.exit", default="SALIR AL MENÚ").upper())
         btn_exit.setObjectName("btn_sidebar_exit")
         btn_exit.setFixedHeight(55)
         btn_exit.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1274,7 +1338,7 @@ class MostrarStockWindow(QWidget):
         return getattr(mod, clase)(callback_vuelta=None, usuario=self.usuario_actual, main=self)
 
     def _retraducir(self):
-        _tab_def = ["STOCK TIENDA", "STOCK ALMACÉN", "EDITAR STOCK",
+        _tab_def = ["STOCK TIENDA", "STOCK ALMACENES", "EDITAR STOCK",
                     "IMPORTAR STOCK", "EXPORTAR STOCK", "INVENTARIO", "KÁRDEX", "LOTES"]
         for i, btn in enumerate(self._nav_btns):
             btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))

@@ -27,23 +27,29 @@ def _emp(id_empresa=None):
 
 # ── 4.6 Internacional ────────────────────────────────────────────────────────
 def aplicar_divisa(id_factura, divisa, tipo_cambio=None, idioma=None, id_empresa=None) -> bool:
-    """Fija divisa/tipo de cambio/idioma de la factura y calcula importe_divisa/importe_eur."""
+    """Fija divisa/tipo de cambio/idioma de la factura y calcula importe_divisa/importe_eur.
+
+    FASE C (facturación internacional): persiste también el CÓDIGO de divisa (columna `divisa`,
+    migración 0274) — bug confirmado: antes esta función recibía `divisa` como parámetro y lo
+    descartaba sin más, guardando solo tipo_cambio/importe_divisa/importe_eur, así que era
+    imposible saber a posteriori en qué divisa se había facturado."""
     id_empresa = _emp(id_empresa)
     from src.db import facturas_cliente as FC
     from src.db.conexion import obtener_conexion
     f = FC.obtener_factura(id_factura, id_empresa)
     if not f:
         return False
+    divisa_norm = ((divisa or "EUR").strip().upper()[:3]) or None
     total = float(f.get("total") or 0)
     tc = float(tipo_cambio) if tipo_cambio else 1.0
     importe_divisa = round(total, 2)
     importe_eur = round(total / tc, 2) if tc else total
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE facturas_cliente SET tipo_cambio=%s, fecha_tipo_cambio=%s, "
+            cur.execute("UPDATE facturas_cliente SET divisa=%s, tipo_cambio=%s, fecha_tipo_cambio=%s, "
                         "importe_divisa=%s, importe_eur=%s, idioma=%s WHERE id_factura=%s "
                         "AND id_empresa=%s",
-                        (tc, _dt.date.today().isoformat(), importe_divisa, importe_eur,
+                        (divisa_norm, tc, _dt.date.today().isoformat(), importe_divisa, importe_eur,
                          (idioma or None), id_factura, id_empresa))
             conn.commit()
         return True

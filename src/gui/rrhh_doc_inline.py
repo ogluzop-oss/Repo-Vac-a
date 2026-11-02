@@ -7,7 +7,10 @@ Para la nómina existe un formulario específico (`rrhh_nomina_inline.NominaInli
 resto de documentos usan este genérico (solo datos + generación).
 """
 
+import datetime as _dt
+import json
 import logging
+import os
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -18,6 +21,7 @@ from PyQt6.QtWidgets import (
 from assets.estilo_global import (
     COLOR_ACCION_TEXTO, COLOR_BORDE, COLOR_CIAN, COLOR_FONDO_WIDGET, mostrar_mensaje,
 )
+from src.gui.rrhh_doc_list_widget import EmpleadoRegistrosList
 
 logger = logging.getLogger("gui.rrhh.doc_inline")
 
@@ -75,6 +79,22 @@ class DocumentoInlineForm(QWidget):
                 self._tabla_widget(*contenido["tabla"])
             else:
                 self._grid(contenido)
+        # Documentos de ESTE tipo ya generados para el empleado seleccionado (nunca de otros
+        # empleados) — vínculo RRHH real `rrhh_documentos` (F4.1.2), no el índice genérico de
+        # `documentos_registro` (que agrupa muchos tipos bajo "otros"). Ver `_generar`. Vive DENTRO
+        # del mismo QScrollArea que el resto del formulario (una sección más de `_form_ly`, no un
+        # bloque fijo aparte fuera de él): así queda literalmente debajo de los campos, en el mismo
+        # flujo desplazable de arriba a abajo, en vez de competir por altura fija con el formulario
+        # cuando la ventana es pequeña.
+        self._lista = EmpleadoRegistrosList(
+            "Documentos generados de este tipo para el empleado",
+            [("fecha", "Fecha"),
+             (lambda f: os.path.basename((f.get("ref_documento") or "").replace("\\", "/")),
+              "Documento")],
+            self._listar_documentos_empleado, self._id_empresa,
+            abrir_fn=self._abrir_documento, boton="Reabrir")
+        self._form_ly.addWidget(self._lista)
+
         self._form_ly.addStretch()
         scroll.setWidget(cont)
         root.addWidget(scroll, 1)
@@ -90,9 +110,9 @@ class DocumentoInlineForm(QWidget):
         b = QPushButton(txt); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFixedHeight(40)
         if primary:
             b.setStyleSheet(
-                f"QPushButton{{background:{COLOR_CIAN};color:{COLOR_ACCION_TEXTO};border:none;"
+                f"QPushButton{{background:{COLOR_FONDO_WIDGET};color:{COLOR_CIAN};border:2px solid {COLOR_CIAN};"
                 f"border-radius:10px;padding:8px 18px;font-family:'Segoe UI';font-weight:bold;font-size:15px;}}"
-                f"QPushButton:hover{{background:{COLOR_ACCION_TEXTO};color:{COLOR_CIAN};border:2px solid {COLOR_CIAN};}}")
+                f"QPushButton:hover{{background:{COLOR_CIAN};color:{COLOR_ACCION_TEXTO};border-color:{COLOR_CIAN};}}")
         else:
             b.setStyleSheet(
                 f"QPushButton{{background:transparent;color:{COLOR_CIAN};border:2px solid {COLOR_CIAN};"
@@ -239,8 +259,22 @@ class DocumentoInlineForm(QWidget):
             self.cb_emp.addItem(f"{nom}  ·  {e.get('nif','')}", e)
         self.cb_emp.blockSignals(False)
 
+    def _listar_documentos_empleado(self, id_empleado, id_empresa):
+        from src.rrhh.db import documentos as rrhh_docs
+        return rrhh_docs.listar_documentos(id_empleado, id_empresa, tipo_doc=self._tipo_doc)
+
+    def _abrir_documento(self, fila):
+        ruta = fila.get("ref_documento")
+        if ruta and os.path.exists(ruta):
+            from src.utils import plataforma
+            plataforma.abrir_archivo(ruta)
+        else:
+            mostrar_mensaje(self, self._tipo_doc.capitalize(),
+                            "El documento no está disponible en disco.", "warning")
+
     def _on_empleado(self, _i):
         emp = self.cb_emp.currentData()
+        self._lista.refrescar(emp.get("id") if emp else None)
         if emp:
             self._autollenar(emp)
 
@@ -278,6 +312,30 @@ class DocumentoInlineForm(QWidget):
                                     referencia=str(datos.get("nif") or ""))
             except Exception:
                 pass
+            # Vínculo RRHH real (F4.1.2, `rrhh_documentos`) — hasta ahora `DocumentoInlineForm`
+            # solo registraba en el índice genérico `documentos_registro` de arriba (donde
+            # `self._tipo_doc`, p.ej. "certificado_empresa"/"periodo_prueba", no está en el catálogo
+            # `TIPOS` y cae en "otros"): la pestaña sidebar no podía listar "los documentos de este
+            # empleado y de ESTE tipo" desde ahí. `self._tipo_doc` ya es distinto por pestaña, así
+            # que basta enlazarlo al empleado seleccionado (evita la ambigüedad de
+            # `persistencia._TIPO_DOC`, donde "Cartas de despido" y "Periodo de prueba" comparten
+            # tipo_doc "carta_despido").
+            emp = self.cb_emp.currentData()
+            if emp and emp.get("id"):
+                try:
+                    from src.rrhh.db import documentos as rrhh_docs
+                    # "Repositorio cifrado" (petición explícita): certificado_empresa/laboral YA se
+                    # cifran en disco dentro de su propio generador (`certificado_empresa_pdf.py`/
+                    # `cert_laboral_pdf.py`) — el flag aquí es solo informativo, no condiciona la
+                    # lectura (siempre por contenido, ver `utils.cripto`).
+                    rrhh_docs.crear_documento(
+                        emp["id"], self._id_empresa(), tipo_doc=self._tipo_doc,
+                        fecha=_dt.date.today().isoformat(), ref_documento=ruta,
+                        datos_snapshot=json.dumps(datos, ensure_ascii=False, default=str),
+                        cifrado=self._tipo_doc in ("certificado_empresa", "certificado_laboral"))
+                except Exception as e:
+                    logger.warning("registrar %s en rrhh_documentos (no crítico): %s", self._tipo_doc, e)
+                self._lista.refrescar(emp["id"])
             mostrar_mensaje(self, self._tipo_doc.capitalize(),
                             f"Documento generado correctamente.", "success")
             try:

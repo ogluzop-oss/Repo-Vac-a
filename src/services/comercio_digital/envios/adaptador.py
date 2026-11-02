@@ -28,7 +28,7 @@ class CarrierAdapter(ABC):
     version: str = "1.0.0"
 
     def contrato(self):
-        from src.platform.contracts import ServiceContract
+        from src.plataforma.contracts import ServiceContract
         return ServiceContract(nombre=f"cd_carrier_{self.transportista}", version=self.version,
                                descripcion=f"Adaptador de transportista {self.transportista}",
                                capacidades=("crear_envio", "rastrear"), transportes=("eventbus",),

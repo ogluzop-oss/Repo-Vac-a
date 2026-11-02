@@ -14,7 +14,8 @@ logger = logging.getLogger("marketplace.integraciones_comerciales.centro")
 # Icono por plataforma (emoji; sin pipeline de assets). Fallback genérico.
 ICONOS = {"hostinger": "🌐", "woocommerce": "🛍", "shopify": "🛒", "prestashop": "🧩", "magento": "🧱",
           "opencart": "🛒", "amazon": "📦", "ebay": "🏷", "miravia": "🛒", "aliexpress": "🛒",
-          "tiktok_shop": "🎵", "web_feed": "📰", "web_rest": "🔌"}
+          "tiktok_shop": "🎵", "instagram_shopping": "📸", "facebook_shop": "👍",
+          "web_feed": "📰", "web_rest": "🔌"}
 
 # Estado del motor → salud visual (⚪/🟡/🟢/🔴).
 _SALUD = {"SINCRONIZADA": "OK", "VALIDADA": "OK", "CONFIGURADA": "WARN", "SINCRONIZANDO": "WARN",
@@ -39,6 +40,13 @@ def plataformas_soportadas() -> list:
 
 def salud(estado: str) -> str:
     return _SALUD.get(estado, "NONE")
+
+
+def operativo(clave, id_empresa) -> bool:
+    """Si la plataforma tiene un adaptador REAL con credenciales operativas para la empresa (misma
+    comprobación que usa `_via_adaptador`/`resumen`; reutilizada por `sync_venta_listener` para
+    resolver qué canales conectados de la empresa reciben la exportación de stock tras una venta)."""
+    return _operativo(_adaptador(clave), id_empresa)
 
 
 def _adaptador(clave):

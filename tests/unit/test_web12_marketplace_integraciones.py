@@ -34,12 +34,17 @@ def test_canal_web_flujo_pregunta():
     assert w._stack.currentIndex() == 2
     w._elegir_tipo("marketplace")
     assert llamado == [1]
-    # "No" → creación con Hostinger (índice 1): delegación TOTAL (abre Hostinger), sin pasos simulados.
+    # "No" → creación con el editor visual propio (índice 1), sin proveedor externo.
     w._elegir(tiene_web=False)
     assert w._stack.currentIndex() == 1
-    assert hasattr(w, "_abrir_hostinger")
-    # ✕ desde Hostinger → 3 columnas; desde 3 columnas → pregunta.
+    assert hasattr(w, "_abrir_editor_creacion")
+    # ✕ desde el editor de creación (rama "No") → pregunta inicial directamente (es un hijo DIRECTO
+    # de la pregunta, no un paso intermedio hacia la rama "Sí" — bug real corregido: antes devolvía a
+    # la pantalla de "tipo de plataforma", que pertenece a la otra rama).
     w._cerrar_o_volver()
+    assert w._stack.currentIndex() == 0
+    # Desde la selección de tipo (rama "Sí") también vuelve directo a la pregunta.
+    w._elegir(tiene_web=True)
     assert w._stack.currentIndex() == 2
     w._cerrar_o_volver()
     assert w._stack.currentIndex() == 0

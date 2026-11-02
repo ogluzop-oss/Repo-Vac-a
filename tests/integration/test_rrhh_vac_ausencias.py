@@ -164,8 +164,12 @@ def test_gui_dialog_construye_y_refresca(db, fab, monkeypatch):
     except Exception:
         pytest.skip("PyQt6 no disponible")
     QApplication.instance() or QApplication([])
-    for m in ("warning", "information"):
-        monkeypatch.setattr(f"src.gui.rrhh_gestion.QMessageBox.{m}", lambda *a, **k: None, raising=False)
+    # `rrhh_gestion.py` no usa `QMessageBox` nativo — sustituido por
+    # `assets.estilo_global.mostrar_mensaje` (ver comentario junto a `_info_msg` en ese módulo).
+    # Se neutraliza ahí para no abrir un modal `.exec()` real en un run headless (mismo patrón
+    # que test_rrhh_control_horario.py / test_rrhh_gui_expediente.py).
+    import assets.estilo_global as EG
+    monkeypatch.setattr(EG, "mostrar_mensaje", lambda *a, **k: None)
     emp, eid = _emp(db, fab, nif="73000000C")
     VS.solicitar(eid, "2026-07-01", "2026-07-05", id_empresa=emp)
     from src.gui.rrhh_gestion import GestionLaboralDialog

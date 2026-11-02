@@ -14,7 +14,7 @@ UMBRAL_CARGA = 0.9
 def evaluar(*, umbral_latencia=UMBRAL_LATENCIA_MS, umbral_carga=UMBRAL_CARGA) -> list:
     """Devuelve la lista de alertas cloud activas."""
     alertas = []
-    from src.platform import cloud
+    from src.plataforma import cloud
     # Nodos caídos (stale) o en estado degradado/mantenimiento.
     for nombre in cloud.heartbeat.stale():
         alertas.append({"tipo": "nodo_caido", "nivel": "critico", "nodo": nombre})

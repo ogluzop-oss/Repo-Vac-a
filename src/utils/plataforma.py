@@ -52,11 +52,24 @@ def _abrir_con(args: list[str]) -> bool:
         return False
 
 
+def _ruta_legible(ruta: str) -> str:
+    """Si `ruta` apunta a un documento cifrado en reposo (nóminas/certificados — "repositorio
+    cifrado"), lo descifra a un temporal y devuelve ESA ruta; si no, `ruta` tal cual. Chokepoint
+    único para abrir/imprimir CUALQUIER fichero desde la app — así cualquier documento cifrado se
+    descifra transparentemente sin que cada pantalla tenga que saberlo."""
+    try:
+        from src.utils import cripto
+        return cripto.resolver_ruta_legible(ruta)
+    except Exception:
+        return ruta
+
+
 def abrir_archivo(ruta: str | os.PathLike) -> bool:
     """Abre `ruta` con la aplicación predeterminada del SO. Portable y degradable."""
     ruta = os.fspath(ruta)
     if not ruta:
         return False
+    ruta = _ruta_legible(ruta)
     try:
         if ES_WINDOWS:
             os.startfile(ruta)  # noqa: S606 - Windows API nativa
@@ -89,6 +102,7 @@ def imprimir_archivo(ruta: str | os.PathLike) -> bool:
     if not ruta or not os.path.exists(ruta):
         logger.warning("imprimir_archivo: ruta inexistente %s", ruta)
         return False
+    ruta = _ruta_legible(ruta)
     try:
         if ES_WINDOWS:
             os.startfile(ruta, "print")  # noqa: S606 - Windows API nativa

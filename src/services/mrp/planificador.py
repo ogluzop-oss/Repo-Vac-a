@@ -69,11 +69,31 @@ def generar_sugerencias(demanda, *, persistir=True, id_empresa=None) -> dict:
                         cur.execute("INSERT INTO mrp_sugerencias (id_empresa, tipo, articulo, cantidad, origen) "
                                     "VALUES (%s,%s,%s,%s,'MRP')", (eid, tipo, it["articulo"], it["cantidad"]))
                 conn.commit()
+            _notificar_sugerencias(eid, len(compras), len(fabricacion))
         except Exception as e:
             logger.error("persistir sugerencias: %s", e)
     log_auditoria("mrp", "MRP_SUGERENCIAS", "mrp_sugerencias",
                   f"compra={len(compras)} fabricacion={len(fabricacion)}")
     return {"compras": compras, "fabricacion": fabricacion, "necesidades": netas}
+
+
+def _notificar_sugerencias(eid, n_compras, n_fabricacion):
+    """Avisa a ADMINISTRADOR de que hay sugerencias MRP pendientes de revisar — mismo patron que
+    `ordenes._evento_workflow` (OF liberada/finalizada) y el usado por GMAO/SAT para sus
+    ordenes de trabajo (`notificaciones.emitir(roles=["ADMINISTRADOR"])`). Sin esto, generar
+    sugerencias era la unica transicion operativa del modulo MRP que no avisaba a nadie: quien no
+    tuviera abierta la pestaña "Sugerencias MRP" no se enteraba de que habia algo pendiente."""
+    total = n_compras + n_fabricacion
+    if not total:
+        return
+    try:
+        from src.services import notificaciones
+        notificaciones.emitir(
+            "mrp_sugerencias", f"{total} sugerencia(s) MRP pendientes",
+            f"compra={n_compras} fabricacion={n_fabricacion}", modulo="mrp",
+            roles=["ADMINISTRADOR"], id_empresa=eid)
+    except Exception:
+        pass
 
 
 def listar_sugerencias(*, tipo=None, estado="pendiente", id_empresa=None) -> list:

@@ -10,6 +10,7 @@ TicketBAI se añaden como módulos sin tocar el núcleo.
 MODULOS = [
     "simulado",
     "verifactu",
+    "ticketbai",
 ]
 
 from src.services.fiscal.base import (Emisor, Firmante, ProveedorFiscal,

@@ -337,6 +337,22 @@ def _impl():
                 cla_body = _cla_map.get(cla_txt, cla_txt)
                 story.append(_P(f"<b>{num}.</b> {cla_body}", st_clause))
 
+        # ── Anexos y documentos complementarios (petición explícita): condiciones específicas,
+        # política interna de seguridad y recepción de equipos PRL. Cada uno marcado en el paso 2
+        # queda, además, dado de alta como documento FIRMABLE independiente en el expediente del
+        # empleado (ver `gui/gestion_usuarios.py::_generar_pdf`) — aquí solo se deja constancia
+        # escrita dentro del propio contrato de que forman parte de él.
+        if anexos_firmables:
+            story.append(Spacer(1, 3*mm))
+            story.append(_sec_header("ANEXOS Y DOCUMENTOS COMPLEMENTARIOS"))
+            story.append(Spacer(1, 1*mm))
+            story.append(_P(
+                "El/la trabajador/a declara haber recibido y aceptar, como parte integrante de "
+                "este contrato, los siguientes documentos — su aceptación/firma individual queda "
+                "registrada en el expediente laboral:", st_clause))
+            for anexo_txt in anexos_firmables:
+                story.append(_P(f"• {anexo_txt}", st_clause))
+
         # ── Anexo específico según la modalidad contractual ──
         _anexos = []
         if _jornada_parcial:

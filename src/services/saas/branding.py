@@ -7,7 +7,7 @@ from src.db.conexion import EMPRESA_DEFAULT_ID, ensure_schema, obtener_conexion
 
 logger = logging.getLogger("saas.branding")
 _CAMPOS = ("nombre_comercial", "logo_ruta", "color_primario", "color_secundario",
-           "dominio", "correo_principal", "pie_documental")
+           "color_terciario", "dominio", "correo_principal", "pie_documental")
 
 
 def _emp(id_empresa=None):

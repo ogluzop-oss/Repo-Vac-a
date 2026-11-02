@@ -264,7 +264,8 @@ _CAMPOS_PROD = ("id_categoria", "id_marca", "titulo_web", "descripcion_web",
 
 def upsert_producto(codigo_articulo, id_empresa=None, **campos) -> int | None:
     """Crea o actualiza el overlay de catálogo de un artículo (único por empresa).
-    Solo toca los campos indicados en ``campos`` (subset de _CAMPOS_PROD)."""
+    Solo toca los campos indicados en ``campos`` (subset de _CAMPOS_PROD, más ``slug`` que se
+    gestiona aparte — ver abajo)."""
     id_empresa = _empresa(id_empresa)
     datos = {k: v for k, v in campos.items() if k in _CAMPOS_PROD}
     slug = campos.get("slug") or _slug(campos.get("titulo_web") or codigo_articulo)
@@ -275,6 +276,12 @@ def upsert_producto(codigo_articulo, id_empresa=None, **campos) -> int | None:
             fila = cur.fetchone()
             if fila:
                 pid = fila[0] if not isinstance(fila, dict) else fila["id"]
+                # El slug (URL amigable, SEO Fase 1) es editable tras la creación — se trata
+                # aparte de `_CAMPOS_PROD` (igual que en el alta, un poco más abajo) para no
+                # tocar ese whitelist genérico; se renormaliza con el mismo `_slug()` del alta,
+                # así nunca queda un slug con espacios/mayúsculas por editarlo a mano.
+                if campos.get("slug"):
+                    datos["slug"] = _slug(campos["slug"])
                 if datos:
                     sets = ", ".join(f"{k}=%s" for k in datos)
                     cur.execute(f"UPDATE catalogo_productos SET {sets} WHERE id=%s",
@@ -301,7 +308,11 @@ def _select_productos(where, params, limite=500):
         "(COALESCE(a.Stock_total,0)+COALESCE(a.Stock_tienda,0)) AS stock_vendible, "
         "a.bloqueado, a.imagen AS articulo_imagen, m.nombre AS marca, c.nombre AS categoria "
         "FROM catalogo_productos p "
-        "JOIN articulos a ON a.codigo = p.codigo_articulo "
+        # `articulos` tiene PK compuesta (id_empresa, codigo) — el mismo código puede existir
+        # legítimamente en empresas distintas. Sin `a.id_empresa = p.id_empresa` el JOIN podía
+        # devolver el stock/precio/bloqueado de OTRA empresa (o duplicar la fila) cuando dos
+        # empresas comparten código de artículo. Bug real detectado durante la auditoría de MCP.
+        "JOIN articulos a ON a.codigo = p.codigo_articulo AND a.id_empresa = p.id_empresa "
         "LEFT JOIN catalogo_marcas m ON m.id = p.id_marca "
         "LEFT JOIN catalogo_categorias c ON c.id = p.id_categoria "
         "WHERE " + where + " ORDER BY p.orden, a.nombre LIMIT %s")
@@ -486,13 +497,89 @@ def crear_variante(id_producto, sku=None, nombre=None, codigo_articulo=None,
 
 
 def listar_variantes(id_producto) -> list:
+    """Cada fila trae `atributos` ya decodificado a dict (estaba guardado como JSON en TEXT,
+    ver `crear_variante`) — `{}` si no tiene o si el valor guardado no es JSON válido (variantes
+    antiguas creadas antes de que la GUI expusiera atributos). `stock` se añade SOLO si la
+    variante tiene su propio `codigo_articulo` vinculado (stock independiente real, vía el motor
+    de stock existente `articulos.obtener_stock` — nunca un número propio de esta tabla, para no
+    duplicar el único motor de stock de la app)."""
+    import json
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM catalogo_variantes WHERE id_producto=%s ORDER BY orden", (id_producto,))
-            return _filas_a_dicts(cur, cur.fetchall())
+            filas = _filas_a_dicts(cur, cur.fetchall())
     except Exception as e:
         logger.error("listar_variantes: %s", e)
         return []
+    for f in filas:
+        try:
+            f["atributos"] = json.loads(f["atributos"]) if f.get("atributos") else {}
+        except (TypeError, ValueError):
+            f["atributos"] = {}
+        f["stock"] = None
+        if f.get("codigo_articulo"):
+            try:
+                from src.db.articulos import obtener_stock
+                st = obtener_stock(f["codigo_articulo"])
+                if st:
+                    f["stock"] = float(st["lineal"]) + float(st["almacen"])
+            except Exception as e:
+                logger.debug("listar_variantes stock(%s): %s", f.get("codigo_articulo"), e)
+    return filas
+
+
+def actualizar_variante(id_variante, id_empresa=None, **campos) -> bool:
+    """Actualiza campos de una variante YA EXISTENTE (mismo patrón whitelist+UPDATE dinámico que
+    `articulos.actualizar_articulo`). `atributos` (dict/list) se serializa igual que en
+    `crear_variante`."""
+    permitidos = ("sku", "nombre", "codigo_articulo", "precio_dif", "atributos", "orden", "visible")
+    datos = {k: v for k, v in campos.items() if k in permitidos}
+    if not datos:
+        return False
+    if "atributos" in datos and isinstance(datos["atributos"], (dict, list)):
+        import json
+        datos["atributos"] = json.dumps(datos["atributos"])
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            sets = ", ".join(f"{k}=%s" for k in datos)
+            cur.execute(f"UPDATE catalogo_variantes SET {sets} WHERE id=%s AND id_empresa=%s",
+                        (*datos.values(), id_variante, id_empresa))
+            ok = cur.rowcount > 0
+            conn.commit()
+        return ok
+    except Exception as e:
+        logger.error("actualizar_variante(%s): %s", id_variante, e)
+        return False
+
+
+def crear_variantes_bulk(id_producto, combinaciones: list, id_empresa=None) -> dict:
+    """Alta MASIVA de variantes (matriz de combinaciones, p. ej. 3 Tallas × 2 Colores = 6 filas)
+    generada en la GUI — cada elemento de `combinaciones` es un dict con las mismas claves que
+    acepta `crear_variante` (`sku`, `nombre`, `precio_dif`, `atributos`, `codigo_articulo`,
+    `orden`). Reutiliza `crear_variante` fila a fila (no reimplementa el INSERT) dentro de UNA
+    transacción: si alguna fila falla (p. ej. un SKU duplicado), NINGUNA se queda a medias.
+    Devuelve {"ok": bool, "creadas": int, "error": str|None}."""
+    from src.db.conexion import transaccion
+    id_empresa = _empresa(id_empresa)
+    if not combinaciones:
+        return {"ok": False, "creadas": 0, "error": "sin_combinaciones"}
+    import json
+    try:
+        with transaccion() as conn, conn.cursor() as cur:
+            for i, c in enumerate(combinaciones):
+                atr = c.get("atributos")
+                atr = json.dumps(atr) if isinstance(atr, (dict, list)) else atr
+                cur.execute(
+                    "INSERT INTO catalogo_variantes "
+                    "(id_empresa, id_producto, codigo_articulo, sku, nombre, precio_dif, atributos, orden) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (id_empresa, id_producto, c.get("codigo_articulo"), c.get("sku"), c.get("nombre"),
+                     float(c.get("precio_dif") or 0), atr, c.get("orden", i)))
+        return {"ok": True, "creadas": len(combinaciones), "error": None}
+    except Exception as e:
+        logger.error("crear_variantes_bulk(%s): %s", id_producto, e)
+        return {"ok": False, "creadas": 0, "error": str(e)}
 
 
 def eliminar_variante(id_variante) -> bool:

@@ -123,7 +123,7 @@ def eliminar_variante(id_publicacion, sku, *, id_empresa=None):
 # ── Composición fiscal / monetaria (reutiliza capacidades) ────────────────────
 def _iva_pct(pais, id_empresa):
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         fis = cap.fiscalidad()
         if fis is not None:
             if pais and hasattr(fis, "iva_de_pais"):
@@ -137,7 +137,7 @@ def _iva_pct(pais, id_empresa):
 
 def _formatear(monto, moneda):
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         div = cap.divisas()
         if div is not None and hasattr(div, "formatear"):
             return div.formatear(monto, moneda)
@@ -157,7 +157,7 @@ def _precio(base, delta, moneda, iva_pct):
 def _reglas_comerciales(id_publicacion, pais, id_empresa):
     """Visibilidad/condiciones comerciales (degradable vía Rules). Por defecto: visible."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         rules = cap.rules()
         if rules is not None and hasattr(rules, "reglas_catalogo"):
             return rules.reglas_catalogo(id_publicacion=id_publicacion, pais=pais,
@@ -185,7 +185,7 @@ def ficha_comercial(id_publicacion, *, pais=None, idioma=None, moneda=None, id_e
         return None
     if not moneda:
         try:
-            from src.platform import capabilities as cap
+            from src.plataforma import capabilities as cap
             div = cap.divisas()
             moneda = div.divisa_actual() if (div and hasattr(div, "divisa_actual")) else "EUR"
         except Exception:

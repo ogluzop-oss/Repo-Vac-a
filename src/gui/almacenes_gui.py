@@ -8,11 +8,12 @@ existencias e histórico). Multiempresa por contexto activo.
 
 import logging
 
-from PyQt6.QtWidgets import (QHBoxLayout, QInputDialog, QLabel, QMessageBox,
+from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QScrollArea,
                              QTabWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.db import stock_almacen as SA
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_x, _combo, _inp, _tabla)
+from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_x, _combo, _dialogo_frameless,
+                                      _inp, _tabla)
 from src.gui.foundation import tokens as T
 
 logger = logging.getLogger("inventario.almacenes.gui")
@@ -24,6 +25,54 @@ def _it(v):
     return QTableWidgetItem("" if v is None else str(v))
 
 
+class _RenombrarDialog(QDialog):
+    """Diálogo de renombrar propio (sustituye a QInputDialog.getText): sin barra de Windows,
+    esquinas redondeadas y botones con el estilo estándar de la app."""
+
+    def __init__(self, nombre_actual, parent=None):
+        super().__init__(parent)
+        v = _dialogo_frameless(self, "Renombrar almacén", ancho=380)
+        v.addWidget(QLabel("Nuevo nombre:"))
+        self.inp = QLineEdit(nombre_actual or "")
+        self.inp.setFixedHeight(36)
+        self.inp.setStyleSheet(f"QLineEdit{{background:{_BG};color:white;border:2px solid {_CIAN};"
+                               "border-radius:8px;padding:0 10px;font-size:13px;}")
+        self.inp.returnPressed.connect(self.accept)
+        v.addWidget(self.inp)
+        fila = QHBoxLayout()
+        fila.addStretch()
+        fila.addWidget(_btn("Guardar", self.accept, primary=True))
+        v.addLayout(fila)
+        self.inp.setFocus()
+
+    def valor(self):
+        return self.inp.text()
+
+
+class _InfoDialog(QDialog):
+    """Aviso propio (sustituye a QMessageBox.information/.warning): sin barra de Windows, esquinas
+    redondeadas y un único botón «Aceptar». Los QMessageBox nativos, sobre una ventana anfitriona
+    frameless (`FramelessWindowHint`, como todas las ventanas completas de la app), pueden quedar sin
+    handle nativo correcto y comportarse de forma errática (incluida la ventana cerrándose de golpe) —
+    mismo criterio ya aplicado a `_RenombrarDialog`/`_pedir_texto` en el resto de la app."""
+
+    def __init__(self, titulo, mensaje, parent=None):
+        super().__init__(parent)
+        v = _dialogo_frameless(self, titulo, ancho=380)
+        lbl = QLabel(mensaje)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(f"color:{_DIM};font-size:13px;")
+        v.addWidget(lbl)
+        fila = QHBoxLayout()
+        fila.addStretch()
+        fila.addWidget(_btn("Aceptar", self.accept, primary=True))
+        v.addLayout(fila)
+
+
+def _info(parent, titulo, mensaje):
+    _InfoDialog(titulo, mensaje, parent).exec()
+
+
 class AlmacenesWindow(QWidget):
     def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None, **_kw):
         super().__init__(parent)
@@ -32,9 +81,18 @@ class AlmacenesWindow(QWidget):
         self._main = main
         self.setStyleSheet(f"background:{_BG};")
 
+        # Ubicación (lat/long) gateada a SUPERADMIN/ADMINISTRADOR — mismo patrón de resolución de
+        # perfil que `menu_principal.py::MenuPrincipal.__init__` (usuario_actual.get("perfil", ...)
+        # normalizado en mayúsculas), reutilizado tal cual en vez de inventar un mecanismo nuevo.
+        self._perfil = str(self.usuario.get("perfil", "OPERARIO")).strip().upper()
+        self._es_admin = self._perfil in ("SUPERADMIN", "ADMINISTRADOR")
+
         # La ventana se convierte en ANFITRIONA con pestañas (reutilizando su acceso de menú): la
-        # primera pestaña es la gestión de almacenes actual; se añaden MRP/Fabricación y GMAO como
-        # operaciones físicas del dominio, reutilizando sus dashboards sin duplicarlos.
+        # primera pestaña es la gestión de almacenes actual; Distribución/Rutas hace su propia
+        # consulta a BD durante la construcción. MRP/Fabricación y GMAO/Mantenimiento se EXTRAJERON
+        # de aquí a módulos de nivel superior propios (tarjetas "Fabricación"/"Mantenimiento" en el
+        # menú principal, v_id "mrp"/"gmao") — sus dashboards (`MRPDashboardWindow`/
+        # `GMAODashboardWindow`) siguen intactos, solo cambió el punto de entrada.
         _outer = QVBoxLayout(self)
         cab = QHBoxLayout()
         t = QLabel("Almacenes · Operaciones")
@@ -53,13 +111,26 @@ class AlmacenesWindow(QWidget):
 
         # alta
         f = QHBoxLayout()
-        self.in_nombre = _inp("Nombre"); self.in_codigo = _inp("Código"); self.in_codigo.setFixedWidth(120)
+        f.setSpacing(6)   # los pares etiqueta→campo se veían muy separados con el espaciado por defecto
+        self.in_nombre = _inp("Nombre", 220); self.in_codigo = _inp("Código"); self.in_codigo.setFixedWidth(120)
         self.cmb_tipo = _combo([(t, t) for t in _TIPOS])
         self.cmb_tipo.setMinimumWidth(150)   # evita texto cortado en el desplegable
         f.addWidget(QLabel("Nombre:")); f.addWidget(self.in_nombre)
+        f.addSpacing(18)
         f.addWidget(QLabel("Código:")); f.addWidget(self.in_codigo)
+        f.addSpacing(18)
         f.addWidget(QLabel("Tipo:")); f.addWidget(self.cmb_tipo)
+        f.addSpacing(18)
         f.addWidget(_btn("Crear", self._crear, primary=True))
+        f.addSpacing(18)
+        f.addWidget(_btn("Renombrar", self._renombrar, primary=True))
+        f.addWidget(_btn("Activar", lambda: self._activar(True), primary=True))
+        f.addWidget(_btn("Desactivar", lambda: self._activar(False), danger=True))
+        f.addWidget(_btn("Eliminar", self._eliminar, danger=True))
+        # Sin esto, las etiquetas (política de tamaño "Preferred", sin `setFixedWidth`) absorbían todo
+        # el espacio sobrante de la fila en vez de quedarse en su tamaño natural — se veían enormes,
+        # con el texto pegado a la izquierda y un hueco antes de su propio campo.
+        f.addStretch()
         for w in (f.itemAt(i).widget() for i in range(f.count())):
             if isinstance(w, QLabel):
                 w.setStyleSheet(f"color:{_DIM};")
@@ -68,55 +139,47 @@ class AlmacenesWindow(QWidget):
         self.tabla = _tabla(["id", "Nombre", "Código", "Tipo", "Tienda", "Estado", "Activo"])
         root.addWidget(self.tabla)
 
-        acc = QHBoxLayout()
-        acc.addWidget(_btn("Renombrar", self._renombrar, primary=True))
-        acc.addWidget(_btn("Activar", lambda: self._activar(True), primary=True))
-        acc.addWidget(_btn("Desactivar", lambda: self._activar(False), danger=True))
-        acc.addStretch()
-        root.addLayout(acc)
-
-        # Primera pestaña: gestión de almacenes (contenido original, ligera). Luego los dominios de
-        # operaciones — MRP/GMAO embeben ventanas completas y Distribución/Rutas hace su propia
-        # consulta a BD durante la construcción, así que se cargan de forma perezosa (lazy loading:
-        # solo al visitarlas) en vez de todas de golpe, que es lo que hacía tardar la apertura.
-        self.tabs.addTab(_pagina, "Almacenes")
-        # La pestaña MRP / Fabricación (industrial) se adapta a la EDICIÓN: en Bakery se sustituye por el Obrador,
-        # así que no se muestra aquí (gate por `verticales`). En el resto se muestra salvo que la matriz lo oculte.
-        try:
-            from src.services import verticales as _vert
-            _mrp_visible = _vert.visible("almacenes.mrp")
-        except Exception:
-            _mrp_visible = True
+        # Primera pestaña: gestión de almacenes (contenido original, ligera). Distribución/Rutas hace
+        # su propia consulta a BD durante la construcción, así que se carga de forma perezosa (lazy
+        # loading: solo al visitarla) en vez de todo de golpe, que es lo que hacía tardar la apertura.
+        # Envuelta en scroll de página completa (igual que Tareas/`workflow_gui.py::_add_tab`): sin
+        # esto, en pantallas con escalado de Windows por encima del 100% el contenido (tabla de 7
+        # columnas + fila de alta) podía quedar más ancho que el viewport real y recortarse sin forma
+        # de alcanzarlo, en vez de poder desplazarse hasta él.
+        self.tabs.addTab(self._envolver_scroll(_pagina), "Almacenes")
         entradas = []
-        if _mrp_visible:
-            entradas.append(("MRP / Fabricación", self._construir_tab_mrp))
-        entradas.append(("GMAO / Mantenimiento", self._construir_tab_gmao))
-        entradas.append(("Distribución / Rutas", self._construir_tab_slotting))
+        entradas.append(("Slotting / Rotación", lambda: self._envolver_scroll(self._construir_tab_slotting())))
         from src.gui.transiciones import instalar_pestanas_lazy
         instalar_pestanas_lazy(self.tabs, entradas)
         self._cargar()
 
-    def _construir_tab_mrp(self):
-        try:
-            from src.gui.mrp_dashboard import MRPDashboardWindow
-            return MRPDashboardWindow(callback_vuelta=None, usuario=self.usuario, main=self._main)
-        except Exception as e:
-            logger.debug("tab MRP: %s", e)
-            return QWidget()
+    def _envolver_scroll(self, w):
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setFrameShape(QScrollArea.Shape.NoFrame)
+        sc.setStyleSheet("QScrollArea{background:transparent;border:none;}" + T.qss_scrollbar())
+        sc.setWidget(w)
+        return sc
 
-    def _construir_tab_gmao(self):
-        try:
-            from src.gui.gmao_dashboard import GMAODashboardWindow
-            return GMAODashboardWindow(callback_vuelta=None, usuario=self.usuario, main=self._main)
-        except Exception as e:
-            logger.debug("tab GMAO: %s", e)
-            return QWidget()
-
-    # ── Slotting inteligente + rutas de picking (WMS, sin coste externo) ───────
+    # ── Slotting inteligente (WMS, sin coste externo) ──────────────────────────
+    # El visor de "ruta óptima de preparación" que vivía aquí se RETIRÓ: es redundante con el que ya
+    # ofrece el módulo "Distribución" del menú principal para los pickings que él mismo genera
+    # (`services/expediciones.py::ruta_optima`, mismo motor `picking_ruta.ruta_picking`). Lo que NO
+    # tiene equivalente en ningún otro módulo, y por eso se conserva aquí, es el análisis ABC/rotación
+    # y sus sugerencias de intercambio de ubicación — ver `_slotting_aplicar` para la regla de
+    # negocio de que son SOLO sugerencias, nunca una reasignación automática.
     def _construir_tab_slotting(self):
         w = QWidget(); ly = QVBoxLayout(w)
-        ly.addWidget(QLabel("Distribución inteligente — coloca los productos de más rotación en las "
-                            "ubicaciones más accesibles"))
+        lbl1 = QLabel("Distribución inteligente — coloca los productos de más rotación en las "
+                     "ubicaciones más accesibles")
+        lbl1.setWordWrap(True)
+        ly.addWidget(lbl1)
+        lbl2 = QLabel("Solo SUGERENCIAS: no reasignan nada por sí solas — hace falta seleccionar "
+                     "una fila y pulsar «Aplicar intercambio» a propósito. Si una persona coloca "
+                     "un artículo en una ubicación distinta a la sugerida, esa decisión manual "
+                     "no se revierte ni se corrige automáticamente.")
+        lbl2.setWordWrap(True)
+        ly.addWidget(lbl2)
         bar = QHBoxLayout()
         bar.addWidget(_btn("🔎 Analizar", self._slotting_analizar, primary=True))
         bar.addWidget(_btn("↔ Aplicar intercambio", self._slotting_aplicar, primary=True))
@@ -127,15 +190,6 @@ class AlmacenesWindow(QWidget):
         self.tbl_slot = _tabla(["Producto", "Clase", "Rotación", "Ubicación actual",
                                 "→ Intercambiar con", "Ubicación sugerida"])
         ly.addWidget(self.tbl_slot)
-        ly.addWidget(QLabel("Ruta óptima de preparación (recorrido serpentín)"))
-        bar2 = QHBoxLayout()
-        self.cmb_pick = _combo([]); self.cmb_pick.setMinimumWidth(240)
-        bar2.addWidget(QLabel("Preparación:")); bar2.addWidget(self.cmb_pick)
-        bar2.addWidget(_btn("🧭 Ver ruta óptima", self._ruta_picking, primary=True)); bar2.addStretch()
-        ly.addLayout(bar2)
-        self.tbl_ruta = _tabla(["Orden", "Producto", "Cantidad", "Ubicación", "Pasillo"])
-        ly.addWidget(self.tbl_ruta)
-        self._cargar_pickings()
         return w
 
     def _slotting_analizar(self):
@@ -157,40 +211,17 @@ class AlmacenesWindow(QWidget):
         row = self.tbl_slot.currentRow()
         recs = getattr(self, "_recs", None)
         if row < 0 or not recs or row >= len(recs):
-            QMessageBox.information(self, "Slotting", "Analiza y selecciona una recomendación.")
+            _info(self, "Slotting", "Analiza y selecciona una recomendación.")
             return
         rec = recs[row]
         from src.services.inventario import slotting as SL
         if SL.aplicar_intercambio(rec["id_ubicacion"], rec["id_ubicacion_sugerida"],
                                   id_empresa=self._id_empresa()):
-            QMessageBox.information(self, "Slotting",
-                                    f"Intercambio aplicado: {rec['codigo']} ↔ {rec['codigo_intercambio']}.")
+            _info(self, "Slotting",
+                 f"Intercambio aplicado: {rec['codigo']} ↔ {rec['codigo_intercambio']}.")
             self._slotting_analizar()
         else:
-            QMessageBox.warning(self, "Slotting", "No se pudo aplicar el intercambio.")
-
-    def _cargar_pickings(self):
-        try:
-            from src.services.inventario import almacen_pro as AP
-            self.cmb_pick.clear()
-            for p in AP.listar_picking(self._id_empresa()):
-                self.cmb_pick.addItem(f"#{p.get('id')} · {p.get('referencia') or p.get('estado') or ''}",
-                                      p.get("id"))
-        except Exception as e:
-            logger.debug("cargar_pickings: %s", e)
-
-    def _ruta_picking(self):
-        pid = self.cmb_pick.currentData()
-        if not pid:
-            return
-        from src.services.inventario import picking_ruta as PR
-        ordenadas, _met = PR.ruta_picking(pid, self._id_empresa())
-        self.tbl_ruta.setRowCount(len(ordenadas))
-        for i, o in enumerate(ordenadas):
-            vals = [o.get("orden"), o.get("codigo_articulo"), o.get("cantidad"), o.get("ubicacion"),
-                    o.get("_pasillo")]
-            for j, v in enumerate(vals):
-                self.tbl_ruta.setItem(i, j, _it(v))
+            _info(self, "Slotting", "No se pudo aplicar el intercambio.")
 
     def _id_empresa(self):
         try:
@@ -216,26 +247,48 @@ class AlmacenesWindow(QWidget):
         nombre = self.in_nombre.text().strip()
         codigo = self.in_codigo.text().strip()
         if not nombre or not codigo:
-            QMessageBox.information(self, "Almacenes", "Indica nombre y código."); return
+            _info(self, "Almacenes", "Indica nombre y código."); return
         rid = SA.crear_almacen(nombre, codigo, self.cmb_tipo.currentData(),
                                id_empresa=self._id_empresa())
         if rid:
             self.in_nombre.clear(); self.in_codigo.clear(); self._cargar()
         else:
-            QMessageBox.warning(self, "Almacenes", "No se pudo crear (¿nombre/código duplicado?).")
+            _info(self, "Almacenes", "No se pudo crear (¿nombre/código duplicado?).")
 
     def _renombrar(self):
         a = self._sel()
         if not a:
+            _info(self, "Almacenes", "Selecciona primero un almacén en la tabla.")
             return
-        nuevo, ok = QInputDialog.getText(self, "Renombrar", "Nuevo nombre:", text=a.get("nombre") or "")
-        if ok and nuevo.strip():
-            SA.actualizar_almacen(a["id"], id_empresa=self._id_empresa(), nombre=nuevo.strip())
+        dlg = _RenombrarDialog(a.get("nombre") or "", self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.valor().strip():
+            SA.actualizar_almacen(a["id"], id_empresa=self._id_empresa(), nombre=dlg.valor().strip())
             self._cargar()
 
     def _activar(self, activo):
         a = self._sel()
         if not a:
+            _info(self, "Almacenes", "Selecciona primero un almacén en la tabla.")
             return
         SA.activar_almacen(a["id"], activo=activo, id_empresa=self._id_empresa())
         self._cargar()
+
+    def _eliminar(self):
+        a = self._sel()
+        if not a:
+            _info(self, "Almacenes", "Selecciona primero un almacén en la tabla.")
+            return
+        try:
+            from assets.estilo_global import mostrar_confirmacion
+            ok = mostrar_confirmacion(
+                self, "Eliminar almacén",
+                f"¿Eliminar el almacén «{a.get('nombre')}»? Se rechaza si todavía tiene existencias.")
+        except Exception:
+            ok = True
+        if not ok:
+            return
+        r = SA.eliminar_almacen(a["id"], id_empresa=self._id_empresa())
+        if r.get("ok"):
+            self._cargar()
+        else:
+            _info(self, "Almacenes", r.get("error") or "No se pudo eliminar el almacén.")

@@ -66,6 +66,13 @@ variable "container_env" {
   type    = map(string)
   default = {}
 }
+# Ruta de comprobación de salud del ALB. Por defecto la del backend local (`/api/v1/live`); el
+# servidor CENTRAL (Fase 5, `wsgi_central.py`) expone `/salud` — se pasa distinto al instanciar este
+# mismo módulo una segunda vez para él, sin duplicar el módulo.
+variable "health_check_path" {
+  type    = string
+  default = "/api/v1/live"
+}
 
 resource "aws_ecr_repository" "app" {
   name                 = "${var.name}-backend"
@@ -125,7 +132,7 @@ resource "aws_lb_target_group" "app" {
   vpc_id      = var.vpc_id
   target_type = "ip"
   health_check {
-    path                = "/api/v1/live"
+    path                = var.health_check_path
     matcher             = "200"
     interval            = 15
     healthy_threshold   = 2

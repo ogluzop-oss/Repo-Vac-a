@@ -4,8 +4,12 @@ Identidad del proveedor en la plataforma (Smart Suppliers · Fase A). `suministr
 distinto de `proveedores`, que sigue siendo el registro POR EMPRESA (homologación, condiciones,
 incidencias, evaluación no cambian). `proveedores.id_suministrador` es el puente entre ambos.
 
-Sesión sin contraseña (magic-link): un proveedor externo no debería tener que gestionar una contraseña
-más. El acceso es siempre por un token de un solo uso enviado por email (igual que la invitación).
+Login con email + contraseña (`verificar_login`): sustituye al antiguo acceso sin contraseña
+(enlace mágico reenviado automáticamente en cada cierre de sesión/pestaña, retirado por completo).
+Hashing reutilizado tal cual de `src.seguridad.passwords` (Argon2id) — el mismo motor que ya usan los
+usuarios de escritorio vía `src.db.usuario` — sin motor paralelo. La sesión, una vez autenticado, sigue
+usando el mismo mecanismo de siempre: token opaco en `suministrador_sesiones` (`crear_sesion`/
+`resolver_sesion`, sin cambios), con el token viajando en la URL (sin cookies).
 """
 
 import logging
@@ -17,7 +21,23 @@ from src.db.conexion import ensure_schema, obtener_conexion
 logger = logging.getLogger("compras.suministradores")
 
 ESTADOS_KYB = ("pendiente", "en_revision", "verificado", "rechazado")
-MINUTOS_SESION = 60
+# 30 días de sesión: con login real de email+contraseña (ya no un enlace de un solo uso), una
+# ventana larga simplemente evita que el proveedor tenga que volver a autenticarse a diario — no
+# hay ningún enlace de reentrada que sincronizar con este valor (ese mecanismo se retiró por
+# completo, ver `verificar_login`).
+MINUTOS_SESION = 60 * 24 * 30
+
+
+def texto_validez() -> str:
+    """Texto legible de la validez de `MINUTOS_SESION`, por si alguna página necesita informar al
+    proveedor de cuánto dura su sesión sin imprimir minutos en bruto."""
+    dias = MINUTOS_SESION // (60 * 24)
+    if dias >= 1:
+        return f"{dias} día" if dias == 1 else f"{dias} días"
+    horas = MINUTOS_SESION // 60
+    if horas >= 1:
+        return f"{horas} hora" if horas == 1 else f"{horas} horas"
+    return f"{MINUTOS_SESION} minutos"
 
 
 def _fila(cur, r):
@@ -48,29 +68,66 @@ def obtener_por_cif(cif: str) -> dict | None:
 
 def completar_onboarding(token_invitacion: str, *, razon_social: str, cif: str, sector_id: int,
                          contacto: str | None = None, telefono: str | None = None,
-                         email_login: str | None = None) -> dict:
+                         email_login: str | None = None, password: str | None = None,
+                         confirmar_password: str | None = None) -> dict:
     """Completa el alta de un proveedor invitado: crea (o reutiliza, si el CIF ya existe en la
     plataforma — el mismo proveedor puede servir a varias empresas) la identidad `suministradores`, y
-    la vincula al registro `proveedores` de la empresa que invitó. Requiere sector (obligatorio)."""
+    la vincula al registro `proveedores` de la empresa que invitó. Requiere sector, email de acceso
+    (identificador de login, ya obligatorio) y contraseña (obligatorios).
+
+    El enlace de invitación es PERMANENTE y reutilizable (`invitaciones.resolver_token` ya no caduca
+    ni se bloquea tras usarse, ver ese módulo) — así que esta función puede recibir el MISMO token una
+    segunda vez si el proveedor vuelve a pulsar el enlace de alta después de haberse registrado ya. En
+    ese caso NO se crea una segunda fila `suministradores` (duplicaría la identidad): se detecta que
+    `proveedores.id_suministrador` de esta invitación ya está fijado y se devuelve
+    `error="ya_registrado"` para que el llamante redirija al login en vez de reintentar el alta."""
     from src.services.compras import invitaciones
     inv = invitaciones.resolver_token(token_invitacion)
     if not inv:
-        return {"ok": False, "error": "invitacion_invalida_o_caducada"}
+        return {"ok": False, "error": "invitacion_invalida"}
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id_suministrador FROM proveedores WHERE id_proveedor=%s",
+                       (inv["id_proveedor"],))
+            row = cur.fetchone()
+            ya_vinculado = (row[0] if not isinstance(row, dict) else row["id_suministrador"]) if row else None
+    except Exception as e:
+        logger.error("completar_onboarding (comprobación ya_registrado): %s", e)
+        ya_vinculado = None
+    if ya_vinculado:
+        return {"ok": False, "error": "ya_registrado"}
     if not (razon_social or "").strip() or not (cif or "").strip() or not sector_id:
         return {"ok": False, "error": "razon_social_cif_y_sector_son_obligatorios"}
+    email_login = (email_login or "").strip().lower()
+    if not email_login or "@" not in email_login:
+        return {"ok": False, "error": "el_email_de_acceso_es_obligatorio"}
+    if not password or password != confirmar_password:
+        return {"ok": False, "error": "las_contrasenas_no_coinciden"}
+    from src.seguridad import politica
+    ok_pol, motivo = politica.validar(password, longitud_minima=8)
+    if not ok_pol:
+        return {"ok": False, "error": motivo}
+    from src.seguridad.passwords import hash_password
+    password_hash = hash_password(password)
     cif_n = cif.strip().upper()
-    email_login = (email_login or inv["email"]).strip().lower()
     try:
         ensure_schema()
         existente = obtener_por_cif(cif_n)
         with obtener_conexion() as conn, conn.cursor() as cur:
             if existente:
                 id_sum = existente["id"]
+                # Identidades creadas antes de que existiera el login con contraseña (o que por
+                # cualquier motivo aún no tengan una) se completan aquí — nunca se sobreescribe una
+                # contraseña ya establecida por una re-invitación posterior de otra empresa.
+                if not (existente.get("password") or "").strip():
+                    cur.execute("UPDATE suministradores SET password=%s, email_login=%s WHERE id=%s",
+                               (password_hash, email_login, id_sum))
             else:
                 cur.execute(
                     "INSERT INTO suministradores (razon_social, cif, sector_id, email_login, "
-                    "contacto, telefono, estado_kyb) VALUES (%s,%s,%s,%s,%s,%s,'pendiente')",
-                    (razon_social.strip(), cif_n, sector_id, email_login, contacto, telefono))
+                    "contacto, telefono, estado_kyb, password) VALUES (%s,%s,%s,%s,%s,%s,'pendiente',%s)",
+                    (razon_social.strip(), cif_n, sector_id, email_login, contacto, telefono,
+                     password_hash))
                 id_sum = cur.lastrowid
             conn.commit()
         # Vincula el proveedor de ESTA empresa (creado en la invitación) a la identidad de plataforma.
@@ -118,130 +175,46 @@ def fijar_estado_kyb(id_suministrador, estado: str) -> bool:
         return False
 
 
-# ── Sesión sin contraseña (magic-link) ────────────────────────────────────────
-def solicitar_acceso(email_login: str) -> dict:
-    """Envía (best-effort) un enlace de acceso de un solo uso al email de login del proveedor. No
-    confirma en la respuesta si el email existe (evita enumeración de proveedores registrados)."""
+# ── Login con email + contraseña ──────────────────────────────────────────────
+def verificar_login(email_login: str, password: str) -> dict:
+    """Verifica credenciales de acceso al Portal Web del proveedor (sustituye por completo al
+    antiguo acceso sin contraseña). Nunca distingue en el error si el email no existe o la
+    contraseña es incorrecta — misma postura anti-enumeración que ya tenía el flujo anterior. En
+    éxito, si `passwords.verificar` señala que el hash conviene regenerarse (migración desde un
+    esquema antiguo o parámetros Argon2 desactualizados), lo persiste — mismo patrón que
+    `db.usuario._rehash`."""
     email = (email_login or "").strip().lower()
-    sup = None
+    if not email or not password:
+        return {"ok": False, "error": "credenciales_invalidas"}
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM suministradores WHERE email_login=%s", (email,))
             row = cur.fetchone()
             sup = _fila(cur, row) if row else None
     except Exception as e:
-        logger.error("solicitar_acceso: %s", e)
-    if sup:
-        token = crear_sesion(sup["id"])
-        _enviar_email_acceso(sup, token)
-    return {"ok": True}  # siempre 200: no revela si el email existe
-
-
-def _id_empresa_relacionada(id_suministrador):
-    """Una empresa con la que este proveedor tiene relación — `suministradores` es una identidad
-    COMPARTIDA (sin `id_empresa` propio), pero `enviar_comunicacion` necesita una empresa concreta
-    para elegir el buzón corporativo desde el que enviar. No existe el concepto de "empresa dueña"
-    del proveedor; se toma cualquiera de las que lo invitaron (normalmente solo hay una)."""
-    try:
-        with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT id_empresa FROM proveedores WHERE id_suministrador=%s LIMIT 1",
-                       (id_suministrador,))
-            row = cur.fetchone()
-            return (row[0] if not isinstance(row, dict) else row["id_empresa"]) if row else None
-    except Exception as e:
-        logger.error("_id_empresa_relacionada(%s): %s", id_suministrador, e)
-        return None
-
-
-def _email_invitacion_original(id_suministrador):
-    """El correo que recibió la invitación de alta ORIGINAL — requisito de negocio confirmado: el
-    enlace de reentrada siempre va a esa dirección, NUNCA al "email_login" que el proveedor haya
-    podido escribir de forma distinta en el formulario de alta (ese campo es solo una preferencia
-    de inicio de sesión, no cambia a quién avisamos que hay un enlace nuevo esperando)."""
-    try:
-        with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT i.email FROM invitaciones_proveedor i "
-                "JOIN proveedores p ON p.id_proveedor = i.id_proveedor "
-                "WHERE p.id_suministrador=%s ORDER BY i.creado_en DESC LIMIT 1", (id_suministrador,))
-            row = cur.fetchone()
-            return (row[0] if not isinstance(row, dict) else row["email"]) if row else None
-    except Exception as e:
-        logger.error("_email_invitacion_original(%s): %s", id_suministrador, e)
-        return None
-
-
-def _enviar_email_acceso(suministrador, token_sesion):
-    try:
-        from src.services import ccp
-        import os
-        base = os.getenv("PORTAL_PROVEEDOR_URL", "http://localhost:8090/portal/proveedor")
-        # Bug corregido: no se pasaba `id_empresa`, así que `enviar_comunicacion` resolvía la
-        # empresa por defecto del contexto (casi nunca la que tiene un buzón corporativo
-        # configurado) y el envío fallaba en silencio con "No hay buzón corporativo activo" —
-        # exactamente el mismo síntoma que ya se había diagnosticado y resuelto para las
-        # invitaciones (`invitaciones._enviar_email_invitacion`), pero sin aplicar aquí.
-        id_empresa = _id_empresa_relacionada(suministrador["id"])
-        # Destinatario: SIEMPRE el correo de la invitación original, no `email_login` (bug de
-        # diseño corregido — ver docstring de `_email_invitacion_original`).
-        destinatario = _email_invitacion_original(suministrador["id"]) or suministrador.get("email_login")
-        # Ruta real del panel: /portal/proveedor/<token>/dashboard (bug corregido — antes apuntaba
-        # a /sesion/<token>, una ruta que nunca existió en el blueprint).
-        r = ccp.enviar_comunicacion(
-            id_empresa=id_empresa,
-            destinatario=destinatario, asunto="Acceso a tu Portal de Proveedor",
-            cuerpo=f"Accede a tu portal: {base}/{token_sesion}/dashboard\n\nEste enlace caduca en "
-                  f"{MINUTOS_SESION} minutos.",
-            contexto="compras.acceso_proveedor")
-        if not getattr(r, "ok", True):
-            logger.warning("_enviar_email_acceso(%s): no se pudo enviar (%s)",
-                           destinatario, getattr(r, "mensaje", "motivo desconocido"))
-    except Exception as e:
-        logger.debug("_enviar_email_acceso: %s", e)
-
-
-# ── Reentrada automática (sin flujo manual) ────────────────────────────────────
-def notificar_reentrada(id_suministrador, *, cooldown_segundos=60) -> dict:
-    """Envía (best-effort) un enlace de acceso NUEVO al proveedor sin que tenga que pedirlo: lo
-    dispara `backend.portal_proveedor` cuando detecta que cierra la pestaña (beacon en `pagehide`)
-    o cuando pulsa "Cerrar sesión". Es el ÚNICO flujo de reentrada del portal — el proveedor nunca
-    depende de que la empresa lo vuelva a invitar.
-
-    `cooldown_segundos` evita ráfagas de email si el beacon se dispara varias veces seguidas (varias
-    pestañas cerrándose casi a la vez). Se mide contra `ultima_notificacion_reentrada` (escrita SOLO
-    aquí) y NO contra la fila más reciente de `suministrador_sesiones` — esa tabla también guarda la
-    sesión que el proveedor está usando en ese momento (creada al entrar), así que mirarla haría
-    creer que "ya se avisó hace poco" nada más entrar y suprimiría el primer aviso real."""
-    sup = obtener(id_suministrador)
-    if not sup or not sup.get("email_login"):
-        return {"ok": False, "error": "sin_suministrador_o_email_login"}
-    ultima = sup.get("ultima_notificacion_reentrada")
-    if ultima and cooldown_segundos:
-        if isinstance(ultima, str):
-            ultima = datetime.fromisoformat(ultima[:19])
-        if ultima > datetime.now() - timedelta(seconds=cooldown_segundos):
-            return {"ok": True, "omitido": "envio_reciente"}
-    # `crear_sesion` gestiona su PROPIA conexión (INSERT + commit) — NO se anida dentro de otro
-    # `with obtener_conexion()` aquí: dos conexiones abiertas a la vez en el mismo hilo, una de ellas
-    # sin cerrar todavía, es justo el patrón que causó que el UPDATE de más abajo se perdiera en
-    # silencio bajo el servidor Flask (aunque el INSERT sí llegaba a persistir) — no reproducible en
-    # un script suelto, sí bajo el pool de conexiones real del backend.
-    token = crear_sesion(id_suministrador)
-    try:
-        with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE suministradores SET ultima_notificacion_reentrada=NOW() WHERE id=%s",
-                       (id_suministrador,))
-            conn.commit()
-    except Exception as e:
-        logger.error("notificar_reentrada(%s): %s", id_suministrador, e)
-    _enviar_email_acceso(sup, token)
-    return {"ok": True}
+        logger.error("verificar_login: %s", e)
+        return {"ok": False, "error": "error_interno"}
+    if not sup:
+        return {"ok": False, "error": "credenciales_invalidas"}
+    from src.seguridad import passwords as _pw
+    ok, hash_nuevo = _pw.verificar(password, sup.get("password") or "")
+    if not ok:
+        return {"ok": False, "error": "credenciales_invalidas"}
+    if hash_nuevo:
+        try:
+            with obtener_conexion() as conn, conn.cursor() as cur:
+                cur.execute("UPDATE suministradores SET password=%s WHERE id=%s",
+                           (hash_nuevo, sup["id"]))
+                conn.commit()
+        except Exception as e:
+            logger.debug("verificar_login rehash(id=%s): %s", sup["id"], e)
+    return {"ok": True, "id_suministrador": sup["id"]}
 
 
 def cerrar_sesion(token_sesion: str) -> dict:
-    """Cierre EXPLÍCITO de sesión: invalida el token actual (no se puede reutilizar) y dispara de
-    inmediato el envío del enlace siguiente, para que el proveedor pueda volver a entrar sin
-    depender de la empresa."""
+    """Cierre EXPLÍCITO de sesión: invalida el token actual (no se puede reutilizar). Solo borra la
+    fila de sesión — a diferencia del flujo antiguo, NO dispara ningún envío de email; con login por
+    contraseña el proveedor simplemente vuelve a entrar en `/portal/proveedor/acceso` cuando quiera."""
     if not token_sesion:
         return {"ok": False, "error": "sin_token"}
     try:
@@ -251,13 +224,12 @@ def cerrar_sesion(token_sesion: str) -> dict:
             row = cur.fetchone()
             if not row:
                 return {"ok": False, "error": "sesion_no_encontrada"}
-            id_sum = row[0] if not isinstance(row, dict) else row["id_suministrador"]
             cur.execute("DELETE FROM suministrador_sesiones WHERE token_sesion=%s", (token_sesion,))
             conn.commit()
     except Exception as e:
         logger.error("cerrar_sesion: %s", e)
         return {"ok": False, "error": "error_interno"}
-    return notificar_reentrada(id_sum, cooldown_segundos=0)   # cierre explícito: sin cooldown
+    return {"ok": True}
 
 
 def crear_sesion(id_suministrador, minutos: int = MINUTOS_SESION) -> str:
@@ -277,9 +249,9 @@ def resolver_sesion(token_sesion: str) -> dict | None:
     """Valida el token de sesión y devuelve el suministrador. Reutilizable mientras no caduque
     (`MINUTOS_SESION`) — no es de un solo uso: el mismo token viaja en la URL de cada página del
     panel (Panel/Catálogo), así que debe seguir siendo válido en cada clic dentro de esa ventana de
-    tiempo. Pasado ese plazo, el proveedor pide un enlace nuevo en `/portal/proveedor/acceso`
-    (`solicitar_acceso`) tantas veces como necesite — es el mecanismo normal de reentrada, no una
-    excepción."""
+    tiempo. Pasado ese plazo, el proveedor vuelve a entrar con email+contraseña en
+    `/portal/proveedor/acceso` (`verificar_login`) tantas veces como necesite — es el mecanismo
+    normal de reentrada, no una excepción."""
     if not token_sesion:
         return None
     try:

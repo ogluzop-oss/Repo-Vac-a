@@ -9,7 +9,11 @@ from src.rrhh.documents.render.render_finiquito import render_finiquito  # noqa:
 from src.rrhh.documents.render.render_generico import render_generico  # noqa: F401
 from src.rrhh.documents.render.render_cert_laboral import render_cert_laboral  # noqa: F401
 from src.rrhh.documents.render.render_vacaciones import render_vacaciones  # noqa: F401
+from src.rrhh.documents.render.render_libro_ingresos import render_libro_ingresos  # noqa: F401
+from src.rrhh.documents.render.render_libro_gastos import render_libro_gastos  # noqa: F401
+from src.rrhh.documents.render.render_informe_auditoria import render_informe_auditoria  # noqa: F401
 
 __all__ = ["render_contrato", "render_nomina", "render_carta_despido", "render_certificado",
            "render_alta_baja", "render_finiquito", "render_generico",
-           "render_cert_laboral", "render_vacaciones"]
+           "render_cert_laboral", "render_vacaciones", "render_libro_ingresos",
+           "render_libro_gastos", "render_informe_auditoria"]

@@ -43,7 +43,11 @@ from src.services.marketplace.integraciones_comerciales import \
 from src.services.marketplace.integraciones_comerciales import \
     tiktok_shop  # noqa: F401  (registra el conector TikTok Shop real — marketplace)
 from src.services.marketplace.integraciones_comerciales import \
+    meta_shop  # noqa: F401  (registra Instagram Shopping + Facebook Shop reales — marketplace)
+from src.services.marketplace.integraciones_comerciales import \
     web_generica  # noqa: F401  (registra la web tradicional: feed + REST — web_tradicional)
+from src.services.marketplace.integraciones_comerciales import \
+    sync_venta_listener  # noqa: F401  (suscribe VENTA_REGISTRADA -> cola de exportación de stock)
 
 hostinger.registrar()
 woocommerce.registrar()
@@ -56,7 +60,9 @@ ebay.registrar()
 miravia.registrar()
 aliexpress.registrar()
 tiktok_shop.registrar()
+meta_shop.registrar()
 web_generica.registrar()
+sync_venta_listener.suscribir()   # cierre de brecha: ventas -> exportación de stock a canales (cola)
 from src.services.marketplace.integraciones_comerciales.conector import (  # noqa: F401
     ConectorPreparado, conector as obtener_conector)
 from src.services.marketplace.integraciones_comerciales.servicio import (  # noqa: F401
@@ -88,4 +94,4 @@ __all__ = ["APARTADO", "ESTADO", "estados", "contratos", "conector", "servicio",
            "validar", "sincronizar", "AMBITOS_SYNC",
            "motor", "capacidades", "adaptador", "ConnectorCapabilities", "hostinger", "woocommerce",
            "shopify", "prestashop", "magento", "opencart", "amazon", "ebay", "miravia", "aliexpress",
-           "tiktok_shop"]
+           "tiktok_shop", "sync_venta_listener"]

@@ -175,6 +175,47 @@ def test_multiempresa(db, fab):
     assert L.stock_total_en_lotes(cod, id_empresa=emp2) == 9
 
 
+# ── Fase C — Stock en Consignación: regresión dedicada del disparador ────────
+# `consumir_fefo` es el punto de enganche de mayor radio de impacto del plan (MRP/GMAO/TPV/
+# e-commerce/obrador pasan por aquí) — esta prueba confirma que el `detalle` amplía correctamente
+# `propiedad`/`id_suministrador` por lote consumido y que el disparador de liquidación (Fase C) es
+# ESTRICTAMENTE best-effort: un fallo ahí nunca debe alterar `consumido`/`faltante`/`detalle` para
+# el llamador. No monta el ciclo completo de facturación (eso lo cubre test_b2b_consignacion.py) —
+# solo verifica el contrato que ve CUALQUIER llamador de consumir_fefo.
+def test_consumir_fefo_detecta_consignacion(db, fab):
+    cod = _art(fab, db)
+    L.registrar_entrada(cod, "PROPIO", 5, id_empresa=EMPRESA_DEFAULT_ID)
+    L.registrar_entrada(cod, "CONSIG", 5, id_empresa=EMPRESA_DEFAULT_ID,
+                        propiedad="consignacion", id_suministrador=999999)
+    lotes_ = {l["lote"]: l for l in L.stock_por_lote(cod, id_empresa=EMPRESA_DEFAULT_ID)}
+    assert lotes_["PROPIO"]["propiedad"] == "propio"
+    assert lotes_["PROPIO"]["id_suministrador"] is None
+    assert lotes_["CONSIG"]["propiedad"] == "consignacion"
+    assert lotes_["CONSIG"]["id_suministrador"] == 999999
+
+    # PROPIO entra primero (fecha_entrada anterior) → FEFO sin caducidad cae a fecha_entrada: se
+    # consume PROPIO(5) completo y CONSIG(3) — id_suministrador=999999 no existe en `suministradores`,
+    # así que el disparador (best-effort, import perezoso tras el commit) falla en silencio al
+    # intentar liquidar/facturar: NO debe alterar el resultado devuelto al llamador.
+    r = L.consumir_fefo(cod, 8, tipo="SALIDA_VENTA", id_empresa=EMPRESA_DEFAULT_ID, id_documento="V-CONSIG")
+    assert r["consumido"] == 8 and r["faltante"] == 0
+    por_lote = {d["lote"]: d for d in r["detalle"]}
+    assert por_lote["PROPIO"]["propiedad"] == "propio"
+    assert por_lote["PROPIO"]["id_suministrador"] is None
+    assert por_lote["CONSIG"]["propiedad"] == "consignacion"
+    assert por_lote["CONSIG"]["id_suministrador"] == 999999
+    assert por_lote["CONSIG"]["consumido"] == 3
+
+    # DEVOLUCION_PROVEEDOR se excluye del disparador (Fase C, punto 5) — comportamiento normal e
+    # inalterado también en este caso (no hay nada de propiedad='consignacion' con saldo real detrás,
+    # pero el propio tipo ya corta el disparador antes de intentar nada).
+    L.registrar_entrada(cod, "CONSIG", 2, id_empresa=EMPRESA_DEFAULT_ID, propiedad="consignacion",
+                        id_suministrador=999999)
+    r2 = L.consumir_fefo(cod, 2, tipo="DEVOLUCION_PROVEEDOR", id_empresa=EMPRESA_DEFAULT_ID,
+                         id_documento="DEV-CONSIG")
+    assert r2["consumido"] == 2 and r2["faltante"] == 0
+
+
 # ── GUI ──────────────────────────────────────────────────────────────────────
 def test_gui(db, fab):
     try:

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 
 from src.gui.foundation import tokens as T
 from src.gui._neon_ui import _RoundTableCorners, _ss_tabla_neon
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.services import recetas as _R
 
 try:
@@ -64,7 +65,8 @@ class RecetasWindow(QWidget):
         tit.setStyleSheet(f"color:{T.INFO};font-size:20px;font-weight:900;")
         cab.addWidget(tit); cab.addStretch()
         if self._volver:
-            cab.addWidget(self._btn("✕", self._volver, rojo=True))
+            from src.gui.catalogo_gestion import _btn_x
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
         cuerpo = QHBoxLayout(); cuerpo.setSpacing(16)
@@ -91,6 +93,7 @@ class RecetasWindow(QWidget):
         izq.addWidget(self.tabla, 1)
         add = QHBoxLayout()
         self.in_cod = QLineEdit(); self.in_cod.setPlaceholderText("Código medicamento")
+        instalar_sugerencias_articulo(self.in_cod)
         self.in_cant = QSpinBox(); self.in_cant.setRange(1, 10000); self.in_cant.setValue(1)
         self.in_pos = QLineEdit(); self.in_pos.setPlaceholderText("Posología")
         for w in (self.in_cod, self.in_pos):
@@ -117,6 +120,8 @@ class RecetasWindow(QWidget):
         # `clicked` pasa un bool (checked); si cod es None/bool → invocación desde el botón "＋".
         manual = cod is None or isinstance(cod, bool)
         cod = (self.in_cod.text() if manual else cod).strip()
+        if "–" in cod:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            cod = cod.split("–")[0].strip()
         pos = (self.in_pos.text() if pos is None else pos).strip()
         if manual and (not cod or not pos):
             faltan = ([] if cod else ["el código del medicamento"]) + ([] if pos else ["la posología"])

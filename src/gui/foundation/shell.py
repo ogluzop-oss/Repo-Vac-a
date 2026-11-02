@@ -67,7 +67,10 @@ class BaseEnterpriseWindow:
 # ══════════════════════════════════════════════════════════════════════════════
 from PyQt6.QtCore import Qt                                        # noqa: E402
 from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QPushButton,     # noqa: E402
-                             QTabWidget, QVBoxLayout, QWidget)
+                             QVBoxLayout, QWidget)
+
+from assets.estilo_global import _blindar_tamano_fijo               # noqa: E402
+from src.gui.transiciones import TabsActual                         # noqa: E402
 
 
 def _titulo_label(texto, acento=T.INFO):
@@ -79,10 +82,12 @@ def _titulo_label(texto, acento=T.INFO):
 def _boton_x(slot):
     b = QPushButton("✕")
     b.setCursor(Qt.CursorShape.PointingHandCursor)
-    b.setFixedSize(46, 40)
-    b.setStyleSheet(f"QPushButton{{background:transparent;color:{T.CRITICO};"
-                    f"border:2px solid {T.CRITICO};border-radius:9px;font-weight:900;font-size:16px;}}"
-                    f"QPushButton:hover{{background:{T.CRITICO};color:{T.BG};}}")
+    b.setFixedSize(46, 46)
+    b.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{T.CRITICO};border:none;border-radius:23px;padding:0;font-weight:900;font-size:18px;}}"
+            f"QPushButton:hover{{background:{T.CRITICO};color:#0D1117;}}")
+    b.setProperty("sin_glow", True)
+    _blindar_tamano_fijo(b, 46, 46)
     if slot:
         b.clicked.connect(slot)
     return b
@@ -109,7 +114,7 @@ class QtEnterprisePanel(QWidget, BaseEnterprisePanel):
         self._root.addLayout(self.contenido, 1)
         # Barra de estado
         self.status = QLabel("")
-        self.status.setStyleSheet(f"color:{T.DIM};background:transparent;border:none;font-size:11px;")
+        self.status.setStyleSheet(f"color:{T.DIM};background:{T.BG};border:none;font-size:11px;")
         self._root.addWidget(self.status)
 
     def add_toolbar_widget(self, w):
@@ -119,7 +124,7 @@ class QtEnterprisePanel(QWidget, BaseEnterprisePanel):
         self.toolbar.addStretch(1)
 
     def set_status(self, texto, rol="neutro"):
-        self.status.setStyleSheet(f"color:{T.color(rol)};background:transparent;border:none;font-size:11px;")
+        self.status.setStyleSheet(f"color:{T.color(rol)};background:{T.BG};border:none;font-size:11px;")
         self.status.setText(texto or "")
 
     def cargar_si_necesario(self):
@@ -174,19 +179,69 @@ class QtEnterpriseWindow(QWidget, BaseEnterpriseWindow):
             header.addWidget(_boton_x(callback_vuelta))
         root.addLayout(header)
 
-        # Tabs (lazy)
-        self.tabs = QTabWidget()
+        # Tabs (lazy). TabsActual (no QTabWidget "a pelo"): evita que una pestaña ancha deje
+        # abultado para siempre el ancho mínimo del contenedor y recorte el resto de pestañas
+        # (mismo bug de Qt ya resuelto en `contabilidad_gestion.py`/`calculadora_fiscal_wizard.py`).
+        self.tabs = TabsActual()
         self.tabs.setStyleSheet(T.qss_tabs())
         self.tabs.currentChanged.connect(self._on_tab_changed)
         root.addWidget(self.tabs, 1)
 
         # Footer / estado
         self.footer = QLabel("")
-        self.footer.setStyleSheet(f"color:{T.DIM};background:transparent;border:none;font-size:11px;")
+        # background opaco (no "transparent"): evita el "fantasma" de texto visto en Migración de
+        # datos tras la animación de entrada al módulo — mismo problema documentado en
+        # `transiciones.capturar_pantalla` (un QLabel con fondo cascada/transparente puede dejar
+        # restos visibles cuando el widget no repinta su propio fondo de forma explícita).
+        self.footer.setStyleSheet(f"color:{T.DIM};background:{T.BG};border:none;font-size:11px;")
         root.addWidget(self.footer)
 
         self._crear_pestanas()      # subclase registra pestañas
         self._montar_placeholders()
+        # Repintado forzado tras la animación de deslizamiento de entrada al módulo (ver
+        # `menu_principal.manejar_apertura`/`transiciones._DUR`≈240ms): en algún equipo real se ha
+        # visto contenido de la primera pestaña recortado/con restos, aunque la geometría en sí es
+        # correcta — un repintado forzado una vez asentada la transición es un mitigante barato y
+        # sin riesgo (no cambia nada visible si no hacía falta).
+        try:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(400, self._repintar_forzado)
+            # Segundo pase de seguridad: el primero puede llegar antes de que DWM termine de
+            # recomponer en un equipo cargado (p. ej. compitiendo con la propia animación de
+            # entrada, o con la pre-carga en segundo plano de módulos pesados) — se repite más
+            # tarde por si el primero no bastó. Barato y sin riesgo (no cambia nada si ya estaba bien).
+            QTimer.singleShot(900, self._repintar_forzado)
+        except Exception:
+            pass
+
+    def _repintar_forzado(self):
+        try:
+            self.updateGeometry()
+            self.tabs.updateGeometry()
+            w = self.tabs.currentWidget()
+            if w is not None:
+                w.updateGeometry()
+                w.repaint()
+            # El footer es donde se ha visto el resto/"fantasma" más claramente (el texto
+            # "<pestaña> cargado." de `_on_tab_changed`, duplicado/recortado tras la animación
+            # de entrada) — se repinta explícitamente, no solo el contenido de la pestaña.
+            self.footer.repaint()
+            self.repaint()
+            # `.repaint()` solo repinta el lado Qt; en Windows, una ventana frameless puede
+            # quedarse con un fotograma "congelado" en el compositor DWM (solo se ve correcto
+            # durante una animación que SÍ cambia la geometría real, como la salida del módulo
+            # — caso reportado). Un nudge de geometría de verdad (mover 1px y volver) fuerza a
+            # DWM a recomponer la ventana; `.repaint()` a secas no lo garantiza. NO se hace lo
+            # mismo con el tamaño en una ventana maximizada: un resize real ahí es justo el tipo
+            # de negociación de geometría nativa que ha causado los cierres bruscos ya
+            # investigados en otros módulos — el riesgo de reabrir ese problema pesa más que el
+            # beneficio de un nudge más agresivo.
+            if self.isWindow():
+                p = self.pos()
+                self.move(p.x() + 1, p.y())
+                self.move(p.x(), p.y())
+        except Exception:
+            pass
 
     # ── API para subclases ──
     def _crear_pestanas(self):

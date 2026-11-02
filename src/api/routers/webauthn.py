@@ -70,7 +70,7 @@ def registrar(bp):
             return jsonify(r), 401
         mfa_eventos.emitir("MFA_SUCCESS", id_usuario=uid, id_empresa=claims.get("empresa"),
                            detalle="webauthn")
-        u = {"id": uid, "id_empresa": claims.get("empresa"), "tienda_id": claims.get("tienda"),
+        u = {"id": uid, "id_empresa": claims.get("empresa"), "centro_codigo": claims.get("tienda"),
              "perfil": claims.get("rol"), "nombre": claims.get("nombre")}
         import time as _time
         return jsonify({"access": tokens.emitir_access(u, amr=["pwd", "webauthn"],

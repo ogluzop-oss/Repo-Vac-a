@@ -48,7 +48,7 @@ def _emp(id_empresa=None):
 def _ttl_minutos(tipo, id_empresa, canal):
     """TTL resuelto por CAPACIDADES (Rules), degradable a los defectos. Nunca importa Rules directo."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         rules = cap.rules()
         if rules is not None and hasattr(rules, "ttl_reserva"):
             v = rules.ttl_reserva(tipo=tipo, id_empresa=id_empresa, canal=canal)
@@ -239,7 +239,7 @@ def reservar_desde_plan(id_tx, plan, *, tipo="soft", id_linea=None, id_empresa=N
 def registrar_job():
     """Registra el barrido de caducidades en el Scheduler (capacidades, degradable/opt-in)."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         sch = cap.scheduler()
         if sch is not None and hasattr(sch, "registrar_job"):
             sch.registrar_job("cd_reservas_expiry", lambda *_a, **_k: barrer_expiradas())

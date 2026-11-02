@@ -28,10 +28,14 @@ def _q():
     return _Q
 
 
-def encolar(id_empresa, plataforma, tipo="sincronizar") -> dict:
-    """Añade un trabajo PENDIENTE a la cola local."""
+def encolar(id_empresa, plataforma, tipo="sincronizar", *, articulos=None, usuario=None) -> dict:
+    """Añade un trabajo PENDIENTE a la cola local. `articulos`/`usuario` (opcionales, aditivos): usados
+    por trabajos `tipo="exportar_stock"` (encolados por `sync_venta_listener` tras cada venta) para
+    llevar los SKU afectados y el usuario; los trabajos `sincronizar`/`reintentar` (encolados por el
+    botón manual de la GUI) los ignoran — compatibilidad total con los llamadores existentes."""
     job = {"id": next(_SEQ), "id_empresa": str(id_empresa), "plataforma": plataforma, "tipo": tipo,
-           "estado": "pendiente", "creado": time.time(), "resultado": None}
+           "estado": "pendiente", "creado": time.time(), "resultado": None,
+           "articulos": articulos, "usuario": usuario}
     _JOBS.append(job)
     _q().encolar(job)
     return job

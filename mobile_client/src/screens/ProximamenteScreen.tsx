@@ -6,30 +6,32 @@
 import React from 'react';
 import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {useTranslation} from 'react-i18next';
 import {colors} from '@/theme/colors';
 import type {ProximamenteProps} from '@/navigation/types';
 
 export default function ProximamenteScreen({navigation, route}: ProximamenteProps) {
+  const {t} = useTranslation();
   const {label, endpoint, icon} = route.params;
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.back}>‹ Volver</Text>
+          <Text style={styles.back}>{t('proximamente.volver', '‹ Volver')}</Text>
         </TouchableOpacity>
         <Text style={styles.title}>{label}</Text>
-        <View style={{width: 60}} />
+        <View style={{width: 90}} />
       </View>
 
       <View style={styles.centered}>
         <Text style={styles.icon}>{icon}</Text>
-        <Text style={styles.heading}>Próximamente</Text>
+        <Text style={styles.heading}>{t('proximamente.titulo', 'Próximamente')}</Text>
         <Text style={styles.body}>
-          Esta capacidad está prevista en el catálogo móvil, pero el backend todavía no expone{' '}
+          {t('proximamente.cuerpo_pre', 'Esta capacidad está prevista en el catálogo móvil, pero el backend todavía no expone')}{' '}
           <Text style={styles.mono}>{endpoint}</Text>.{'\n\n'}
-          En cuanto ese endpoint esté disponible en la REST API, esta pantalla se conectará con datos
-          reales — no se muestran datos simulados.
+          {t('proximamente.cuerpo_post',
+             'En cuanto ese endpoint esté disponible en la REST API, esta pantalla se conectará con datos reales — no se muestran datos simulados.')}
         </Text>
       </View>
     </SafeAreaView>
@@ -45,7 +47,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  back: {color: colors.cyan, fontSize: 16, fontWeight: '700', width: 60},
+  back: {color: colors.cyan, fontSize: 16, fontWeight: '700', width: 90},
   title: {color: colors.text, fontSize: 18, fontWeight: '800'},
   centered: {flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32},
   icon: {fontSize: 40, marginBottom: 12},

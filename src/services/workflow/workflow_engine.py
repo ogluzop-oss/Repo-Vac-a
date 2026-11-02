@@ -100,12 +100,38 @@ def _crear_tarea_paso(iid, paso, id_empresa):
     return tid
 
 
+# Restructuración Aprobaciones (2026-09): tras retirar la pestaña "Diseñador" ya no queda ninguna UI
+# para dar de alta definiciones de workflow a mano — las 3 aprobaciones "oficiales" del sistema
+# (planes de Autonomía IA, sugerencias de Automatización, riesgo de crédito) se autoprovisionan por
+# empresa la primera vez que se invocan, con un único paso asignado a SUPERADMIN (que además ya puede
+# aprobar cualquier tarea sin importar el rol del paso, ver `_actor_autorizado`).
+_DEFINICIONES_SISTEMA = {
+    "plan_ejecucion": ("WF_AUTONOMIA_IA", "Aprobación de plan de Autonomía IA"),
+    "automatizacion": ("WF_AUTOMATIZACION", "Aprobación de sugerencia de Automatización"),
+    "credito": ("WF_CREDITO", "Aprobación de riesgo de crédito"),
+}
+
+
+def _asegurar_definicion_sistema(entidad, id_empresa):
+    info = _DEFINICIONES_SISTEMA.get(entidad)
+    if not info or _W.definicion_activa(entidad, id_empresa):
+        return
+    codigo, nombre = info
+    try:
+        did = _W.crear_definicion(codigo, nombre, entidad, id_empresa=id_empresa)
+        if did:
+            _W.anadir_paso(did, 10, "Aprobación SUPERADMIN", rol_requerido="SUPERADMIN")
+    except Exception as e:
+        logger.debug("_asegurar_definicion_sistema(%s): %s", entidad, e)
+
+
 def iniciar_proceso(entidad, entidad_id, *, contexto=None, actor=None, id_empresa=None) -> dict:
     """Inicia el circuito de `entidad` si hay definición activa. Devuelve dict con workflow:
     False (no hay circuito → seguir normal), o el estado de la instancia."""
     id_empresa = _emp(id_empresa)
     contexto = contexto or {}
     _gate("workflow", id_empresa)
+    _asegurar_definicion_sistema(entidad, id_empresa)
     defn = _W.definicion_activa(entidad, id_empresa)
     if not defn:
         return {"workflow": False}
@@ -116,7 +142,11 @@ def iniciar_proceso(entidad, entidad_id, *, contexto=None, actor=None, id_empres
     # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
     try:
         from src.services import eventos as _EV
-        _EV.publicar("WORKFLOW_INICIADO", id_empresa=id_empresa, origen="workflow",
+        # `origen="workflow:<entidad>"` (no solo "workflow" fijo): `iniciar_proceso` es compartida
+        # por finanzas/rrhh/gobierno/compras/bpd/autonomia/agents_platform/inteligencia, pero
+        # `entidad` (ya recibido de cada llamador, p.ej. "compra_pedido"/"factura") SI distingue de
+        # forma fiable el circuito real, sin tener que tocar cada uno de esos llamadores.
+        _EV.publicar("WORKFLOW_INICIADO", id_empresa=id_empresa, origen=f"workflow:{entidad}",
                      ref_entidad=str(entidad), ref_id=entidad_id,
                      payload={"instancia": iid, "entidad": str(entidad)})
     except Exception:
@@ -158,11 +188,15 @@ def _actor_autorizado(tarea, actor) -> bool:
         req = tarea["asignado_rol"].upper()
         if perfil == req or _RANGO_ROL.get(perfil, 0) >= _RANGO_ROL.get(req, 99):
             return True
-    if tarea.get("asignado_usuario") and u.get("id") == tarea["asignado_usuario"]:
+    # Comparación tolerante a tipo: el JWT/REST lleva u["id"] como string (`sub` del token), mientras
+    # que `asignado_usuario` es una columna INT — sin str() aquí, una tarea asignada a un usuario
+    # concreto (no por rol) nunca aparecería en la bandeja vía móvil, aunque sí en escritorio.
+    if tarea.get("asignado_usuario") and str(u.get("id")) == str(tarea["asignado_usuario"]):
         return True
     # Delegación: el actor es destino de una delegación del usuario asignado.
     if tarea.get("asignado_usuario"):
-        if u.get("id") in _W.delegados_de(tarea["asignado_usuario"], tarea.get("id_empresa")):
+        delegados = {str(d) for d in _W.delegados_de(tarea["asignado_usuario"], tarea.get("id_empresa"))}
+        if str(u.get("id")) in delegados:
             return True
     return False
 

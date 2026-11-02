@@ -43,6 +43,23 @@ TIPOS_GASTO = [
     ("publicidad",    "Publicidad / Marketing",           "627", True),
     ("material",      "Material de oficina",              "629", True),
     ("otros",         "Otros gastos",                     "629", True),
+    # "maquinaria"/"vehiculos": gasto CORRIENTE no capitalizado (consumibles, piezas menores,
+    # combustible...). La compra/alta de un activo capitalizable (maquinaria o vehículo que se
+    # amortiza) NO pasa por esta alta rápida de un clic — tiene su propio motor real y dedicado:
+    # `src/services/finanzas/inmovilizado.py` (alta de activo + amortización lineal), con su
+    # propia cuenta contable de grupo 2 (inmovilizado). Usar aquí una cuenta 21x/22x sería crear
+    # un segundo camino paralelo al motor de inmovilizado para el mismo concepto (prohibido por
+    # las reglas de arquitectura de este proyecto); por eso se reutilizan cuentas 62x ya
+    # existentes en CUENTAS_GASTO, igual que el resto de tipos de esta tabla.
+    ("maquinaria",    "Maquinaria (consumo/mantenim.)",   "622", True),
+    ("vehiculos",     "Vehículos (combustible/otros)",    "628", True),
+    # "impuestos": tributos/tasas NO capturados por el flujo de declaraciones AEAT (modelo_303/111/
+    # 130…) — p. ej. IBI, tasas municipales, cuota de autónomos. Sin IVA por defecto (un tributo no
+    # lleva IVA soportado, igual que "seguros"/"bancarios"). Cuenta PGC 631 (grupo 63 "Tributos"),
+    # distinta de las 62x de servicios — ver `CUENTAS_GASTO`. El importe realmente ingresado a la
+    # AEAT por una declaración PRESENTADA ya se suma aparte en `informe_anual._impuestos_aeat_pagado`
+    # (fuente primaria); esta alta manual es solo el complemento para lo que esa fuente NO cubre.
+    ("impuestos",     "Impuestos y tasas (IBI, autónomos…)", "631", False),
 ]
 
 # Nombres PGC de las cuentas de gasto (para autocrearlas si la empresa se activó antes).
@@ -51,7 +68,7 @@ CUENTAS_GASTO = {
     "623": "Servicios de profesionales independientes", "624": "Transportes",
     "625": "Primas de seguros", "626": "Servicios bancarios y similares",
     "627": "Publicidad, propaganda y relaciones públicas", "628": "Suministros",
-    "629": "Otros servicios",
+    "629": "Otros servicios", "631": "Otros tributos",
 }
 
 # Registra el mapeo por defecto de cada tipo de gasto (clave "gasto:<codigo>").

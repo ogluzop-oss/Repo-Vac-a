@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QTableWidgetItem, QVBoxLayout,
 from src.db import kardex
 from src.gui.catalogo_gestion import (_BG, _BORDE, _CIAN, _DIM, _TEXT, _btn, _btn_x,
                                       _combo, _inp, _tabla)
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 
 logger = logging.getLogger("inventario.kardex.gui")
 
@@ -44,6 +45,7 @@ class KardexVisorWindow(QWidget):
 
         # ── filtros (en DOS filas para que no se solapen) ──
         self.f_codigo = _inp("Artículo (código)"); self.f_codigo.setFixedWidth(180)
+        instalar_sugerencias_articulo(self.f_codigo)
         self.f_ref = _inp("Referencia / documento"); self.f_ref.setFixedWidth(180)
         self.f_tipo = _combo([("(todos)", None)] + [(t, t) for t in kardex.TIPOS])
         self.f_tipo.setMinimumWidth(150)
@@ -59,7 +61,7 @@ class KardexVisorWindow(QWidget):
         for w in (_lbl("Artículo:"), self.f_codigo, _lbl("Ref:"), self.f_ref,
                   _lbl("Tipo:"), self.f_tipo):
             f1.addWidget(w)
-        f1.addWidget(_btn("Buscar", self._buscar, primary=True))
+        f1.addWidget(_btn("🔍", self._buscar, primary=True))
         f1.addStretch()
         root.addLayout(f1)
 
@@ -108,9 +110,12 @@ class KardexVisorWindow(QWidget):
         return opts
 
     def _buscar(self):
+        cod = self.f_codigo.text().strip()
+        if "–" in cod:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            cod = cod.split("–")[0].strip()
         movs = kardex.listar_movimientos(
             id_empresa=self._id_empresa(),
-            codigo=self.f_codigo.text().strip() or None,
+            codigo=cod or None,
             referencia=self.f_ref.text().strip() or None,
             tipo=self.f_tipo.currentData(),
             desde=self.f_desde.text().strip() or None,

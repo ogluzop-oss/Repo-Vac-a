@@ -205,8 +205,14 @@ class OpenCartAdapter(_OpenCartPreparado):
                        "precio": _num(li.get("price"))} for li in filas]
             if not lineas:
                 continue
+            # Dirección de envío (REST: campos `shipping_*` planos en el propio pedido).
+            cp = o.get("shipping_postcode")
+            direccion_envio = ", ".join(str(x) for x in (
+                o.get("shipping_address_1"), o.get("shipping_address_2"), o.get("shipping_city"),
+                o.get("shipping_zone"), cp, o.get("shipping_country")) if x)
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="opencart", referencia_externa=ref)
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="opencart", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido opencart %s: %s", ref, e)

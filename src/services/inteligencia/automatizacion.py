@@ -121,7 +121,7 @@ def procesar_evento(tipo_evento, *, id_empresa=None, payload=None):
 def suscribir():
     """Suscribe las automatizaciones a los eventos del Event Bus (capacidad, degradable/opt-in)."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         bus = cap.eventbus()
         if bus is None or not hasattr(bus, "subscribe"):
             return False
@@ -150,7 +150,7 @@ def _proponer_circuito(decision, id_empresa):
     """Propone (no inicia sin aprobación) el circuito de Workflow sugerido por una decisión. Reutiliza
     Workflow por capacidad; degradable. Registra el vínculo, no ejecuta la acción de negocio."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         wf = cap.workflow()
         if wf is not None and hasattr(wf, "iniciar_proceso"):
             # Se PROPONE el proceso; su avance/ejecución sigue gobernado por Workflow + aprobación.
@@ -166,7 +166,7 @@ def _proponer_circuito(decision, id_empresa):
 def registrar_job():
     """Registra la evaluación periódica en el Scheduler (capacidad, degradable/opt-in)."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         sch = cap.scheduler()
         if sch is not None and hasattr(sch, "registrar_job"):
             sch.registrar_job("inteligencia_automatizacion", lambda *_a, **_k: evaluar_periodico())

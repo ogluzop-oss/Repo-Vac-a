@@ -79,7 +79,7 @@ def _eval_ia(disponibilidad, contexto=None):
     """Evaluador IA — PREPARADO y degradable (I9, provider-agnostic). Usa la capacidad de IA si
     ofrece scoring; si no, cae al evaluador equilibrado. Nunca acopla a un proveedor concreto."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         ia = cap.ia()
         if ia is not None and hasattr(ia, "puntuar_sourcing"):
             return ia.puntuar_sourcing(disponibilidad, contexto)

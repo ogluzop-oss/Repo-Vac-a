@@ -32,7 +32,7 @@ def emp(id_empresa=None):
 def correlation_id(prefijo="cd"):
     """Correlation ID por la capacidad de Observabilidad; degradable a uuid."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         obs = cap.observabilidad()
         corr = getattr(obs, "correlation", None)
         if corr is None and obs is not None:
@@ -49,7 +49,7 @@ def publicar_evento(tipo, *, id_empresa=None, origen=None, ref_entidad=None, ref
                     payload=None):
     """Publica un evento por el Event Bus (capacidad, degradable). Devuelve True/False."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         bus = cap.eventbus()
         if bus is not None and hasattr(bus, "publish"):
             bus.publish(tipo, id_empresa=id_empresa, origen=origen, ref_entidad=ref_entidad,

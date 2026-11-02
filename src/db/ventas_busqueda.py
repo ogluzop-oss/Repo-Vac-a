@@ -78,7 +78,7 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
                   ticket=None, articulo=None, hora_desde=None, hora_hasta=None,
                   empleado=None, caja=None, forma_pago=None,
                   precio_min=None, precio_max=None, id_tienda="auto",
-                  excluir_ocultas=False) -> list[dict]:
+                  excluir_ocultas=False, cliente_id=None) -> list[dict]:
     """Busca ventas por múltiples filtros (código escaneado/nº ticket, artículo,
     rango de fechas y horas, empleado, caja, forma de pago, rango de importes).
     Devuelve filas {id, fecha, total, forma_pago, empleado, numero_caja,
@@ -120,6 +120,8 @@ def buscar_ventas(texto=None, fecha_desde=None, fecha_hasta=None,
         filtros.append("v.total >= %s"); params.append(float(precio_min))
     if precio_max not in (None, ""):
         filtros.append("v.total <= %s"); params.append(float(precio_max))
+    if cliente_id is not None:
+        filtros.append("v.cliente_id = %s"); params.append(cliente_id)
     # Aislamiento por tenant (3b.1): por defecto, empresa y tienda ACTIVAS.
     try:
         from src.db.empresa import empresa_actual_id, tienda_actual_id

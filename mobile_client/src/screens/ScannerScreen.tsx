@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {useTranslation} from 'react-i18next';
 import CameraScanner from '@/components/CameraScanner';
 import {outbox} from '@/db/sync';
 import {colors} from '@/theme/colors';
@@ -38,15 +39,24 @@ class CameraBoundary extends React.Component<
   }
 }
 
-export default function ScannerScreen({navigation}: ScannerProps) {
+export default function ScannerScreen({navigation, route}: ScannerProps) {
+  const {t} = useTranslation();
   const [camaraDisponible, setCamaraDisponible] = useState(true);
   const [manual, setManual] = useState('');
   const [ultimo, setUltimo] = useState<string | null>(null);
   const [encolados, setEncolados] = useState(0);
 
+  const volverA = route.params?.volverA;
+
   const registrar = useCallback(async (codigo: string, tipo = 'manual') => {
     const limpio = codigo.trim();
     if (!limpio) {
+      return;
+    }
+    if (volverA) {
+      // Modo retorno de valor (p.ej. Recepción·Logística): devuelve el código leído a quien abrió
+      // el escáner en vez de encolarlo en el Outbox de stock.
+      navigation.navigate({name: volverA, params: {escaneado: limpio}, merge: true} as never);
       return;
     }
     await outbox.encolar('stock', 'scan', {
@@ -57,16 +67,16 @@ export default function ScannerScreen({navigation}: ScannerProps) {
     setUltimo(limpio);
     setEncolados(n => n + 1);
     setManual('');
-  }, []);
+  }, [navigation, volverA]);
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.back}>‹ Volver</Text>
+          <Text style={styles.back}>{t('common.volver', '‹ Volver')}</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Escaneo</Text>
-        <View style={{width: 60}} />
+        <Text style={styles.title}>{t('scanner.titulo', 'Escaneo')}</Text>
+        <View style={{width: 90}} />
       </View>
 
       <View style={styles.cameraBox}>
@@ -80,35 +90,39 @@ export default function ScannerScreen({navigation}: ScannerProps) {
         ) : (
           <View style={styles.noCam}>
             <Text style={styles.noCamText}>
-              Cámara no disponible en este entorno.{'\n'}Usa la entrada manual para probar el flujo.
+              {t('scanner.camara_no_disponible',
+                 'Cámara no disponible en este entorno.{{br}}Usa la entrada manual para probar el flujo.',
+                 {br: '\n'})}
             </Text>
           </View>
         )}
       </View>
 
       <View style={styles.manualBox}>
-        <Text style={styles.label}>Entrada manual (o simular lectura)</Text>
+        <Text style={styles.label}>{t('scanner.entrada_manual', 'Entrada manual (o simular lectura)')}</Text>
         <View style={styles.manualRow}>
           <TextInput
             style={styles.input}
-            placeholder="Código de barras / EAN"
+            placeholder={t('scanner.codigo_barras_ph', 'Código de barras / EAN')}
             placeholderTextColor={colors.textDim}
             value={manual}
             onChangeText={setManual}
             autoCapitalize="characters"
           />
           <TouchableOpacity style={styles.addBtn} onPress={() => registrar(manual)}>
-            <Text style={styles.addBtnText}>Registrar</Text>
+            <Text style={styles.addBtnText}>{t('scanner.registrar_btn', 'Registrar')}</Text>
           </TouchableOpacity>
         </View>
 
         {ultimo ? (
           <Text style={styles.ok}>
-            ✓ Encolado «{ultimo}» ({encolados} en esta sesión). Sincroniza desde el Dashboard.
+            {t('scanner.encolado_ok', '✓ Encolado «{{c}}» ({{n}} en esta sesión). Sincroniza desde el Dashboard.',
+               {c: ultimo, n: encolados})}
           </Text>
         ) : (
           <Text style={styles.hint}>
-            Cada lectura se guarda en el Outbox local y se enviará a /api/v1/stock al sincronizar.
+            {t('scanner.hint_outbox',
+               'Cada lectura se guarda en el Outbox local y se enviará a /api/v1/stock al sincronizar.')}
           </Text>
         )}
       </View>
@@ -125,7 +139,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  back: {color: colors.cyan, fontSize: 16, fontWeight: '700', width: 60},
+  back: {color: colors.cyan, fontSize: 16, fontWeight: '700', width: 90},
   title: {color: colors.text, fontSize: 18, fontWeight: '800'},
   cameraBox: {flex: 1, margin: 16, borderRadius: 14, overflow: 'hidden'},
   noCam: {

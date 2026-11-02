@@ -254,7 +254,7 @@ def crear_blueprint_api():
         return jsonify({
             "access": access, "refresh": refresh,
             "usuario": {"id": u["id"], "nombre": u["nombre"], "rol": u["perfil"],
-                        "empresa": u.get("id_empresa"), "tienda": u.get("tienda_id")},
+                        "empresa": u.get("id_empresa"), "tienda": u.get("centro_codigo")},
         })
 
     @bp.post("/auth/refresh")

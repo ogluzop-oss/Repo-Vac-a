@@ -77,11 +77,18 @@ try:
     hiddenimports += collect_submodules("unidecode")
 except Exception:
     pass
+# reportlab.graphics.barcode.widgets._BCW importa cada formato (code93, code39, usps, dmtx…) por
+# STRING dinámico en tiempo de ejecución — el análisis estático de PyInstaller no lo detecta, así
+# que listar solo 2-3 formatos a mano deja el resto sin empaquetar (reproducido: "No module named
+# reportlab.graphics.barcode.code93" al abrir Logística, que sí usa códigos de barras). Se recogen
+# TODOS los submódulos del paquete para no ir arreglando uno a uno cada formato que se use.
+try:
+    hiddenimports += collect_submodules("reportlab.graphics.barcode")
+except Exception:
+    pass
 hiddenimports += [
     "pymysql", "pymysql.cursors",
     "dbutils", "dbutils.pooled_db",  # pool de conexiones (A2)
-    "reportlab.graphics.barcode", "reportlab.graphics.barcode.code128",
-    "reportlab.graphics.barcode.eanbc", "reportlab.graphics.barcode.qr",
     "barcode", "barcode.writer", "pyzbar", "pyzbar.pyzbar",
     "PIL._tkinter_finder",
     "pyttsx3.drivers", "pyttsx3.drivers.sapi5",
@@ -119,6 +126,13 @@ a = Analysis(
     runtime_hooks=[],
     excludes=["tkinter", "PyQt5", "PySide6", "PySide2", "pytest"],
     noarchive=False,
+    # Protección del código distribuido (petición explícita): equivalente a compilar con `-OO` —
+    # elimina docstrings (buena parte de ellos documentan en detalle la lógica de negocio) y
+    # sentencias `assert` de TODO el bytecode empaquetado. PyInstaller eliminó el cifrado nativo del
+    # PYZ (`--key`) en la versión 6 precisamente porque la clave viaja dentro del propio ejecutable
+    # (protección ilusoria, no real) — `optimize` es la mitigación real que sigue ofreciendo de
+    # fábrica sin ese problema.
+    optimize=2,
 )
 pyz = PYZ(a.pure)
 

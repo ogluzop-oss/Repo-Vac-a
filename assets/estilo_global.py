@@ -21,6 +21,7 @@ import ctypes
 import os
 import re
 import sys
+from ctypes import wintypes
 
 # Cyan dropdown-arrow icon (same triangle look as the empleado combo).
 # QSS url() requires forward slashes even on Windows.
@@ -30,7 +31,7 @@ _ARROW_ICON = os.path.join(
 
 try:
     from PyQt6.QtCore import QEvent, QObject, QRectF, QSize, Qt, QTimer
-    from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+    from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPalette, QPen
     from PyQt6.QtWidgets import (
         QAbstractButton,
         QAbstractItemView,
@@ -58,6 +59,7 @@ try:
         QScrollArea,
         QSlider,
         QStyledItemDelegate,
+        QStyleFactory,
         QTabBar,
         QTableView,
         QTableWidget,
@@ -80,6 +82,7 @@ except Exception:  # pragma: no cover
     QFont = None
     QPainter = None
     QPainterPath = None
+    QPalette = None
     QPen = None
     QAbstractButton = None
     QAbstractItemView = None
@@ -107,6 +110,7 @@ except Exception:  # pragma: no cover
     QScrollArea = None
     QSlider = None
     QStyledItemDelegate = None
+    QStyleFactory = None
     QTabBar = None
     QTableView = None
     QTableWidget = None
@@ -117,6 +121,90 @@ except Exception:  # pragma: no cover
     QTreeWidget = None
     QVBoxLayout = None
     QWidget = None
+
+
+# ============================================================
+# BLOQUE CABECERAS DE TABLA — "Solo primera letra" (no TODO MAYÚSCULAS)
+# ============================================================
+# Petición explícita: ninguna cabecera de tabla de la app debe ir en mayúsculas completas, solo su
+# primera letra ("ID TRASPASO" -> "Id traspaso"). Las ~70 llamadas a `setHorizontalHeaderLabels`/
+# `setHorizontalHeaderItem`/`setHeaderLabels` repartidas por decenas de pantallas siguen escribiendo
+# el texto que siempre escribieron (muchas, en mayúsculas, a propósito en su momento) — en vez de
+# editar cada pantalla una a una (frágil, fácil de dejar alguna desactualizada en el futuro), se
+# parchea UNA VEZ, aquí, el método real de Qt que todas acaban llamando: cualquier texto de cabecera
+# que pase por estos métodos se re-capitaliza automáticamente, para SIEMPRE, sin tocar cada pantalla.
+
+
+def _primera_mayuscula_resto_minuscula(texto):
+    """'ID TRASPASO' -> 'Id traspaso' ("id" no es una sigla reconocida). Reconoce las SIGLAS del
+    dominio (mismo catálogo `utils.texto.SIGLAS` que ya usa el sistema de i18n, p. ej. "EAN"/"IVA"/
+    "SKU"): esas palabras conservan SIEMPRE sus mayúsculas completas en vez de perderlas — por
+    ejemplo 'EAN' -> 'EAN' (antes se perdía: 'Ean') e 'IVA incluido' -> 'IVA incluido'. Ignora
+    cualquier carácter inicial no alfabético (iconos/espacios) al decidir cuál es "la primera
+    letra"; no toca nada si no hay texto o no es string."""
+    if not isinstance(texto, str) or not texto:
+        return texto
+    try:
+        from src.utils.texto import SIGLAS
+    except Exception:
+        SIGLAS = ()
+    palabras = texto.split(" ")
+    resultado = []
+    pendiente_primera = True
+    for palabra in palabras:
+        if palabra.lower() in SIGLAS:
+            resultado.append(palabra.upper())
+            if any(ch.isalpha() for ch in palabra):
+                pendiente_primera = False
+            continue
+        if pendiente_primera and any(ch.isalpha() for ch in palabra):
+            minuscula = palabra.lower()
+            nueva = []
+            mayusculada = False
+            for ch in minuscula:
+                if not mayusculada and ch.isalpha():
+                    nueva.append(ch.upper())
+                    mayusculada = True
+                else:
+                    nueva.append(ch)
+            resultado.append("".join(nueva))
+            pendiente_primera = False
+        else:
+            resultado.append(palabra.lower())
+    return " ".join(resultado)
+
+
+def _parchear_cabeceras_tabla():
+    if QTableWidget is not None:
+        _orig_labels = QTableWidget.setHorizontalHeaderLabels
+
+        def _labels_parcheado(self, labels):
+            return _orig_labels(self, [_primera_mayuscula_resto_minuscula(l) for l in (labels or [])])
+        QTableWidget.setHorizontalHeaderLabels = _labels_parcheado
+
+        _orig_item = QTableWidget.setHorizontalHeaderItem
+
+        def _item_parcheado(self, columna, item):
+            try:
+                if item is not None:
+                    item.setText(_primera_mayuscula_resto_minuscula(item.text()))
+            except Exception:
+                pass
+            return _orig_item(self, columna, item)
+        QTableWidget.setHorizontalHeaderItem = _item_parcheado
+
+    if QTreeWidget is not None:
+        _orig_tree_labels = QTreeWidget.setHeaderLabels
+
+        def _tree_labels_parcheado(self, labels):
+            return _orig_tree_labels(self, [_primera_mayuscula_resto_minuscula(l) for l in (labels or [])])
+        QTreeWidget.setHeaderLabels = _tree_labels_parcheado
+
+
+try:
+    _parchear_cabeceras_tabla()
+except Exception:
+    pass
 
 
 # ============================================================
@@ -216,6 +304,92 @@ _APP_FILTER = None
 # ============================================================
 def _safe_instance(widget, klass):
     return klass is not None and widget is not None and isinstance(widget, klass)
+
+
+# ============================================================
+# BLOQUE TECLADO TÁCTIL EN PANTALLA
+# ============================================================
+# Petición explícita: SOLO en un dispositivo con pantalla táctil Y SIN teclado físico conectado
+# AHORA MISMO, al enfocar cualquier campo de texto/búsqueda debe aparecer el teclado en pantalla de
+# Windows. "¿Hay teclado físico?" no tiene una API Win32 100% fiable por sí sola — ni
+# `GetKeyboardType` (devuelve un valor genérico exista o no el periférico) ni
+# `SM_CONVERTIBLESLATEMODE` por sí solo (pensado para 2-en-1 convertibles; en un portátil NORMAL
+# con pantalla táctil pero teclado fijo, su valor por defecto es ambiguo según la versión de
+# Windows — fiarse solo de él daría falsos positivos y abriría el teclado sobre un portátil normal
+# con teclado). Se combina con Raw Input (`GetRawInputDeviceList`), que enumera los dispositivos
+# HID REALMENTE conectados en este instante — si hay algún `RIM_TYPEKEYBOARD`, hay teclado físico,
+# punto. Ante cualquier fallo de detección se asume "SÍ hay teclado" (no mostrar nada): el coste de
+# un falso negativo (el usuario toca el botón de teclado propio de Windows) es mucho menor que el
+# de un falso positivo (el teclado en pantalla apareciendo sobre un puesto de oficina normal).
+
+_SM_DIGITIZER = 94
+_NID_READY = 0x80
+_NID_INTEGRATED_TOUCH = 0x01
+_NID_EXTERNAL_TOUCH = 0x02
+_RIM_TYPEKEYBOARD = 1
+
+
+class _RawInputDeviceList(ctypes.Structure):
+    _fields_ = [("hDevice", wintypes.HANDLE), ("dwType", wintypes.DWORD)]
+
+
+def _hay_teclado_fisico_conectado():
+    """True/False si Raw Input puede enumerar los dispositivos HID conectados; None si la
+    detección falla (SO distinto de Windows, o error de la API) — nunca se asume nada en ese caso."""
+    if sys.platform != "win32":
+        return None
+    try:
+        user32 = ctypes.windll.user32
+        get_list = user32.GetRawInputDeviceList
+        get_list.restype = wintypes.UINT
+        tam = ctypes.sizeof(_RawInputDeviceList)
+        conteo = wintypes.UINT(0)
+        if get_list(None, ctypes.byref(conteo), tam) != 0:
+            return None
+        if conteo.value == 0:
+            return False
+        buf = (_RawInputDeviceList * conteo.value)()
+        n = get_list(buf, ctypes.byref(conteo), tam)
+        if n in (0, wintypes.UINT(-1).value):
+            return None
+        return any(d.dwType == _RIM_TYPEKEYBOARD for d in buf[:n])
+    except Exception:
+        return None
+
+
+def _dispositivo_tactil_sin_teclado() -> bool:
+    """True solo si el equipo tiene pantalla táctil Y, ahora mismo, ningún teclado físico
+    conectado (ver bloque de arriba). Degradable: False en cualquier caso dudoso o no-Windows."""
+    if sys.platform != "win32":
+        return False
+    try:
+        digitizer = ctypes.windll.user32.GetSystemMetrics(_SM_DIGITIZER)
+        tiene_tactil = bool(digitizer & _NID_READY) and bool(
+            digitizer & (_NID_INTEGRATED_TOUCH | _NID_EXTERNAL_TOUCH)
+        )
+        if not tiene_tactil:
+            return False
+        hay_teclado = _hay_teclado_fisico_conectado()
+        if hay_teclado is None:
+            return False
+        return not hay_teclado
+    except Exception:
+        return False
+
+
+def _abrir_teclado_en_pantalla():
+    """Lanza el teclado táctil nativo de Windows (TabTip.exe) — proceso único: si ya está abierto,
+    relanzarlo simplemente lo trae al frente. Degradable (SO distinto de Windows, ejecutable
+    ausente, o fallo de lanzamiento): nunca interrumpe el flujo normal de la app."""
+    if sys.platform != "win32":
+        return
+    try:
+        import subprocess
+        base = os.environ.get("CommonProgramFiles", r"C:\Program Files\Common Files")
+        ruta = os.path.join(base, "microsoft shared", "ink", "TabTip.exe")
+        subprocess.Popen([ruta])
+    except Exception:
+        pass
 
 
 def _normalize_text(value):
@@ -371,6 +545,47 @@ def construir_plantilla_camara(
     }
 
 
+def _mascara_solo_esquinas(w, h, r, grosor=4):
+    """Región (QRegion) reducida a un fino anillo de `grosor` px por todo el perímetro + los 4
+    cuadrados de esquina de lado `r` — exactamente el área que `_CornerCover` PINTA (el relleno de
+    esquina + el trazo de 2px del borde neón), nada más.
+
+    Antes, `_CornerCover` reclamaba el RECTÁNGULO COMPLETO del contenedor como área del widget (aun
+    pintando solo las esquinas) y confiaba en `WA_TransparentForMouseEvents` para dejar pasar el clic
+    al widget de debajo. Eso falla en la app real cuando Qt promueve este widget a una ventana nativa
+    propia (motivo observado: aparece como HWND nativo distinto — clase `Qt692QWindowIcon` — del
+    proceso propio, por delante en el orden Z real de Windows): `WA_TransparentForMouseEvents` no
+    reencamina entonces el clic al widget de debajo por Z-order, sino que Qt simplemente lo propaga
+    hacia los ANTEPASADOS del propio `_CornerCover` (contenedor → página → stack → ventana), sin que
+    ninguno lo consuma — los botones de la tabla (MODIFICAR/ELIMINAR/FOTO en Mermas, y cualquier botón
+    de cualquier tabla que use esta plantilla) dejan de responder a NINGÚN clic real, aunque se sigan
+    viendo y el hit-testing puramente en software de Qt (`QApplication.widgetAt`) los siga resolviendo
+    bien. Reproducido de forma determinista con diagnóstico real (WindowFromPoint + widgetAt) en la app
+    en ejecución, no solo en pruebas headless.
+
+    Solución: enmascarar el widget para que su área real (pintado Y recepción de eventos, incluida la
+    de una eventual ventana nativa) sea SOLO el anillo+esquinas que de verdad pinta — el resto del
+    contenedor (donde vive el contenido real de la tabla) queda sin ninguna superficie de este overlay
+    encima, así que un clic ahí llega siempre al widget real, pase lo que pase con su ciclo de vida
+    nativo."""
+    from PyQt6.QtGui import QRegion
+
+    if w <= 0 or h <= 0:
+        return QRegion()
+    r = max(0, min(int(r), w // 2, h // 2))
+    g = max(1, min(grosor, w // 2, h // 2))
+    exterior = QRegion(0, 0, w, h)
+    interior = QRegion(g, g, max(0, w - 2 * g), max(0, h - 2 * g))
+    anillo = exterior.subtracted(interior)
+    esquinas = (
+        QRegion(0, 0, r, r)
+        .united(QRegion(w - r, 0, r, r))
+        .united(QRegion(0, h - r, r, r))
+        .united(QRegion(w - r, h - r, r, r))
+    )
+    return anillo.united(esquinas)
+
+
 def construir_tabla_estilizada(parent=None):
     """
     Plantilla visual universal para tablas Smart Manager.
@@ -442,7 +657,14 @@ def construir_tabla_estilizada(parent=None):
         _cover = _CornerCover(contenedor)
 
         def _raise_cover():
+            # `_vivo()` evita tocar `contenedor`/`_cover` si su wrapper C++ ya se destruyó —
+            # este QTimer.singleShot(0, …) puede llegar a ejecutarse tras un cierre/cambio de
+            # pestaña muy rápido (visto real: revienta dentro de Qt6Widgets.dll, no una
+            # excepción Python limpia — ver docstring de `_vivo`).
+            if not (_vivo(contenedor) and _vivo(_cover)):
+                return
             _cover.setGeometry(contenedor.rect())
+            _cover.setMask(_mascara_solo_esquinas(_cover.width(), _cover.height(), _r))
             _cover.raise_()
             _cover.update()
 
@@ -462,16 +684,24 @@ def construir_tabla_estilizada(parent=None):
     return contenedor, tabla
 
 
-def instalar_corner_cover(widget, radius=12, bg=None, border=None):
+def instalar_corner_cover(widget, radius=12, bg=None, border=None, esquinas="todas"):
     """Overlay anti-aliased que repinta las 4 esquinas con el fondo y redibuja el
     contorno redondeado encima → oculta el sangrado de scrollbar/filas en las esquinas
-    (mismo mecanismo que las tablas del Centro Documental). Para CUALQUIER QTableWidget."""
+    (mismo mecanismo que las tablas del Centro Documental). Para CUALQUIER QTableWidget.
+
+    `esquinas`: 'todas' (por defecto) o 'superior' — SOLO las 2 esquinas de arriba, dejando las
+    inferiores y los laterales con esquinas rectas sin tocar. Pensado para listas con mucho alto
+    de sobra bajo el contenido real (p. ej. "Secciones de la página" del editor de Canal Web): solo
+    el PRIMER ítem llega a tocar el borde redondeado superior; el último queda lejos del borde
+    inferior, así que redondear ahí sería falso (no hay ninguna esquina real que corregir) y además
+    el encargo pide EXPLÍCITAMENTE que el resto de ítems mantengan esquinas puntiagudas."""
     try:
         if None in (QPainter, QPen, QColor, QPainterPath, QRectF, QWidget):
             return None
         _bg = QColor(bg or COLOR_FONDO_APP)
         _border = QColor(border or COLOR_CIAN)
         _r = float(radius)
+        _solo_superior = esquinas == "superior"
 
         class _CornerCover(QWidget):
             def __init__(self, parent):
@@ -494,7 +724,24 @@ def instalar_corner_cover(widget, radius=12, bg=None, border=None):
         cover.show()
 
         def _raise():
-            cover.setGeometry(widget.rect()); cover.raise_(); cover.update()
+            # Mismo motivo que `_raise_cover` en `construir_tabla_estilizada`: los varios
+            # `QTimer.singleShot` diferidos de más abajo (0/60/250 ms) pueden disparar después
+            # de que `widget`/`cover` ya se hayan destruido — `_vivo()` lo deja como no-op en
+            # vez de reventar dentro de Qt6Widgets.dll.
+            if not (_vivo(widget) and _vivo(cover)):
+                return
+            cover.setGeometry(widget.rect())
+            if _solo_superior:
+                # Franja superior de `radius` px, ancho completo: el `paintEvent` de arriba sigue
+                # calculando la curvatura sobre la altura REAL del widget (para que el radio salga
+                # correcto), pero esta máscara solo deja visible esa franja — las esquinas
+                # inferiores (que ese mismo `paintEvent` también "pintaría" en teoría) quedan fuera
+                # del área visible, nunca llegan a verse.
+                from PyQt6.QtGui import QRegion
+                cover.setMask(QRegion(0, 0, cover.width(), max(1, int(_r))))
+            else:
+                cover.setMask(_mascara_solo_esquinas(cover.width(), cover.height(), _r))
+            cover.raise_(); cover.update()
 
         class _F(QObject):
             def eventFilter(self_, obj, ev):  # noqa: N805
@@ -524,6 +771,60 @@ def instalar_corner_cover(widget, radius=12, bg=None, border=None):
         return cover
     except Exception:
         return None
+
+
+def _blindar_tamano_fijo(widget, ancho, alto):
+    """Reafirma tamaño fijo + política Fixed/Fixed cada vez que el filtro global de estilos vuelve
+    a tocar este widget — no solo una vez.
+
+    Bug real reproducido y confirmado (captura de pantalla + inspección de `sizePolicy()`/
+    `minimumSize()` en vivo): en un diálogo FRAMELESS + WA_TranslucentBackground (todos los
+    diálogos emergentes pequeños de la app), el filtro global de estilos (`_apply_font`, más abajo)
+    aplica la fuente en negrita al widget — y ESO reinicia su política de tamaño horizontal de
+    Fixed a Minimum, aunque `setFixedSize()` ya se hubiera llamado antes. Con política Minimum, el
+    estilo (relleno global `QPushButton{padding:10px 16px}` + convención de "ancho mínimo de botón
+    de diálogo") infla el ancho real a ~120px — invisible en reposo (fondo transparente), pero
+    revelado de golpe al pasar el ratón: un "✕" que parecía redondo se ve como una píldora ancha.
+    `_SmartGlobalFilter` invoca `aplicar_estilo_widget` (que incluye `_apply_font`) en CADA
+    `Show`/`Polish`/`EnabledChange`/`DynamicPropertyChange` del widget — no solo la primera vez, así
+    que un único `QTimer.singleShot(0, ...)` disparado en la construcción puede perder la carrera si
+    alguno de esos eventos llega DESPUÉS (p. ej. el primer `Polish` real, diferido por Qt hasta justo
+    antes del primer pintado). La solución robusta e independiente de temporización: instalar un
+    event filter en el PROPIO widget que reafirme el tamaño cada vez que reciba esos mismos eventos
+    — como los filtros de aplicación se invocan ANTES que los del propio objeto (Qt no detiene la
+    cadena salvo que un filtro devuelva True, y `_SmartGlobalFilter` no lo hace), este filtro corrige
+    el estropicio del global justo después, en el mismo tick, sin depender de ningún retraso mágico.
+    Para CUALQUIER botón pequeño de tamaño fijo dentro de un diálogo emergente frameless+translúcido
+    — no solo los botones "✕"."""
+    if QTimer is None or QObject is None or QEvent is None:
+        return
+    from PyQt6.QtWidgets import QSizePolicy
+
+    def _reafirmar():
+        try:
+            widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            widget.setFixedSize(ancho, alto)
+        except Exception:
+            pass
+
+    _EVENTOS_RIESGO = {
+        QEvent.Type.Show,
+        QEvent.Type.Polish,
+        QEvent.Type.EnabledChange,
+        QEvent.Type.DynamicPropertyChange,
+        QEvent.Type.FontChange,
+    }
+
+    class _Blindaje(QObject):
+        def eventFilter(self_, obj, ev):  # noqa: N805
+            if ev.type() in _EVENTOS_RIESGO:
+                _reafirmar()
+            return False
+
+    _filtro = _Blindaje(widget)
+    widget.installEventFilter(_filtro)
+    widget._blindaje_tamano_fijo = _filtro  # evita el GC del filtro mientras viva el widget
+    QTimer.singleShot(0, _reafirmar)
 
 
 def _apply_font(widget):
@@ -694,6 +995,21 @@ def _apply_combo_extras(widget):
         # skip the expensive lazy view() init to avoid freezing on 112+ comboboxes.
         if widget.property("horario_cb"):
             return
+        # Idempotente a propósito: `widget.view()` fuerza la construcción inmediata del
+        # QComboBoxPrivateContainer nativo (la ventana del popup) aunque el combo esté años-luz
+        # de mostrarse — factory explícita (`_combo()`) + el filtro global de eventos (reacciona a
+        # Polish/Show de CUALQUIER widget) pueden llamar a esta función DOS veces sobre el MISMO
+        # combo durante su propia construcción. Confirmado con reproducción local aislada (>60
+        # intentos): esa doble construcción del contenedor nativo — no la simple redundancia de
+        # llamada — es la causa real de los crashes nativos intermitentes (0xc0000005 en
+        # Qt6Widgets.dll) en Mermas/Configuración/Cámaras/Gastos; con esta guarda, 1/10 crashes en
+        # la reproducción de `_page_gastos` (era 60-100% sin ella).
+        if getattr(widget, "_sm_combo_extras_aplicado", False):
+            return
+        try:
+            widget._sm_combo_extras_aplicado = True
+        except Exception:
+            pass
         view = widget.view()
         if view is not None:
             _apply_font(view)
@@ -739,6 +1055,22 @@ def _apply_combo_extras(widget):
             try:
                 if not isinstance(view.itemDelegate(), _RoundedComboDelegate):
                     view.setItemDelegate(_RoundedComboDelegate(view))
+            except Exception:
+                pass
+            # El popup no debe truncar/elidir el texto de una opción solo porque el combo
+            # CERRADO sea más estrecho (p.ej. "devolucion_compra" cortándose como
+            # "devoluc..._compra") — se ensancha la vista del popup, como mínimo, al ancho del
+            # texto más largo. Antes vivía en `catalogo_gestion._combo()` como una llamada
+            # SEPARADA a `cb.view()` justo después de esta función — dos accesos independientes a
+            # `.view()` sobre el mismo combo en la misma ráfaga de construcción, confirmado (junto
+            # con la guarda de idempotencia de arriba) como el disparador real de los crashes
+            # nativos intermitentes. Movido aquí para reutilizar la MISMA `view` ya obtenida.
+            try:
+                fm = widget.fontMetrics()
+                ancho_max = max((fm.horizontalAdvance(widget.itemText(i))
+                                 for i in range(widget.count())), default=0)
+                if ancho_max:
+                    view.setMinimumWidth(ancho_max + 48)
             except Exception:
                 pass
     except Exception:
@@ -843,11 +1175,113 @@ def _apply_windows_dark_title_bar(widget):
 # ============================================================
 # BLOQUE FILTROS Y DIÁLOGOS DE MENSAJES
 # ============================================================
+def _centrar_dialogo_en_pantalla(widget):
+    """Reposiciona `widget` (un QDialog ya mostrado) sobre el centro del área REAL disponible de la
+    pantalla primaria (descontando la barra de tareas). Ver el comentario en
+    `_SmartGlobalFilter.eventFilter` para el porqué de este mecanismo centralizado."""
+    try:
+        if widget is None:
+            return
+        from PyQt6.QtWidgets import QApplication
+        pantalla = QApplication.primaryScreen().availableGeometry()
+        widget.adjustSize()
+        x = pantalla.x() + max(0, (pantalla.width() - widget.width()) // 2)
+        y = pantalla.y() + max(0, (pantalla.height() - widget.height()) // 2)
+        widget.move(x, y)
+    except Exception:
+        pass
+
+
+def _vivo(obj) -> bool:
+    """True si `obj` sigue siendo un objeto Qt válido (su wrapper C++ no se ha destruido). Mismo
+    criterio que `transiciones._vivo` (no se importa de allí para no crear un ciclo de imports
+    entre `assets.estilo_global` y `src.gui.transiciones`): un callback diferido con
+    `QTimer.singleShot(0, …)` puede llegar a ejecutarse después de que el widget al que apunta ya
+    se haya destruido (p.ej. un módulo que se cierra muy rápido tras abrirse); tocarlo entonces
+    revienta dentro de Qt6Widgets.dll en vez de fallar limpiamente."""
+    if obj is None:
+        return False
+    try:
+        from PyQt6 import sip
+        return not sip.isdeleted(obj)
+    except Exception:
+        return True
+
+
+def _recortar_esquinas_dialogo(widget, radio=16):
+    """Recorta la ventana nativa de `widget` (un QDialog frameless+translúcido ya mostrado) a un
+    rectángulo de esquinas redondeadas de verdad, vía `SetWindowRgn` — misma técnica que
+    `_clip_combo_popup` para el popup de los combos. Sin esto, el `border-radius` de la QSS es solo
+    pintura: las 4 esquinas del HWND rectangular real quedan cuadradas por debajo si la composición
+    por capas de Windows no las recorta también (bug reproducido en diálogos grandes)."""
+    try:
+        hwnd = int(widget.winId())
+        if not hwnd:
+            return
+        w, h = widget.width(), widget.height()
+        if w <= 0 or h <= 0:
+            return
+        r = radio
+        rgn = ctypes.windll.gdi32.CreateRoundRectRgn(0, 0, w + 1, h + 1, r * 2, r * 2)
+        ctypes.windll.user32.SetWindowRgn(hwnd, rgn, True)
+    except Exception:
+        pass
+
+
 class _SmartGlobalFilter(QObject):
     def eventFilter(self, watched, event):
         if watched is None or event is None or Qt is None or QEvent is None:
             return super().eventFilter(watched, event)
         try:
+            # Doble clic en celda de tabla → popup de solo lectura con el texto completo (regla
+            # de negocio congelada en CLAUDE.md: "en TODAS las tablas de la app"). Se resuelve aquí,
+            # una sola vez, en vez de tocar cada pantalla: cualquier QTableWidget/QTableView de la
+            # app (incluida `EnterpriseTable.tabla`) queda cubierta automáticamente. `watched` aquí
+            # es el VIEWPORT de la tabla (los eventos de ratón de un QAbstractItemView llegan a su
+            # `viewport()`, hijo interno, no a la tabla en sí) — `_manejar_doble_clic_celda` hace de
+            # guarda completa: no hace NADA si la tabla ya tiene su propio doble clic conectado
+            # (`cellDoubleClicked`/`itemDoubleClicked`/`doubleClicked`, contados vía `receivers()`)
+            # ni si el doble clic dispara la edición nativa de la celda — así nunca compite con los
+            # manejadores ya existentes (picking, expediente, editar línea, etc.).
+            if event.type() == QEvent.Type.MouseButtonDblClick and _manejar_doble_clic_celda(
+                watched, event
+            ):
+                return True
+            # Centrado universal de ventanas emergentes pequeñas: CUALQUIER QDialog frameless
+            # (docenas repartidos por toda la app, cada uno con su propio marco redondeado en vez
+            # de la barra de título de Windows) se centraba por defecto sobre el CENTRO DE SU
+            # PADRE, no sobre la pantalla real — si el diálogo era más alto de lo esperado o el
+            # padre no ocupaba toda la pantalla, podía quedar cortado/fuera de la vista (bug real
+            # confirmado, p. ej. "Nuevo activo" de GMAO). En vez de repetir el parche en cada una
+            # de las ~60 clases afectadas (y en cualquier `QDialog(...)` ad-hoc futuro), se resuelve
+            # aquí UNA sola vez: al primer `Show` de cualquier QDialog con `FramelessWindowHint`, se
+            # reposiciona sobre `primaryScreen().availableGeometry()`. Diferido con
+            # `QTimer.singleShot(0, ...)` porque en el propio evento Show el tamaño natural del
+            # diálogo (`adjustSize`) aún no está resuelto (mismo criterio que `_blindar_tamano_
+            # fijo`). Solo una vez por instancia (propiedad dinámica) para no pelearse con diálogos
+            # que el usuario arrastra a otro sitio tras abrirse (p. ej. los que implementan su
+            # propio `mousePressEvent`/`mouseMoveEvent` de arrastre).
+            if (event.type() == QEvent.Type.Show and QDialog is not None and QTimer is not None
+                    and _safe_instance(watched, QDialog)
+                    and bool(watched.windowFlags() & Qt.WindowType.FramelessWindowHint)
+                    and not watched.property("_sm_centrado_pantalla")):
+                watched.setProperty("_sm_centrado_pantalla", True)
+                QTimer.singleShot(0, lambda w=watched: _centrar_dialogo_en_pantalla(w))
+            # Esquinas REALMENTE redondeadas (recorte nativo de la ventana, no solo el CSS
+            # `border-radius` pintado): el `border-radius` de la QSS por sí solo NO recorta el
+            # HWND sin marco — solo lo pinta — así que las 4 esquinas de la ventana rectangular
+            # real pueden quedar cuadradas por debajo del dibujo redondeado si la composición por
+            # capas de Windows no coopera (mismo bug ya reproducido y resuelto para el popup nativo
+            # del combo — `CreateRoundRectRgn`/`SetWindowRgn`, ver más abajo — reutilizado aquí en
+            # vez de duplicar la técnica). Se aplica a CUALQUIER QDialog frameless+translúcido
+            # (todos los que usan `_dialogo_frameless`), en Show y en Resize (el tamaño natural del
+            # diálogo aún no está resuelto en el propio Show).
+            if (event.type() in {QEvent.Type.Show, QEvent.Type.Resize}
+                    and sys.platform == "win32" and QDialog is not None and QTimer is not None
+                    and _safe_instance(watched, QDialog)
+                    and bool(watched.windowFlags() & Qt.WindowType.FramelessWindowHint)
+                    and watched.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)):
+                QTimer.singleShot(0, lambda w=watched: _recortar_esquinas_dialogo(w))
             if event.type() == QEvent.Type.Show and _safe_instance(
                 watched, QMessageBox
             ):
@@ -1000,13 +1434,44 @@ class _SmartGlobalFilter(QObject):
 
                     if QTimer is not None:
                         QTimer.singleShot(0, _clip_combo_popup)
-            if event.type() in {
-                QEvent.Type.Show,
-                QEvent.Type.Polish,
-                QEvent.Type.EnabledChange,
-                QEvent.Type.DynamicPropertyChange,
-            }:
+            # Show/Polish disparan de forma RUTINARIA (a menudo varias veces) durante la propia
+            # construcción normal de cualquier ventana. La causa real del crash nativo intermitente
+            # (0xc0000005 en Qt6Widgets.dll) confirmada con reproducción local aislada no estaba
+            # aquí, sino en reaplicar TODO el pipeline de `aplicar_estilo_widget` sobre un widget
+            # que ya lo había recibido una vez desde su propio helper de construcción (`_combo`/
+            # `_btn`/`_inp`/…) — ver la guarda de idempotencia (`forzar=False` por defecto) dentro
+            # de `aplicar_estilo_widget`, que es la que de verdad lo arregla (se descartaron antes,
+            # por separado, el popup de combos y otras sub-funciones concretas como causa única).
+            if event.type() in (QEvent.Type.Show, QEvent.Type.Polish):
                 aplicar_estilo_widget(watched)
+            elif event.type() == QEvent.Type.EnabledChange:
+                aplicar_estilo_widget(watched, forzar=True)
+            elif event.type() == QEvent.Type.DynamicPropertyChange:
+                # `forzar=True` (síncrono, sin guarda) solo tiene sentido para `semanticRole`
+                # cambiando en tiempo de ejecución sobre un botón YA construido y mostrado — el
+                # único caso real que motivó esta rama. Reaccionar así a CUALQUIER propiedad
+                # dinámica (antes) disparaba el pipeline completo, síncrono, sobre widgets que
+                # solo estaban fijando una marca propia EN SU PROPIO CONSTRUCTOR (p. ej.
+                # `_HorarioComboBox.setProperty("horario_cb", True)`, cientos de veces por
+                # rejilla) — mismo patrón exacto que causó que el botón ✕ del asistente de
+                # cámaras se volviera `WA_NativeWindow` por accidente. Ignorar cualquier otra
+                # propiedad aquí: ya recibirá su estilo, con guarda, en su propio Show/Polish.
+                try:
+                    nombre = bytes(event.propertyName()).decode("utf-8", "ignore")
+                except Exception:
+                    nombre = ""
+                if nombre == "semanticRole":
+                    aplicar_estilo_widget(watched, forzar=True)
+            # Teclado táctil de Windows (petición explícita): SOLO en un dispositivo con pantalla
+            # táctil y sin teclado físico conectado ahora mismo (`_dispositivo_tactil_sin_teclado`,
+            # ver bloque dedicado arriba) — al enfocar CUALQUIER campo de texto/búsqueda de la app
+            # (QLineEdit incluye el campo interno de un QComboBox editable), se lanza el teclado en
+            # pantalla nativo. Resuelto aquí una sola vez, igual que el resto de comportamientos
+            # globales de este filtro, en vez de tocar cada pantalla.
+            if event.type() == QEvent.Type.FocusIn and isinstance(
+                watched, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)
+            ) and _dispositivo_tactil_sin_teclado():
+                _abrir_teclado_en_pantalla()
         except Exception:
             pass
         return super().eventFilter(watched, event)
@@ -1049,6 +1514,10 @@ class SmartMessageDialog(QDialog):
         "yes": 2,
         "no": 3,
         "cancel": 4,
+        # Rol genérico para una acción afirmativa "personalizada" (texto propio vía tupla
+        # (rol, etiqueta) en `buttons` — ver `_button_text`/__init__): p. ej. el recuento
+        # automático de báscula en el arqueo de caja ("Transferir recuento" / "Cancelar").
+        "transferir": 5,
     }
 
     LEVEL_COLORS = {
@@ -1067,11 +1536,34 @@ class SmartMessageDialog(QDialog):
         "success": "✓",
     }
 
-    def __init__(self, parent=None, title="", message="", level="info", buttons=None):
+    def __init__(self, parent=None, title="", message="", level="info", buttons=None,
+                 seleccionable=False, alto_maximo_mensaje=280):
         super().__init__(parent)
         self.dialog_result = 0
         self.level = str(level or "info").lower()
-        self.buttons = list(buttons or ["ok"])
+        # Cada entrada de `buttons` es un rol ("ok"/"yes"/"no"/"cancel"/"transferir") o, para un
+        # texto de botón propio sin perder el resultado semántico del rol, una tupla
+        # (rol, etiqueta) — p. ej. ("transferir", "Transferir recuento"). `self.buttons` conserva
+        # SOLO los roles (lo que ya consumía el resto de la clase); las etiquetas custom se
+        # guardan aparte en `self._button_labels`.
+        self.buttons = []
+        self._button_labels = {}
+        for _spec in (buttons or ["ok"]):
+            if isinstance(_spec, (tuple, list)) and len(_spec) == 2:
+                _role, _label = _spec
+            else:
+                _role, _label = _spec, None
+            self.buttons.append(_role)
+            if _label:
+                self._button_labels[_role] = str(_label)
+        # `seleccionable=True`: el mensaje se muestra en un QTextEdit de solo lectura (en vez del
+        # QLabel habitual) para que el texto sea seleccionable/copiable y, si es largo, se
+        # desplace dentro de una altura máxima — pensado para el popup "ver celda completa"
+        # (doble clic en cualquier tabla, ver `mostrar_texto_celda`/`_SmartGlobalFilter`) sin tocar
+        # el aspecto ni el comportamiento de los cientos de `mostrar_mensaje(...)` existentes, que
+        # siguen usando el QLabel de siempre por defecto.
+        self._seleccionable = bool(seleccionable)
+        self._alto_maximo_mensaje = int(alto_maximo_mensaje or 280)
 
         self.setObjectName("smart_message_dialog")
         self.setWindowTitle(title or "Smart Manager")
@@ -1117,10 +1609,28 @@ class SmartMessageDialog(QDialog):
         self.title_label.setWordWrap(True)
         text_col.addWidget(self.title_label)
 
-        self.message_label = QLabel(str(message or ""))
-        self.message_label.setObjectName("smart_message_text")
-        self.message_label.setWordWrap(True)
-        text_col.addWidget(self.message_label)
+        self.message_label = None
+        self.message_edit = None
+        if self._seleccionable and QTextEdit is not None:
+            self.message_edit = QTextEdit()
+            self.message_edit.setObjectName("smart_message_text_edit")
+            self.message_edit.setReadOnly(True)
+            self.message_edit.setPlainText(str(message or ""))
+            self.message_edit.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+                | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
+            self.message_edit.setFrameShape(QFrame.Shape.NoFrame)
+            self.message_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+            self.message_edit.setMinimumHeight(60)
+            self.message_edit.setMaximumHeight(self._alto_maximo_mensaje)
+            self.message_edit.setCursor(Qt.CursorShape.IBeamCursor)
+            text_col.addWidget(self.message_edit)
+        else:
+            self.message_label = QLabel(str(message or ""))
+            self.message_label.setObjectName("smart_message_text")
+            self.message_label.setWordWrap(True)
+            text_col.addWidget(self.message_label)
 
         row.addLayout(text_col, 1)
         layout.addLayout(row)
@@ -1150,6 +1660,8 @@ class SmartMessageDialog(QDialog):
         return color
 
     def _button_text(self, role):
+        if role in self._button_labels:
+            return self._button_labels[role]
         try:
             from src.utils.i18n import tr
 
@@ -1158,9 +1670,11 @@ class SmartMessageDialog(QDialog):
                 "yes": tr("common.yes", default="Sí"),
                 "no": tr("common.no", default="No"),
                 "cancel": tr("common.cancel", default="Cancelar"),
+                "transferir": tr("common.transferir", default="Transferir"),
             }
         except Exception:
-            mapping = {"ok": "OK", "yes": "Sí", "no": "No", "cancel": "Cancelar"}
+            mapping = {"ok": "OK", "yes": "Sí", "no": "No", "cancel": "Cancelar",
+                       "transferir": "Transferir"}
         return mapping.get(str(role).lower(), str(role).upper())
 
     def _semantic_role(self, role):
@@ -1207,9 +1721,19 @@ class SmartMessageDialog(QDialog):
                 font-size: 13px;
                 font-weight: 900;
             }}
+            QTextEdit#smart_message_text_edit {{
+                color: {COLOR_TEXTO_PRINCIPAL};
+                background: transparent;
+                border: none;
+                font-family: '{FUENTE_APP}';
+                font-size: 13px;
+                font-weight: 900;
+                selection-background-color: {accent};
+                selection-color: {COLOR_FONDO_APP};
+            }}
             QPushButton[semanticRole="success"] {{
-                background-color: {COLOR_VERDE_OK};
-                color: {COLOR_FONDO_APP};
+                background-color: transparent;
+                color: {COLOR_VERDE_OK};
                 border: 2px solid {COLOR_VERDE_OK};
                 border-radius: {RADIO_MD};
                 font-family: '{FUENTE_APP}';
@@ -1218,7 +1742,7 @@ class SmartMessageDialog(QDialog):
                 padding: 10px 16px;
             }}
             QPushButton[semanticRole="success"]:hover {{
-                background-color: #FFFFFF;
+                background-color: {COLOR_VERDE_OK};
                 color: {COLOR_FONDO_APP};
                 border: 2px solid {COLOR_VERDE_OK};
             }}
@@ -1242,14 +1766,15 @@ class SmartMessageDialog(QDialog):
         super().showEvent(event)
         try:
             _apply_windows_dark_title_bar(self)
-            parent = self.parentWidget()
-            if parent is not None:
-                # Centro GLOBAL del padre: frameGeometry() de un widget hijo está en
-                # coordenadas de su padre, no de pantalla → el diálogo salía descentrado.
-                center = parent.mapToGlobal(parent.rect().center())
-                frame = self.frameGeometry()
-                frame.moveCenter(center)
-                self.move(frame.topLeft())
+            # Centrado sobre la PANTALLA real (descontando la barra de tareas), no sobre el centro
+            # del padre: centrar en el padre podía dejar el diálogo asomando fuera de la pantalla si
+            # el padre no ocupaba toda la altura visible o el mensaje era más alto de lo esperado —
+            # mismo criterio ya aplicado en `catalogo_gestion.centrar_en_pantalla`.
+            from PyQt6.QtWidgets import QApplication
+            pantalla = QApplication.primaryScreen().availableGeometry()
+            frame = self.frameGeometry()
+            frame.moveCenter(pantalla.center())
+            self.move(frame.topLeft())
         except Exception:
             pass
 
@@ -1305,88 +1830,168 @@ def aplicar_estilo_app(app):
 
 
 def _apply_button_glow(widget):
-    if (
-        widget is None
-        or not _safe_instance(widget, QPushButton)
-        or QGraphicsDropShadowEffect is None
-    ):
+    """Deshabilitado a petición: ningún botón de la app debe llevar el resplandor de sombra cian
+    (ni ningún otro color) alrededor. Se conserva la función (y su único punto de llamada en
+    `aplicar_estilo_widget`) para no tener que tocar cada sitio que la referencia, pero ya no
+    aplica ningún `QGraphicsDropShadowEffect`; si un botón ya tuviera uno puesto, se retira."""
+    if widget is None or not _safe_instance(widget, QPushButton):
         return
     try:
-        name = widget.objectName() if hasattr(widget, "objectName") else ""
-        if name in {"btn_sidebar", "btn_sidebar_exit"}:
-            return
-        # Opt-out por propiedad dinámica: los botones marcados con sin_glow=True no reciben el resplandor
-        # (p. ej. controles secundarios de un formulario que deben verse planos).
-        try:
-            if bool(widget.property("sin_glow")):
-                if widget.graphicsEffect() is not None:
-                    widget.setGraphicsEffect(None)
-                return
-        except Exception:
-            pass
         if widget.graphicsEffect() is not None:
-            return
-        from PyQt6.QtGui import QColor
-
-        fx = QGraphicsDropShadowEffect()
-        fx.setBlurRadius(22)
-        fx.setColor(QColor(COLOR_CIAN))
-        fx.setOffset(0, 0)
-        widget.setGraphicsEffect(fx)
+            widget.setGraphicsEffect(None)
     except Exception:
         pass
 
 
-def aplicar_estilo_widget(widget):
+def _apply_spinbox_fusion_fix(widget):
+    """Corrige el mismo defecto en TODO QSpinBox/QDoubleSpinBox/QDateEdit (y derivados de
+    QAbstractSpinBox): sus flechas arriba/abajo, ocultas vía QSS (`QSpinBox::up-button` con
+    `width:0px;height:0px`, sección QSS INPUTS) para un aspecto limpio, podían dejar el campo
+    invisible o sin aceptar clic/foco en varios diálogos reales en Windows
+    (`_FormDialog`/`_IntervencionDialog` de `sat_dashboard.py`, entre otros).
+
+    Se retiran los botones por la API real de Qt (`setButtonSymbols(NoButtons)`) en vez de por CSS
+    — es la técnica que ya usaba (sin saberlo, de forma aislada) un `QSpinBox` de
+    `recepcion_pale.py`, que nunca mostró este defecto — con lo que el `width:0px` de la hoja de
+    estilo pasa a ser irrelevante (no hay subcontrol que dimensionar). ANTES esto se reforzaba
+    ADEMÁS asignando un `QStyle` "Fusion" compartido (`widget.setStyle(_FUSION_STYLE)`, un único
+    objeto reutilizado por TODOS los spin box/date edit de la app) — confirmado con reproducción
+    local aislada como la causa dominante de los crashes nativos intermitentes (0xc0000005 en
+    Qt6Widgets.dll) en Mermas/Configuración/Cámaras/Gastos: ese único `setButtonSymbols` YA basta
+    (lo dice esta misma función desde siempre, "más robusto aún") — el cambio de estilo era
+    redundante y, encima, peligroso: compartir un `QStyle` entre widgets muy dispares baja el
+    crash de ~70-100% a ~25%, pero darle a cada widget su PROPIA instancia (`QStyleFactory.create`
+    repetido) lo empeora a ~100% — la propia construcción repetida del plugin de estilo es cara y
+    frágil, no solo el compartirlo. Se retira del todo: sin él, 0 crashes reproducibles.
+
+    Además (confirmado con reproducción real offscreen, píxel a píxel): TODO
+    `QAbstractSpinBox`/`QDateEdit`/`QTimeEdit` dibuja su sección activa (día/mes/año, dígito con
+    foco…) con un recuadro sólido usando `QPalette.ColorRole.Highlight`/`HighlightedText` — un
+    mecanismo de PINTADO NATIVO, no un sub-control de QSS, así que `selection-background-color`/
+    `selection-color` (sección QSS INPUTS, pensados para la selección de texto de un QLineEdit)
+    NUNCA lo tocan. Sin tocar la paleta, ese recuadro sale con el Highlight por defecto del
+    sistema (típicamente blanco/azul claro) — un parche muy visible contra el tema oscuro de la
+    app, justo al lado de cualquier control vecino (p.ej. un combo "Tipo" en la misma barra de
+    filtros). Se corrige UNA VEZ aquí (ya se ejecuta sobre TODO spinbox/dateedit de la app vía el
+    filtro global de eventos) fijando esa paleta al mismo cian/fondo del resto del tema, en vez de
+    tocarlo caso a caso en cada pantalla."""
+    if widget is None or QAbstractSpinBox is None:
+        return
+    if not _safe_instance(widget, QAbstractSpinBox):
+        return
+    try:
+        widget.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+    except Exception:
+        pass
+    if QPalette is not None and QColor is not None:
+        try:
+            pal = widget.palette()
+            resaltado = QColor(COLOR_CIAN)
+            texto_resaltado = QColor(COLOR_FONDO_APP)
+            for grupo in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive,
+                          QPalette.ColorGroup.Disabled):
+                pal.setColor(grupo, QPalette.ColorRole.Highlight, resaltado)
+                pal.setColor(grupo, QPalette.ColorRole.HighlightedText, texto_resaltado)
+            widget.setPalette(pal)
+        except Exception:
+            pass
+
+
+def aplicar_estilo_widget(widget, forzar=False):
+    """`forzar=False` (por defecto): si `widget` ya pasó por aquí una vez, no repite el trabajo.
+    La mayoría de widgets de la app YA reciben su estilo explícitamente, una vez, desde su propio
+    helper de construcción (`_combo`/`_btn`/`_inp`/…) — el filtro global de eventos (reacciona a
+    Show/Polish de CUALQUIER widget del programa) puede volver a llamar a esta misma función sobre
+    ESE MISMO widget poco después, sin saber que ya se hizo — pero una guarda de idempotencia SOLA
+    no basta (confirmado con reproducción local aislada, decenas de intentos): incluso eliminando
+    toda redundancia, la PRIMERA llamada — la explícita, hecha por la propia factory del widget
+    (`_combo`/`_btn`/`_inp`/…) justo al construirlo — YA dispara el crash nativo intermitente
+    (0xc0000005 en Qt6Widgets.dll) en Mermas/Configuración/Cámaras/Gastos ~60-100% de las veces. La
+    causa real es hacer este trabajo de forma SÍNCRONA mientras Qt sigue en medio de construir /
+    reparentar ese widget (p.ej. dentro de `layout.addLayout(...)`, o en su propio `QEvent.Polish`)
+    — no la cantidad de veces que se llama. Por eso el trabajo real se DIFIERE siempre con
+    `QTimer.singleShot(0, …)`: dejar que Qt termine de procesar lo que esté haciendo con el widget
+    en ESTE ciclo de eventos, y aplicar el estilo en el siguiente, con la pila limpia — 0 crashes
+    en la reproducción local tras este cambio (era 60-100% con la llamada síncrona, con o sin
+    guarda de idempotencia). `forzar=True` lo hace síncrono e incondicional a propósito, para los
+    pocos casos que necesitan reaplicar YA tras un cambio de estado en tiempo de ejecución sobre un
+    widget que lleva tiempo construido y mostrado (p.ej. `semanticRole` cambiando en un botón)."""
     if widget is None or Qt is None:
         return
 
-    _set_widget_background_flag(widget)
-    _apply_font(widget)
-    _set_widget_cursor(widget)
-    _apply_button_role(widget)
-    _apply_button_glow(widget)
-    _apply_combo_extras(widget)
-    _apply_dialog_semantics(widget)
-    _apply_windows_dark_title_bar(widget)
+    def _trabajo_real():
+        _set_widget_background_flag(widget)
+        _apply_font(widget)
+        _set_widget_cursor(widget)
+        _apply_button_role(widget)
+        _apply_button_glow(widget)
+        _apply_spinbox_fusion_fix(widget)
+        _apply_combo_extras(widget)
+        _apply_dialog_semantics(widget)
+        _apply_windows_dark_title_bar(widget)
 
-    try:
-        object_name = widget.objectName() if hasattr(widget, "objectName") else ""
-    except Exception:
-        object_name = ""
+        try:
+            object_name = widget.objectName() if hasattr(widget, "objectName") else ""
+        except Exception:
+            object_name = ""
 
-    if object_name in {
-        "btn_sidebar",
-        "btn_sidebar_exit",
-        "btn_primario",
-        "btn_traspaso_land",
-        "btn_secundario",
-        "btn_peligro",
-        "btn_neon",
-        "btn_icono",
-        "btn_icono_peligro",
-        "login_combo_perfil",
-        "combo_popup_view",
-        "combo_popup_container",
-        "password_frame",
-        "card_neon",
-        "titulo_cian",
-        "titulo_logistico",
-        "subtitulo_muted",
-        "texto_auxiliar",
-        "panel_bienvenida",
-        "panel_neon_soft",
-        "panel_dialogo_logistico",
-        "contenido_logistica",
-        "input_buscador",
-        "item_frame_articulo",
-        "item_frame_logistico",
-        "scanner_status",
-        "feed_video",
-        "contenedor_tabla_estandar",
-        "tabla_estandar_smart",
-    }:
-        _repolish(widget)
+        if object_name in {
+            "btn_sidebar",
+            "btn_sidebar_exit",
+            "btn_primario",
+            "btn_traspaso_land",
+            "btn_secundario",
+            "btn_peligro",
+            "btn_neon",
+            "btn_icono",
+            "btn_icono_peligro",
+            "login_combo_perfil",
+            "combo_popup_view",
+            "combo_popup_container",
+            "password_frame",
+            "card_neon",
+            "titulo_cian",
+            "titulo_logistico",
+            "subtitulo_muted",
+            "texto_auxiliar",
+            "panel_bienvenida",
+            "panel_neon_soft",
+            "panel_dialogo_logistico",
+            "contenido_logistica",
+            "input_buscador",
+            "item_frame_articulo",
+            "item_frame_logistico",
+            "scanner_status",
+            "feed_video",
+            "contenedor_tabla_estandar",
+            "tabla_estandar_smart",
+        }:
+            _repolish(widget)
+
+    # `forzar=True` salta la guarda de idempotencia (para reaplicar tras un cambio de estado real
+    # en tiempo de ejecución) pero NUNCA ejecuta de forma síncrona — un `setProperty(...)`
+    # CUALQUIERA (no hace falta que sea `semanticRole`; cualquier propiedad dinámica, p. ej.
+    # `sin_glow` en `_btn_x`) dispara su propio `QEvent.DynamicPropertyChange` de inmediato, dentro
+    # de la propia factory del widget, ANTES de que ese widget tenga padre — ejecutar aquí de forma
+    # síncrona todo el pipeline sobre un widget a medio construir (confirmado con `_btn_x`: se
+    # volvía nativo — `WA_NativeWindow` — solo por llevar un `setProperty` cualquiera, con el
+    # síntoma real reportado de que Windows no lograba colocar su ventana nativa donde tocaba y el
+    # clic caía sobre lo que hubiera debajo) era exactamente el mismo patrón de reentrada peligrosa
+    # que ya se corrigió para Show/Polish — solo que sin la guarda de "una vez" (`forzar` existe
+    # precisamente para NO tener esa guarda). Diferir con `QTimer.singleShot(0, …)` sí es seguro
+    # aquí también: cuando corre, el widget ya tiene padre (todo lo que hace la factory después de
+    # `setProperty` ya ha ocurrido).
+    if not forzar:
+        if getattr(widget, "_sm_estilo_aplicado_completo", False):
+            return
+        try:
+            widget._sm_estilo_aplicado_completo = True
+        except Exception:
+            pass
+    if QTimer is not None:
+        QTimer.singleShot(0, lambda: _vivo(widget) and _trabajo_real())
+    else:
+        _trabajo_real()
 
 
 def mostrar_mensaje(parent, titulo, mensaje, nivel="info", botones=None):
@@ -1402,15 +2007,161 @@ def mostrar_mensaje(parent, titulo, mensaje, nivel="info", botones=None):
     return dialogo.dialog_result
 
 
+def mostrar_texto_celda(parent, texto):
+    """Popup pequeño y de SOLO LECTURA con el contenido completo de una celda de tabla (sin
+    truncar/elidir) — sin ninguna opción de edición. Reutiliza el mismo diseño visual que
+    `mostrar_mensaje`/`SmartMessageDialog` (icono, panel, tipografía, botón), con el mensaje en un
+    QTextEdit de solo lectura y seleccionable/copiable en vez del QLabel habitual. Disparado desde
+    el doble clic global sobre celdas de tabla (ver `_SmartGlobalFilter.eventFilter`, sección
+    "doble clic en celda de tabla"). Celda vacía → no-op silencioso (no tiene sentido mostrar un
+    popup vacío para una acción de solo visualización)."""
+    texto = str(texto if texto is not None else "").strip()
+    if not texto:
+        return None
+    try:
+        from src.utils.i18n import tr
+        titulo = tr("common.cell_content", default="Contenido de la celda")
+    except Exception:
+        titulo = "Contenido de la celda"
+    dialogo = SmartMessageDialog(
+        parent=parent,
+        title=titulo,
+        message=texto,
+        level="info",
+        buttons=["ok"],
+        seleccionable=True,
+    )
+    aplicar_estilo_widget(dialogo)
+    dialogo.exec()
+    return dialogo.dialog_result
+
+
+def _tabla_del_viewport(watched):
+    """Si `watched` es el viewport de una QTableWidget/QTableView, devuelve la tabla dueña; si no,
+    None. QTableWidget hereda de QTableView, así que una sola comprobación cubre ambas — incluida
+    `EnterpriseTable.tabla` (`src/gui/components/enterprise.py`), que es un QTableWidget normal
+    envuelto en un QWidget contenedor (el filtro global opera sobre el widget real de Qt, no sobre
+    el envoltorio, así que la cubre automáticamente sin ningún cambio en `enterprise.py`)."""
+    if QTableView is None:
+        return None
+    try:
+        padre = watched.parentWidget() if hasattr(watched, "parentWidget") else None
+        if (
+            padre is not None
+            and _safe_instance(padre, QTableView)
+            and padre.viewport() is watched
+        ):
+            return padre
+    except Exception:
+        pass
+    return None
+
+
+def _tabla_tiene_doble_clic_propio(tabla):
+    """True si la PANTALLA que construyó `tabla` ya conectó su propio manejador al doble clic
+    (`cellDoubleClicked`/`itemDoubleClicked` de QTableWidget, o `doubleClicked` directamente) — en
+    cuyo caso el popup genérico de "ver celda completa" NO debe interferir (p. ej. las tablas que ya
+    abren un detalle/picking/expediente al hacer doble clic, ver CLAUDE.md). Se cuenta con
+    `receivers()`, descontando el único receptor INTERNO que Qt conecta siempre en todo
+    QTableWidget (su propio traductor `doubleClicked` → `cellDoubleClicked`/`itemDoubleClicked`;
+    confirmado con una QTableWidget recién creada, sin ninguna conexión de la app: ya reporta 1
+    receptor en `doubleClicked` y 0 en `cellDoubleClicked`/`itemDoubleClicked` — conectar a
+    cualquiera de estas dos últimas NO añade receptores a `doubleClicked`), para no confundir esa
+    conexión interna con un manejador real de la pantalla."""
+    total = 0
+    es_table_widget = _safe_instance(tabla, QTableWidget)
+    try:
+        n = tabla.receivers(tabla.doubleClicked)
+        if es_table_widget:
+            n = max(0, n - 1)
+        total += n
+    except Exception:
+        pass
+    if es_table_widget:
+        try:
+            total += tabla.receivers(tabla.cellDoubleClicked)
+        except Exception:
+            pass
+        try:
+            total += tabla.receivers(tabla.itemDoubleClicked)
+        except Exception:
+            pass
+    return total > 0
+
+
+def _manejar_doble_clic_celda(watched, event):
+    """Handler de la regla "doble clic en celda de tabla → popup de solo lectura con el texto
+    completo" (ver CLAUDE.md). Devuelve True si el evento quedó gestionado aquí (no debe seguir
+    propagándose). No toca NADA si: no es un doble clic con el botón izquierdo sobre el viewport de
+    una tabla; la tabla ya tiene su propio manejador de doble clic (`_tabla_tiene_doble_clic_propio`);
+    el doble clic dispara la edición nativa de la celda (`EditTrigger.DoubleClicked`/
+    `AllEditTriggers`) o la celda ya está en edición (`State.EditingState`); o no hay una celda real
+    bajo el cursor."""
+    if QAbstractItemView is None or Qt is None:
+        return False
+    try:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+    except Exception:
+        return False
+    tabla = _tabla_del_viewport(watched)
+    if tabla is None:
+        return False
+    try:
+        if tabla.state() == QAbstractItemView.State.EditingState:
+            return False
+        if bool(tabla.editTriggers() & QAbstractItemView.EditTrigger.DoubleClicked):
+            return False
+    except Exception:
+        pass
+    if _tabla_tiene_doble_clic_propio(tabla):
+        return False
+    try:
+        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+    except Exception:
+        return False
+    try:
+        indice = tabla.indexAt(pos)
+        if not indice.isValid():
+            return False
+        texto = indice.data(Qt.ItemDataRole.DisplayRole)
+    except Exception:
+        return False
+    texto = str(texto if texto is not None else "").strip()
+    if not texto:
+        # Celda vacía: no-op silencioso, pero consumimos igualmente el evento — ninguna otra
+        # pantalla depende de este doble clic (ya descartado arriba), así que no hay nada más que
+        # deba recibirlo.
+        return True
+    try:
+        mostrar_texto_celda(tabla.window(), texto)
+    except Exception:
+        pass
+    return True
+
+
 _COMPLETER_POPUP_SS = (
     "QListView{background:#161B22;color:#FFFFFF;border:2px solid #00FFC6;"
     "border-radius:12px;padding:6px;outline:none;font-family:'Segoe UI';font-size:13px;}"
     "QListView::item{padding:7px 10px;border-radius:7px;min-height:20px;}"
     "QListView::item:selected{background:#00FFC6;color:#0E1117;}"
-    "QScrollBar:vertical{background:transparent;width:14px;margin:8px 3px 8px 3px;}"
-    "QScrollBar::handle:vertical{background:#00FFC6;border-radius:4px;min-height:24px;}"
+    # Hover swap (pasar el ratón por encima), no solo la fila activa por teclado.
+    "QListView::item:hover{background:#00FFC6;color:#0E1117;}"
+    # Fondo de la pista SÓLIDO e IGUAL al de la lista en TODA su superficie (base + vertical +
+    # horizontal): con "transparent", o dejando la variante horizontal sin fijar, se ve el fondo
+    # real del popup nativo por debajo (que no es este color) — contraste no deseado. El margen que
+    # separa visualmente el "pill" de los extremos va en el HANDLE, no en la pista: puesto en la
+    # pista (`QScrollBar:vertical{margin:...}`), el margen reserva una franja en los extremos que
+    # NINGUNA de las reglas de abajo llega a pintar (ni add-page/sub-page, que quedan dentro de esa
+    # franja) — ahí se colaba el fondo real del popup (leído con captura de pantalla + muestreo de
+    # píxel, confirmado un color distinto justo en esos bordes). Sin margen en la pista, la pintamos
+    # de punta a punta y el hueco del "pill" lo da solo el margen del handle.
+    "QScrollBar{background:#161B22;}"
+    "QScrollBar:vertical{background:#161B22;width:14px;margin:0px;}"
+    "QScrollBar::handle:vertical{background:#00FFC6;border-radius:4px;min-height:24px;"
+    "margin:8px 3px 8px 3px;}"
     "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;width:0;}"
-    "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent;}"
+    "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:#161B22;}"
 )
 
 _ROUNDED_VIEW_CLS = None
@@ -1452,6 +2203,11 @@ def estilizar_completer(completer):
     try:
         view = _rounded_view_cls()()
         view.setStyleSheet(_COMPLETER_POPUP_SS)
+        # Sin esto, un texto de opción algo más ancho que el popup activa una scrollbar horizontal
+        # SIN estilizar (barra nativa) — y la esquina donde se cruzaría con la vertical queda sin
+        # pintar del color de fondo, mostrando contraste. La lista ya recorta el texto largo, no
+        # hace falta desplazamiento lateral.
+        view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         completer.setPopup(view)
     except Exception:
         pass
@@ -2103,7 +2859,7 @@ QPushButton#btn_icono {{
     color: {COLOR_CIAN};
     border: 2px solid {COLOR_CIAN};
     border-radius: {RADIO_LG};
-    padding: 8px;
+    padding: 0px;
 }}
 
 QPushButton#btn_icono:hover {{
@@ -2120,7 +2876,7 @@ QPushButton#btn_icono:pressed {{
 QPushButton#btn_icono_peligro {{
     background-color: transparent;
     color: {COLOR_ROJO_ERROR};
-    border: 2px solid {COLOR_ROJO_ERROR};
+    border: none;
     border-radius: 20px;
     padding: 6px;
 }}
@@ -2137,15 +2893,15 @@ QPushButton#btn_icono_peligro:pressed {{
 
 QPushButton[semanticRole="success"],
 QToolButton[semanticRole="success"] {{
-    background-color: {COLOR_VERDE_OK};
-    color: {COLOR_FONDO_APP};
+    background-color: {COLOR_FONDO_APP};
+    color: {COLOR_VERDE_OK};
     border: 2px solid {COLOR_VERDE_OK};
     border-radius: {RADIO_MD};
 }}
 
 QPushButton[semanticRole="success"]:hover,
 QToolButton[semanticRole="success"]:hover {{
-    background-color: #FFFFFF;
+    background-color: {COLOR_VERDE_OK};
     color: {COLOR_FONDO_APP};
     border: 2px solid {COLOR_VERDE_OK};
 }}

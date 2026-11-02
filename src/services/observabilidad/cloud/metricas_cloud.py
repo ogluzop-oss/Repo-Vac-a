@@ -12,7 +12,7 @@ DASHBOARDS = ("nodos", "regiones", "clusteres", "gateways", "apis", "eventbus", 
 
 
 def metricas_nodos() -> dict:
-    from src.platform import cloud
+    from src.plataforma import cloud
     nodos = cloud.nodes.listar()
     return {"total": len(nodos), "disponibles": len(cloud.nodes.disponibles()),
             "stale": cloud.heartbeat.stale(),
@@ -22,7 +22,7 @@ def metricas_nodos() -> dict:
 
 
 def metricas_regiones() -> dict:
-    from src.platform import cloud
+    from src.plataforma import cloud
     salida = {}
     for r in cloud.REGIONES:
         ns = cloud.nodes.listar(region=r)
@@ -33,7 +33,7 @@ def metricas_regiones() -> dict:
 
 
 def metricas_clusteres() -> list:
-    from src.platform import cloud
+    from src.plataforma import cloud
     return cloud.cluster.listar_clusters()
 
 

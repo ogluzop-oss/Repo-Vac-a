@@ -54,7 +54,7 @@ def _claims_base(usuario: dict) -> dict:
     return {
         "sub": str(usuario.get("id")),
         "empresa": usuario.get("id_empresa"),
-        "tienda": usuario.get("tienda_id"),
+        "tienda": usuario.get("centro_codigo"),
         "rol": usuario.get("perfil"),
         "nombre": usuario.get("nombre"),
     }

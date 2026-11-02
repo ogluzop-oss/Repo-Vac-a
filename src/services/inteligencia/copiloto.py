@@ -53,7 +53,7 @@ def _perfil(usuario):
 
 def _evento(emp, intent, usuario):
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         bus = cap.eventbus()
         if bus is not None and hasattr(bus, "publish"):
             bus.publish("CopilotQuery", id_empresa=emp, origen="inteligencia.copiloto",

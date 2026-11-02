@@ -104,7 +104,7 @@ class CentroActividadWindow(QWidget):
         self.in_buscar = _inp("Buscar: factura, cliente, artículo, UUID, hash, terminal…")
         self.in_buscar.setMinimumWidth(340); self.in_buscar.returnPressed.connect(self._buscar)
         ctr.addWidget(self.in_buscar, 2)
-        ctr.addWidget(_btn("BUSCAR", self._buscar, primary=True))
+        ctr.addWidget(_btn("🔍", self._buscar, primary=True))
         root.addLayout(ctr)
 
         # ── Vista ejecutiva (SUBFASE 2.8) ──
@@ -245,6 +245,8 @@ class CentroActividadWindow(QWidget):
     def _preguntar_ia(self):
         texto = (self.in_ia.text() or "").strip()
         if not texto:
+            if mostrar_mensaje is not None:
+                mostrar_mensaje(self, "Copiloto", "Escribe una pregunta antes de enviarla.", nivel="warning")
             return
         # Enterprise 5: el Copiloto orquesta IA/Predicción/Automatización con explicabilidad.
         try:

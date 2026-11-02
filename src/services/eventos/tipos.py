@@ -37,6 +37,7 @@ CATALOGO = {
     # ── RRHH ──
     "CONTRATO_GENERADO":      ("rrhh", "Contrato generado", P.MEDIA),
     "NOMINA_GENERADA":        ("rrhh", "Nomina generada", P.MEDIA),
+    "BAJA_REGISTRADA":        ("rrhh", "Baja/ausencia laboral registrada", P.ALTA),
     # ── Inventario / stock / logistica ──
     "INVENTARIO_CORREGIDO":   ("inventario", "Ajuste de inventario", P.ALTA),
     "MERMA_REGISTRADA":       ("inventario", "Merma registrada", P.MEDIA),
@@ -50,7 +51,10 @@ CATALOGO = {
     "SINCRONIZACION_COMPLETADA": ("sistema", "Sincronizacion completada", P.INFORMATIVA),
     # ── Integracion Fase 2 (modulos restantes) ──
     "VENTA_REGISTRADA":       ("ventas", "Venta/ticket registrado", P.MEDIA),
-    "UBICACION_ASIGNADA":     ("ubicaciones", "Ubicacion asignada a articulo", P.BAJA),
+    # P.MEDIA (no P.BAJA): es uno de los tipos con badge de pestaña (mapeo.TIPO_A_SUBTAB, Ubicación
+    # → "asignar") — con P.BAJA nunca superaria el umbral de PRIORIDADES_BADGE y el badge jamás se
+    # encenderia en uso real (bug encontrado durante el cableado de esa funcion).
+    "UBICACION_ASIGNADA":     ("ubicaciones", "Ubicacion asignada a articulo", P.MEDIA),
     "ASIENTO_CONTABILIZADO":  ("contabilidad", "Asiento contable creado", P.BAJA),
     "WORKFLOW_INICIADO":      ("workflow", "Instancia de workflow iniciada", P.MEDIA),
     "BI_SNAPSHOT_GENERADO":   ("bi", "Snapshot de BI generado", P.INFORMATIVA),

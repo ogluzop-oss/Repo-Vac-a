@@ -204,7 +204,8 @@ def _alerta(id_cliente, tipo, importe, eid):
 def _solicitar_aprobacion(id_cliente, importe, eid, usuario):
     try:
         from src.services.workflow import workflow_engine
-        workflow_engine.iniciar_proceso("credito", id_documento=f"CRED:{id_cliente}", importe=float(importe),
-                                        solicitante=usuario, id_empresa=eid)
+        workflow_engine.iniciar_proceso("credito", f"CRED:{id_cliente}",
+                                        contexto={"importe": float(importe), "solicitante": usuario},
+                                        id_empresa=eid)
     except Exception as e:
         logger.debug("_solicitar_aprobacion (workflow opcional): %s", e)

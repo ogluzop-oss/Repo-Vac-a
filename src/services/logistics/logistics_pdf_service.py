@@ -115,12 +115,16 @@ def _qr_tmp(payload: dict) -> str:
 
 
 # ─── Public entry point ───────────────────────────────────────────────────────
-def generar_albaran_traspaso(data: dict) -> str:
+def generar_albaran_traspaso(data: dict, emp: dict | None = None) -> str:
     """
     Generates a professional A4 enterprise transfer document.
     Returns the absolute path to the generated PDF.
+
+    `emp` permite inyectar el emisor del membrete (p. ej. un proveedor B2B en vez de "mi propia
+    empresa") — si no se pasa, se resuelve como siempre vía `_empresa()` (comportamiento de
+    Logística sin cambios).
     """
-    emp = _empresa()
+    emp = emp or _empresa()
     id_doc = data.get("id_traspaso", "TRA-000")
     out_dir = Path(os.getcwd()) / "documentos" / "albaranes"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -323,6 +327,20 @@ def _block_header(data: dict, emp: dict, qr_doc: str, CW: float) -> list:
     return [KeepTogether([header_tbl])]
 
 
+def _fmt_responsable(usuario_raw, origen="—") -> str:
+    """Normaliza el campo del usuario responsable para los albaranes: SOLO nombre, centro y id — el
+    llamador puede pasar por error el dict de sesión completo (perfil/id_empresa/email/centro_codigo/
+    etc), que nunca debe salir tal cual impreso en un documento."""
+    if isinstance(usuario_raw, dict):
+        nombre = usuario_raw.get("nombre") or "—"
+        id_u = usuario_raw.get("id")
+        partes = [str(nombre), f"Centro: {origen}"]
+        if id_u:
+            partes.append(f"ID: {id_u}")
+        return " — ".join(partes)
+    return f"{usuario_raw} — Centro: {origen}"
+
+
 # ─── Section: LOGISTICS BLOCK (origin / destination) ─────────────────────────
 def _block_logistica(data: dict, CW: float) -> list:
     s_sec = _S("sec_lbl", 7, bold=True, color=CG, sa=2)
@@ -353,7 +371,7 @@ def _block_logistica(data: dict, CW: float) -> list:
     fecha = data.get("fecha_envio", "—")
     origen = data.get("origen", "—")
     destino = data.get("destino", "—")
-    usuario = data.get("usuario", "—")
+    usuario = _fmt_responsable(data.get("usuario", "—"), origen)
     agencia = data.get("agencia_transporte", "—")
 
     t_orig = _centro_block("ORIGEN / SALIDA", origen, origen,
@@ -640,7 +658,7 @@ def _block_incidencias(data: dict, CW: float) -> list:
 
 # ─── Section: TRACEABILITY ────────────────────────────────────────────────────
 def _block_trazabilidad(data: dict, CW: float) -> list:
-    usuario = data.get("usuario", "—")
+    usuario = _fmt_responsable(data.get("usuario", "—"), data.get("origen", "—"))
     fecha = data.get("fecha_envio", datetime.now().strftime("%d/%m/%Y"))
     id_doc = data.get("id_traspaso", "—")
 
@@ -695,7 +713,7 @@ def _block_firmas(data: dict, CW: float) -> list:
     terminos = data.get("terminos", {})
     lbl_emisor = terminos.get("firma_emisor", "FIRMA EXPEDICIÓN")
     lbl_receptor = terminos.get("firma_receptor", "FIRMA RECEPCIÓN")
-    usuario = data.get("usuario", "—")
+    usuario = _fmt_responsable(data.get("usuario", "—"), data.get("origen", "—"))
     fecha = data.get("fecha_envio", "—")
 
     def _firma_block(titulo, nombre_default, fecha_val):

@@ -55,6 +55,12 @@ def crear_ticket(asunto, *, descripcion=None, id_cliente=None, canal="manual", p
             cur.execute("UPDATE tickets SET codigo=%s WHERE id=%s", (f"TK{tid:06d}", tid))
             conn.commit()
         log_auditoria("sat", "TICKET_CREADO", "tickets", f"ticket={tid} {prioridad} canal={canal}")
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("TICKET_CREADO", id_empresa=eid, origen="sat", ref_entidad="ticket",
+                         ref_id=tid, payload={"asunto": asunto, "canal": canal, "prioridad": prioridad})
+        except Exception:
+            pass
         _notificar(tid, asunto, prioridad, eid)
         # Auto-asignacion si la cola lo permite.
         if id_cola:
@@ -104,6 +110,25 @@ def comentar(id_ticket, cuerpo, *, autor=None, es_cliente=False, interno=False, 
     except Exception as e:
         logger.error("comentar: %s", e)
         return None
+
+
+def listar_comentarios(id_ticket, *, solo_publicos=False, id_empresa=None) -> list:
+    """Cronológico (más antiguo primero). `solo_publicos=True` excluye los comentarios
+    `interno=1` (notas internas del equipo, nunca visibles para el cliente) — pensado para quien
+    muestra el hilo a un cliente/visitante (p. ej. el chat del storefront, Fase 6 e-commerce)."""
+    eid = _emp(id_empresa)
+    q = "SELECT * FROM ticket_comentarios WHERE id_ticket=%s AND id_empresa=%s"
+    p = [id_ticket, eid]
+    if solo_publicos:
+        q += " AND interno=0"
+    q += " ORDER BY fecha ASC, id ASC"
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(q, p)
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_comentarios(%s): %s", id_ticket, e)
+        return []
 
 
 def cambiar_estado(id_ticket, nuevo, *, id_empresa=None) -> dict:

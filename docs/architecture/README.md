@@ -16,7 +16,7 @@ no introduce cambios de código. Se compone de:
 | API REST/GraphQL | `src/api/` (`/api/v1`) | Superficie HTTP; consume servicios, nunca BD directa |
 | Backend/WSGI | `src/backend/`, `wsgi.py` | App Flask (gunicorn) para la API/servicios |
 | Servicios | `src/services/` | Lógica de negocio por dominio |
-| Plataforma | `src/platform/` (`capabilities`, `registry`, `discovery`, `gateway`, `cloud`) | Fachada de capacidades + preparación microservicios |
+| Plataforma | `src/plataforma/` (`capabilities`, `registry`, `discovery`, `gateway`, `cloud`) | Fachada de capacidades + preparación microservicios |
 | Datos | `src/db/`, `src/database/migraciones/` | Acceso a datos (pymysql) + migraciones numeradas |
 
 ## Invariantes (resumen)

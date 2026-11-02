@@ -36,8 +36,11 @@ DEFECTOS = {
     "retorno_texto": "#0E1117",
     # SOMA
     "soma_color": "#00FFC6",     # color de tintado del personaje (sprites blancos → este color)
-    "soma_activo": True,          # SOMA habilitado por completo
-    "soma_voz": True,             # voz de SOMA (escuchar + hablar). Si False → solo chat de texto
+    "soma_activo": True,           # SOMA habilitado por completo
+    "soma_voz": False,             # voz de SOMA (escuchar + hablar). Si False → solo chat de texto.
+                                    # Config comercial por defecto: asistente activo, voz desactivada
+                                    # (decisión explícita del usuario, 2026-09-21) — se activa a mano
+                                    # desde "Asistente SOMA" en Configuración.
 }
 
 _CLAVES_COLOR = ("fondo_app", "accion_bg", "accion_texto", "cancelar_bg", "cancelar_texto",

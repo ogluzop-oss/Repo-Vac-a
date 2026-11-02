@@ -226,8 +226,16 @@ class TikTokShopAdapter(_TikTokPreparado):
                        "precio": _num(li.get("sale_price") or li.get("price"))} for li in filas]
             if not lineas:
                 continue
+            # Dirección de envío (TikTok Shop Partner API: `recipient_address`, ya en el propio
+            # pedido — reutiliza el mismo objeto leído arriba para `buyer`).
+            addr = o.get("recipient_address") or {}
+            cp = addr.get("zipcode") or addr.get("postal_code")
+            direccion_envio = ", ".join(str(x) for x in (
+                addr.get("address_detail") or addr.get("full_address"), addr.get("address_line1"),
+                addr.get("district_info"), cp) if x)
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="tiktok_shop", referencia_externa=ref)
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="tiktok_shop", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido tiktok %s: %s", ref, e)

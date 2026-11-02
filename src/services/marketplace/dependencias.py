@@ -6,7 +6,7 @@ la plataforma. Sin BD: opera sobre el catálogo (dict clave→manifest).
 
 from __future__ import annotations
 
-from src.platform.versioning import Version
+from src.plataforma.versioning import Version
 
 
 def _deps(manifest) -> list:

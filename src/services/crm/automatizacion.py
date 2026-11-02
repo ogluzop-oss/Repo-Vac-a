@@ -89,9 +89,20 @@ def _job_crm_automatizacion(id_empresa):
     return f"crm_auto={r}"
 
 
+def _job_crm_kpis_bi(id_empresa):
+    from src.services.crm import analitica
+    k = analitica.registrar_en_bi(id_empresa=id_empresa)
+    return f"crm_kpis_bi={len(k)}"
+
+
 def registrar_jobs_crm(id_empresa=None):
-    """Registra el job de automatizacion comercial en el Scheduler (idempotente)."""
+    """Registra los jobs comerciales en el Scheduler (idempotente): reglas de automatización y
+    sincronización de KPIs a BI/IA — así llegan a BI aunque nadie abra el dashboard CRM ese día
+    (mismo criterio que ya aplica Finanzas con sus ratios)."""
     from src.services import scheduler
     scheduler.registrar("crm_automatizacion", _job_crm_automatizacion)
     scheduler.registrar_job("crm_automatizacion", intervalo_horas=24,
                             descripcion="Reglas comerciales CRM", id_empresa=id_empresa)
+    scheduler.registrar("crm_kpis_bi", _job_crm_kpis_bi)
+    scheduler.registrar_job("crm_kpis_bi", intervalo_horas=24,
+                            descripcion="KPIs de CRM a BI", id_empresa=id_empresa)

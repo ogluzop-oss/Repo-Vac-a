@@ -3,20 +3,23 @@ Canal Web · Entrada del ecosistema web (Fases WEB-02/WEB-12+). El Canal Web es 
 muestra ÚNICAMENTE una pregunta — ¿la empresa ya tiene página web?
 
   • SÍ → ventana de 3 columnas (E-commerce / Marketplace / Web tradicional) → Integraciones Comerciales.
-  • NO → creación con **Hostinger** por DELEGACIÓN TOTAL: un único botón abre el creador web con IA de
-    Hostinger en el navegador (enlace de afiliado + código promo). Smart Manager NO genera webs; solo
-    conecta la web resultante después (desde «Sí, ya tengo web» → Web tradicional).
+  • NO → creación con el EDITOR VISUAL propio de Smart Manager (Fase 4 e-commerce,
+    `gui/tema_editor_dialog.TemaEditorDialog`): ya no se delega en un proveedor externo — Smart Manager
+    genera la tienda online íntegramente (secciones/bloques, vista previa en vivo, IA de contenido).
+    (Los métodos conservan el nombre histórico `_pagina_creador_web`, heredado de los proveedores
+    externos que ocupaban antes este ramal — Hostinger primero, Shopify después —, sin relación con el
+    adaptador Hostinger de Integraciones Comerciales, ver `gui/integraciones_comerciales_gui.py`.)
 
-Smart Manager AI **NO** genera páginas web (ni CMS, ni editor, ni plantillas, ni dominios/hosting): eso es de
-Hostinger. Reutiliza el orquestador de `services/comercio_digital/canal_web`. Autónoma respecto al TPV.
+Reutiliza el orquestador de `services/comercio_digital/canal_web`. Autónoma respecto al TPV.
 """
 
 import logging
-import os
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton,
                              QStackedWidget, QVBoxLayout, QWidget)
+
+from assets.estilo_global import _blindar_tamano_fijo
 
 logger = logging.getLogger("gui.canal_web")
 
@@ -25,23 +28,61 @@ _BG = "#0E1117"
 _BG2 = "#161B22"
 _TEXT2 = "#8B949E"
 
-# Enlace de AFILIADO al creador web/tienda online de Shopify + código promo (configurables por entorno).
-# Rellena con tu enlace/código reales de afiliado de Shopify para obtener beneficios por cada cliente referido.
-SHOPIFY_URL = os.getenv("SHOPIFY_REFERRAL_URL", "https://www.shopify.com/es")
-SHOPIFY_PROMO = os.getenv("SHOPIFY_PROMO_CODE", "SMARTMANAGER")
-
 
 def _btn_x(slot=None):
     """Botón rojo ✕ (cerrar) para la esquina superior derecha, estilo unificado de la app."""
     b = QPushButton("✕")
     b.setCursor(Qt.CursorShape.PointingHandCursor)
-    b.setFixedSize(50, 44)
-    b.setStyleSheet("QPushButton{background:transparent;color:#FF4C4C;border:2px solid #FF4C4C;"
-                    "border-radius:9px;font-weight:900;font-size:18px;}"
+    b.setFixedSize(50, 50)
+    b.setStyleSheet("QPushButton{background:transparent;color:#FF4C4C;border:none;"
+                    "border-radius:25px;padding:0;font-weight:900;font-size:18px;}"
                     "QPushButton:hover{background:#FF4C4C;color:#0D1117;}")
+    b.setProperty("sin_glow", True)
+    _blindar_tamano_fijo(b, 50, 50)
     if slot:
         b.clicked.connect(slot)
     return b
+
+
+def _abrir_ventana_completa(ventana, origen=None):
+    """Abre una ventana HIJA a pantalla completa, SIN la barra de título nativa de Windows, con la
+    MISMA animación de deslizamiento de entrada que usa `menu_principal.manejar_apertura`. Canal Web
+    abre sus ventanas (CanalWebWindow, IntegracionesComercialesWindow) directamente, fuera de
+    `manejar_apertura`, así que replica aquí ese mismo tratamiento (si no, se ven con la barra de
+    título nativa de Windows, inconsistente con el resto de módulos, todos frameless)."""
+    try:
+        ventana.setWindowFlags(ventana.windowFlags() | Qt.WindowType.FramelessWindowHint)
+    except Exception:
+        pass
+    snap = None
+    try:
+        if origen is not None:
+            from src.gui.transiciones import capturar_pantalla
+            snap = capturar_pantalla(origen)
+    except Exception:
+        pass
+    try:
+        from PyQt6.QtWidgets import QApplication
+        ventana.setWindowOpacity(0.0)
+        scr = ventana.screen() or QApplication.primaryScreen()
+        if scr is not None:
+            ventana.setGeometry(scr.availableGeometry())
+    except Exception:
+        pass
+    ventana.showMaximized()
+    try:
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+    except Exception:
+        pass
+    try:
+        from src.gui.transiciones import deslizar_entrada_modulo
+        deslizar_entrada_modulo(snap, ventana, revelar=ventana)
+    except Exception:
+        try:
+            ventana.setWindowOpacity(1.0)
+        except Exception:
+            pass
 
 
 def _boton(texto, primario=True):
@@ -82,9 +123,17 @@ class CanalWebWindow(QWidget):
         self._stack = QStackedWidget()
         root.addWidget(self._stack, 1)
         self._stack.addWidget(self._pagina_pregunta())    # 0
-        self._stack.addWidget(self._pagina_hostinger())   # 1 (ramal "No": crear con Hostinger)
+        self._stack.addWidget(self._pagina_creador_web())   # 1 (ramal "No": crear con el Editor Visual)
         self._stack.addWidget(self._pagina_tipo_web())    # 2 (ramal "Sí": ¿qué tipo de web?)
         self._stack.setCurrentIndex(0)
+        # Deslizamiento (mismo lenguaje visual que el resto de la app) en CADA cambio de pantalla
+        # dentro de Canal Web (pregunta → creador/tipo y vuelta) — entrada Y salida, es el mismo
+        # efecto en ambos sentidos.
+        try:
+            from src.gui.transiciones import instalar_transicion_stack
+            instalar_transicion_stack(self._stack)
+        except Exception as e:
+            logger.debug("instalar_transicion_stack canal web: %s", e)
 
     # ── Página 0: SOLO la pregunta inicial ──
     def _pagina_pregunta(self) -> QWidget:
@@ -113,77 +162,69 @@ class CanalWebWindow(QWidget):
         ly.addStretch(2)
         return w
 
-    # ── Página 1: creación con Hostinger — DELEGACIÓN TOTAL (1 paso) ──
-    def _pagina_hostinger(self) -> QWidget:
+    # ── Página 1: creación con el EDITOR VISUAL propio de Smart Manager ──
+    def _pagina_creador_web(self) -> QWidget:
         w = QWidget()
         ly = QVBoxLayout(w)
         ly.setSpacing(14)
         ly.addStretch(1)
-        t = QLabel("Crear tu página web con Shopify")
+        t = QLabel("Crea tu página web con Smart Manager")
         t.setStyleSheet(f"color:{_CIAN};font-size:22px;font-weight:900;")
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ly.addWidget(t)
-        prov = QLabel("Proveedor oficial de creación web:  SHOPIFY (IA)")
+        prov = QLabel("Motor de creación propio:  EDITOR VISUAL (IA)")
         prov.setStyleSheet(f"color:{_CIAN};font-size:14px;font-weight:800;")
         prov.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ly.addWidget(prov)
-        exp = QLabel("Shopify creará tu página web automáticamente con inteligencia artificial. Smart "
-                     "Manager NO genera páginas web: cuando tu web esté lista, la conectas aquí en un paso "
-                     "(«Sí, ya tengo web» → Web tradicional).")
+        exp = QLabel("Smart Manager genera tu tienda online íntegramente: secciones y bloques "
+                     "reordenables, vista previa en vivo con tu catálogo real y asistente de IA para los "
+                     "textos — sin depender de ningún proveedor externo.")
         exp.setWordWrap(True)
         exp.setAlignment(Qt.AlignmentFlag.AlignCenter)
         exp.setStyleSheet(f"color:{_TEXT2};font-size:13px;")
         ly.addWidget(exp)
-        # Código promocional (descuento para los clientes de Smart Manager que crean su web en Shopify).
-        if SHOPIFY_PROMO:
-            fila_promo = QHBoxLayout()
-            fila_promo.addStretch()
-            promo = QLabel(f"🎁  Código de descuento:   {SHOPIFY_PROMO}")
-            promo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            promo.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            promo.setStyleSheet(f"color:{_CIAN};background:{_BG2};border:2px dashed {_CIAN};border-radius:10px;"
-                                f"padding:12px 18px;font-size:15px;font-weight:900;")
-            fila_promo.addWidget(promo)
-            fila_promo.addStretch()
-            ly.addLayout(fila_promo)
-            nota = QLabel("Aplícalo en el pago de Shopify para obtener tu descuento como cliente de Smart "
-                          "Manager.")
-            nota.setWordWrap(True)
-            nota.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            nota.setStyleSheet(f"color:{_TEXT2};font-size:11px;")
-            ly.addWidget(nota)
-        # Un ÚNICO paso: abrir el creador de Shopify (delegación total).
         fila = QHBoxLayout()
         fila.addStretch()
-        b = _boton("🌐  Crear mi web con Shopify", primario=True)
-        b.setMinimumWidth(320)
-        b.clicked.connect(self._abrir_hostinger)
+        b = _boton("🎨  Crear mi web con el Editor Visual", primario=True)
+        b.setMinimumWidth(340)
+        b.clicked.connect(self._abrir_editor_creacion)
         fila.addWidget(b)
         fila.addStretch()
         ly.addLayout(fila)
         ly.addStretch(2)
         return w
 
-    def _abrir_hostinger(self):
-        """Delegación TOTAL: abre el creador web/tienda online de Shopify en el navegador (enlace de
-        afiliado + código promo). La creación ocurre ÍNTEGRAMENTE en Shopify; Smart Manager solo conecta
-        la web resultante después. Un solo clic (mínimo número de pasos). (Flujo/lógica sin cambios.)"""
-        import webbrowser
+    def _abrir_editor_creacion(self):
+        """Abre el editor visual WYSIWYG propio (Fase 4 e-commerce, `TemaEditorDialog`) para crear la
+        tienda desde cero — con la MISMA animación de deslizamiento de entrada/salida que el resto de
+        ventanas a pantalla completa de la app."""
         try:
-            webbrowser.open(SHOPIFY_URL)
+            from src.gui.tema_editor_dialog import TemaEditorDialog
+            from src.gui.transiciones import abrir_dialogo_deslizante
+            abrir_dialogo_deslizante(TemaEditorDialog(self, usuario=self._usuario), self)
         except Exception as e:
-            logger.debug("abrir shopify: %s", e)
+            logger.debug("abrir editor creacion: %s", e)
+
+    def _cerrar_ventana(self):
+        """Cierra ESTA ventana (Canal Web) con la MISMA animación de deslizamiento de salida que el
+        resto de ventanas a pantalla completa de la app (`CanalWebWindow` es un `QWidget` plano, no un
+        `QDialog` — el helper correspondiente es `deslizar_salida_y_cerrar`, no
+        `instalar_cierre_deslizante`, que es solo para diálogos)."""
+        try:
+            from src.gui.transiciones import deslizar_salida_y_cerrar
+            deslizar_salida_y_cerrar(self, self.close)
+        except Exception:
+            self.close()
 
     def _cerrar_o_volver(self):
-        """✕: navega hacia atrás. Desde el asistente Hostinger → a la selección de tipo (3 columnas); desde
-        las 3 columnas → a la pregunta inicial; en la pregunta → cierra la ventana."""
+        """✕: navega hacia atrás. Desde el editor de creación (ramal "No") o desde la selección de tipo
+        (ramal "Sí", 3 columnas) → a la pregunta inicial (AMBOS ramales cuelgan directamente de la
+        pregunta, no son pasos secuenciales entre sí). En la pregunta inicial → cierra la ventana."""
         idx = self._stack.currentIndex()
-        if idx == 1:
-            self._stack.setCurrentIndex(2)
-        elif idx == 2:
+        if idx in (1, 2):
             self._stack.setCurrentIndex(0)
         else:
-            self.close()
+            self._cerrar_ventana()
 
     # ── Página 2: ramal "Sí" → ¿qué tipo de plataforma es tu web? (3 columnas) ──
     def _pagina_tipo_web(self) -> QWidget:
@@ -238,9 +279,12 @@ class CanalWebWindow(QWidget):
 
     def _elegir_tipo(self, tipo):
         """Abre Marketplace › Integraciones Comerciales prefiltrado por el tipo elegido (ecommerce/
-        marketplace/web_tradicional) y cierra la ventana de Canal Web."""
+        marketplace/web_tradicional). `_abrir_integraciones` decide si Canal Web se cierra del todo
+        (entrada por menú, `_on_ir_marketplace`) o se oculta para reaparecer en esta misma pantalla
+        al cerrar Integraciones (entrada normal, bug real corregido: antes SIEMPRE se cerraba, así
+        que al cerrar Integraciones el usuario "caía" sobre lo que hubiera detrás — p. ej. la pestaña
+        "Web propia" del Catálogo — en vez de volver aquí)."""
         self._abrir_integraciones(tipo=tipo)
-        self.close()
 
     # ── Lógica de decisión (reutiliza el orquestador) ──
     def _elegir(self, *, tiene_web: bool):
@@ -249,49 +293,71 @@ class CanalWebWindow(QWidget):
             orquestador.elegir(self._id_empresa, tiene_web_ya=tiene_web)   # registra/decide (reutilizado)
         except Exception as e:
             logger.debug("elegir: %s", e)
-        # SÍ → ¿qué tipo de web? (3 columnas). NO → creación con Hostinger (delegación total).
+        # SÍ → ¿qué tipo de web? (3 columnas). NO → creación con el Editor Visual propio.
         self._stack.setCurrentIndex(2 if tiene_web else 1)
 
     def _abrir_integraciones(self, tipo=None):
         """Redirección AUTOMÁTICA a Marketplace › Integraciones Comerciales, prefiltrada por `tipo`
-        (ecommerce/marketplace/web_tradicional). El usuario no navega a mano."""
+        (ecommerce/marketplace/web_tradicional). El usuario no navega a mano.
+
+        Entrada por MENÚ (`_on_ir_marketplace` ya aportado por quien abrió Canal Web): delega la
+        ventana entera en ese callback y cierra Canal Web, igual que siempre.
+
+        Entrada NORMAL (rama "Sí" → tipo de plataforma, sin callback externo): Canal Web se OCULTA
+        (nunca se cierra) mientras Integraciones está abierta, y reaparece —en esta misma pantalla,
+        con su propia animación de entrada/salida— en cuanto el usuario cierra Integraciones
+        (`_volver_desde_integraciones`, pasado como `al_cerrar`)."""
         if callable(self._on_ir_marketplace):
             self._on_ir_marketplace()
+            self._cerrar_ventana()
             return
         try:
             from src.gui.integraciones_comerciales_gui import \
                 IntegracionesComercialesWindow
-            self._ic_win = IntegracionesComercialesWindow(id_empresa=self._id_empresa,
-                                                          usuario=self._usuario, tipo_inicial=tipo)
+            self._ic_win = IntegracionesComercialesWindow(
+                id_empresa=self._id_empresa, usuario=self._usuario, tipo_inicial=tipo,
+                al_cerrar=self._volver_desde_integraciones)
             self._ic_win.setWindowFlag(Qt.WindowType.Window)
-            self._ic_win.showMaximized()
+            _abrir_ventana_completa(self._ic_win, origen=self)
+            self.hide()
         except Exception as e:
             logger.debug("abrir integraciones: %s", e)
 
-    def _abrir_config(self):
-        """Configuración de la presencia digital (Canal Web es el único editor de la marca). Accesible desde
-        el Portal Web (sección Administración); conservado para compatibilidad (no se muestra en la pregunta
-        inicial: la pregunta queda pura, solo Sí/No)."""
+    def _volver_desde_integraciones(self):
         try:
-            from src.gui.canal_web_config import CanalWebConfigDialog
-            CanalWebConfigDialog(parent=self).exec()
+            self.show()
+            self.raise_()
+            self.activateWindow()
         except Exception as e:
-            logger.debug("abrir_config canal web: %s", e)
-
+            logger.debug("volver desde integraciones: %s", e)
 
 def abrir_canal_web(parent=None, id_empresa=None, usuario=None, on_ir_marketplace=None):
-    """Punto ÚNICO de entrada a Canal Web (WEB-12): abre la ventana que muestra ÚNICAMENTE la pregunta
-    inicial (¿tu empresa ya dispone de web? Sí/No). Lo usan los redirects de Catálogo y del Portal Web para
-    NO saltarse la pregunta. Devuelve la ventana (el llamante DEBE conservar la referencia para que no la
-    recoja el GC)."""
+    """Punto ÚNICO de entrada a Canal Web (WEB-12).
+
+    Flujo directo (automatización UX): si el canal YA está configurado (`canal_web.existe`,
+    cualquier estado salvo `no_configurado`), la pregunta "¿tu empresa ya dispone de web?" no
+    tiene sentido — ya se respondió una vez — así que se salta directa y automáticamente a la
+    gestión del canal (`CanalWebConfigDialog`, con acceso directo al Editor Visual). Solo un canal
+    SIN configurar todavía muestra la pregunta inicial. Devuelve la ventana/diálogo abierto (el
+    llamante DEBE conservar la referencia para que no la recoja el GC)."""
     if id_empresa is None:
         try:
             from src.db.empresa import empresa_actual_id
             id_empresa = empresa_actual_id()
         except Exception:
             id_empresa = None
+    try:
+        from src.services.comercio_digital import canal_web
+        if canal_web.existe(id_empresa):
+            from src.gui.canal_web_config import CanalWebConfigDialog
+            from src.gui.transiciones import abrir_dialogo_deslizante
+            dlg = CanalWebConfigDialog(parent=parent)
+            abrir_dialogo_deslizante(dlg, parent)
+            return dlg
+    except Exception as e:
+        logger.debug("abrir_canal_web (flujo directo): %s", e)
     w = CanalWebWindow(id_empresa=id_empresa, usuario=usuario, on_ir_marketplace=on_ir_marketplace)
     w.setWindowFlag(Qt.WindowType.Window)
     w.setWindowModality(Qt.WindowModality.ApplicationModal)
-    w.showMaximized()
+    _abrir_ventana_completa(w, origen=parent)
     return w

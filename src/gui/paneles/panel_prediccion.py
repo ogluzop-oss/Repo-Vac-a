@@ -6,12 +6,12 @@ predictivo. Solo orquesta el servicio; no calcula.
 
 import logging
 
-from PyQt6.QtWidgets import QLabel, QPushButton
+from PyQt6.QtWidgets import QLabel
 
 from src.gui.components import (EnterpriseCard, EnterpriseDashboardGrid,
                                 EnterpriseTable)
-from src.gui.foundation import tokens as T
 from src.gui.foundation.shell import QtEnterprisePanel
+from src.utils.texto import capitalizar_sigla
 
 logger = logging.getLogger("gui.paneles.prediccion")
 
@@ -31,12 +31,6 @@ class PanelPrediccion(QtEnterprisePanel):
     def cargar(self):
         self.add_toolbar_widget(QLabel("Anticipación de problemas y oportunidades"))
         self.toolbar_stretch()
-        from PyQt6.QtCore import Qt
-        b_ref = QPushButton("🔄 Actualizar")
-        b_ref.setCursor(Qt.CursorShape.PointingHandCursor)
-        b_ref.clicked.connect(self._refrescar)
-        b_ref.setStyleSheet(T.qss_boton(T.INFO))
-        self.add_toolbar_widget(b_ref)
 
         # Fase 8: KPIs del MOTOR PREDICTIVO REAL (forecasting/modelos) — riesgo, demanda, calidad de modelos.
         self.grid_ia = EnterpriseDashboardGrid(columnas=4)
@@ -47,11 +41,18 @@ class PanelPrediccion(QtEnterprisePanel):
         self.contenido.addWidget(QLabel("Predicciones por dominio"))
         self.contenido.addWidget(self.grid)
 
-        self.tabla = EnterpriseTable(["Dominio", "Métrica", "Valor"], con_busqueda=True, pagina=12)
+        # "Actualizar" propio de CADA tabla (esquina superior derecha), no compartido en la cabecera
+        # del panel — y el contador "N filas" pasa a la esquina INFERIOR derecha (`contador_abajo`),
+        # dejando la esquina superior libre para el botón.
+        self.tabla = EnterpriseTable(["Dominio", "Métrica", "Valor"], con_busqueda=True, pagina=12,
+                                     con_actualizar=self._refrescar, actualizar_pos="derecha",
+                                     contador_abajo=True)
         self.contenido.addWidget(self.tabla)
 
         self.contenido.addWidget(QLabel("Riesgos previstos"))
-        self.tabla_riesgos = EnterpriseTable(["Riesgo", "Detalle"], con_busqueda=True)
+        self.tabla_riesgos = EnterpriseTable(["Riesgo", "Detalle"], con_busqueda=True,
+                                             con_actualizar=self._refrescar, actualizar_pos="derecha",
+                                             contador_abajo=True)
         self.contenido.addWidget(self.tabla_riesgos)
 
         self._refrescar()
@@ -96,7 +97,7 @@ class PanelPrediccion(QtEnterprisePanel):
             for p in preds:
                 filas.append({"Dominio": dom, "Métrica": p.get("metrica"), "Valor": p.get("valor")})
             if preds:
-                cards.append(EnterpriseCard(dom.capitalize(), len(preds), modo="prediccion",
+                cards.append(EnterpriseCard(capitalizar_sigla(dom), len(preds), modo="prediccion",
                                             concepto="prediccion", subtitulo=f"{len(preds)} señales"))
         self.grid.limpiar()
         for c in cards:

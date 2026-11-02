@@ -69,8 +69,9 @@ def test_alta_traspaso_estados_iniciales(db, fab):
     cod = fab.articulo(stock_total=0, stock_tienda=0)
     id_doc, pales = _crear_traspaso(db, fab, {"P1": _pale(cod, 5)})
     assert id_doc.startswith("TRA-") and len(pales) == 1
-    # Documento EN TRANSITO; palé y línea PENDIENTE; nada recibido aún.
-    assert _estado_doc(db, id_doc) == "EN TRANSITO"
+    # Documento EN PREPARACION (pendiente de picking/expedición); palé y línea PENDIENTE;
+    # nada recibido aún. Solo `confirmar_picking_y_expedir` transiciona a EN TRANSITO.
+    assert _estado_doc(db, id_doc) == "EN PREPARACION"
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("SELECT estado FROM documentos_logisticos_pales WHERE id_documento=%s", (id_doc,))
         assert (cur.fetchone() or [None])[0] == "PENDIENTE"
@@ -154,7 +155,7 @@ def test_recepcion_destino_incorrecto_no_toca_stock(db, fab):
                                        [{"codigo": cod, "cantidad": 7}])
     assert r["ok"] is False and r["motivo"] == "destino_incorrecto"
     assert _stock(db, cod) == (0, 0)                    # sin cambios
-    assert _estado_doc(db, id_doc) == "EN TRANSITO"
+    assert _estado_doc(db, id_doc) == "EN PREPARACION"  # sin cambios
 
 
 def test_recepcion_idempotente_pale_ya_recibido(db, fab):
@@ -295,12 +296,221 @@ def test_rfid_genera_epc_formato():
 
 
 def test_rfid_sin_hardware_no_conecta(monkeypatch):
-    """En modo real sin lector accesible, conectar() devuelve False (sin excepción)."""
+    """En modo real sin lector accesible, conectar() devuelve False (sin excepción) — el gateway
+    habla LLRP real vía `sllurp`; aquí se simula el fallo de conexión TCP al nivel de
+    `LLRPReaderClient.connect` (mismo punto que usa `_conectar_llrp`)."""
+    import sllurp.llrp as llrp
     import src.utils.rfid_gateway as RG
 
-    def _boom(*a, **k):
-        raise RG.requests.exceptions.ConnectionError("sin hardware")
+    def _boom(self, *a, **k):
+        raise ConnectionRefusedError("sin hardware")
 
-    monkeypatch.setattr(RG.requests, "get", _boom)
+    monkeypatch.setattr(llrp.LLRPReaderClient, "connect", _boom)
     g = RG.LectorZebraGateway(ip="10.255.255.1", modo_simulado=False)
     assert g.conectar() is False
+
+
+def test_rfid_sin_sllurp_instalado_no_conecta(monkeypatch):
+    """Degradación honesta si `sllurp` no está instalado: conectar() devuelve False, nunca lanza
+    ImportError hacia el llamador."""
+    import src.utils.rfid_gateway as RG
+
+    monkeypatch.setattr(RG, "_sllurp_disponible", lambda: False)
+    g = RG.LectorZebraGateway(ip="10.0.0.5", modo_simulado=False)
+    assert g.conectar() is False
+
+
+def test_rfid_escribir_y_leer_tag_simulado_coinciden():
+    """Lectura cruzada en simulado: tras escribir un EPC, `leer_tag()` devuelve ESE mismo EPC (no un
+    valor fijo inventado) — la verificación `escribir_tag` → OK depende de esta coincidencia real."""
+    from src.utils.rfid_gateway import LectorZebraGateway
+    g = LectorZebraGateway(modo_simulado=True)
+    assert g.leer_tag() is None  # nada grabado todavía
+    assert g.escribir_tag("ABCDEF0123456789ABCDEF01") is True
+    assert g.leer_tag() == "ABCDEF0123456789ABCDEF01"
+    assert g._verificar_escritura("ABCDEF0123456789ABCDEF01") is True
+    assert g._verificar_escritura("OTRO-EPC-DISTINTO") is False
+
+
+def test_rfid_puerto_llrp_por_defecto():
+    """`puerto` por defecto es el estándar LLRP 5084; aceptable sobrescribirlo."""
+    from src.utils.rfid_gateway import PUERTO_LLRP_DEFECTO, LectorZebraGateway
+    g = LectorZebraGateway(ip="10.0.0.5", modo_simulado=False)
+    assert g.puerto == 5084 == PUERTO_LLRP_DEFECTO
+    g2 = LectorZebraGateway(ip="10.0.0.5", modo_simulado=False, puerto=1234)
+    assert g2.puerto == 1234
+
+
+def test_rfid_llrp_leer_tag_y_verificar_escritura_real(monkeypatch):
+    """Modo real (LLRP): `leer_tag()`/`_verificar_escritura()` se apoyan en el callback de
+    tag-report de `sllurp` — un `LLRPReaderClient` falso dispara ese callback con un EPC conocido
+    en cuanto se registra, simulando un tag ya presente en el campo del lector."""
+    import sllurp.llrp as llrp
+    import src.utils.rfid_gateway as RG
+
+    class _ClienteFalso:
+        def __init__(self, host, port, config, timeout=5.0):
+            pass
+
+        def connect(self):
+            pass
+
+        def add_tag_report_callback(self, cb):
+            cb(self, [{"EPC": b"EPC1234REAL0000000000AB"}])
+
+        def disconnect(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+    monkeypatch.setattr(llrp, "LLRPReaderClient", _ClienteFalso)
+    g = RG.LectorZebraGateway(ip="10.0.0.5", modo_simulado=False)
+    assert g.leer_tag() == "EPC1234REAL0000000000AB"
+    assert g._verificar_escritura("EPC1234REAL0000000000AB") is True
+    assert g._verificar_escritura("OTRO-EPC") is False
+
+
+def test_rfid_llrp_leer_tag_sin_respuesta_da_none(monkeypatch):
+    """Si el lector no reporta ningún tag dentro del timeout, `leer_tag()` degrada a `None` —
+    nunca inventa un EPC."""
+    import sllurp.llrp as llrp
+    import src.utils.rfid_gateway as RG
+
+    class _ClienteSinTags:
+        def __init__(self, host, port, config, timeout=5.0):
+            pass
+
+        def connect(self):
+            pass
+
+        def add_tag_report_callback(self, cb):
+            pass  # nunca dispara: nada en el campo del lector
+
+        def disconnect(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+    monkeypatch.setattr(llrp, "LLRPReaderClient", _ClienteSinTags)
+    g = RG.LectorZebraGateway(ip="10.0.0.5", modo_simulado=False)
+    assert g.leer_tag() is None
+
+
+def test_rfid_llrp_escribir_tag_confirma_y_verifica(monkeypatch):
+    """Escritura real completa: `start_access_spec` confirma `C1G2WriteOpSpecResult.Result==0` →
+    `escribir_tag` hace además la relectura cruzada (otra conexión) y la encuentra coincidente."""
+    import sllurp.llrp as llrp
+    import src.utils.rfid_gateway as RG
+
+    epc = "AABBCCDDEEFF00112233AABB"  # 24 hex = 12 bytes = 96 bits
+
+    class _ClienteEscritura:
+        def __init__(self, host, port, config, timeout=5.0):
+            self._cb = None
+
+        def connect(self):
+            pass
+
+        def add_tag_report_callback(self, cb):
+            self._cb = cb
+
+        def start_access_spec(self, op_spec, target_spec=None, stop_after_count=0, access_spec_id=1):
+            self._cb(self, [{"C1G2WriteOpSpecResult": {"Result": 0}}])
+
+        def disconnect(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+    class _ClienteRelectura(_ClienteEscritura):
+        def add_tag_report_callback(self, cb):
+            cb(self, [{"EPC": epc.encode("ascii")}])
+
+    secuencia = iter([_ClienteEscritura, _ClienteRelectura])
+    monkeypatch.setattr(
+        llrp, "LLRPReaderClient",
+        lambda host, port, config, timeout=5.0: next(secuencia)(host, port, config, timeout))
+    g = RG.LectorZebraGateway(ip="10.0.0.5", modo_simulado=False)
+    assert g.escribir_tag(epc) is True
+
+
+def test_rfid_llrp_escribir_tag_rechazado_por_el_chip(monkeypatch):
+    """`C1G2WriteOpSpecResult.Result != 0` (chip ausente/rechazo) → `escribir_tag` devuelve False,
+    sin lanzar y sin intentar una relectura de verificación inútil."""
+    import sllurp.llrp as llrp
+    import src.utils.rfid_gateway as RG
+
+    class _ClienteRechazo:
+        def __init__(self, host, port, config, timeout=5.0):
+            self._cb = None
+
+        def connect(self):
+            pass
+
+        def add_tag_report_callback(self, cb):
+            self._cb = cb
+
+        def start_access_spec(self, op_spec, target_spec=None, stop_after_count=0, access_spec_id=1):
+            self._cb(self, [{"C1G2WriteOpSpecResult": {"Result": 1}}])
+
+        def disconnect(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+    monkeypatch.setattr(llrp, "LLRPReaderClient", _ClienteRechazo)
+    g = RG.LectorZebraGateway(ip="10.0.0.5", modo_simulado=False)
+    assert g.escribir_tag("AABBCCDDEEFF00112233AABB") is False
+
+
+def test_rfid_llrp_escribir_tag_epc_invalido_falla_honesto():
+    """Un EPC que no es hex de 96 bits se rechaza ANTES de intentar conectar con el lector."""
+    from src.utils.rfid_gateway import LectorZebraGateway
+    g = LectorZebraGateway(ip="10.0.0.5", modo_simulado=False)
+    assert g.escribir_tag("no-es-hex") is False
+    assert g.escribir_tag("AABB") is False  # muy corto: no son 96 bits
+
+
+def test_rfid_llrp_inventario_conteo_resuelve_epc_a_articulo(monkeypatch, fab, db):
+    """Barrido real: agrega EPC distintos vistos y los resuelve a código de artículo vía
+    `db.ubicaciones.obtener_por_epc` (la misma tabla que usa el resto del ERP, sin mapeo propio)."""
+    import sllurp.llrp as llrp
+    import src.utils.rfid_gateway as RG
+    from src.db import ubicaciones as ubi_db
+
+    emp = fab.empresa("RFID INVENTARIO LLRP")
+    codigo = fab.articulo(id_empresa=emp, nombre="Producto Inventario LLRP")
+    ubi_db.registrar_etiqueta_rfid("EPCINVENTARIOAAAA0000001", codigo, 1, id_empresa=emp)
+
+    def _limpiar_ubicacion():
+        with db.obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ubicaciones WHERE codigo_articulo=%s", (codigo,))
+            conn.commit()
+    fab.al_limpiar(_limpiar_ubicacion)
+
+    class _ClienteInventario:
+        def __init__(self, host, port, config, timeout=5.0):
+            pass
+
+        def connect(self):
+            pass
+
+        def add_tag_report_callback(self, cb):
+            cb(self, [{"EPC": b"EPCINVENTARIOAAAA0000001"},
+                     {"EPC": b"EPCINVENTARIOAAAA0000001"},  # mismo EPC repetido: no duplica unidad
+                     {"EPC": b"EPC-SIN-ARTICULO-ASOCIADO"}])  # EPC desconocido: se ignora, honesto
+
+        def disconnect(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+    monkeypatch.setattr(llrp, "LLRPReaderClient", _ClienteInventario)
+    g = RG.LectorZebraGateway(ip="10.0.0.5", modo_simulado=False)
+    conteo = g.inventario_conteo(duracion_seg=0.5)
+    assert conteo == {codigo: 1}

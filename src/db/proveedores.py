@@ -49,7 +49,14 @@ def crear_proveedor(razon_social, cif_nif=None, nombre_comercial=None, email=Non
                  telefono, direccion_fiscal, observaciones))
             pid = cur.lastrowid
             conn.commit()
-            return pid
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("PROVEEDOR_CREADO", id_empresa=id_empresa, origen="proveedores",
+                         ref_entidad="proveedor", ref_id=pid,
+                         payload={"razon_social": razon_social.strip()})
+        except Exception:
+            pass
+        return pid
     except Exception as e:
         logger.error("crear_proveedor: %s", e)
         return None
@@ -78,7 +85,16 @@ def actualizar_proveedor(id_proveedor, id_empresa=None, **campos) -> bool:
                         (*sets.values(), id_proveedor, id_empresa))
             ok = cur.rowcount > 0
             conn.commit()
-            return ok
+        if ok:
+            # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+            try:
+                from src.services import eventos as _EV
+                _EV.publicar("PROVEEDOR_ACTUALIZADO", id_empresa=id_empresa, origen="compras",
+                             ref_entidad="proveedor", ref_id=id_proveedor,
+                             payload={"campos": list(sets.keys())})
+            except Exception:
+                pass
+        return ok
     except Exception as e:
         logger.error("actualizar_proveedor(%s): %s", id_proveedor, e)
         return False
@@ -200,3 +216,59 @@ def listar_direcciones(id_proveedor) -> list:
     except Exception as e:
         logger.error("listar_direcciones(%s): %s", id_proveedor, e)
         return []
+
+
+# ── Perfil fiscal (FASE C — simetría compras↔ventas) ──────────────────────────
+# Países UE (código ISO-2 fiscal) — determina intracomunitario vs. extranjero (extra-UE) cuando
+# el proveedor no tiene marcado `es_intracomunitario` a mano.
+_PAISES_UE = {
+    "ES", "FR", "DE", "IT", "PT", "NL", "BE", "AT", "BG", "HR", "CY", "CZ", "DK", "EE", "FI",
+    "GR", "EL", "HU", "IE", "LV", "LT", "LU", "MT", "PL", "RO", "SK", "SI", "SE",
+}
+
+
+def perfil_fiscal(proveedor) -> dict:
+    """Espejo de `clientes.perfil_fiscal` (MISMA forma de dict) para que
+    `utils/fiscalidad.calcular_fiscalidad` — el motor ÚNICO de exención/ISP/intracomunitario, ya
+    usado en ventas — se pueda aplicar también a facturas de COMPRA (FASE C, simetría).
+
+    Acepta un dict de proveedor o un id (lo resuelve). A diferencia de `clientes` (que tiene
+    columnas de configuración fiscal editables a mano — régimen/recargo/ISP, FASE 3.1),
+    `proveedores` solo tiene los campos de la migración 0054 (`nif_iva`/`es_intracomunitario`/
+    `pais_fiscal`); el resto del perfil se DERIVA de ahí:
+      - proveedor español (o sin país registrado) → régimen GENERAL, todo en falso →
+        comportamiento IDÉNTICO al actual (no-op para compras domésticas).
+      - proveedor intracomunitario (UE, no España) → ISP/intracomunitario + exento de IVA en
+        esta factura (inversión del sujeto pasivo / autorrepercusión del comprador, art. 84.Uno.2º
+        LIVA en su variante de adquisición intracomunitaria).
+      - proveedor extracomunitario (fuera de la UE) → exento de IVA en esta factura (importación;
+        el IVA de importación real se liquida aparte, en aduanas — no es un desarrollo de este
+        módulo)."""
+    if isinstance(proveedor, (int, str)):
+        proveedor = obtener_proveedor(proveedor) or {}
+    p = proveedor or {}
+
+    def _b(k):
+        v = p.get(k)
+        return bool(int(v)) if str(v).strip() not in ("", "None") else False
+
+    pais = (p.get("pais_fiscal") or "ES").upper()
+    intracom = _b("es_intracomunitario") or (pais != "ES" and pais in _PAISES_UE)
+    extranjero = pais != "ES" and pais not in _PAISES_UE
+    isp = intracom
+    exento = intracom or extranjero
+    regimen = "intracomunitario" if intracom else ("extranjero" if extranjero else "general")
+    return {
+        "regimen": regimen,
+        "recargo_equivalencia": False,
+        "isp": isp,
+        "intracomunitario": intracom,
+        "extranjero": extranjero,
+        "exento": exento,
+        "retencion_irpf": False,
+        "porcentaje_retencion": 0.0,
+        "nif_iva": p.get("nif_iva") or None,
+        "vies": None,
+        "pais_fiscal": (p.get("pais_fiscal") or None),
+        "condiciones_pago": None,
+    }

@@ -28,3 +28,17 @@ def registrar(bp):
         ok = notificaciones.marcar_leida(
             id_notificacion, g.ctx["usuario"].get("id"), id_empresa=g.ctx["id_empresa"])
         return (jsonify({"ok": True}), 200) if ok else (jsonify({"error": "no se pudo marcar"}), 400)
+
+    @bp.post("/notifications/device-token")
+    @requiere_auth("notificaciones.ver")
+    def notifications_registrar_token():
+        from flask import g, jsonify, request
+        from src.services.mobile import push
+        d = request.get_json(silent=True) or {}
+        token = (d.get("token") or "").strip()
+        if not token:
+            return jsonify({"error": "token requerido"}), 400
+        ok = push.registrar_dispositivo(
+            g.ctx["usuario"].get("id"), token, plataforma=d.get("plataforma", "android"),
+            id_empresa=g.ctx["id_empresa"])
+        return (jsonify({"ok": True}), 200) if ok else (jsonify({"error": "no se pudo registrar"}), 400)

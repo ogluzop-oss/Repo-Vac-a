@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
                              QPushButton, QScrollArea, QStackedWidget,
                              QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
 
-from src.gui.catalogo_gestion import _btn_x, _tabla
+from src.gui.catalogo_gestion import _btn_x, _lbl, _tabla
 
 logger = logging.getLogger("gui.integraciones_comerciales")
 
@@ -43,13 +43,18 @@ _COLOR_ESTADO = {
 }
 
 
-def _btn(texto, primario=False):
+def _btn(texto, primario=False, danger=False):
     b = QPushButton(texto)
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setMinimumHeight(36)
-    if primario:
-        b.setStyleSheet(f"QPushButton{{background:{_CIAN};color:{_BG};border:none;border-radius:8px;"
-                        f"font-weight:900;padding:6px 14px;}}QPushButton:hover{{background:#00d9a8;}}")
+    if danger:
+        # MISMO diseño exacto que `primario` (borde grueso 2px + negrita + relleno al hover), solo
+        # en rojo — pedido explícito para "Eliminar": se distingue por color, no por forma.
+        b.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_ROJO};border:2px solid {_ROJO};border-radius:8px;"
+                        f"font-weight:900;padding:6px 14px;}}QPushButton:hover{{background:{_ROJO};color:{_BG};}}")
+    elif primario:
+        b.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_CIAN};border:2px solid {_CIAN};border-radius:8px;"
+                        f"font-weight:900;padding:6px 14px;}}QPushButton:hover{{background:{_CIAN};color:{_BG};}}")
     else:
         b.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_CIAN};border:1px solid {_BORDE};"
                         f"border-radius:8px;font-weight:700;padding:6px 12px;}}"
@@ -81,11 +86,12 @@ class IntegracionesComercialesWindow(QWidget):
     directamente (lo usa el Canal Web cuando el usuario responde «Sí, ya tengo web»)."""
 
     def __init__(self, id_empresa=None, usuario=None, plataforma_inicial=None, tipo_inicial=None,
-                 parent=None):
+                 parent=None, al_cerrar=None):
         super().__init__(parent)
         self._id_empresa = _emp(id_empresa)
         self._usuario = usuario
         self._tipo_inicial = tipo_inicial
+        self._al_cerrar = al_cerrar
         self.setStyleSheet(f"background:{_BG};color:{_TEXT};")
         # Toda la ventana es desplazable: el contenido nunca queda cortado por la parte inferior.
         _outer = QVBoxLayout(self); _outer.setContentsMargins(0, 0, 0, 0)
@@ -104,7 +110,7 @@ class IntegracionesComercialesWindow(QWidget):
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:900;")
         cab.addWidget(t)
         cab.addStretch()
-        cab.addWidget(_btn_x(self.close))   # cerrar la ventana (✕ roja, esquina superior derecha)
+        cab.addWidget(_btn_x(self._cerrar))   # cerrar la ventana (✕ roja, esquina superior derecha)
         root.addLayout(cab)
         sub = QLabel("Todas las plataformas soportadas en un único panel. Conectores reales degradables "
                      "(operativos solo con credenciales en Secret Manager). Escalable: cualquier conector "
@@ -121,14 +127,17 @@ class IntegracionesComercialesWindow(QWidget):
 
         bar = QHBoxLayout()
         bar.setSpacing(8)
-        for etiqueta, fn, prim in (("＋ Añadir integración", lambda: self._add(tipo=self._tipo_inicial), True),
-                                   ("⚙ Configurar", self._configurar, False),
-                                   ("✔ Validar", self._validar, False),
-                                   ("🔄 Sincronizar", self._sincronizar, False),
-                                   ("🔁 Reintentar", self._reintentar, False),
-                                   ("🗑 Eliminar", self._eliminar, False),
-                                   ("🔃 Actualizar", self._refrescar, False)):
-            b = _btn(etiqueta, prim)
+        # Mismo diseño exacto que "Añadir integración" (borde grueso + negrita + relleno al hover)
+        # para TODAS las acciones — "Eliminar" en rojo (mismo diseño, distinto color) y reubicado
+        # al final de la fila, como pide el encargo.
+        for etiqueta, fn, danger in (("＋ Añadir integración", lambda: self._add(tipo=self._tipo_inicial), False),
+                                     ("⚙ Configurar", self._configurar, False),
+                                     ("✔ Validar", self._validar, False),
+                                     ("↔️ Sincronizar", self._sincronizar, False),
+                                     ("🔃 Reintentar", self._reintentar, False),
+                                     ("🔄 Actualizar", self._refrescar, False),
+                                     ("🗑 Eliminar", self._eliminar, True)):
+            b = _btn(etiqueta, primario=True, danger=danger)
             b.clicked.connect(fn)
             bar.addWidget(b)
         bar.addStretch()
@@ -179,6 +188,24 @@ class IntegracionesComercialesWindow(QWidget):
             # Ramal "Sí, ya tengo web" → abre el asistente prefiltrado por tipo (ecommerce/marketplace/
             # web_tradicional) elegido en la ventana de 3 columnas.
             self._add(tipo=tipo_inicial)
+
+    def _cerrar(self):
+        """Cierra con la MISMA animación de deslizamiento de salida que el resto de ventanas a
+        pantalla completa de la app, y AVISA a quien la abrió (`al_cerrar`, p. ej. Canal Web
+        reapareciendo en la pantalla "tipo de plataforma" de la que vino — nunca deja al usuario
+        "caer" sobre lo que hubiera detrás)."""
+        def _cerrar_de_verdad():
+            self.close()
+            if callable(self._al_cerrar):
+                try:
+                    self._al_cerrar()
+                except Exception as e:
+                    logger.debug("al_cerrar integraciones: %s", e)
+        try:
+            from src.gui.transiciones import deslizar_salida_y_cerrar
+            deslizar_salida_y_cerrar(self, _cerrar_de_verdad)
+        except Exception:
+            _cerrar_de_verdad()
 
     # ── Datos ──
     def _servicio(self):
@@ -379,11 +406,11 @@ class IntegracionesComercialesWindow(QWidget):
         self._cola_refresh()
 
         def runner(job):
-            r = self._via_adaptador(job["plataforma"], "sincronizar")
-            if r is None:
-                r = self._servicio().sincronizar(self._id_empresa, job["plataforma"], usuario=self._usuario)
-            ok = bool(isinstance(r, dict) and r.get("ok", True) and r.get("codigo") is None)
-            return ok, r
+            # Runner ÚNICO de la cola (`services.sync_worker`, no lógica de negocio aquí): la cola local
+            # es compartida con los trabajos `exportar_stock` que encola `sync_venta_listener` tras cada
+            # venta, así que el despacho por `job["tipo"]` debe vivir en un único sitio para ambos.
+            from src.services.marketplace.integraciones_comerciales import sync_worker
+            return sync_worker.ejecutar_trabajo(job, usuario=self._usuario)
 
         hechos = cola_jobs.ejecutar_pendientes(runner)
         ult = hechos[-1] if hechos else None
@@ -449,7 +476,8 @@ class _AsistenteIntegracion(QFrame):
         self._cmb = QComboBox()
         self._cmb.setMinimumHeight(34)
         self._cmb.setStyleSheet(f"QComboBox{{background:{_BG};color:{_TEXT};border:2px solid {_BORDE};"
-                                f"border-radius:8px;padding:0 10px;}}")
+                                f"border-radius:8px;padding:0 10px;}}"
+                                f"QComboBox::drop-down{{border:none;width:22px;background:transparent;}}")
         l0.addWidget(self._cmb)
         # Paso 1: url + credenciales
         p1 = QWidget(); l1 = QVBoxLayout(p1)

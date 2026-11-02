@@ -178,8 +178,13 @@ def test_gui_control_horario(db, fab, monkeypatch):
     except Exception:
         pytest.skip("PyQt6 no disponible")
     QApplication.instance() or QApplication([])
-    for m in ("warning", "information"):
-        monkeypatch.setattr(f"src.gui.rrhh_gestion.QMessageBox.{m}", lambda *a, **k: None, raising=False)
+    # `rrhh_gestion.py` no usa `QMessageBox` nativo (ver comentario junto a `_info_msg` en ese
+    # módulo) — sustituido por `assets.estilo_global.mostrar_mensaje` (diálogo propio, evita
+    # problemas de handle sobre la ventana anfitriona FRAMELESS). Se neutraliza ahí para no
+    # abrir un modal `.exec()` real en un run headless (mismo patrón ya usado en
+    # test_contab_gui.py / test_migracion_gui.py / test_recetas_gui.py / test_variantes_gui.py).
+    import assets.estilo_global as EG
+    monkeypatch.setattr(EG, "mostrar_mensaje", lambda *a, **k: None)
     emp, eid = _emp(db, fab, nif="63000001C")
     CH.registrar_jornada(eid, "2026-06-16", "2026-06-16 09:00", "2026-06-16 17:00", id_empresa=emp)
     from src.gui.rrhh_gestion import ControlHorarioDialog

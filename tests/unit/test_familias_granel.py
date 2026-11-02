@@ -21,11 +21,19 @@ def test_nueve_familias_canonicas():
 
 
 def test_subfamilias_panes_y_bolleria():
+    # Las subfamilias viven en BD (`familias_granel_subfamilias`, migración 0308) y se consultan
+    # en caliente — este test requiere la BD de desarrollo (sembrada por esa migración).
     assert [s["codigo"] for s in F.subfamilias("PANES")] == ["BARRAS", "HOGAZAS", "PANECILLOS"]
     assert [s["codigo"] for s in F.subfamilias("BOLLERIA")] == ["DULCE", "SALADA"]
+    assert [s["codigo"] for s in F.subfamilias("CARNICERIA")] == \
+        ["TERNERA", "AVES", "CORDERO", "CONEJO", "CERDO"]
+    assert [s["codigo"] for s in F.subfamilias("PESCADERIA")] == \
+        ["PESCADO_BLANCO", "PESCADO_ROJO", "CRUSTACEOS", "CEFALOPODOS", "MOLUSCOS"]
     assert F.tiene_subfamilias("PANES") and F.tiene_subfamilias("BOLLERIA")
-    # El resto de familias no tienen apartados.
-    for c in ("DULCES", "FRUTA", "VERDURA", "CARNICERIA", "PESCADERIA", "LACTEOS", "FRUTOS_SECOS"):
+    assert F.tiene_subfamilias("CARNICERIA") and F.tiene_subfamilias("PESCADERIA")
+    # El resto de familias no tienen apartados de fábrica (el superadmin puede crear alguno, pero
+    # ninguno viene sembrado).
+    for c in ("DULCES", "FRUTA", "VERDURA", "LACTEOS", "FRUTOS_SECOS"):
         assert F.subfamilias(c) == []
 
 
@@ -55,6 +63,8 @@ def test_normalizar_subfamilia():
     assert F.normalizar_subfamilia("PANES", "HOGAZAS") == "HOGAZAS"
     assert F.normalizar_subfamilia("PANES", "inexistente") == "BARRAS"
     assert F.normalizar_subfamilia("PANES", None) == "BARRAS"
+    assert F.normalizar_subfamilia("CARNICERIA", "CERDO") == "CERDO"
+    assert F.normalizar_subfamilia("PESCADERIA", "MOLUSCOS") == "MOLUSCOS"
     # Familia sin apartados: siempre vacío.
     assert F.normalizar_subfamilia("FRUTA", "BARRAS") == ""
 

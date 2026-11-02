@@ -91,6 +91,60 @@ async function rawFetch<T>(
   }
 }
 
+export interface ArchivoAdjunto {
+  /** URI local del fichero (p. ej. lo que devuelve `takePhoto()` de vision-camera). */
+  uri: string;
+  name: string;
+  type: string;
+}
+
+/** Sube un fichero + campos de formulario como `multipart/form-data` (primer uso: foto de evidencia
+ * de Mermas). Mismo manejo de Authorization/refresh-en-401 que `request()` — NUNCA usa `JSON.stringify`
+ * (dejamos que `fetch` construya el boundary multipart él solo al pasarle un `FormData`). */
+export async function requestMultipart<T = unknown>(
+  path: string,
+  campo: string,
+  archivo: ArchivoAdjunto,
+  campos: Record<string, string | number>,
+): Promise<ApiResponse<T>> {
+  const enviar = async (): Promise<ApiResponse<T>> => {
+    const form = new FormData();
+    Object.entries(campos).forEach(([k, v]) => form.append(k, String(v)));
+    // React Native FormData acepta {uri,name,type} para ficheros locales (no un Blob del DOM).
+    form.append(campo, {uri: archivo.uri, name: archivo.name, type: archivo.type} as unknown as Blob);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const token = getAccessToken();
+    try {
+      const resp = await fetch(buildUrl(path), {
+        method: 'POST',
+        headers: token ? {Authorization: `Bearer ${token}`} : undefined,
+        body: form,
+        signal: controller.signal,
+      });
+      let json: T | null = null;
+      try {
+        json = (await resp.json()) as T;
+      } catch {
+        json = null;
+      }
+      return {status: resp.status, json, ok: resp.ok};
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  const first = await enviar();
+  if (first.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return enviar();
+    }
+  }
+  return first;
+}
+
 /**
  * Renueva el access token con el refresh guardado.
  * Contrato: POST /auth/refresh {refresh} -> {access} (ver src/api/routers/auth.py::refresh).
@@ -145,4 +199,10 @@ export const api = {
     request<T>('PUT', path, opts),
   del: <T = unknown>(path: string, opts?: RequestOptions) =>
     request<T>('DELETE', path, opts),
+  postMultipart: <T = unknown>(
+    path: string,
+    campo: string,
+    archivo: ArchivoAdjunto,
+    campos: Record<string, string | number>,
+  ) => requestMultipart<T>(path, campo, archivo, campos),
 };

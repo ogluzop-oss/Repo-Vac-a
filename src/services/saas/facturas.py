@@ -71,13 +71,18 @@ def factura_pdf(id_factura, id_empresa=None) -> str | None:
         nombre = (_br.obtener_branding(id_empresa) or {}).get("nombre_comercial") or nombre
     except Exception:
         pass
+    concepto_txt = {"ia_uso": "Uso de IA (Anthropic) — facturado aparte de la suscripción",
+                    "voz_uso": "Uso de voz (SOMA / ElevenLabs) — facturado aparte de la suscripción",
+                    "suscripcion": "Cuota de suscripción"}.get(f.get("concepto") or "suscripcion",
+                                                                f.get("concepto") or "Cuota de suscripción")
     ruta = os.path.join(_dir(), f"factura_saas_{f.get('numero') or id_factura}.pdf")
     try:
         c = canvas.Canvas(ruta, pagesize=A4); w, h = A4; y = h - 30 * mm
         c.setFont("Helvetica-Bold", 16); c.drawString(20 * mm, y, "Factura SaaS · Smart Manager")
         y -= 12 * mm; c.setFont("Helvetica", 11)
         for t in (f"Cliente: {nombre}", f"Nº factura: {f.get('numero')}", f"Fecha: {f.get('fecha')}",
-                  f"Estado: {f.get('estado')}", f"Importe: {float(f.get('importe') or 0):.2f} EUR"):
+                  f"Concepto: {concepto_txt}", f"Estado: {f.get('estado')}",
+                  f"Importe: {float(f.get('importe') or 0):.2f} EUR"):
             c.drawString(20 * mm, y, t); y -= 8 * mm
         c.save()
     except Exception as e:

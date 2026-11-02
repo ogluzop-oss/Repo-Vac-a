@@ -104,7 +104,7 @@ def estado_ha(id_empresa=None) -> dict:
     candidatos a failover y nodos edge offline. Reutiliza platform.cloud + edge_node."""
     ha = {}
     try:
-        from src.platform.cloud import heartbeat, nodes
+        from src.plataforma.cloud import heartbeat, nodes
         ha["nodos"] = len(nodes.listar())
         disponibles = nodes.disponibles()
         ha["disponibles"] = len(disponibles)

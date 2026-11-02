@@ -14,7 +14,7 @@ from src.db.empresa import empresa_actual_id
 logger = logging.getLogger("rrhh.vacaciones")
 
 _PERMITIDOS = ("anio", "tipo", "fecha_inicio", "fecha_fin", "dias", "estado",
-               "aprobado_por", "ref_documento")
+               "aprobado_por", "aprobado_por_responsable", "ref_documento")
 
 
 def crear_vacaciones(id_empleado, id_empresa=None, **campos) -> int | None:

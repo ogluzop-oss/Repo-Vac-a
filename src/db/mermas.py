@@ -20,10 +20,13 @@ def _tenant_actual():
 # ============================================================
 
 
-def obtener_mermas(mes=None):
-    """Recupera mermas de la tienda activa, opcionalmente filtradas por mes (YYYY-MM)."""
+def obtener_mermas(mes=None, *, id_empresa=None, id_tienda=None):
+    """Recupera mermas de la tienda activa, opcionalmente filtradas por mes (YYYY-MM).
+    `id_empresa`/`id_tienda` permiten sobrescribir la empresa/tienda "activa" (escritorio) por una
+    explícita — para consumidores sin sesión de proceso, como la REST API (cada petición trae la suya
+    en el token, no hay "tienda activa" ambiente). Si no se pasan, comportamiento idéntico a siempre."""
     try:
-        emp, tnd = _tenant_actual()
+        emp, tnd = (id_empresa, id_tienda) if id_empresa is not None else _tenant_actual()
         filtros, params = ["id_empresa=%s"], [emp]
         if tnd is not None:
             filtros.append("id_tienda=%s"); params.append(tnd)
@@ -32,7 +35,7 @@ def obtener_mermas(mes=None):
         with obtener_conexion() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT id, codigo, cantidad, motivo, fecha FROM mermas WHERE "
+                "SELECT id, codigo, cantidad, motivo, fecha, origen_stock FROM mermas WHERE "
                 + " AND ".join(filtros) + " ORDER BY fecha DESC",
                 tuple(params))
             return cursor.fetchall()
@@ -87,21 +90,30 @@ def marcar_mermas_exportadas(ids):
 # ============================================================
 
 
-def registrar_merma(codigo, cantidad, motivo, columna_stock=None):
+def registrar_merma(codigo, cantidad, motivo, columna_stock=None, *, id_empresa=None, id_tienda=None):
     """Registra una merma y, si se indica `columna_stock` ('Stock_tienda' o
     'Stock_total'), descuenta el stock EN LA MISMA TRANSACCIÓN (A2.3) → evita
-    estados parciales (merma registrada sin descuento de stock, o viceversa)."""
+    estados parciales (merma registrada sin descuento de stock, o viceversa).
+    `id_empresa`/`id_tienda` permiten sobrescribir la empresa/tienda "activa" (ver `obtener_mermas`
+    para el motivo) — si no se pasan, comportamiento idéntico al de siempre (escritorio).
+    Devuelve el `id` de la merma creada (truthy, como el `True` que devolvía antes — los llamadores
+    existentes solo comprueban veracidad) o `None` si falla."""
     col = columna_stock if columna_stock in ("Stock_tienda", "Stock_total") else None
+    # `origen_stock` guarda la etiqueta que ya usa `_ajustar_stock_articulo_por_tipo` ("STOCK LINEAL"/
+    # "STOCK ALMACÉN"), no el nombre de columna — así modificar/eliminar la merma más tarde puede
+    # reutilizarla directamente sin volver a preguntar de dónde se descontó.
+    origen = {"Stock_tienda": "STOCK LINEAL", "Stock_total": "STOCK ALMACÉN"}.get(col)
     try:
         with transaccion() as conn:
             cursor = conn.cursor()
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            emp, tnd = _tenant_actual()
+            emp, tnd = (id_empresa, id_tienda) if id_empresa is not None else _tenant_actual()
             cursor.execute(
-                "INSERT INTO mermas (codigo, cantidad, motivo, fecha, id_empresa, id_tienda) "
-                "VALUES (%s,%s,%s,%s,%s,%s)",
-                (codigo, cantidad, motivo, fecha, emp, tnd),
+                "INSERT INTO mermas (codigo, cantidad, motivo, fecha, id_empresa, id_tienda, "
+                "origen_stock) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                (codigo, cantidad, motivo, fecha, emp, tnd, origen),
             )
+            id_merma = cursor.lastrowid
             if col:
                 cursor.execute(
                     f"UPDATE articulos SET {col} = GREATEST(0, COALESCE({col},0) - %s) "
@@ -138,10 +150,10 @@ def registrar_merma(codigo, cantidad, motivo, columna_stock=None):
                          payload={"codigo": codigo, "cantidad": cantidad, "motivo": motivo})
         except Exception:
             pass
-        return True
+        return id_merma
     except Exception as e:
         logging.error(f"Error al registrar merma: {e}")
-        return False
+        return None
 
 
 def modificar_merma(id_merma, nueva_cantidad):

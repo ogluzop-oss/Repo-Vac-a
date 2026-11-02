@@ -115,7 +115,54 @@ def _soma_color():
         return ""
 
 
-def _mascara_cuerpo(arr):
+# Cortes de conectividad por pose (coords de píxel del sprite tal cual está en disco, 500x500).
+# Bug conocido: en algunas ilustraciones, un dedo/guante/pie queda dibujado tan pegado al cuerpo que
+# NO hay contorno oscuro que los separe en ese punto exacto (hueco en el line-art original) → el
+# componente-blanco-más-grande de `_mascara_cuerpo` fusiona cuerpo+extremidad y el tinte se "derrama"
+# sobre la mano/pie. No hay capas separadas para arreglarlo de raíz (sprite plano); en vez de tocar el
+# PNG de arte, se corta la conexión SOLO para la fase de etiquetado (labeling), en la zona exacta donde
+# se fusionan (verificado con `cv2.connectedComponents` sobre cada pose). El corte se usa SOLO para
+# el labeling: una vez elegido el label del cuerpo, los píxeles blanco/crema originales dentro del
+# rectángulo se restauran a la máscara final (ver `_mascara_cuerpo`), así no queda un parche sin
+# tintar en el cuerpo — el corte deja de existir en cuanto termina la fase de etiquetado.
+#
+# 'escuchando' YA NO necesita corte: el usuario repintó el contorno oscuro del line-art en la
+# costura mano↔cuerpo (~367-382, ~174-200) directamente en el PNG. Verificado con
+# `cv2.connectedComponents` (connectivity=8) sobre la máscara blanco/crema actual SIN ningún corte:
+# el cuerpo (componente más grande, 27138 px) y la mano (componente separado, ~2270 px) ya caen en
+# labels distintos por sí solos — el hueco quedó cerrado en el arte. Mantener el rectángulo de corte
+# aquí ya NO evita ninguna fusión (no hay fusión que evitar) y en cambio reintroduce el derrame: su
+# paso de "restaurar" el rectángulo a la máscara final restaura ciegamente TODOS los píxeles
+# blanco/crema originales dentro del rectángulo, incluidos ~286 que pertenecen al componente de la
+# mano (no al del cuerpo) — es decir, tiñe un parche de la mano con el color del cuerpo.
+#
+# Segundo tipo de bug (distinto del anterior, mismo mecanismo de arreglo): el rombo/cometa decorativo
+# del propio patrón de cinta del cuerpo, situado justo ENCIMA de la boca CERRADA (entre los ojos, en el
+# "puente" de la cara), queda dibujado con un contorno oscuro que lo CIERRA POR COMPLETO en varias
+# poses — así que `cv2.connectedComponents` lo aísla como su propio componente pequeño (~95-420 px,
+# confirmado uno por uno) en vez de fusionarlo con el cuerpo, y se queda sin teñir aunque es
+# claramente parte del CUERPO (el mismo rombo, ya teñido con normalidad, se repite varias veces más
+# por el resto del patrón de cinta). No es un diente ni ningún otro rasgo facial — verificado
+# visualmente pose a pose: la boca en todas las poses afectadas está CERRADA (una simple curva), sin
+# ningún hueco/interior visible ahí dentro; el rombo queda POR ENCIMA de esa curva, no dentro de ella.
+# Aquí no hace falta "cortar para el labeling" (el rombo YA está aislado por sí solo, no hay ninguna
+# fusión indebida que deshacer) — se reutiliza el mismo mecanismo de "restaurar al final" solo para
+# incorporar sus píxeles blanco/crema a la máscara final del cuerpo. Cada rectángulo es el bounding
+# box EXACTO (sin margen) del label correspondiente, verificado individualmente con
+# `cv2.connectedComponents` para confirmar que no se solapa con ningún otro elemento (ojos, boca,
+# interior de boca abierta) — 'sorprendido' (boca "O" abierta) y 'proponiendo' en su variante de labio
+# NO se tocan aquí porque ese candidato es un detalle de labio/encía DENTRO de una boca abierta, un
+# elemento distinto, no este rombo.
+_CORTES_CONECTIVIDAD = {
+    "feliz":       [(240, 229, 264, 240)],
+    "explicando":  [(250, 218, 276, 228)],
+    "esperando":   [(231, 225, 254, 238)],
+    "parpadeo":    [(231, 236, 269, 256)],
+    "proponiendo": [(240, 231, 259, 241)],
+}
+
+
+def _mascara_cuerpo(arr, clave=None):
     """Máscara booleana del CUERPO-estrella = el componente BLANCO conexo MÁS GRANDE del sprite. Así el
     tinte NO afecta a guantes, blanco de los ojos, pajarita, zapatos, cejas, pupilas, boca ni pestañas (son
     componentes blancos pequeños separados, o píxeles de color/negros). `arr` es RGBA uint8 (H,W,4)."""
@@ -132,24 +179,41 @@ def _mascara_cuerpo(arr):
     blanco = (al > 128) & (mx > 150) & (sat < 90)
     if not blanco.any():
         return None
+    etiquetado = blanco
+    cortes = _CORTES_CONECTIVIDAD.get(clave)
+    if cortes:
+        etiquetado = blanco.copy()
+        for (x0, y0, x1, y1) in cortes:
+            etiquetado[y0:y1, x0:x1] = False
     try:
         import cv2
-        n, labels = cv2.connectedComponents(blanco.astype(np.uint8), connectivity=8)
+        n, labels = cv2.connectedComponents(etiquetado.astype(np.uint8), connectivity=8)
     except Exception:
         try:
             from scipy import ndimage
-            labels, n = ndimage.label(blanco)
+            labels, n = ndimage.label(etiquetado)
             n += 1
         except Exception:
             return blanco               # sin etiquetado: tinta todo lo blanco (mejor que todo el sprite)
     if n <= 1:
-        return blanco
-    cuentas = np.bincount(labels.ravel())
-    cuentas[0] = 0                       # fondo
-    return labels == int(cuentas.argmax())
+        cuerpo = etiquetado
+    else:
+        cuentas = np.bincount(labels.ravel())
+        cuentas[0] = 0                    # fondo
+        cuerpo = labels == int(cuentas.argmax())
+    if cortes:
+        # El corte solo debía servir para el LABELING (evitar que `connectedComponents` fusione
+        # mano+cuerpo); NO debe quitarse del tinte final o deja un parche sin tintar en el cuerpo
+        # (bug: el corte anterior excluía el rectángulo también de la máscara final). Se restauran
+        # aquí los píxeles blanco/crema originales dentro del rectángulo de corte a la máscara del
+        # cuerpo ya elegido — la propia mano queda fuera porque su componente/label es otro y no se
+        # toca (solo se restauran los píxeles DENTRO del rectángulo, no todo el label de la mano).
+        for (x0, y0, x1, y1) in cortes:
+            cuerpo[y0:y1, x0:x1] |= blanco[y0:y1, x0:x1]
+    return cuerpo
 
 
-def _tintar(pm, color_hex):
+def _tintar(pm, color_hex, clave=None):
     """Tinta SOLO el CUERPO en forma de estrella hacia `color_hex` (por multiplicación: el blanco toma el
     color y los contornos internos oscuros se conservan). Guantes, ojos, pajarita, zapatos, cejas, boca y
     pestañas quedan INTACTOS. Respeta el canal alfa. Best-effort: ante cualquier fallo devuelve el original."""
@@ -162,7 +226,7 @@ def _tintar(pm, color_hex):
         w, h = qimg.width(), qimg.height()
         ptr = qimg.bits(); ptr.setsize(qimg.sizeInBytes())
         arr = np.frombuffer(ptr, np.uint8).reshape((h, w, 4)).copy()
-        cuerpo = _mascara_cuerpo(arr)
+        cuerpo = _mascara_cuerpo(arr, clave)
         if cuerpo is None or not cuerpo.any():
             return pm
         col = QColor(color_hex)
@@ -194,7 +258,7 @@ def _cargar_clave(clave) -> RecursoPersonaje:
         try:
             frames = _cargar_sprite(hoja, meta)
             if frames:
-                return rec.set_frames([_tintar(fr, tinte) for fr in frames])
+                return rec.set_frames([_tintar(fr, tinte, clave) for fr in frames])
         except Exception as e:
             logger.debug("sprite %s: %s", hoja, e)
     # 3) PNG estático
@@ -202,7 +266,7 @@ def _cargar_clave(clave) -> RecursoPersonaje:
     if os.path.exists(png):
         pm = QPixmap(png)
         if not pm.isNull():
-            return rec.set_estatico(_tintar(pm, tinte))
+            return rec.set_estatico(_tintar(pm, tinte, clave))
     # 4) Placeholder
     logger.debug("asset SOMA no encontrado para '%s' → placeholder", clave)
     return rec.set_estatico(_placeholder(clave))

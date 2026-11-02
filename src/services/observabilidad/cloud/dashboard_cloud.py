@@ -14,7 +14,7 @@ def panel() -> dict:
     """Snapshot completo del Cloud Dashboard."""
     salud_plataforma = {}
     try:
-        from src.platform import health as ph
+        from src.plataforma import health as ph
         salud_plataforma = ph.global_()
     except Exception:
         pass

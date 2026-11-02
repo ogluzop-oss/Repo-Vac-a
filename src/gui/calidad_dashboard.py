@@ -14,21 +14,21 @@ backend. RBAC único vía `services.autorizacion` (permisos `inspecciones.crear`
 
 import logging
 
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
-    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _dialogo_frameless, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _dialogo_frameless, _tabla
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 
 try:
     from assets.estilo_global import mostrar_mensaje
@@ -102,7 +102,7 @@ class CalidadDashboardWindow(QWidget):
         t = QLabel("Calidad · Cuadro de mando")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
-        cab.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
+        cab.addWidget(_btn_cargando("🔄  Actualizar", self._load, primary=True))
         if callback_vuelta:
             cab.addWidget(_btn("Volver", self._volver))
         root.addLayout(cab)
@@ -121,6 +121,7 @@ class CalidadDashboardWindow(QWidget):
         self.tbl_nc = _tabla(["ID", "Código", "Origen", "Severidad", "Estado", "Fecha"])
         self.tbl_capa = _tabla(["ID", "Tipo", "NC", "Estado", "Fecha"])
         self.tbl_aud = _tabla(["ID", "Código", "Tipo", "Estado", "Resultado", "Fecha"])
+        self.tbl_equipos = _tabla(["ID", "Código", "Nombre", "Última calib.", "Próxima", "Estado"])
         self.tbl_kpi = _tabla(["KPI", "Valor"])
 
         # Inspecciones (con acción de alta = flujo de recepción/calidad en compras).
@@ -139,8 +140,16 @@ class CalidadDashboardWindow(QWidget):
                     ("Cerrar (eficacia)", self._capa_cerrar, True),
                     ("Cancelar", lambda: self._capa_estado("cancelada"), True)]
         self.tabs.addTab(self._page(self.tbl_capa, capa_bar), "Acciones correctivas")
-        self.tabs.addTab(self.tbl_aud, "Auditorías")
+        aud_bar = [("➕  Planificar auditoría", self._nueva_auditoria, True),
+                   ("Registrar hallazgo", self._hallazgo_auditoria, True),
+                   ("Marcar realizada", self._cerrar_auditoria, True)]
+        self.tabs.addTab(self._page(self.tbl_aud, aud_bar), "Auditorías")
+        # Calibración de equipos (metrología) — Calidad PRO.
+        equipos_bar = [("➕  Nuevo equipo", self._nuevo_equipo, True),
+                       ("Registrar calibración", self._registrar_calibracion, True)]
+        self.tabs.addTab(self._page(self.tbl_equipos, equipos_bar), "Calibración de equipos")
         self.tabs.addTab(self.tbl_kpi, "KPIs")
+        self.tabs.addTab(self._tab_trazabilidad(), "Trazabilidad")
         root.addWidget(self.tabs)
         self._load()
 
@@ -187,6 +196,17 @@ class CalidadDashboardWindow(QWidget):
                 for j, v in enumerate([x.get("id"), x.get("codigo"), x.get("tipo"),
                                        x.get("estado"), x.get("resultado"), _f(x.get("fecha_plan"))]):
                     self.tbl_aud.setItem(i, j, _it(v))
+            try:
+                from src.services.calidad import calidad_pro
+                equipos = calidad_pro.equipos_a_calibrar(id_empresa=eid, dias=365)
+                self.tbl_equipos.setRowCount(len(equipos))
+                for i, x in enumerate(equipos):
+                    for j, v in enumerate([x.get("id"), x.get("codigo"), x.get("nombre"),
+                                           _f(x.get("ultima_calibracion")), _f(x.get("proxima_calibracion")),
+                                           x.get("estado")]):
+                        self.tbl_equipos.setItem(i, j, _it(v))
+            except Exception as e:
+                logger.error("load equipos calidad: %s", e)
             k = analitica.kpis(id_empresa=eid)
             self.tbl_kpi.setRowCount(len(k))
             for i, (nombre, val) in enumerate(k.items()):
@@ -319,6 +339,230 @@ class CalidadDashboardWindow(QWidget):
         else:
             self._aviso("CAPA", f"CAPA {cid}: {r.get('error')}", "error")
 
+    # ── Auditorías ────────────────────────────────────────────────────────────
+    def _nueva_auditoria(self):
+        if not _puede(self.usuario, "auditorias.gestionar"):
+            self._aviso("Auditoría", "Permiso requerido: auditorias.gestionar", "warning"); return
+        dlg = _NuevaAuditoriaDialog(self)
+        if dlg.exec() and dlg.resultado:
+            from src.services.calidad import auditorias
+            aid = auditorias.planificar(id_empresa=_empresa(), auditor=(self.usuario or {}).get("id"),
+                                        **dlg.resultado)
+            self._load()
+            if aid:
+                self._aviso("Auditoría", f"Auditoría planificada correctamente (ID {aid}).", "success")
+            else:
+                self._aviso("Auditoría", "No se pudo planificar la auditoría.", "error")
+
+    def _hallazgo_auditoria(self):
+        if not _puede(self.usuario, "auditorias.gestionar"):
+            self._aviso("Auditoría", "Permiso requerido: auditorias.gestionar", "warning"); return
+        aid = self._sel_id(self.tbl_aud)
+        if not aid:
+            self._aviso("Auditoría", "Selecciona una auditoría en la tabla.", "info"); return
+        dlg = _HallazgoAuditoriaDialog(self)
+        if dlg.exec() and dlg.resultado:
+            from src.services.calidad import auditorias
+            r = auditorias.registrar_hallazgo(aid, id_empresa=_empresa(), **dlg.resultado)
+            self._load()
+            if r.get("ok"):
+                nc = r.get("no_conformidad")
+                self._aviso("Auditoría",
+                            f"Hallazgo {r['hallazgo']} registrado en la auditoría {aid}." +
+                            (f"\nNC generada automáticamente: {nc}" if nc else ""),
+                            "success")
+            else:
+                self._aviso("Auditoría", f"No se pudo registrar el hallazgo: {r.get('error')}", "error")
+
+    def _cerrar_auditoria(self):
+        if not _puede(self.usuario, "auditorias.gestionar"):
+            self._aviso("Auditoría", "Permiso requerido: auditorias.gestionar", "warning"); return
+        aid = self._sel_id(self.tbl_aud)
+        if not aid:
+            self._aviso("Auditoría", "Selecciona una auditoría en la tabla.", "info"); return
+        from PyQt6.QtWidgets import QInputDialog
+        resultado, ok = QInputDialog.getItem(self, "Marcar realizada", "Resultado:",
+                                             ["conforme", "no_conforme"], 0, False)
+        if not ok:
+            return
+        from src.services.calidad import auditorias
+        realizado = auditorias.cerrar(aid, resultado=resultado, id_empresa=_empresa())
+        self._load()
+        if realizado:
+            self._aviso("Auditoría", f"Auditoría {aid} marcada como realizada (resultado: {resultado}).",
+                       "success")
+        else:
+            self._aviso("Auditoría", f"No se pudo actualizar la auditoría {aid}.", "error")
+
+    # ── Calibración de equipos (metrología) ────────────────────────────────────
+    def _nuevo_equipo(self):
+        if not _puede(self.usuario, "calidad.admin"):
+            self._aviso("Equipo", "Permiso requerido: calidad.admin", "warning"); return
+        dlg = _NuevoEquipoDialog(self)
+        if dlg.exec() and dlg.resultado:
+            from src.services.calidad import calidad_pro
+            eid = calidad_pro.alta_equipo(id_empresa=_empresa(), **dlg.resultado)
+            self._load()
+            if eid:
+                self._aviso("Equipo", f"Equipo de medida dado de alta correctamente (ID {eid}).", "success")
+            else:
+                self._aviso("Equipo", "No se pudo dar de alta el equipo.", "error")
+
+    def _registrar_calibracion(self):
+        if not _puede(self.usuario, "calidad.admin"):
+            self._aviso("Calibración", "Permiso requerido: calidad.admin", "warning"); return
+        eid_equipo = self._sel_id(self.tbl_equipos)
+        if not eid_equipo:
+            self._aviso("Calibración", "Selecciona un equipo en la tabla.", "info"); return
+        dlg = _RegistrarCalibracionDialog(self)
+        if dlg.exec() and dlg.resultado:
+            from src.services.calidad import calidad_pro
+            r = calidad_pro.registrar_calibracion(eid_equipo, id_empresa=_empresa(), **dlg.resultado)
+            self._load()
+            if r.get("ok"):
+                prox = r.get("proxima_calibracion")
+                self._aviso("Calibración",
+                            f"Calibración registrada para el equipo {eid_equipo}." +
+                            (f"\nPróxima calibración: {prox}" if prox else ""),
+                            "success")
+            else:
+                self._aviso("Calibración", f"No se pudo registrar la calibración: {r.get('motivo')}", "error")
+
+    # ── Trazabilidad (solo lectura) ─────────────────────────────────────────────
+    def _tab_trazabilidad(self):
+        """Búsqueda de trazabilidad por lote (ID numérico) o código de artículo. Reutiliza
+        `services.calidad.trazabilidad` (une kardex/lotes + inspecciones + NC); solo lectura."""
+        w = QWidget(); l = QVBoxLayout(w)
+        bar = QHBoxLayout()
+        self.in_traz = QLineEdit()
+        self.in_traz.setPlaceholderText("🔍 Lote (ID numérico) o código de artículo")
+        self.in_traz.setMinimumHeight(34)
+        instalar_sugerencias_articulo(self.in_traz)
+        bar.addWidget(self.in_traz)
+        bar.addWidget(_btn("🔍", self._buscar_trazabilidad, primary=True))
+        bar.addWidget(_btn("🔒 Bloquear lote", self._bloquear_lote_traz))
+        bar.addStretch()
+        l.addLayout(bar)
+        self.lbl_traz = QLabel(""); self.lbl_traz.setStyleSheet(f"color:{_DIM};")
+        self.lbl_traz.setWordWrap(True)
+        l.addWidget(self.lbl_traz)
+        self.lbl_traz_origen = QLabel(""); self.lbl_traz_origen.setStyleSheet(f"color:{_CIAN};font-weight:700;")
+        self.lbl_traz_origen.setWordWrap(True)
+        l.addWidget(self.lbl_traz_origen)
+        lbl_dist = QLabel("Distribución (ventas)"); lbl_dist.setStyleSheet(f"color:{_CIAN};font-weight:700;")
+        l.addWidget(lbl_dist)
+        self.tbl_traz_dist = _tabla(["Venta", "Fecha", "Cantidad", "Empleado", "Caja"])
+        l.addWidget(self.tbl_traz_dist)
+        lbl_mov = QLabel("Movimientos"); lbl_mov.setStyleSheet(f"color:{_CIAN};font-weight:700;")
+        l.addWidget(lbl_mov)
+        self.tbl_traz_mov = _tabla(["Fecha", "Tipo", "Cantidad", "Observaciones"])
+        l.addWidget(self.tbl_traz_mov)
+        lbl_insp = QLabel("Inspecciones"); lbl_insp.setStyleSheet(f"color:{_CIAN};font-weight:700;")
+        l.addWidget(lbl_insp)
+        self.tbl_traz_insp = _tabla(["ID", "Fase", "Resultado", "Fecha"])
+        l.addWidget(self.tbl_traz_insp)
+        lbl_nc = QLabel("No conformidades"); lbl_nc.setStyleSheet(f"color:{_CIAN};font-weight:700;")
+        l.addWidget(lbl_nc)
+        self.tbl_traz_nc = _tabla(["ID", "Código", "Severidad", "Estado"])
+        l.addWidget(self.tbl_traz_nc)
+        return w
+
+    def _buscar_trazabilidad(self):
+        texto = self.in_traz.text().strip()
+        if "–" in texto:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            texto = texto.split("–")[0].strip()
+        if not texto:
+            self._aviso("Trazabilidad", "Introduce un lote o código de artículo.", "info"); return
+        eid = _empresa()
+        from src.services.calidad import trazabilidad
+        datos = None
+        if texto.isdigit():
+            try:
+                datos = trazabilidad.trazabilidad_lote(int(texto), id_empresa=eid)
+            except Exception as e:
+                logger.error("trazabilidad_lote: %s", e)
+        if not datos or not any(datos.get(k) for k in ("movimientos", "inspecciones", "no_conformidades")):
+            try:
+                datos = trazabilidad.trazabilidad_articulo(texto, id_empresa=eid)
+            except Exception as e:
+                logger.error("trazabilidad_articulo: %s", e)
+                datos = {}
+        datos = datos or {}
+
+        def _f(v):
+            return str(v)[:16] if v is not None else ""
+        movs = datos.get("movimientos") or []
+        self.tbl_traz_mov.setRowCount(len(movs))
+        for i, x in enumerate(movs):
+            for j, v in enumerate([_f(x.get("fecha")), x.get("tipo"), x.get("cantidad"),
+                                   x.get("observaciones")]):
+                self.tbl_traz_mov.setItem(i, j, _it(v))
+        insp = datos.get("inspecciones") or []
+        self.tbl_traz_insp.setRowCount(len(insp))
+        for i, x in enumerate(insp):
+            for j, v in enumerate([x.get("id"), x.get("fase"), x.get("resultado"), _f(x.get("fecha"))]):
+                self.tbl_traz_insp.setItem(i, j, _it(v))
+        ncs = datos.get("no_conformidades") or []
+        self.tbl_traz_nc.setRowCount(len(ncs))
+        for i, x in enumerate(ncs):
+            for j, v in enumerate([x.get("id"), x.get("codigo"), x.get("severidad"), x.get("estado")]):
+                self.tbl_traz_nc.setItem(i, j, _it(v))
+        msg = f"{len(movs)} movimiento(s) · {len(insp)} inspección(es) · {len(ncs)} NC"
+        of_origen = datos.get("of_origen")
+        if of_origen:
+            msg += f" · OF origen: {of_origen.get('codigo')}"
+        self.lbl_traz.setText(msg)
+
+        # Punto 3 (INV.3/FEFO): proveedor de origen/pedido B2B, ubicación y estado de bloqueo —
+        # solo disponibles cuando la búsqueda fue por ID de lote (trazabilidad_lote).
+        dist = datos.get("distribucion_ventas") or []
+        self.tbl_traz_dist.setRowCount(len(dist))
+        for i, x in enumerate(dist):
+            for j, v in enumerate([x.get("venta_id"), _f(x.get("fecha")), x.get("cantidad"),
+                                   x.get("empleado"), x.get("numero_caja")]):
+                self.tbl_traz_dist.setItem(i, j, _it(v))
+        self._traz_id_lote = int(texto) if texto.isdigit() else None
+        self._traz_bloqueado = bool(datos.get("bloqueado"))
+        partes = []
+        lote_row = datos.get("lote")
+        if lote_row is not None:
+            partes.append("🔒 BLOQUEADO" if self._traz_bloqueado else "🟢 Activo")
+            if datos.get("ubicacion") is not None:
+                partes.append(f"Almacén: {datos.get('ubicacion')}")
+        origen_compra = datos.get("origen_compra")
+        if origen_compra:
+            prov = origen_compra.get("proveedor") or f"proveedor #{origen_compra.get('id_proveedor')}" \
+                if origen_compra.get("id_proveedor") else None
+            if prov:
+                partes.append(f"Proveedor origen: {prov}")
+            if origen_compra.get("numero_pedido") or origen_compra.get("id_pedido"):
+                partes.append(f"Pedido: {origen_compra.get('numero_pedido') or origen_compra.get('id_pedido')}")
+        self.lbl_traz_origen.setText("  ·  ".join(partes))
+
+    def _bloquear_lote_traz(self):
+        """Bloquea el lote actualmente cargado en Trazabilidad (para NC/cuarentena), sin salir de
+        este panel. Reutiliza `db.lotes.bloquear_lote` (Punto 3); FEFO lo excluye automáticamente."""
+        id_lote = getattr(self, "_traz_id_lote", None)
+        if id_lote is None:
+            self._aviso("Bloquear lote", "Busca primero un lote por su ID numérico.", "warning")
+            return
+        if getattr(self, "_traz_bloqueado", False):
+            self._aviso("Bloquear lote", "Ese lote ya está bloqueado.", "info")
+            return
+        from PyQt6.QtWidgets import QInputDialog
+        motivo, ok = QInputDialog.getText(
+            self, "Bloquear lote",
+            "Motivo del bloqueo (p. ej. NC abierta, cuarentena, retirada del proveedor):")
+        if not ok or not motivo.strip():
+            return
+        from src.db import lotes
+        if lotes.bloquear_lote(id_lote, motivo.strip(), usuario=_nombre(self.usuario),
+                               id_empresa=_empresa()):
+            self._aviso("Bloquear lote", f"Lote {id_lote} bloqueado correctamente.", "success")
+            self._buscar_trazabilidad()
+        else:
+            self._aviso("Bloquear lote", "No se pudo bloquear el lote.", "error")
+
 
 class _NuevaInspeccionDialog(QDialog):
     """Alta de inspección (reutiliza inspecciones.registrar_inspeccion; rechazo → NC automática)."""
@@ -330,10 +574,14 @@ class _NuevaInspeccionDialog(QDialog):
         v, f = _dlg_body(self, "Nueva inspección de calidad", ancho=620)
         self.cb_fase = _combo(["recepcion", "produccion", "final"])
         self.in_art = QLineEdit(); self.in_art.setPlaceholderText("Código de artículo")
+        instalar_sugerencias_articulo(self.in_art)
         self.in_lote = QLineEdit(); self.in_lote.setPlaceholderText("(opcional) ID lote")
         self.in_prov = QLineEdit(); self.in_prov.setPlaceholderText("(opcional) ID proveedor")
-        self.sp_insp = QSpinBox(); self.sp_insp.setRange(0, 10_000_000)
-        self.sp_rech = QSpinBox(); self.sp_rech.setRange(0, 10_000_000)
+        # QLineEdit + validador en vez de QSpinBox: la app oculta sus flechas arriba/abajo vía QSS y
+        # eso rompía su foco/clic en varios diálogos (confirmado por el usuario) — mismo criterio ya
+        # aplicado en `sat_dashboard._FormDialog`.
+        self.sp_insp = QLineEdit("0"); self.sp_insp.setValidator(QIntValidator(0, 10_000_000, self.sp_insp))
+        self.sp_rech = QLineEdit("0"); self.sp_rech.setValidator(QIntValidator(0, 10_000_000, self.sp_rech))
         self.cb_res = _combo(["aceptada", "rechazada", "condicional", "pendiente"])
         self._inspector = inspector
         for wdg in (self.cb_fase, self.in_art, self.in_lote, self.in_prov,
@@ -354,6 +602,8 @@ class _NuevaInspeccionDialog(QDialog):
 
     def _ok(self):
         art = self.in_art.text().strip()
+        if "–" in art:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            art = art.split("–")[0].strip()
         if not art:
             return
 
@@ -368,8 +618,8 @@ class _NuevaInspeccionDialog(QDialog):
             "articulo": art,
             "id_lote": _int(self.in_lote),
             "id_proveedor": _int(self.in_prov),
-            "cantidad_inspeccionada": self.sp_insp.value(),
-            "cantidad_rechazada": self.sp_rech.value(),
+            "cantidad_inspeccionada": _int(self.sp_insp) or 0,
+            "cantidad_rechazada": _int(self.sp_rech) or 0,
             "resultado": self.cb_res.currentText(),
             "inspector": self._inspector,
         }
@@ -388,6 +638,7 @@ class _NuevaNCDialog(QDialog):
         self.cb_origen = _combo(["interna", "recepcion", "produccion", "cliente", "proveedor"])
         self.cb_sev = _combo(["baja", "media", "alta", "critica"])
         self.in_art = QLineEdit(); self.in_art.setPlaceholderText("(opcional) artículo")
+        instalar_sugerencias_articulo(self.in_art)
         for wdg in (self.in_desc, self.cb_origen, self.cb_sev, self.in_art):
             wdg.setMinimumHeight(34)
         f.addRow("Descripción:", self.in_desc)
@@ -404,9 +655,12 @@ class _NuevaNCDialog(QDialog):
         desc = self.in_desc.text().strip()
         if not desc:
             return
+        art = self.in_art.text().strip()
+        if "–" in art:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            art = art.split("–")[0].strip()
         self.resultado = {"descripcion": desc, "origen": self.cb_origen.currentText(),
                           "severidad": self.cb_sev.currentText(),
-                          "articulo": self.in_art.text().strip() or None}
+                          "articulo": art or None}
         self.accept()
 
 
@@ -443,6 +697,139 @@ class _NuevaCAPADialog(QDialog):
             nc = None
         self.resultado = {"descripcion": desc, "tipo": self.cb_tipo.currentText(), "id_nc": nc}
         self.accept()
+
+class _NuevaAuditoriaDialog(QDialog):
+    """Alta de auditoría de calidad (reutiliza auditorias.planificar)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.resultado = None
+        self.setFixedSize(580, 420)
+        v, f = _dlg_body(self, "Planificar auditoría de calidad", ancho=580)
+        from src.services.calidad import auditorias
+        self.cb_tipo = _combo(list(auditorias.TIPOS))
+        self.in_alcance = QLineEdit(); self.in_alcance.setPlaceholderText("Alcance de la auditoría")
+        for wdg in (self.cb_tipo, self.in_alcance):
+            wdg.setMinimumHeight(34)
+        f.addRow("Tipo:", self.cb_tipo)
+        f.addRow("Alcance:", self.in_alcance)
+        # Nota: "auditor" es id de usuario (columna INT, mismo criterio que inspector/responsable en
+        # GMAO/SAT) — no un campo de texto libre; el auditor se rellena con el usuario de sesión
+        # (ver CalidadDashboardWindow._nueva_auditoria), igual que responsable en NC/CAPA.
+        v.addStretch()
+        row = QHBoxLayout()
+        row.addWidget(_btn("Cancelar", self.reject))
+        row.addWidget(_btn("Planificar", self._ok, primary=True))
+        v.addLayout(row)
+
+    def _ok(self):
+        alcance = self.in_alcance.text().strip()
+        if not alcance:
+            return
+        self.resultado = {"tipo": self.cb_tipo.currentText(), "alcance": alcance}
+        self.accept()
+
+
+class _HallazgoAuditoriaDialog(QDialog):
+    """Registro de hallazgo sobre una auditoría (reutiliza auditorias.registrar_hallazgo)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.resultado = None
+        self.setFixedSize(580, 420)
+        v, f = _dlg_body(self, "Registrar hallazgo de auditoría", ancho=580)
+        self.in_desc = QLineEdit(); self.in_desc.setPlaceholderText("Descripción del hallazgo")
+        self.cb_sev = _combo(["baja", "media", "alta", "critica"])
+        self.cb_nc = _combo(["No", "Sí"])
+        for wdg in (self.in_desc, self.cb_sev, self.cb_nc):
+            wdg.setMinimumHeight(34)
+        f.addRow("Descripción:", self.in_desc)
+        f.addRow("Severidad:", self.cb_sev)
+        f.addRow("Generar NC:", self.cb_nc)
+        v.addStretch()
+        row = QHBoxLayout()
+        row.addWidget(_btn("Cancelar", self.reject))
+        row.addWidget(_btn("Registrar", self._ok, primary=True))
+        v.addLayout(row)
+
+    def _ok(self):
+        desc = self.in_desc.text().strip()
+        if not desc:
+            return
+        self.resultado = {"descripcion": desc, "severidad": self.cb_sev.currentText(),
+                          "generar_nc": self.cb_nc.currentText() == "Sí"}
+        self.accept()
+
+
+class _NuevoEquipoDialog(QDialog):
+    """Alta de equipo de medida (reutiliza calidad_pro.alta_equipo)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.resultado = None
+        self.setFixedSize(580, 420)
+        v, f = _dlg_body(self, "Nuevo equipo de medida", ancho=580)
+        self.in_codigo = QLineEdit(); self.in_codigo.setPlaceholderText("Código del equipo")
+        self.in_nombre = QLineEdit(); self.in_nombre.setPlaceholderText("Nombre del equipo")
+        self.in_ubicacion = QLineEdit(); self.in_ubicacion.setPlaceholderText("(opcional) ubicación")
+        self.in_frecuencia = QLineEdit("365")
+        self.in_frecuencia.setValidator(QIntValidator(1, 10_000, self.in_frecuencia))
+        for wdg in (self.in_codigo, self.in_nombre, self.in_ubicacion, self.in_frecuencia):
+            wdg.setMinimumHeight(34)
+        f.addRow("Código:", self.in_codigo)
+        f.addRow("Nombre:", self.in_nombre)
+        f.addRow("Ubicación:", self.in_ubicacion)
+        f.addRow("Frecuencia (días):", self.in_frecuencia)
+        v.addStretch()
+        row = QHBoxLayout()
+        row.addWidget(_btn("Cancelar", self.reject))
+        row.addWidget(_btn("Dar de alta", self._ok, primary=True))
+        v.addLayout(row)
+
+    def _ok(self):
+        codigo = self.in_codigo.text().strip()
+        nombre = self.in_nombre.text().strip()
+        if not codigo or not nombre:
+            return
+        frec = self.in_frecuencia.text().strip()
+        try:
+            frec = int(frec) if frec else 365
+        except ValueError:
+            frec = 365
+        self.resultado = {"codigo": codigo, "nombre": nombre,
+                          "ubicacion": self.in_ubicacion.text().strip() or None,
+                          "frecuencia_dias": frec}
+        self.accept()
+
+
+class _RegistrarCalibracionDialog(QDialog):
+    """Registro de calibración de un equipo (reutiliza calidad_pro.registrar_calibracion)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.resultado = None
+        self.setFixedSize(580, 420)
+        v, f = _dlg_body(self, "Registrar calibración", ancho=580)
+        self.cb_res = _combo(["CONFORME", "NO_CONFORME"])
+        self.in_prov = QLineEdit(); self.in_prov.setPlaceholderText("(opcional) proveedor/laboratorio")
+        self.in_obs = QLineEdit(); self.in_obs.setPlaceholderText("(opcional) observaciones")
+        for wdg in (self.cb_res, self.in_prov, self.in_obs):
+            wdg.setMinimumHeight(34)
+        f.addRow("Resultado:", self.cb_res)
+        f.addRow("Proveedor:", self.in_prov)
+        f.addRow("Observaciones:", self.in_obs)
+        v.addStretch()
+        row = QHBoxLayout()
+        row.addWidget(_btn("Cancelar", self.reject))
+        row.addWidget(_btn("Registrar", self._ok, primary=True))
+        v.addLayout(row)
+
+    def _ok(self):
+        self.resultado = {"resultado": self.cb_res.currentText(),
+                          "proveedor": self.in_prov.text().strip() or None,
+                          "observaciones": self.in_obs.text().strip() or None}
+        self.accept()
+
 
 # Nota: se retiraron los alias de compatibilidad InspeccionesWindow/NoConformidadesWindow/CAPAWindow/
 # AuditoriasWindow (código muerto: no los referenciaba ni el menú ni ningún módulo). El acceso a Calidad

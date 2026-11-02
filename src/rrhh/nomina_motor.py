@@ -27,6 +27,7 @@ IRPF: tipo fijo (hueco estructural `irpf_modo` para tablas en fase posterior).
 
 from __future__ import annotations
 
+import calendar as _calendar
 import logging
 from dataclasses import dataclass, field
 
@@ -107,12 +108,35 @@ class NominaInput:
     bonus: float = 0.0
     antiguedad: float = 0.0          # importe (no alimentado aún por el formulario)
     horas_extra: float = 0.0
+    # Fase Finiquito (F5): compensación económica de vacaciones no disfrutadas y de pagas extra
+    # devengadas y no cobradas — ambas DEVENGO_SALARIAL (cotizan BCCC, tributan IRPF) exactamente
+    # igual que cualquier otro concepto salarial de este motor (criterio TGSS: la compensación de
+    # vacaciones no disfrutadas cotiza; una paga extra pendiente es salario diferido). Opcionales;
+    # por defecto 0 → compatibilidad hacia atrás total con toda nómina existente que no las usa.
+    vacaciones_compensadas: float = 0.0
+    pagas_extra_pendientes: float = 0.0
     # Devengos no salariales (no cotizan; tributa el exceso sobre exención)
     plus_transporte: float = 0.0
     dietas: float = 0.0
     # Deducciones (restan al líquido; no afectan bases/SS/IRPF)
     anticipos: float = 0.0
     embargos: float = 0.0
+    # ── Fase F (motor dual + IT + bolsa de horas) — TODOS opcionales; sin ellos el motor se
+    # comporta EXACTAMENTE igual que antes (compatibilidad hacia atrás garantizada). ──
+    # Horas extra de bolsa de horas compensadas en PAGO (F4.6.5): se sabe que cotizan igual que
+    # las horas extra ordinarias (BCCP), pero se listan en su propia línea de devengo para no
+    # perder la trazabilidad de su origen distinto.
+    horas_extra_bolsa_importe: float = 0.0
+    # Incapacidad Temporal (F4.6.4): una entrada por cada `rrhh_ausencias` (tipo baja médica) con
+    # al menos un día dentro del periodo liquidado. Cada elemento es un dict con las claves que
+    # espera `incapacidad_temporal.calcular_it` MENOS `anio`/`mes` (comunes a todas las bajas del
+    # mismo periodo, ver `anio_periodo`/`mes_periodo`): `tipo_contingencia`, `fecha_inicio_baja`,
+    # `fecha_fin_baja`, `base_cotizacion_mes_anterior`, `base_cotizacion_cp_mes_anterior`,
+    # `configuracion_complemento_convenio` (opcional).
+    bajas_it: list = field(default_factory=list)
+    anio_periodo: int | None = None
+    mes_periodo: int | None = None
+    regla_ajuste_mensual_it: str = "AJUSTE_A_30_DIAS"
 
     @classmethod
     def desde_anual(cls, salario_anual, num_pagas=12, **kw) -> "NominaInput":
@@ -140,14 +164,59 @@ class NominaResultado:
     meta: dict = field(default_factory=dict)
 
 
+def calcular_prorrateo_pagas_extra(salario_base_mensual: float, num_pagas: int) -> float:
+    """Prorrateo mensual de pagas extra sobre el salario base contractual.
+
+    `prorrateo = salario_base_mensual * max(num_pagas-12, 0) / 12`. Devuelve 0.0 si
+    `num_pagas <= 12` (nada que prorratear). Función PURA, reutilizable fuera del motor
+    (p. ej. para prellenar el campo del formulario de nómina).
+    """
+    return _r(float(salario_base_mensual or 0) * max(int(num_pagas or 12) - 12, 0) / 12)
+
+
 # ── Cálculo (orden fijo: devengos → bases → SS → IRPF → deducciones → líquido) ──
 def calcular_nomina(entrada: NominaInput, parametros: ParametrosAnio) -> NominaResultado:
     p = parametros
     e = entrada
-    sal = _r(e.salario_base_mensual)
+    sal_original = _r(e.salario_base_mensual)
+    sal = sal_original
 
-    # Prorrateo de pagas extra (la cotización SIEMPRE lo incluye)
-    prorrateo = _r(sal * max(int(e.num_pagas or 12) - 12, 0) / 12)
+    # ── Incapacidad Temporal (Fase F.4): si el periodo tiene al menos una baja registrada,
+    # delega el cálculo legal completo en el módulo puro `incapacidad_temporal` y SUSTITUYE el
+    # devengo simple de "Salario base" por el salario reducido a 30 días teóricos, añadiendo la
+    # prestación IT (empresa/pago delegado/directa) + complemento de convenio como devengo
+    # aparte. Con varias bajas en el mismo mes, el salario reducido se recalcula UNA sola vez
+    # sobre el total de días de baja del mes (nunca por baja, que duplicaría la reducción).
+    it_resultados: list = []
+    it_extra_bruto = 0.0
+    if e.bajas_it and e.anio_periodo and e.mes_periodo:
+        from src.rrhh import incapacidad_temporal as _it
+        for baja in e.bajas_it:
+            it_resultados.append(_it.calcular_it(
+                salario_base_mensual=sal_original,
+                base_cotizacion_mes_anterior=baja.get("base_cotizacion_mes_anterior", 0.0),
+                base_cotizacion_cp_mes_anterior=baja.get("base_cotizacion_cp_mes_anterior", 0.0),
+                fecha_inicio_baja=baja["fecha_inicio_baja"], fecha_fin_baja=baja["fecha_fin_baja"],
+                anio=e.anio_periodo, mes=e.mes_periodo,
+                tipo_contingencia=baja["tipo_contingencia"],
+                regla_ajuste_mensual=e.regla_ajuste_mensual_it,
+                configuracion_complemento_convenio=baja.get("configuracion_complemento_convenio"),
+            ))
+        total_dias_it = sum(r.dias_it_en_mes for r in it_resultados)
+        if e.regla_ajuste_mensual_it == "DIAS_NATURALES":
+            dias_mes_cal = _calendar.monthrange(e.anio_periodo, e.mes_periodo)[1]
+            dias_trab_total = max(0, dias_mes_cal - total_dias_it)
+            sal = _r((sal_original / dias_mes_cal) * dias_trab_total) if dias_mes_cal else 0.0
+        else:
+            dias_trab_total = max(0, 30 - total_dias_it)
+            sal = _r((sal_original / 30) * dias_trab_total)
+        it_extra_bruto = _r(sum(
+            r.prestacion_it_empresa + r.prestacion_it_pago_delegado + r.prestacion_it_directa
+            + r.complemento_convenio_it for r in it_resultados))
+
+    # Prorrateo de pagas extra (la cotización SIEMPRE lo incluye) — sobre el salario CONTRACTUAL
+    # completo, no sobre el reducido por IT (la prorrata de extra no se ve afectada por la baja).
+    prorrateo = calcular_prorrateo_pagas_extra(sal_original, e.num_pagas)
 
     # 1) DEVENGOS — clasificados explícitamente
     devengos = []
@@ -163,9 +232,17 @@ def calcular_nomina(entrada: NominaInput, parametros: ParametrosAnio) -> NominaR
     _dev_sal("Antigüedad", e.antiguedad)
     _dev_sal("Nocturnidad", e.nocturnidad)
     _dev_sal("Bonus / incentivos", e.bonus)
+    _dev_sal("Vacaciones no disfrutadas", e.vacaciones_compensadas)
+    _dev_sal("Pagas extra pendientes", e.pagas_extra_pendientes)
     if e.pagas_extra_prorrateadas and prorrateo:
         _dev_sal("Prorrateo pagas extra", prorrateo)
     _dev_sal("Horas extra", e.horas_extra)   # cotiza en BCCP (tratada aparte abajo)
+    _dev_sal("Horas extra (bolsa de horas)", e.horas_extra_bolsa_importe)  # ídem, F4.6.5
+    # Prestación de Incapacidad Temporal + complemento de convenio (F4.6.4): tributa (IRPF) igual
+    # que un devengo salarial, pero NO cotiza (ya cotiza el "Salario base" reducido de arriba, que
+    # sí sigue las contingencias normales por los días efectivamente trabajados).
+    if it_extra_bruto:
+        _dev_sal("Prestación IT / complemento convenio", it_extra_bruto, cotiza=False)
 
     # No salariales: exención parametrizada (exenta no tributa; exceso tributa)
     def _dev_no_sal(concepto, importe, exencion):
@@ -188,9 +265,10 @@ def calcular_nomina(entrada: NominaInput, parametros: ParametrosAnio) -> NominaR
     # 2) BASES — la cotización incluye complementos salariales + prorrateo (no horas extra)
     low, high = p.limites_grupo(e.grupo_cotizacion)
     base_cot = _r(sal + _r(e.plus_convenio) + _r(e.antiguedad) + _r(e.nocturnidad)
-                  + _r(e.bonus) + prorrateo)
+                  + _r(e.bonus) + _r(e.vacaciones_compensadas) + _r(e.pagas_extra_pendientes)
+                  + prorrateo)
     bccc = _r(min(max(base_cot, low), high))
-    he = _r(e.horas_extra)
+    he = _r(_r(e.horas_extra) + _r(e.horas_extra_bolsa_importe))
     bccp = _r(bccc + he)
     base_at_ep = bccp
 
@@ -245,5 +323,19 @@ def calcular_nomina(entrada: NominaInput, parametros: ParametrosAnio) -> NominaR
         liquido=liquido,
         meta={"anio": p.anio, "pais": p.pais, "grupo": str(e.grupo_cotizacion),
               "tipo_contrato": tc, "prorrateo_extra": prorrateo,
-              "transporte_no_exento": transp_no_exenta, "dietas_no_exento": dietas_no_exenta},
+              "transporte_no_exento": transp_no_exenta, "dietas_no_exento": dietas_no_exenta,
+              "salario_base_original": sal_original, "salario_base_efectivo": sal,
+              "it_resultados": [
+                  {"dias_it_en_mes": r.dias_it_en_mes,
+                   "dias_trabajados_efectivos": r.dias_trabajados_efectivos,
+                   "importe_salario_base_reducido": r.importe_salario_base_reducido,
+                   "prestacion_it_empresa": r.prestacion_it_empresa,
+                   "prestacion_it_pago_delegado": r.prestacion_it_pago_delegado,
+                   "prestacion_it_directa": r.prestacion_it_directa,
+                   "complemento_convenio_it": r.complemento_convenio_it,
+                   "total_devengado_bruto": r.total_devengado_bruto,
+                   "desglose_por_tramos": [
+                       {**t, "fecha": t["fecha"].isoformat()} for t in r.desglose_por_tramos],
+                   } for r in it_resultados],
+              },
     )

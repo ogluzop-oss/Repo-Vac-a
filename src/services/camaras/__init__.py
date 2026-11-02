@@ -12,8 +12,12 @@ Aislamiento ESTRICTO por empresa+departamento; SUPERADMIN puede cruzar (permitir
 
 from src.services.camaras.registro import (  # noqa: F401
     crear_camara, renombrar_camara, eliminar_camara, actualizar_fuente, listar_camaras, obtener_camara,
-    departamentos,
+    departamentos, crear_camara_onvif, actualizar_perfiles, fuente_para,
 )
+from src.services.camaras.descubrimiento import (  # noqa: F401
+    escanear_red, probar_conexion as onvif_probar_conexion, extraer_perfiles as onvif_extraer_perfiles,
+)
+from src.services.camaras import prerrequisitos  # noqa: F401
 from src.services.camaras.grabacion import (  # noqa: F401
     grabar_dia, ruta_dia, RecorderService, servicio as recorder,
 )
@@ -31,6 +35,8 @@ from src.services.camaras.orquestacion import (  # noqa: F401
 )
 
 __all__ = ["crear_camara", "renombrar_camara", "eliminar_camara", "actualizar_fuente", "listar_camaras",
-           "obtener_camara", "departamentos", "grabar_dia", "ruta_dia", "RecorderService", "recorder",
+           "obtener_camara", "departamentos", "crear_camara_onvif", "actualizar_perfiles", "fuente_para",
+           "grabar_dia", "ruta_dia", "RecorderService", "recorder",
            "grabacion_de", "fechas_disponibles", "extraer_clip", "listar_eventos", "analizar_grabacion",
-           "ptz_mover", "ptz_capacidades", "ptz_disponible", "terminal_id", "grabador_propietario"]
+           "ptz_mover", "ptz_capacidades", "ptz_disponible", "terminal_id", "grabador_propietario",
+           "escanear_red", "onvif_probar_conexion", "onvif_extraer_perfiles", "prerrequisitos"]

@@ -206,6 +206,45 @@ def evaluar(regla, id_empresa=None):
         return (False, {})
 
 
+def crear_regla(codigo, nombre, *, condicion, accion, trigger_tipo="programado",
+                 trigger_valor="diario", params=None, nivel="proponer", prioridad="MEDIA",
+                 id_empresa=None) -> bool:
+    """Crea una regla NUEVA para la empresa activa. Reutiliza ÍNTEGRAMENTE el motor existente:
+    `condicion` debe ser una de `CONDICIONES` (predicados ya conectados a IA/Predicción) y `accion`
+    una de `acciones.CATALOGO` (delegan siempre en un subsistema existente — nunca lógica nueva por
+    regla). El usuario elige de un catálogo cerrado, no escribe código ni condiciones libres."""
+    if condicion not in CONDICIONES:
+        raise ValueError(f"Condición desconocida: {condicion}")
+    from src.services.automatizacion import acciones as _A
+    if accion not in _A.CATALOGO:
+        raise ValueError(f"Acción desconocida: {accion}")
+    codigo = (codigo or "").strip().upper()
+    nombre = (nombre or "").strip()
+    if not codigo or not nombre:
+        raise ValueError("Código y nombre son obligatorios.")
+    from src.services.automatizacion import niveles as _N
+    nivel = _N.normalizar(nivel)
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT 1 FROM automatizaciones_reglas WHERE id_empresa=%s AND codigo=%s",
+                        (emp, codigo))
+            if cur.fetchone():
+                return False
+            cur.execute(
+                "INSERT INTO automatizaciones_reglas (id_empresa, codigo, nombre, trigger_tipo, "
+                "trigger_valor, condicion, accion, params, nivel, prioridad, activa, version) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,1)",
+                (emp, codigo, nombre, trigger_tipo, trigger_valor, condicion, accion, params,
+                 nivel, prioridad))
+            c.commit()
+        return True
+    except Exception as e:
+        logger.error("crear_regla %s: %s", codigo, e)
+        return False
+
+
 def configurar(codigo, id_empresa=None, *, activa=None, nivel=None) -> bool:
     """Activa/desactiva o cambia el nivel de una regla PARA una empresa (crea override + version)."""
     emp = _emp(id_empresa)

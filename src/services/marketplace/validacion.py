@@ -7,7 +7,7 @@ integridad (checksum) y estado de firma (`firmas`). No accede a la BD.
 from __future__ import annotations
 
 from src.services.marketplace import firmas
-from src.platform.versioning import Version
+from src.plataforma.versioning import Version
 
 # Versión de la plataforma/app frente a la que se comprueba compatibilidad de plugins.
 APP_VERSION = "4.0.0"

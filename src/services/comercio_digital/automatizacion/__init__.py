@@ -131,7 +131,7 @@ def programar(id_campana, *, id_empresa=None):
     """Programa la ejecución periódica en el Scheduler (capacidad, degradable/opt-in)."""
     emp = _emp(id_empresa)
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         sch = cap.scheduler()
         if sch is not None and hasattr(sch, "registrar_job"):
             sch.registrar_job(f"cd_campana_{id_campana}",

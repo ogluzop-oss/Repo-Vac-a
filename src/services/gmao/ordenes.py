@@ -158,6 +158,20 @@ def consumir_repuestos(oid, *, id_empresa=None, usuario=None) -> dict:
     return {"ok": True, "consumidos": consumidos, "faltantes": faltantes}
 
 
+def listar_repuestos(oid, *, id_empresa=None) -> list:
+    """Checklist de solo lectura de los repuestos de una OT (`ot_recursos`, hoy solo escrito por
+    `añadir_repuesto`/`consumir_repuestos`/`devolver_repuesto`) — para el flujo móvil de reparación."""
+    eid = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ot_recursos WHERE id_ot=%s AND id_empresa=%s ORDER BY id",
+                        (oid, eid))
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_repuestos: %s", e)
+        return []
+
+
 def devolver_repuesto(oid, referencia, cantidad, *, id_empresa=None, usuario=None) -> bool:
     """Devuelve repuesto sobrante al stock (entrada en kardex/lotes)."""
     eid = _emp(id_empresa)

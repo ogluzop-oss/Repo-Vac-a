@@ -135,10 +135,12 @@ def grabar_dia(camara, *, fecha=None, duracion_seg=1, fps=_FPS, stop_event=None,
 
 
 def _fuente_conexion(camara):
-    """URL REAL de conexión (descifra las credenciales RTSP protegidas). Nunca se registra en logs."""
+    """URL REAL de conexión para grabar (descifra las credenciales protegidas). Prefiere el perfil
+    MAINSTREAM (mejor calidad) si la cámara tiene perfiles ONVIF extraídos; si no, cae a la URL legacy
+    'fuente' — cero cambio de comportamiento para cámaras sin perfiles. Nunca se registra en logs."""
     try:
-        from src.services.camaras.registro import fuente_efectiva
-        return fuente_efectiva(camara)
+        from src.services.camaras.registro import fuente_para
+        return fuente_para(camara, "main")
     except Exception:
         return camara.get("fuente")
 
@@ -194,6 +196,17 @@ def grabar_dia_ffmpeg(camara, *, fecha=None, duracion_seg=1, stop_event=None, ru
                 pass
     valido = os.path.exists(ruta) and os.path.getsize(ruta) > 0
     _registrar_grabacion(camara, fecha, ruta, round(time.time() - t0, 1), "cerrada" if valido else "error")
+    if valido:
+        # La ruta de producción (stream-copy) no decodifica en vivo, así que nunca disparaba
+        # detección de movimiento — a diferencia del fallback OpenCV, que sí la hace en tiempo real.
+        # Post-proceso best-effort: analiza el fichero ya cerrado y registra los eventos encontrados.
+        try:
+            from src.services.camaras.deteccion import analizar_grabacion, registrar_evento
+            for ev in analizar_grabacion(ruta):
+                registrar_evento(camara, "movimiento", score=ev.get("score"),
+                                 id_empresa=camara.get("id_empresa"))
+        except Exception:
+            pass
     return ruta if valido else None
 
 
@@ -451,7 +464,13 @@ def arrancar_automatico() -> int:
             tid = None
         n = (_servicio.arrancar_departamento(emp, str(tid)) if tid is not None
              else _servicio.arrancar_empresa(emp))
-        _arrancar_heartbeat()
+        # Sin cámaras reales arrancadas no hay ninguna concesión que renovar — el hilo de latido
+        # no aporta nada y queda vivo toda la sesión sin motivo (un hilo de fondo persistente de
+        # más, que además complicaba el diagnóstico de los crashes nativos investigados: aparecía
+        # en TODOS los volcados de `faulthandler` como el único hilo siempre vivo, aunque su
+        # propio código —una llamada a BD cada TTL/2 segundos— no sea en sí mismo peligroso).
+        if n:
+            _arrancar_heartbeat()
         if n:
             logger.info("Videovigilancia: %s cámara(s) real(es) grabando.", n)
         return n

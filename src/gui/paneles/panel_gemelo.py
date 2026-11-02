@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout
 
 from src.gui.components import (EnterpriseCard, EnterpriseDashboardGrid,
                                 EnterpriseRiskIndicator, EnterpriseTable)
-from src.gui.foundation import tokens as T
 from src.gui.foundation.shell import QtEnterprisePanel
+from src.utils.texto import capitalizar_sigla
 
 logger = logging.getLogger("gui.paneles.gemelo")
 
@@ -37,22 +37,18 @@ class PanelGemelo(QtEnterprisePanel):
         self.toolbar_stretch()
         self.riesgo_global = EnterpriseRiskIndicator("BAJO")
         self.add_toolbar_widget(self.riesgo_global)
-        # Botón Actualizar (emoji + texto)
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QPushButton
-        b_ref = QPushButton("🔄 Actualizar")
-        b_ref.setCursor(Qt.CursorShape.PointingHandCursor)
-        b_ref.clicked.connect(self._refrescar)
-        b_ref.setStyleSheet(T.qss_boton(T.INFO))
-        self.add_toolbar_widget(b_ref)
 
         # Rejilla de dominios
         self.grid = EnterpriseDashboardGrid(columnas=3)
         self.contenido.addWidget(self.grid)
 
-        # Tabla de alertas
+        # Tabla de alertas — el botón Actualizar vive aquí (esquina superior derecha de ESTA tabla,
+        # vía `EnterpriseTable(con_actualizar=...)`), no en la cabecera compartida de todo el panel.
+        # Sin contador de filas ("N filas"): es ruido para una tabla de alertas, no aporta nada.
         self.contenido.addWidget(QLabel("Alertas por dominio"))
-        self.tabla_alertas = EnterpriseTable(["Dominio", "Alerta"], con_busqueda=True)
+        self.tabla_alertas = EnterpriseTable(["Dominio", "Alerta"], con_busqueda=True,
+                                             con_actualizar=self._refrescar, actualizar_pos="derecha",
+                                             mostrar_contador=False)
         self.contenido.addWidget(self.tabla_alertas)
 
         self._refrescar()
@@ -73,7 +69,7 @@ class PanelGemelo(QtEnterprisePanel):
         for dom, est in (g.get("dominios") or {}).items():
             r = str(est.get("riesgo", "BAJO")).upper()
             self.grid.add_card(EnterpriseCard(
-                str(dom).capitalize(), r, modo="riesgo", riesgo=r, concepto=self._concepto(dom),
+                capitalizar_sigla(str(dom)), r, modo="riesgo", riesgo=r, concepto=self._concepto(dom),
                 subtitulo=est.get("resumen", "")[:90]))
             for a in est.get("alertas", []):
                 alertas.append({"Dominio": dom, "Alerta": a})

@@ -23,6 +23,10 @@ CATALOGO = [
     "compras.ver", "compras.crear", "compras.editar", "compras.aprobar", "compras.facturar",
     # Ventas / TPV
     "ventas.ver", "ventas.crear", "ventas.facturar", "ventas.devolver", "ventas.anular",
+    # Presupuestos de cliente (VTA.6, ventas_comercial) — OJO: NO usar el prefijo "presupuestos.*"
+    # a secas, ya en uso más abajo para presupuestos financieros internos (dominio distinto).
+    "ventas.presupuestos.ver", "ventas.presupuestos.crear",
+    "ventas.presupuestos.aprobar", "ventas.presupuestos.convertir",
     # Clientes / proveedores
     "clientes.ver", "clientes.editar", "proveedores.ver", "proveedores.editar",
     # RRHH
@@ -56,6 +60,15 @@ CATALOGO = [
     # SaaS / plataforma (rama SAAS)
     "saas.admin", "saas.licencias", "saas.suscripciones", "saas.tenants",
     "saas.portal", "saas.metricas", "saas.branding",
+    # Control de uso/coste de IA (Anthropic) por empresa (Fase C — panel de administración, ver
+    # services/ia_control_uso.py). ver=consultar gasto diario/mensual y el plan actual;
+    # cambiar=alternar entre LIMITED (con límite diario de seguridad) y PAY_AS_YOU_GO (ilimitado).
+    "ai.usage.ver", "ai.plan.cambiar",
+    # Delegación de tareas repetitivas al agente IA SOMA (reglas con instrucciones libres por
+    # empresa — ver services/soma_delegacion). Deliberadamente SOLO en el catálogo canónico, NUNCA
+    # en la lista de permisos por defecto de ADMINISTRADOR de abajo: el encargo exige que esto sea
+    # exclusivo de SUPERADMIN (gate reforzado además con un check de perfil explícito en la GUI).
+    "soma_delegacion.admin",
     # CRM comercial (BLOQUE 2)
     "crm.ver", "crm.leads", "crm.oportunidades", "crm.pipeline", "crm.actividades",
     "crm.forecast", "crm.crm_saas", "crm.admin",
@@ -132,6 +145,25 @@ CATALOGO = [
     "banca.ver",                  # ver conexiones bancarias
     "banca.conectar",             # configurar la conexión (proveedor/credenciales)
     "banca.sincronizar",          # descargar movimientos e importarlos a conciliación
+    # Videovigilancia (Cámaras): ver = rejilla/vivo/grabaciones; gestionar = alta/baja/descubrimiento;
+    # ptz/descargar separados del resto porque son las dos acciones más sensibles (control físico de
+    # la cámara y exportar material grabado).
+    "camaras.ver", "camaras.gestionar", "camaras.ptz", "camaras.grabaciones.descargar",
+    # Traspasos de stock entre tiendas (Logística): gestión (crear/confirmar), distinto de la Recepción
+    # de palés (base, sin permiso dedicado) — antes un check ad-hoc de `perfil=="OPERARIO"` en
+    # `gui/recepcion_pale.py`, migrado a RBAC para que la app móvil pueda consultar el mismo criterio.
+    "logistica.traspasos",
+    # Cambiar el precio de un artículo e imprimir su etiqueta de papel (distinto de ESL, que ya tiene
+    # su propio permiso `esl.*`).
+    "etiquetas.precio.editar",
+    # RGPD / política de contraseñas / incidentes de seguridad / sesiones (cierre de brecha:
+    # servicios ya existentes en services/seguridad/ sin GUI ni permiso dedicado hasta ahora).
+    "rgpd.ejecutar", "password_politica.gestionar", "incidentes.gestionar", "sesiones.admin",
+    # Productividad (pestaña del módulo Ventas): objetivos de facturación por centro/empleado +
+    # campañas. ver = consultar paneles/barras de progreso (todos los perfiles); editar = fijar o
+    # modificar objetivos y campañas (reservado a SUPERADMIN vía comodín "*", nunca concedido
+    # explícitamente a ADMINISTRADOR/OPERARIO — ambos son solo-lectura en esta pestaña).
+    "productividad.ver", "productividad.editar",
 ]
 
 # Roles del sistema (codigo → conjunto de permisos). SUPERADMIN es comodín (todo); ADMINISTRADOR
@@ -145,6 +177,9 @@ ROLES_SISTEMA = {
         "stock.consultar_desde_tpv",
         "compras.ver", "compras.crear", "compras.editar", "compras.aprobar", "compras.facturar",
         "ventas.ver", "ventas.crear", "ventas.facturar", "ventas.devolver", "ventas.anular",
+        # ventas.presupuestos.* NO se incluye aquí a propósito: Contabilidad/Presupuestos es
+        # SUPERADMIN por defecto (igual que la tarjeta de menú, ya restringida en
+        # menu_principal.py) — se concede por Seguridad · Reglas de acceso si la empresa lo pide.
         "clientes.ver", "clientes.editar", "proveedores.ver", "proveedores.editar",
         "rrhh.ver", "rrhh.editar", "rrhh.nominas.generar", "rrhh.contratos.firmar",
         "contabilidad.ver", "contabilidad.asiento", "contabilidad.cierre",
@@ -159,6 +194,9 @@ ROLES_SISTEMA = {
         "incidencias.reportar", "incidencias.gestionar",
         "bi.ver", "bi.kpi", "bi.dashboard", "bi.forecasting", "bi.exportar",
         "saas.portal", "saas.branding",
+        # Control de uso/coste de IA: el Administrador consulta el gasto y cambia la modalidad de
+        # su propia empresa (mismo alcance self-service que el resto de "Mi plan" en saas_admin.py).
+        "ai.usage.ver", "ai.plan.cambiar",
         "crm.ver", "crm.leads", "crm.oportunidades", "crm.pipeline", "crm.actividades",
         "crm.forecast", "crm.crm_saas", "crm.admin", "dr.ver",
         "mrp.ver", "mrp.bom", "mrp.planificar", "mrp.admin",
@@ -205,10 +243,23 @@ ROLES_SISTEMA = {
         "proyectos.ver", "proyectos.gestionar", "proyectos.horas",
         # Banca online: el Administrador configura y sincroniza la conexión bancaria.
         "banca.ver", "banca.conectar", "banca.sincronizar",
+        # Videovigilancia: el Administrador ya tenía acceso total sin ningún check (módulo visible
+        # por defecto para él) — se le concede el catálogo completo para no cambiar su comportamiento.
+        "camaras.ver", "camaras.gestionar", "camaras.ptz", "camaras.grabaciones.descargar",
+        # Traspasos de stock (antes ad-hoc, ver arriba) y cambio de precio con impresión de etiqueta:
+        # el Administrador ya tenía acceso a ambos sin ningún check — se formaliza sin cambiar su
+        # comportamiento.
+        "logistica.traspasos", "etiquetas.precio.editar",
+        # RGPD / política de contraseñas / incidentes de seguridad / sesiones: reservado a
+        # ADMINISTRADOR/SUPERADMIN (acciones de alto riesgo sobre datos de clientes y credenciales).
+        "rgpd.ejecutar", "password_politica.gestionar", "incidentes.gestionar", "sesiones.admin",
+        # Productividad: el Administrador solo CONSULTA (fijar/editar objetivos es SUPERADMIN).
+        "productividad.ver",
     ]},
     "OPERARIO": {"nombre": "Operario", "permisos": [
         "inventario.ver", "stock.consultar_desde_tpv",
         "ventas.ver", "ventas.crear", "ventas.facturar", "ventas.devolver",
+        # ventas.presupuestos.* NO se incluye aquí a propósito, ver nota en ADMINISTRADOR arriba.
         "clientes.ver", "compras.ver", "documentos.ver",
         "notificaciones.ver", "mensajeria.usar", "calendario.gestionar", "tareas.gestionar",
         "incidencias.reportar",
@@ -229,6 +280,8 @@ ROLES_SISTEMA = {
         "precio_dinamico.ver", "precio_dinamico.aplicar",
         # Proyectos: el operario VE el tablero e imputa sus horas (no crea/edita proyectos).
         "proyectos.ver", "proyectos.horas",
+        # Productividad: el Operario solo CONSULTA (fijar/editar objetivos es SUPERADMIN).
+        "productividad.ver",
     ]},
 }
 

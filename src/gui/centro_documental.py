@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 
 from src.db import documentos as doc_db
 from src.db.usuario import sesion_global
+from src.gui.catalogo_gestion import _btn_salir_sidebar
 from src.utils.i18n import tr
 
 try:
@@ -55,26 +56,91 @@ _TEXT = "#E6EDF3"
 _DIM = "#8B949E"
 _ROJO = "#F85149"
 
-# (clave de tipo, icono, clave i18n) en el orden de la barra lateral.
+# (clave de tipo, icono, clave i18n, texto por defecto) en el orden de la barra lateral.
+#
+# Sin "Todos" ni "Otros". "ticket" (tickets de compra del TPV) NUNCA tiene pestaña aquí ni
+# aparece en ninguna categoría: es redundante con la ventana propia "Buscar/Reimprimir
+# Ticket" del TPV (filtros de caja/empleado/forma de pago) y además se EXCLUYE en el propio
+# chokepoint de datos (`db.documentos.listar_documentos`/`contar_por_tipo`), no solo aquí.
+#
+# Reorganización por MÓDULO (no por tipo documental): cada pestaña reúne TODOS los
+# `tipo_documento` que genera un módulo real de la app (mismos límites que
+# `gui/menu_principal.py` — v_id/tarjeta), para que "en cada pestaña aparezcan todos los
+# archivos generados en el módulo que corresponda". La clave de tipo puede ser un string
+# (tipo_documento exacto) o una tupla de varios tipos agrupados bajo la misma pestaña;
+# `listar_documentos`/`contar_por_tipo` ya resuelven ambas formas de forma nativa
+# (`tipo_documento IN (...)` cuando `tipo` es lista/tupla) — mismo mecanismo único, sin
+# filtros paralelos. Varios módulos solo generan HOY un único tipo documental (Mermas,
+# Producción, Mantenimiento, Calidad, Posventa, Etiquetas, Fiscal, Cámaras...): su pestaña
+# sigue siendo un string simple, pero conceptualmente es igualmente "ese módulo" — si en el
+# futuro ese módulo empieza a generar más tipos, caen en la MISMA pestaña sin tocar esta lista.
+#
+# Mapeo módulo → tipo(s), con la evidencia (grep de `registrar_documento(...)`/rutas de menú)
+# que fijó cada decisión — ver cabecera de la tarea para el detalle completo:
+#   - Proveedores   (v_id "compras")     : factura, factura_rect, albaran, pedido
+#   - Logística     (v_id "logistica")   : recepcion, traspaso  (misma pantalla
+#     `RecepcionPaleWindow` genera ambos — recepción de palés Y traspasos entre tienda/almacén)
+#   - Reparto       (v_id "transporte")  : reparto (`api/routers/transporte.py`, módulo de
+#     nivel superior propio, DISTINTO de Logística)
+#   - Clientes      (v_id "clientes_crm"): presupuesto (`utils/presupuesto_pdf.py`, usado
+#     únicamente desde `gui/crm_dashboard.py`)
+#   - RRHH          (v_id "rrhh")        : contrato (`rrhh_contrato_inline.py` — SON
+#     contratos de personal, no contratos comerciales) + certificado (genérico, mismo cajón
+#     que `certificado_empresa`/`certificado_laboral` — ver `rrhh/firma_servicio.py`
+#     TIPOS_FIRMABLES y `rrhh/persistencia.py`) + el resto de tipos RRHH ya agrupados
+#   - Contabilidad  (v_id "contabilidad"): cierre_ejercicio, exportacion, informe_anual,
+#     cuentas_anuales (históricos — `_cerrar()` ya no genera NUEVOS documentos de estos 3 tipos,
+#     ver `services/contabilidad/cierre_anual_pdf.py`), cierre_anual_completo (NUEVO — el único
+#     documento que genera `_cerrar()` desde la unificación: fusiona lo que antes eran 3 PDFs)
+#   - Gestión Caja  (v_id "gestion_caja"): caja_registradora, caja_fuerte, cambio_cajero,
+#     transferencia_efectivo, informe (Cierre Z — `services/tpv/cierre_z.py`)
+#   - Mermas (mermas) / Producción (mrp) / Mantenimiento (gmao) / Calidad (calidad) /
+#     Posventa (sat) / Etiquetas (etiquetas) / Fiscal (fiscal) / Cámaras (camaras) /
+#     Auditoría (seguridad): un único tipo cada uno hoy, pestaña = módulo igualmente.
+_TIPOS_PROVEEDORES = ("factura", "factura_rect", "albaran", "pedido")
+_TIPOS_LOGISTICA = ("recepcion", "traspaso")
+_TIPOS_CONTABILIDAD = ("cierre_ejercicio", "exportacion", "informe_anual", "cuentas_anuales",
+                       "cierre_anual_completo")
+_TIPOS_CAJA = ("caja_registradora", "caja_fuerte", "cambio_cajero", "transferencia_efectivo", "informe")
+_TIPOS_RRHH = ("contrato", "certificado", "rrhh", "nomina", "finiquito", "modelo145",
+               "certificado_empresa", "certificado_laboral", "carta_despido", "periodo_prueba")
+
 _CATEGORIAS = [
-    ("",            "🗂", "doc.cat_todos",        "Todos"),
-    ("contrato",    "📄", "doc.tipo_contrato",    "Contratos"),
-    ("factura",     "🧾", "doc.tipo_factura",     "Facturas"),
-    ("factura_rect", "↩", "doc.tipo_factura_rect", "Facturas rectificativas"),
-    ("ticket",      "🎫", "doc.tipo_ticket",      "Tickets"),
-    ("albaran",     "📦", "doc.tipo_albaran",     "Albaranes"),
-    ("pedido",      "🛒", "doc.tipo_pedido",      "Pedidos"),
-    ("traspaso",    "🔁", "doc.tipo_traspaso",    "Traspasos"),
-    ("recepcion",   "📥", "doc.tipo_recepcion",   "Recepciones"),
-    ("merma",       "📉", "doc.tipo_merma",       "Mermas"),
-    ("informe",     "📊", "doc.tipo_informe",     "Informes"),
-    ("exportacion", "📑", "doc.tipo_exportacion", "Exportaciones Excel"),
-    ("certificado", "📜", "doc.tipo_certificado", "Certificados"),
-    ("rrhh",        "👥", "doc.tipo_rrhh",        "RRHH"),
-    ("auditoria",   "🔍", "doc.tipo_auditoria",   "Auditoría"),
-    ("grabacion",   "📹", "doc.tipo_grabacion",   "Grabaciones"),
-    ("otros",       "🗃", "doc.tipo_otros",       "Otros"),
+    (_TIPOS_PROVEEDORES, "📋", "doc.tipo_compras",       "Proveedores"),
+    (_TIPOS_LOGISTICA,   "📥", "doc.tipo_logistica",     "Logística"),
+    ("reparto",          "🚚", "doc.tipo_reparto",       "Reparto"),
+    ("presupuesto",      "💰", "doc.tipo_presupuesto",   "Presupuestos"),
+    (_TIPOS_RRHH,        "👥", "doc.tipo_rrhh",          "RRHH"),
+    (_TIPOS_CONTABILIDAD, "📊", "doc.tipo_contabilidad", "Contabilidad"),
+    (_TIPOS_CAJA,        "🧮", "doc.tipo_caja",          "Gestión Caja"),
+    ("merma",            "📉", "doc.tipo_merma",         "Mermas"),
+    ("produccion",       "🏭", "doc.tipo_produccion",    "Producción"),
+    ("mantenimiento",    "🔧", "doc.tipo_mantenimiento", "Mantenimiento"),
+    ("inspeccion",       "🔬", "doc.tipo_inspeccion",    "Calidad"),
+    ("intervencion",     "🎧", "doc.tipo_intervencion",  "Posventa"),
+    ("etiqueta",         "🏷", "doc.tipo_etiqueta",      "Etiquetas"),
+    ("fiscal",           "🏛", "doc.tipo_fiscal",        "Fiscal"),
+    ("grabacion",        "📹", "doc.tipo_grabacion",     "Grabaciones"),
+    ("auditoria",        "🔍", "doc.tipo_auditoria",     "Auditoría"),
 ]
+
+
+def _resolver_tab(tipo_solicitado: str):
+    """Resuelve `categoria_inicial` (un `tipo_documento` SUELTO, p. ej. "exportacion") a la
+    clave de pestaña real en `_CATEGORIAS` que lo contiene — ahora que varios tipos viven
+    agrupados bajo una pestaña de módulo (p. ej. "exportacion" vive dentro de `_TIPOS_CONTABILIDAD`).
+    Compatibilidad hacia atrás: varias pantallas (`mostrar_stock.py`, `informe_reposicion.py`,
+    `gestion_mermas.py`, `bi_dashboard.py`) abren Documentos con `categoria_inicial="exportacion"`
+    tras generar un Excel, y esa firma pública no cambia. Si `tipo_solicitado` ya es la clave
+    de una pestaña (string o tupla), o no coincide con ninguna, se devuelve tal cual."""
+    if not tipo_solicitado:
+        return tipo_solicitado
+    for tipo, *_resto in _CATEGORIAS:
+        if tipo == tipo_solicitado:
+            return tipo
+        if isinstance(tipo, tuple) and tipo_solicitado in tipo:
+            return tipo
+    return tipo_solicitado
 
 
 def _mapa_empresas() -> dict:
@@ -210,7 +276,14 @@ class CentroDocumentalWindow(QWidget):
         self._volver = callback_vuelta
         self._main = main
         self.usuario = usuario
-        self._tipo_sel = categoria_inicial or ""   # categoría activa ("" = todos)
+        if isinstance(usuario, dict):
+            self.perfil = usuario.get("perfil", "OPERARIO")
+        else:
+            self.perfil = getattr(usuario, "perfil", "OPERARIO")
+        # Categoría activa: sin "Todos", se abre en la primera pestaña real por defecto
+        # (o en `categoria_inicial` si el llamador pide una concreta, p. ej. "exportacion" —
+        # `_resolver_tab` la traduce a la pestaña de módulo que la contiene hoy).
+        self._tipo_sel = _resolver_tab(categoria_inicial) or _CATEGORIAS[0][0]
         self._cat_btns = {}
         self._docs = []                  # filas mostradas (para resolver acciones)
         self._emp_map = {}
@@ -221,12 +294,39 @@ class CentroDocumentalWindow(QWidget):
         QTimer.singleShot(0, self._cargar_inicial)
 
         # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        toggle_btn = None
         try:
             from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
             if getattr(self, "sidebar", None) is not None:
-                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario, clave="centro_documental")
+                toggle_btn = instalar_sidebar_colapsable(
+                    self, self.sidebar, usuario=self.usuario, clave="centro_documental")
         except Exception:
             pass
+
+        # Restricciones por perfil: ADMINISTRADOR no ve Contratos/Calidad/Certificados/Fiscal/
+        # RRHH/Auditoría (información sensible reservada a SUPERADMIN). Se aplica DESPUÉS de
+        # `instalar_sidebar_colapsable` porque este, al restaurar el estado expandido/colapsado,
+        # vuelve a mostrar todos los botones de la sidebar — y se reconecta al toggle porque cada
+        # colapsar/expandir repite ese mismo "mostrar todos" (mismo criterio que
+        # `mostrar_stock.py`/`gestion_mermas.py`). `_cat_btns` es un diccionario clave por `tipo`
+        # (no por índice posicional), así que se oculta directamente por esa clave. Tras la
+        # reorganización por módulo, "contrato" y "certificado" viven dentro de la MISMA pestaña
+        # agrupada "RRHH" (`_TIPOS_RRHH`) — ocultarla entera sigue cubriendo los mismos tipos
+        # reales de antes (contrato/certificado/rrhh/nomina/finiquito/modelo145/
+        # certificado_empresa/certificado_laboral/carta_despido/periodo_prueba), solo que
+        # direccionados ahora por el identificador de pestaña agrupada en vez de 3 entradas sueltas.
+        _TIPOS_OCULTAR_ADMIN = (
+            _TIPOS_RRHH, "inspeccion", "fiscal", "auditoria",
+        )
+        if self.perfil == "ADMINISTRADOR":
+            def _ocultar_restringidas():
+                for t in _TIPOS_OCULTAR_ADMIN:
+                    btn = self._cat_btns.get(t)
+                    if btn is not None:
+                        btn.setVisible(False)
+            _ocultar_restringidas()
+            if toggle_btn:
+                toggle_btn.clicked.connect(_ocultar_restringidas)
 
     # ---------------------------------------------------------------- construcción
     def _build(self):
@@ -247,10 +347,6 @@ class CentroDocumentalWindow(QWidget):
                              f"font-size:22px;background:transparent;")
         cab.addWidget(titulo)
         cab.addSpacing(18)
-        self.lbl_ctx = QLabel("")
-        self.lbl_ctx.setStyleSheet(f"color:{_DIM};font-family:'Segoe UI';font-weight:700;"
-                                   f"font-size:14px;background:transparent;")
-        cab.addWidget(self.lbl_ctx)
         cab.addStretch()
         return cab
 
@@ -261,7 +357,11 @@ class CentroDocumentalWindow(QWidget):
         wrap.setStyleSheet(f"QFrame#sideWrap{{background:{_SIDEBAR};border:none;"
                            f"border-right:1px solid {_BORDE};}}")
         lay = QVBoxLayout(wrap); lay.setContentsMargins(0, 22, 0, 16); lay.setSpacing(2)
-        cab = QLabel(tr("doc.categorias", default="SMART DOCUMENTS"))
+        # `tr()` normaliza a "frase" (primera mayúscula, resto minúsculas — `i18n._frase`) salvo
+        # siglas conocidas, así que CUALQUIER texto de sidebar que pase por `tr()` necesita
+        # `.upper()` explícito para quedar en mayúsculas de verdad (igual que ya hacían las
+        # pestañas de categoría, dos bloques más abajo — aquí faltaba por descuido).
+        cab = QLabel(tr("doc.categorias", default="SMART DOCUMENTS").upper())
         cab.setStyleSheet("color:#FFFFFF;font-family:'Segoe UI';font-weight:900;"
                           "font-size:16px;letter-spacing:2px;background:transparent;"
                           "border:none;padding:0 0 24px 28px;")
@@ -273,7 +373,7 @@ class CentroDocumentalWindow(QWidget):
         cont = QWidget(); cont.setStyleSheet("background:transparent;")
         clay = QVBoxLayout(cont); clay.setContentsMargins(0, 0, 0, 0); clay.setSpacing(2)
         for tipo, icono, clave, defecto in _CATEGORIAS:
-            b = QPushButton(f"   {tr(clave, default=defecto)}")   # sin icono
+            b = QPushButton(f"   {tr(clave, default=defecto).upper()}")   # sin icono — sidebar: mayúsculas
             b.setObjectName("btn_sidebar")
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setCheckable(True); b.setFixedHeight(52)
@@ -281,20 +381,17 @@ class CentroDocumentalWindow(QWidget):
             self._cat_btns[tipo] = b
             clay.addWidget(b)
         clay.addStretch()
+        # Badges de notificación (círculo rojo + nº blanco) — mismo componente ya usado en el
+        # resto de la app (`gui.foundation.tab_badges`), no un contador "[N]" pegado al texto.
+        from src.gui.foundation.tab_badges import instalar_badges_sidebar
+        self._badges = instalar_badges_sidebar(
+            [self._cat_btns[tipo] for tipo, *_ in _CATEGORIAS], self._obtener_counts_sidebar)
         scroll.setWidget(cont)
         lay.addWidget(scroll, 1)
-        # Botón SALIR AL MENÚ (rojo) al fondo, como el resto de sidebars de la app.
+        # Botón SALIR (rojo) al fondo — mismo helper compartido que el resto de sidebars de la
+        # app (`_btn_salir_sidebar`), en vez de reconstruirlo a mano con texto/tamaño propios.
         if self._volver:
-            self._btn_salir = bsalir = QPushButton(tr("doc.volver", default="SALIR AL MENÚ"))
-            bsalir.setObjectName("btn_sidebar_exit")
-            bsalir.setCursor(Qt.CursorShape.PointingHandCursor)
-            bsalir.setFixedHeight(52)   # misma altura que las categorías
-            bsalir.setStyleSheet(
-                "QPushButton{background:transparent;color:#F85149;border:none;"
-                "border-left:4px solid transparent;border-radius:0px;font-size:12px;"
-                "font-family:'Segoe UI';font-weight:900;text-align:left;padding-left:28px;}"
-                "QPushButton:hover{background:#F85149;color:#0E1117;}")
-            bsalir.clicked.connect(self._volver_menu)
+            self._btn_salir = bsalir = _btn_salir_sidebar(self._volver_menu)
             lay.addWidget(bsalir)
         self._estilar_categorias()
         return wrap
@@ -302,21 +399,33 @@ class CentroDocumentalWindow(QWidget):
     _SS_CAT = (
         "QPushButton{{background:transparent;color:#FFFFFF;text-align:left;"
         "padding:6px 8px 6px 24px;border:none;border-left:4px solid transparent;border-radius:0px;"
-        "font-family:'Segoe UI';font-weight:900;font-size:14px;letter-spacing:0.5px;}}"
+        "font-family:'Segoe UI';font-weight:900;font-size:12px;letter-spacing:0.5px;}}"
         "QPushButton:hover{{background:#FFFFFF;color:{sb};}}")
     _SS_CAT_ACT = (
         "QPushButton{{background:#1A2230;color:{ci};text-align:left;"
         "padding:6px 8px 6px 24px;border:none;border-left:4px solid {ci};border-radius:0px;"
-        "font-family:'Segoe UI';font-weight:900;font-size:14px;letter-spacing:0.5px;}}")
+        "font-family:'Segoe UI';font-weight:900;font-size:12px;letter-spacing:0.5px;}}")
 
     def _estilar_categorias(self):
         inact = self._SS_CAT.format(sb=_SIDEBAR)
         act = self._SS_CAT_ACT.format(ci=_CIAN, bg=_BG)
         for tipo, b in self._cat_btns.items():
-            n = self._conteo.get(tipo) if hasattr(self, "_conteo") else None
-            base = b.text().split("   [")[0]
-            b.setText(f"{base}   [{n}]" if n else base)
             b.setStyleSheet(act if tipo == self._tipo_sel else inact)
+        if getattr(self, "_badges", None) is not None:
+            self._badges.refrescar()
+
+    def _obtener_counts_sidebar(self) -> dict:
+        """{índice de botón en `_CATEGORIAS`: nº documentos} para `instalar_badges_sidebar`."""
+        conteo = self._conteo if hasattr(self, "_conteo") else {}
+        out = {}
+        for i, (tipo, *_r) in enumerate(_CATEGORIAS):
+            # `tipo` puede ser una tupla (categoría agrupada, p. ej. "RRHH"): el contador
+            # suma el recuento de cada tipo real que agrupa esa pestaña.
+            if isinstance(tipo, tuple):
+                out[i] = sum(conteo.get(t, 0) for t in tipo)
+            else:
+                out[i] = conteo.get(tipo, 0)
+        return out
 
     def _build_panel(self) -> QVBoxLayout:
         col = QVBoxLayout(); col.setSpacing(12)
@@ -324,7 +433,7 @@ class CentroDocumentalWindow(QWidget):
         # Buscador global + filtros.
         f1 = QHBoxLayout(); f1.setSpacing(8)
         self.inp_buscar = self._inp(tr("doc.buscar_ph",
-                                       default="Buscar: referencia, hash, cliente, trabajador, importe…"))
+                                       default="🔍 Buscar: referencia, hash, cliente, trabajador, importe…"))
         self.inp_buscar.returnPressed.connect(self._refrescar)
         f1.addWidget(self.inp_buscar, 1)
         b_buscar = self._btn("🔍", self._refrescar, primary=True)
@@ -454,7 +563,6 @@ class CentroDocumentalWindow(QWidget):
         # 1) Pintar de inmediato lo ya registrado (rápido) → sin pantalla en blanco.
         self._emp_map = _mapa_empresas()
         self._tienda_map = _mapa_tiendas()
-        self._actualizar_ctx_label()
         self._estilar_categorias()   # refleja la categoría inicial (si se abrió en una concreta)
         self._refrescar()
         # 2) Reconciliar la carpeta después del primer pintado (en lote, rápido) y
@@ -469,21 +577,6 @@ class CentroDocumentalWindow(QWidget):
         if nuevos:
             self._refrescar()
 
-    def _actualizar_ctx_label(self):
-        try:
-            from src.db.empresa import empresa_actual_id, tienda_actual_id
-            eid = empresa_actual_id()
-            emp = self._emp_map.get(eid, "")
-            ambito = (tr("doc.ambito_todas", default="todas las empresas")
-                      if sesion_global.es_superadmin() else emp)
-            # Tienda activa (TenantContext) o referencia configurada.
-            from src.db import tiendas as _t
-            tnd = _t.etiqueta_tienda_actual() or "—"
-            self.lbl_ctx.setText(tr("doc.contexto", default="Empresa: {emp}   ·   Tienda: {tnd}",
-                                    emp=ambito or "—", tnd=tnd))
-        except Exception:
-            pass
-
     def _empresa_filtro(self):
         """SUPERADMIN ve todas las empresas; el resto SOLO la suya."""
         if sesion_global.es_superadmin():
@@ -491,9 +584,21 @@ class CentroDocumentalWindow(QWidget):
         return sesion_global.empresa_id()
 
     def _seleccionar_categoria(self, tipo):
+        if tipo == self._tipo_sel:
+            return   # ya activa: nada que refrescar ni animar
         self._tipo_sel = tipo
         self._estilar_categorias()
-        self._refrescar()
+        # Misma animación de deslizamiento que el resto de la app (`instalar_transicion_stack` en
+        # Historial Logístico/Incidencias), adaptada a autotransición: aquí NO hay una página
+        # "entrante" distinta que mostrar — las 23 categorías comparten la MISMA `self.tabla`, solo
+        # cambia el filtro — así que se captura su instantánea, se refresca en el sitio por debajo
+        # y se desliza la instantánea fuera para revelar la tabla ya actualizada (ver
+        # `transiciones.deslizar_refresco`). A prueba de fallos: degrada a refresco instantáneo.
+        try:
+            from src.gui.transiciones import deslizar_refresco
+            deslizar_refresco(self.tabla, self._refrescar)
+        except Exception:
+            self._refrescar()
 
     def _limpiar(self):
         """BORRA todos los documentos de la categoría (pestaña) seleccionada, con confirmación explícita.
@@ -503,7 +608,7 @@ class CentroDocumentalWindow(QWidget):
                         tr("doc.solo_admin", default="Solo un administrador puede borrar documentos."),
                         nivel="warning")
             return
-        cat = next((defecto for tipo, _i, _c, defecto in _CATEGORIAS if tipo == self._tipo_sel), "Todos")
+        cat = next((defecto for tipo, _i, _c, defecto in _CATEGORIAS if tipo == self._tipo_sel), "")
         docs = doc_db.listar_documentos(
             tipo=self._tipo_sel or None, id_empresa=self._empresa_filtro(), limite=100000) or []
         n = len(docs)
@@ -657,10 +762,15 @@ class CentroDocumentalWindow(QWidget):
                                 usuario=getattr(self, "usuario", None))
             if not r.get("ok") or not r.get("datos"):
                 return None
+            # "Repositorio cifrado" (petición explícita): la copia en storage puede estar cifrada
+            # en reposo (se cifra ANTES de subirse — ver `cripto.cifrar_archivo_en_disco` en los
+            # generadores) — se descifra aquí para que el temporal sea un PDF legible de verdad.
+            from src.utils import cripto
+            datos = cripto.descifrar_bytes_si_cifrado(r["datos"])
             ext = os.path.splitext(d.get("nombre") or "doc.pdf")[1] or ".pdf"
             fd, tmp = tempfile.mkstemp(prefix="smdoc_", suffix=ext)
             with os.fdopen(fd, "wb") as f:
-                f.write(r["datos"])
+                f.write(datos)
             return tmp
         except Exception:
             return None
@@ -682,7 +792,8 @@ class CentroDocumentalWindow(QWidget):
             self, tr("doc.descargar", default="Descargar"), os.path.basename(ruta))
         if destino:
             try:
-                shutil.copy2(ruta, destino)
+                from src.utils import cripto
+                shutil.copy2(cripto.resolver_ruta_legible(ruta), destino)
                 self._aviso(tr("doc.ok_t", default="Hecho"),
                             tr("doc.descargado", default="Documento guardado."))
             except Exception as e:

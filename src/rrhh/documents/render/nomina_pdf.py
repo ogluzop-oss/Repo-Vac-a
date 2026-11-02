@@ -369,6 +369,12 @@ def generar_nomina_pdf(datos: dict, ruta: str = None) -> str:
     story.append(firmas)
 
     doc.build(story)
+    # "Repositorio cifrado" (petición explícita): se cifra EN SITIO justo tras generar, antes de
+    # que cualquier registro/réplica a almacenamiento lea el fichero — ver `utils.cripto.
+    # cifrar_archivo_en_disco` (degrada honesto: si no hay backend de cifrado, el PDF se queda
+    # en claro y la función sigue funcionando exactamente igual que antes).
+    from src.utils import cripto
+    cripto.cifrar_archivo_en_disco(ruta)
     return ruta
 
 

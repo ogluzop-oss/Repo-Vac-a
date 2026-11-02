@@ -11,8 +11,12 @@ from PyQt6.QtWidgets import QPushButton
 _CIAN = "#00FFC6"
 
 
-def icono_mas(px=20, color=_CIAN):
-    """Icono '+' estilo neón: dos pasadas (halo translúcido + trazo nítido) para dar el brillo."""
+def icono_mas(px=20, color=_CIAN, *, caja=True):
+    """Icono '+' estilo neón: dos pasadas (halo translúcido + trazo nítido) para dar el brillo.
+    `caja=False` (petición explícita, solo para los botones "Añadir"/"Nueva familia" de
+    `info_articulo.py`) omite el recuadro redondeado que por defecto rodea el '+' — el resto de
+    usos de este icono (p. ej. `etiquetas_precios.py`) no se ven afectados, `caja` por defecto
+    sigue en `True`."""
     pm = QPixmap(px, px)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
@@ -26,7 +30,8 @@ def icono_mas(px=20, color=_CIAN):
         pen = QPen(col); pen.setWidthF(ancho)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
-        p.drawRoundedRect(QRectF(m, m, px - 2 * m, px - 2 * m), rad, rad)
+        if caja:
+            p.drawRoundedRect(QRectF(m, m, px - 2 * m, px - 2 * m), rad, rad)
         p.drawLine(QPointF(cx - brazo, cx), QPointF(cx + brazo, cx))
         p.drawLine(QPointF(cx, cx - brazo), QPointF(cx, cx + brazo))
     p.end()
@@ -36,11 +41,11 @@ def icono_mas(px=20, color=_CIAN):
 class BotonMas(QPushButton):
     """Botón con icono '+' neón que se oscurece al pasar el ratón."""
 
-    def __init__(self, text, parent=None, px=20):
+    def __init__(self, text, parent=None, px=20, *, caja=True):
         super().__init__(text, parent)
         self._px = px
-        self._ic_norm = icono_mas(px, _CIAN)
-        self._ic_hover = icono_mas(px, "#0E1117")
+        self._ic_norm = icono_mas(px, _CIAN, caja=caja)
+        self._ic_hover = icono_mas(px, "#0E1117", caja=caja)
         self.setIcon(self._ic_norm)
         self.setIconSize(QSize(px, px))
 

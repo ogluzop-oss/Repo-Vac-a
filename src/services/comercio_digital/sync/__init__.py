@@ -240,7 +240,7 @@ def reconciliar(canal, referencias_remotas, *, id_empresa=None) -> dict:
 def registrar_jobs() -> bool:
     """Registra el barrido de salientes en el Scheduler existente (capacidad, degradable/opt-in)."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         sch = cap.scheduler()
         if sch is not None and hasattr(sch, "registrar_job"):
             sch.registrar_job("cd_sync_push", lambda *_a, **_k: procesar_salientes())

@@ -106,12 +106,13 @@ class CCPPanelDialog(QDialog):
     def _tab_timeline(self):
         w = QWidget(); ly = QVBoxLayout(w)
         fila = QHBoxLayout()
-        self.inp_tl = QLineEdit(); self.inp_tl.setPlaceholderText("Correo del contacto…")
+        self.inp_tl = QLineEdit(); self.inp_tl.setPlaceholderText("🔍 Correo del contacto…")
         self.inp_tl.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_CIAN};"
                                   "border-radius:10px;padding:6px 12px;}}")
         bb = QPushButton("Ver"); bb.clicked.connect(self._cargar_timeline)
-        bb.setStyleSheet(f"QPushButton{{background:{_CIAN};color:{_BG};border-radius:10px;"
-                         "font-weight:900;padding:6px 16px;}}")
+        bb.setStyleSheet(f"QPushButton{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};border-radius:10px;"
+                         "font-weight:900;padding:6px 16px;}"
+                         f"QPushButton:hover{{background:{_CIAN};color:{_BG};}}")
         fila.addWidget(self.inp_tl, 1); fila.addWidget(bb); ly.addLayout(fila)
         self.tbl_tl = _tabla(["Fecha", "Sentido", "Canal", "Asunto", "Contraparte", "Estado"])
         ly.addWidget(self.tbl_tl, 1)

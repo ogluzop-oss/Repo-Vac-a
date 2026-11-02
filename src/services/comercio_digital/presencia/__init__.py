@@ -76,7 +76,7 @@ def _ia_proponer(spec) -> dict | None:
     """Propuesta por la CAPACIDAD de IA (provider-agnostic). Devuelve None si no hay proveedor o no
     produce un resultado utilizable → el llamador degrada al heurístico. Nunca acopla a un proveedor."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         ia = cap.ia()
         if ia is None or not hasattr(ia, "agente"):
             return None

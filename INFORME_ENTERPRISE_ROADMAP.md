@@ -25,7 +25,7 @@ Multiempresa · Multitienda · Compatible hacia atrás.
    Platform     Process                                          Multi-Tenant
                 Designer
                               │
-                        Dominio / BD (MariaDB)  ·  Service Registry (src/platform)
+                        Dominio / BD (MariaDB)  ·  Service Registry (src/plataforma)
 ```
 
 Regla transversal: **GraphQL/Mobile/Portal → Servicios → Dominio → BD**. Nunca acceso directo a BD
@@ -135,7 +135,7 @@ la arquitectura para operar en múltiples nodos/regiones/centros de datos con el
 
 | Bloque | Paquete | Reutiliza | Notas |
 |---|---|---|---|
-| 11 · Cloud Distributed | `src/platform/cloud/` (nodes/heartbeat/cluster/discovery/routing/failover/storage) | Service Registry lógico | Node Registry físico, LB (RR/LeastConn/RegionFirst/Sticky), failover Primary→Secondary→Recovery **preparado**, storage abstraction Local/S3/Azure/GCS/MinIO. |
+| 11 · Cloud Distributed | `src/plataforma/cloud/` (nodes/heartbeat/cluster/discovery/routing/failover/storage) | Service Registry lógico | Node Registry físico, LB (RR/LeastConn/RegionFirst/Sticky), failover Primary→Secondary→Recovery **preparado**, storage abstraction Local/S3/Azure/GCS/MinIO. |
 | 12 · Cloud Observability | `src/services/observabilidad/cloud/` (tracing/metricas/log_collector/alertas/dashboard) | Observabilidad Enterprise (correlation/tracing/metricas/alertas) | Trace/Span/Correlation/**Communication**/**Workflow** ID; logs ELK/OpenSearch/Loki **preparado**; Cloud Dashboard. |
 | 13 · Global SaaS | `src/services/saas_global/` (regiones/planes_global/limites/consumo/feature_flags/configuracion_global/deployment) · migr `0137` | SaaS (licensing/planes/métricas/branding), i18n, Cloud | 5 regiones + resolución Region→Cluster→Node→Tenant; 6 planes; límites+consumo; **Feature Flags Cloud** jerárquicos; despliegue Cloud/On-Premise/Hybrid/Edge. |
 

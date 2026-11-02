@@ -8,7 +8,7 @@ memoria (preparación, sin red).
 
 import pytest
 
-from src.platform import cloud
+from src.plataforma import cloud
 
 
 @pytest.fixture(autouse=True)
@@ -74,7 +74,7 @@ def test_storage_abstraction():
 
 
 def test_registrada_en_plataforma():
-    from src import platform as plat
+    from src import plataforma as plat
     plat.registry.limpiar()
     plat.bootstrap()
     for esperado in ("cloud", "observability_cloud", "saas_global"):

@@ -13,10 +13,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import {useTranslation} from 'react-i18next';
 import {useAuth} from '@/store/AuthContext';
 import {colors} from '@/theme/colors';
 
 export default function LoginScreen() {
+  const {t} = useTranslation();
   const {status, signIn, submitMfa, usuario: usuarioActivo} = useAuth();
   const [usuario, setUsuario] = useState('');
   const [password, setPassword] = useState('');
@@ -34,7 +36,7 @@ export default function LoginScreen() {
       if (enMfa) {
         const r = await submitMfa(codigo.trim());
         if (r.kind === 'error') {
-          setError('Código MFA incorrecto.');
+          setError(t('login.mfa_incorrecto', 'Código MFA incorrecto.'));
         }
       } else {
         const idEmpresa = empresa.trim() ? Number(empresa.trim()) : undefined;
@@ -42,13 +44,13 @@ export default function LoginScreen() {
         if (r.kind === 'error') {
           setError(
             r.status === 401
-              ? 'Usuario o contraseña incorrectos.'
-              : `No se pudo iniciar sesión (${r.error}).`,
+              ? t('login.credenciales_incorrectas', 'Usuario o contraseña incorrectos.')
+              : t('login.no_se_pudo_iniciar', 'No se pudo iniciar sesión ({{e}}).', {e: r.error}),
           );
         }
       }
     } catch {
-      setError('No hay conexión con el servidor. Revisa API_HOST.');
+      setError(t('login.sin_conexion', 'No hay conexión con el servidor. Revisa API_HOST.'));
     } finally {
       setLoading(false);
     }
@@ -61,18 +63,20 @@ export default function LoginScreen() {
       <View style={styles.card}>
         <Text style={styles.brand}>SMART MANAGER</Text>
         <Text style={styles.subtitle}>
-          {enMfa ? 'Verificación en dos pasos' : 'Acceso'}
+          {enMfa ? t('login.verificacion_2fa', 'Verificación en dos pasos') : t('login.acceso', 'Acceso')}
         </Text>
 
         {enMfa ? (
           <>
             <Text style={styles.hint}>
-              Introduce el código de tu app de autenticación
-              {usuarioActivo ? ` (${usuarioActivo})` : ''}.
+              {usuarioActivo
+                ? t('login.introduce_codigo_con_usuario',
+                    'Introduce el código de tu app de autenticación ({{u}}).', {u: usuarioActivo})
+                : t('login.introduce_codigo', 'Introduce el código de tu app de autenticación.')}
             </Text>
             <TextInput
               style={styles.input}
-              placeholder="Código de 6 dígitos"
+              placeholder={t('login.codigo_6_digitos_ph', 'Código de 6 dígitos')}
               placeholderTextColor={colors.textDim}
               keyboardType="number-pad"
               value={codigo}
@@ -84,7 +88,7 @@ export default function LoginScreen() {
           <>
             <TextInput
               style={styles.input}
-              placeholder="Usuario"
+              placeholder={t('login.usuario_ph', 'Usuario')}
               placeholderTextColor={colors.textDim}
               autoCapitalize="none"
               value={usuario}
@@ -92,7 +96,7 @@ export default function LoginScreen() {
             />
             <TextInput
               style={styles.input}
-              placeholder="Contraseña"
+              placeholder={t('login.password_ph', 'Contraseña')}
               placeholderTextColor={colors.textDim}
               secureTextEntry
               value={password}
@@ -100,7 +104,7 @@ export default function LoginScreen() {
             />
             <TextInput
               style={styles.input}
-              placeholder="ID empresa (opcional)"
+              placeholder={t('login.id_empresa_ph', 'ID empresa (opcional)')}
               placeholderTextColor={colors.textDim}
               keyboardType="number-pad"
               value={empresa}
@@ -119,7 +123,7 @@ export default function LoginScreen() {
             <ActivityIndicator color={colors.bg} />
           ) : (
             <Text style={styles.buttonText}>
-              {enMfa ? 'Verificar' : 'Entrar'}
+              {enMfa ? t('login.verificar_btn', 'Verificar') : t('login.entrar_btn', 'Entrar')}
             </Text>
           )}
         </TouchableOpacity>

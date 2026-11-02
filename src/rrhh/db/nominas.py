@@ -94,6 +94,41 @@ def actualizar_nomina(id_nomina, id_empresa=None, **campos) -> bool:
         return False
 
 
+def aprobar_nomina(id_nomina, id_empresa=None, aprobado_por=None) -> bool:
+    """Único punto de escritura de `estado='aprobada'` (columna añadida en migr 0264, `estado
+    VARCHAR(12) DEFAULT 'borrador'`). `estado` NO está en `_PERMITIDOS`/`actualizar_nomina` a
+    propósito: la transición borrador→aprobada tiene su propia función explícita (mismo criterio
+    que `vacaciones_servicio.aprobar`/`finiquitos.aprobar_finiquito`), nunca un UPDATE genérico.
+    Solo aprueba desde 'borrador' (evita perder trazabilidad si se pulsa dos veces).
+
+    Auditoría (sesión finiquitos): esta función NO existía — el comentario de
+    `nomina_servicio.generar_borradores_mes_cerrado` ("un humano cambia estado a 'aprobada' desde
+    el listado de nóminas del expediente del empleado") describía un flujo que aún no estaba
+    cableado en ningún sitio. Se añade aquí para dejarlo realmente operativo (GUI:
+    `rrhh_gestion.ExpedienteDialog._tab_nominas`)."""
+    id_empresa = id_empresa or empresa_actual_id()
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE rrhh_nominas SET estado='aprobada' WHERE id=%s AND id_empresa=%s "
+                "AND estado='borrador'", (id_nomina, id_empresa))
+            ok = cur.rowcount > 0
+            conn.commit()
+        if ok:
+            try:
+                from src.services import eventos as _EV
+                _EV.publicar("NOMINA_APROBADA", id_empresa=id_empresa, origen="rrhh",
+                             ref_entidad="nomina", ref_id=id_nomina,
+                             payload={"aprobado_por": aprobado_por})
+            except Exception:
+                pass
+        return ok
+    except Exception as e:
+        logger.error("aprobar_nomina(%s): %s", id_nomina, e)
+        return False
+
+
 def eliminar_nomina(id_nomina, id_empresa=None) -> bool:
     id_empresa = id_empresa or empresa_actual_id()
     try:

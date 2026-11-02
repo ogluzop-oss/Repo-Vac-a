@@ -1,10 +1,16 @@
 """
 SOMA TTS — Neural Text-to-Speech for Smart Manager AI.
 
-Voice engine: Microsoft Edge TTS (es-ES-ElviraNeural)
-  – Same neural model as Azure Cognitive Services / Microsoft Edge browser.
-  – Sounds genuinely human; no API key required; requires internet.
-  – Falls back to pyttsx3 SAPI5 if edge-tts or pygame are unavailable.
+Voice engine (prioridad, con degradación automática en cascada):
+  1. ElevenLabs (voz clonada) — si `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` están
+     configuradas en el entorno. Vía REST directa (sin SDK adicional, mismo criterio que
+     el resto de integraciones de este módulo: una dependencia menos). Si la llamada falla
+     en tiempo real (red, clave inválida, cuota agotada), degrada a edge-tts PARA ESE TURNO
+     sin romper la conversación — nunca un fallo silencioso ni una excepción visible.
+  2. Microsoft Edge TTS (es-ES-ElviraNeural) — motor por defecto si ElevenLabs no está
+     configurada. Mismo modelo neuronal que Azure Cognitive Services / Microsoft Edge;
+     no requiere clave, sí requiere internet.
+  3. pyttsx3 SAPI5 — último fallback si edge-tts/pygame no están disponibles (sin internet).
 
 Playback: pygame.mixer
   – Handles MP3 natively on Windows without extra codecs.
@@ -29,6 +35,12 @@ _VOICE        = "es-ES-ElviraNeural"   # Spain Spanish, female, natural (defecto
 _RATE         = "-8%"                  # slightly slower → more natural pacing
 _PITCH        = "+0Hz"
 _VOLUME       = "+0%"
+
+# ── Voz clonada ElevenLabs (opcional) ──────────────────────────────────────────
+# Si no se configuran, SOMA usa edge-tts automáticamente (ver cascada arriba).
+_ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY") or None
+_ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID") or None
+_ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
 
 # Voz neuronal edge-tts por idioma → SOMA habla con una voz adecuada al idioma
 # activo. Si el idioma no está en el mapa, se usa _VOICE (español).
@@ -86,6 +98,32 @@ FRASES_ACTIVACION = [
     "¿Qué necesitas gestionar?",
 ]
 
+def _nombre_usuario_actual():
+    try:
+        from src.db.usuario import sesion_global
+        return (sesion_global.usuario_actual or {}).get("nombre")
+    except Exception:
+        return None
+
+
+def _con_nombre(texto, nombre):
+    """Inserta un vocativo con el nombre del usuario tras el cierre de la primera frase de
+    `texto` (duplicado deliberado de `src.soma.kernel._con_nombre` — este módulo lo necesita para
+    las frases de activación/error que hablan directamente sin pasar por el kernel, e importar
+    desde `kernel.py` aquí crearía un ciclo: kernel → voz → soma_tts → kernel)."""
+    if not texto or not nombre:
+        return texto
+    t = str(texto).rstrip()
+    if not t or nombre.lower() in t.lower():
+        return texto
+    import re
+    m = re.search(r"(?<!\d)\.(?!\d)|[!?]", t)
+    if m is None:
+        return f"{t}, {nombre}."
+    i = m.start()
+    return f"{t[:i]}, {nombre}{t[i]}{t[i + 1:]}"
+
+
 _STOP_SENTINEL = object()
 
 
@@ -112,15 +150,21 @@ class SomaTTS:
     # ── Background thread ─────────────────────────────────────────────────────
     def _tts_loop(self):
         """Persistent thread: owns asyncio loop + pygame, processes the queue."""
-        # 1. Try edge-tts + pygame (neural voice)
+        # 1. Try ElevenLabs (voz clonada) o edge-tts + pygame (neural voice)
         try:
             import pygame
             pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=2048)
             self._mixer = pygame.mixer
-            import edge_tts  # noqa — just verify importability
-            self._disponible = True
-            self._engine_type = "edge-tts"
-            logger.info("SOMA TTS: ElviraNeural (edge-tts + pygame) listo.")
+            if _ELEVENLABS_API_KEY and _ELEVENLABS_VOICE_ID:
+                import requests  # noqa — just verify importability
+                self._disponible = True
+                self._engine_type = "elevenlabs"
+                logger.info("SOMA TTS: voz clonada (ElevenLabs + pygame) lista.")
+            else:
+                import edge_tts  # noqa — just verify importability
+                self._disponible = True
+                self._engine_type = "edge-tts"
+                logger.info("SOMA TTS: ElviraNeural (edge-tts + pygame) listo.")
         except Exception as e:
             logger.warning(f"SOMA: edge-tts/pygame no disponible ({e}), probando pyttsx3...")
             # 2. Fallback: pyttsx3 SAPI5
@@ -168,7 +212,9 @@ class SomaTTS:
             self._stop_flag.clear()
             self._hablando = True
             try:
-                if self._engine_type == "edge-tts":
+                if self._engine_type == "elevenlabs":
+                    self._hablar_elevenlabs(texto_item)
+                elif self._engine_type == "edge-tts":
                     self._hablar_edge(texto_item, voz_item)
                 else:
                     self._hablar_pyttsx3(texto_item)
@@ -213,6 +259,79 @@ class SomaTTS:
                 os.remove(tmp)
             except OSError:
                 pass
+
+    # ── ElevenLabs playback (voz clonada) ────────────────────────────────────────
+    def _hablar_elevenlabs(self, texto: str):
+        """Síntesis con la voz clonada de ElevenLabs, vía REST directa (sin SDK
+        adicional). Si la API falla en tiempo real (red, clave inválida, cuota
+        agotada), degrada a edge-tts PARA ESTE TURNO — nunca rompe la conversación
+        ni se queda en silencio.
+
+        Controla y audita el uso/coste de ElevenLabs por empresa (reventa con
+        margen, ver `services/voz_control_uso.py`): ANTES de la llamada HTTP real
+        comprueba el límite mensual de seguridad de caracteres de la empresa
+        (`verificar_acceso_voz`) — si se ha agotado, cae en el MISMO `except` de
+        abajo (cero mecanismo de error nuevo: un límite de voz agotado es, para
+        este método, una razón más para degradar a edge-tts). Tras una síntesis
+        real CON ÉXITO, registra el uso real (`registrar_uso_voz`) con la longitud
+        del texto REALMENTE enviado (ya localizado/traducido), que es la base de
+        cobro real de ElevenLabs."""
+        id_empresa = id_usuario = None
+        tmp = tempfile.mktemp(suffix=".mp3")
+        try:
+            from src.services.ia_control_uso import resolver_tenant_actual
+            from src.services.voz_control_uso import registrar_uso_voz, verificar_acceso_voz
+            id_empresa, id_usuario = resolver_tenant_actual()
+            if id_empresa:
+                verificar_acceso_voz(id_empresa)
+
+            import requests
+            resp = requests.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{_ELEVENLABS_VOICE_ID}",
+                headers={
+                    "xi-api-key": _ELEVENLABS_API_KEY,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                },
+                json={
+                    "text": texto,
+                    "model_id": _ELEVENLABS_MODEL_ID,
+                    "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            with open(tmp, "wb") as f:
+                f.write(resp.content)
+
+            if self._stop_flag.is_set():
+                return
+
+            self._mixer.music.load(tmp)
+            self._mixer.music.play()
+            while self._mixer.music.get_busy() and not self._stop_flag.is_set():
+                import time
+                time.sleep(0.04)
+            self._mixer.music.stop()
+            self._mixer.music.unload()
+
+            if id_empresa:
+                registrar_uso_voz(id_empresa, id_usuario, _ELEVENLABS_VOICE_ID, len(texto))
+            return
+        except Exception as e:
+            logger.warning(f"ElevenLabs TTS falló ({e}); degradando a edge-tts para este turno.")
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+        # Degradación: este turno concreto se habla con edge-tts (si está disponible).
+        try:
+            import edge_tts  # noqa — verifica disponibilidad antes de degradar
+            self._hablar_edge(texto, _voz_actual())
+        except Exception as e2:
+            logger.error(f"Fallback edge-tts tras fallo de ElevenLabs también falló: {e2}")
 
     # ── pyttsx3 fallback ──────────────────────────────────────────────────────
     def _hablar_pyttsx3(self, texto: str):
@@ -275,7 +394,7 @@ class SomaTTS:
             return
         self._stop_flag.set()
         try:
-            if self._engine_type == "edge-tts" and self._mixer:
+            if self._engine_type in ("edge-tts", "elevenlabs") and self._mixer:
                 self._mixer.music.stop()
             elif self._engine_type == "pyttsx3":
                 self._pyttsx3_engine.stop()
@@ -289,21 +408,23 @@ class SomaTTS:
         candidatos = [f for f in FRASES_ACTIVACION if f != self._ultima_frase]
         frase = random.choice(candidatos)
         self._ultima_frase = frase
-        self.decir(frase)
+        self.decir(_con_nombre(frase, _nombre_usuario_actual()))
 
     def decir_error(self):
-        self.decir(random.choice([
+        frase = random.choice([
             "No he podido entenderte. Inténtalo de nuevo.",
             "No te he entendido bien. ¿Puedes repetirlo?",
             "No he captado el comando. Dilo de nuevo, por favor.",
-        ]))
+        ])
+        self.decir(_con_nombre(frase, _nombre_usuario_actual()))
 
     def decir_desconocido(self, _texto: str = ""):
-        self.decir(random.choice([
-            "No reconozco ese comando. Di Ey SOMA ayuda para ver qué puedo hacer.",
-            "No he encontrado esa función. Prueba decir Ey SOMA ayuda.",
-            "No sé cómo ejecutar eso. Di Ey SOMA ayuda para más opciones.",
-        ]))
+        frase = random.choice([
+            "No reconozco ese comando. Di Oye SOMA ayuda para ver qué puedo hacer.",
+            "No he encontrado esa función. Prueba decir Oye SOMA ayuda.",
+            "No sé cómo ejecutar eso. Di Oye SOMA ayuda para más opciones.",
+        ])
+        self.decir(_con_nombre(frase, _nombre_usuario_actual()))
 
     def shutdown(self):
         """Clean shutdown — stops the background thread."""

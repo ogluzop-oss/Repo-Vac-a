@@ -1,19 +1,17 @@
 import json
 import logging
 import os
-from datetime import datetime
 
 from src.utils import divisas
 
 logger = logging.getLogger("gui.etiquetas")
 
-from PyQt6.QtCore import Qt, QStringListModel, QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
-    QCompleter,
     QDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -30,16 +28,14 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from reportlab.graphics.barcode import code128
-from reportlab.lib import colors
-from reportlab.lib.units import mm
-from reportlab.pdfgen import canvas
-
 from assets.estilo_global import (
     construir_tabla_estilizada,
-    estilizar_completer,
     mostrar_mensaje,
     repolish_widget,
+)
+from src.gui.components.completer_articulos import (
+    instalar_sugerencias_articulo,
+    refrescar_sugerencias_articulo,
 )
 from src.gui.iconos_neon import BotonMas
 from src.utils import i18n
@@ -87,6 +83,7 @@ QPushButton:hover {{
     border: 2px solid {_CIAN};
 }}
 """
+
 
 # ---------------------------------------------------------------------------
 # COMPONENTES DE INTERFAZ
@@ -145,109 +142,30 @@ def _sombra_cian(widget):
     widget.setGraphicsEffect(fx)
 
 
+def _conectar_actualizar(btn, slot, cargando="⏳  Actualizando…"):
+    """Envuelve `slot` con el mismo estado de carga (texto de reloj de arena + deshabilitado
+    mientras dura) que usan los botones 'Actualizar' del resto de la app — sin sustituir el
+    propio botón por el de otra factory (conserva su icono/texto/estilo tal cual ya están)."""
+    texto_orig = btn.text()
+
+    def _run():
+        btn.setText(cargando); btn.setEnabled(False)
+        try:
+            from PyQt6.QtWidgets import QApplication
+            QApplication.processEvents()
+            slot()
+        finally:
+            btn.setText(texto_orig); btn.setEnabled(True)
+    btn.clicked.connect(_run)
+
+
 # ---------------------------------------------------------------------------
 # MOTOR DE ETIQUETAS (Lógica de estilo profesional)
 # ---------------------------------------------------------------------------
-class GeneradorEtiquetas:
-    TAMANOS = {
-        "40x26": (40, 26),
-        "65x35": (65, 35),
-        "70x35": (70, 35),
-        "95x35": (95, 35),
-        "100x70": (100, 70),
-        "148x70": (148, 70),
-    }
-
-    # Tipos de etiqueta: color del marco/banda y rótulo. "normal" = blanco (aspecto actual).
-    TIPOS = {
-        "normal":   {"color": "#111111", "banda": None,       "rotulo": None},
-        "rebajado": {"color": "#F5871F", "banda": "#F5871F",  "rotulo": "REBAJADO"},
-        "nuevo":    {"color": "#2FBF71", "banda": "#2FBF71",  "rotulo": "NUEVO"},
-    }
-
-    @staticmethod
-    def generar(codigo, nombre, precio, formato="70x35", tipo="normal"):
-        w_mm, h_mm = GeneradorEtiquetas.TAMANOS.get(formato, (70, 35))
-        cfg_tipo = GeneradorEtiquetas.TIPOS.get(tipo, GeneradorEtiquetas.TIPOS["normal"])
-
-        folder = os.path.join(os.getcwd(), "documentos", "etiquetas")
-        os.makedirs(folder, exist_ok=True)
-
-        filename = f"ETQ_{codigo}_{datetime.now().strftime('%H%M%S')}.pdf"
-        path = os.path.join(folder, filename)
-
-        W, H = w_mm * mm, h_mm * mm
-        c = canvas.Canvas(path, pagesize=(W, H))
-
-        grande = h_mm >= 55          # 100x70 · 148x70
-        peque = h_mm < 30            # 40x26
-        pad = 3.2 * mm
-
-        # Fondo blanco + marco redondeado (color según el tipo de etiqueta).
-        c.setFillColor(colors.white); c.rect(0, 0, W, H, fill=1, stroke=0)
-        inset = 1.3 * mm
-        _es_normal = cfg_tipo.get("rotulo") is None
-        c.setStrokeColor(colors.HexColor(cfg_tipo["color"]))
-        c.setLineWidth(1.1 if _es_normal else 2.2)
-        c.roundRect(inset, inset, W - 2 * inset, H - 2 * inset,
-                    min(3 * mm, H * 0.09), stroke=1, fill=0)
-
-        # Rótulo de tipo (REBAJADO / NUEVO): pastilla de color en la esquina superior derecha.
-        if cfg_tipo.get("banda") and cfg_tipo.get("rotulo"):
-            fs_tag = 8 if h_mm >= 55 else (5 if h_mm < 30 else 6.5)
-            tag = cfg_tipo["rotulo"]
-            tag_pad = 1.6 * mm
-            tag_w = c.stringWidth(tag, "Helvetica-Bold", fs_tag) + 2 * tag_pad
-            tag_h = fs_tag * 0.9 + 1.4 * mm
-            tag_x = W - inset - 1.1 * mm - tag_w
-            tag_y = H - inset - 1.1 * mm - tag_h
-            c.setFillColor(colors.HexColor(cfg_tipo["banda"]))
-            c.roundRect(tag_x, tag_y, tag_w, tag_h, tag_h * 0.35, stroke=0, fill=1)
-            c.setFillColor(colors.white); c.setFont("Helvetica-Bold", fs_tag)
-            c.drawString(tag_x + tag_pad, tag_y + (tag_h - fs_tag * 0.72) / 2, tag)
-
-        # ── Nombre del producto (arriba, izq.) — truncado al ancho disponible ──
-        fs_nom = 16 if grande else (8 if peque else 11)
-        nom = (nombre or "").upper()
-        max_w = W - 2 * pad
-        while nom and c.stringWidth(nom, "Helvetica-Bold", fs_nom) > max_w:
-            nom = nom[:-1]
-        c.setFillColor(colors.black); c.setFont("Helvetica-Bold", fs_nom)
-        nom_baseline = H - inset - pad * 0.6 - fs_nom * 0.8
-        c.drawString(pad, nom_baseline, nom)
-
-        # ── Separador fino ──
-        sep_y = nom_baseline - fs_nom * 0.45
-        c.setLineWidth(0.7); c.setStrokeColor(colors.HexColor("#CCCCCC"))
-        c.line(pad, sep_y, W - pad, sep_y)
-
-        # ── Código de barras (abajo, izq.) + REF debajo ──
-        bc_h = (13 if grande else (4.5 if peque else 6.5)) * mm
-        bar_w = 0.5 if grande else (0.3 if peque else 0.38)
-        fs_ref = 9 if grande else (5.5 if peque else 6.5)
-        ref_baseline = inset + 1.6 * mm
-        bc_y = ref_baseline + fs_ref * 0.5 + 1.0 * mm
-        try:
-            bc = code128.Code128(str(codigo), barHeight=bc_h, barWidth=bar_w)
-            bc.drawOn(c, pad, bc_y)
-        except Exception:
-            pass
-        c.setFillColor(colors.HexColor("#333333")); c.setFont("Helvetica", fs_ref)
-        c.drawString(pad, ref_baseline, f"REF: {codigo}")
-
-        # ── Precio destacado (derecha, banda media) ──
-        precio_str = divisas.formatear(float(precio))
-        fs_precio = 42 if grande else (18 if peque else 28)
-        ancho_max = W - 2 * pad - 2.5 * mm          # margen extra para que el símbolo no roce el marco
-        while fs_precio > 8 and c.stringWidth(precio_str, "Helvetica-Bold", fs_precio) > ancho_max:
-            fs_precio -= 1
-        zona_top, zona_bot = sep_y, bc_y + bc_h
-        precio_baseline = (zona_top + zona_bot) / 2 - fs_precio * 0.34
-        c.setFillColor(colors.black); c.setFont("Helvetica-Bold", fs_precio)
-        c.drawRightString(W - pad - 1.5 * mm, precio_baseline, precio_str)
-
-        c.save()
-        return path
+# GeneradorEtiquetas vive en src/services/etiquetas/pdf.py (lógica pura, sin Qt) para poder llamarse
+# también desde la REST API (móvil) sin arrastrar PyQt6 a un proceso headless. Se importa aquí para
+# no romper a los llamadores existentes de este fichero.
+from src.services.etiquetas.pdf import GeneradorEtiquetas
 
 
 # ---------------------------------------------------------------------------
@@ -276,53 +194,45 @@ class _CambiarPrecioPage(QWidget):
 
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText(
-            tr("etiq.search_ph", default="Introduce código o nombre del artículo...")
+            tr("etiq.search_ph", default="🔍 Introduce código o nombre del artículo...")
         )
         self.search_bar.setStyleSheet(_NEON_INPUT_SS)
         self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
         self.search_bar.returnPressed.connect(self._buscar_y_editar)
-        # Sugerencias de artículos al escribir (igual que en "Registrar merma").
-        self._completer_model = QStringListModel()
-        completer = QCompleter(self._completer_model, self.search_bar)
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        self.search_bar.setCompleter(completer)
-        estilizar_completer(completer)
-        self.search_bar.textChanged.connect(self._on_search_text_changed)
+        # Sugerencias de artículos: helper compartido, ver gui/components/completer_articulos.py
+        self.completer = instalar_sugerencias_articulo(self.search_bar)
         layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
-        self._cargar_completer()
 
-        self._btn_buscar = QPushButton(tr("etiq.search_btn", default="BUSCAR ARTÍCULO"))
+        self._btn_buscar = QPushButton(tr("etiq.search_btn", default="🔍"))
         self._btn_buscar.setStyleSheet(_BTN_CIAN_SS)
         self._btn_buscar.setFixedSize(220, 55)
         self._btn_buscar.clicked.connect(self._buscar_y_editar)
         _sombra_cian(self._btn_buscar)
-        layout.addWidget(self._btn_buscar, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=lambda v: (self.search_bar.setText(v), self._buscar_y_editar()),
+            contexto="etiquetas.cambiar_precio")
+
+        fila_btn = QHBoxLayout()
+        fila_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        fila_btn.addWidget(self._btn_buscar)
+        fila_btn.addWidget(btn_escaneo_movil)
+        layout.addLayout(fila_btn)
 
         layout.addStretch(1)
 
     def _retraducir(self):
         self._lbl_tit.setText(tr("etiq.price_title", default="GESTIÓN DE PRECIOS"))
         self.search_bar.setPlaceholderText(
-            tr("etiq.search_ph", default="Introduce código o nombre del artículo...")
+            tr("etiq.search_ph", default="🔍 Introduce código o nombre del artículo...")
         )
-        self._btn_buscar.setText(tr("etiq.search_btn", default="BUSCAR ARTÍCULO"))
-
-    def _cargar_completer(self):
-        try:
-            from src.db.conexion import _get_todos_articulos_para_completer
-            articulos = _get_todos_articulos_para_completer()
-            self._completer_model.setStringList([f"{c} – {n}" for c, n in articulos])
-        except Exception:
-            pass
-
-    def _on_search_text_changed(self, text):
-        if len(text) >= 2 and not self._completer_model.stringList():
-            self._cargar_completer()
+        self._btn_buscar.setText(tr("etiq.search_btn", default="🔍"))
 
     def cargar_datos(self):
         """Refresca el autocompletado al entrar en la pestaña."""
-        self._cargar_completer()
+        refrescar_sugerencias_articulo(self.completer)
 
     def _buscar_y_editar(self):
         termino = self.search_bar.text().strip()
@@ -656,13 +566,6 @@ QCheckBox::indicator:checked {{ border:1px solid {_CIAN}; background:{_CIAN}; }}
 """
 
 
-def _articulos_completer():
-    """Sugerencias 'CÓDIGO – NOMBRE' para vincular etiquetas."""
-    from src.db.articulos import listar_codigo_nombre
-    return [f"{str(c or '').strip()} – {str(n or '').strip()}".strip(" –")
-            for c, n in listar_codigo_nombre()]
-
-
 class _ESLConfigDialog(QDialog):
     """Configuración del proveedor ESL (esl.admin). La credencial se guarda cifrada; nunca se muestra."""
 
@@ -684,9 +587,13 @@ class _ESLConfigDialog(QDialog):
         main_lyt.addWidget(cont)
         ly = QVBoxLayout(cont); ly.setContentsMargins(30, 30, 30, 30); ly.setSpacing(12)
 
+        cab = QHBoxLayout()
         lbl_t = QLabel(tr("esl.cfg_title", default="CONFIGURACIÓN ESL"))
         lbl_t.setStyleSheet(f"color:{_CIAN};font-size:15px;font-weight:900;border:none;")
-        ly.addWidget(lbl_t)
+        cab.addWidget(lbl_t); cab.addStretch()
+        from src.gui.catalogo_gestion import _btn_x
+        cab.addWidget(_btn_x(self.reject))
+        ly.addLayout(cab)
 
         ly.addWidget(QLabel(tr("esl.cfg_prov", default="PROVEEDOR:")))
         self.cmb_prov = QComboBox(); self.cmb_prov.setStyleSheet(_COMBO_SS)
@@ -722,10 +629,8 @@ class _ESLConfigDialog(QDialog):
         btn_lyt = QHBoxLayout()
         btn_ok = QPushButton(tr("esl.save", default="GUARDAR")); btn_ok.setStyleSheet(_BTN_CIAN_SS)
         btn_ok.setCursor(Qt.CursorShape.PointingHandCursor); btn_ok.clicked.connect(self.accept)
-        btn_cancel = QPushButton(tr("etiq.cancel", default="CANCELAR"))
-        btn_cancel.setStyleSheet("background-color:#30363D;color:white;border-radius:10px;padding:10px;font-weight:bold;")
-        btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor); btn_cancel.clicked.connect(self.reject)
-        btn_lyt.addWidget(btn_ok); btn_lyt.addWidget(btn_cancel)
+        # Sin "Cancelar": ya está la X roja de la cabecera — era redundante.
+        btn_lyt.addWidget(btn_ok)
         ly.addLayout(btn_lyt)
 
     def datos(self):
@@ -758,55 +663,96 @@ class _EtiquetasElectronicasPage(QWidget):
         self._lbl_modo.setStyleSheet("color:#8B949E;font-size:12px;font-weight:bold;")
         cab.addSpacing(12); cab.addWidget(self._lbl_modo)
         cab.addStretch()
-        self._btn_cfg = QPushButton("⚙  " + tr("esl.config", default="CONFIGURAR"))
-        self._btn_cfg.setStyleSheet(_BTN_CIAN_SS); self._btn_cfg.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_cfg.clicked.connect(self._configurar)
-        cab.addWidget(self._btn_cfg)
         root.addLayout(cab)
 
-        # ── alta (vincular) ──
+        # ── alta (vincular) + CONFIGURAR en la misma fila que las 2 barras ──
         alta = QHBoxLayout(); alta.setSpacing(10)
-        self.in_cod = QLineEdit(); self.in_cod.setStyleSheet(_NEON_INPUT_SS); self.in_cod.setFixedHeight(44)
-        self.in_cod.setPlaceholderText(tr("esl.art_ph", default="Código o nombre del artículo…"))
-        comp = QCompleter(); mdl = QStringListModel(); comp.setModel(mdl)
-        comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        comp.setFilterMode(Qt.MatchFlag.MatchContains)
-        if estilizar_completer:
-            estilizar_completer(comp)
-        mdl.setStringList(_articulos_completer()); self.in_cod.setCompleter(comp)
-        self.in_label = QLineEdit(); self.in_label.setStyleSheet(_NEON_INPUT_SS); self.in_label.setFixedHeight(44)
+        self.in_cod = QLineEdit(); self.in_cod.setStyleSheet(_NEON_INPUT_SS)
+        self.in_cod.setPlaceholderText(tr("esl.art_ph", default="🔍 Código o nombre del artículo…"))
+        # Estrechado un poco (antes sin tope) para hacer sitio al nuevo botón de lupa junto al de
+        # escaneo remoto, sin que la fila desborde/pase a dos líneas.
+        self.in_cod.setMaximumWidth(300)
+        instalar_sugerencias_articulo(self.in_cod)
+        self.in_cod.returnPressed.connect(self._buscar_en_tabla)
+        self.in_label = QLineEdit(); self.in_label.setStyleSheet(_NEON_INPUT_SS)
         self.in_label.setPlaceholderText(tr("esl.label_ph", default="ID de la etiqueta…"))
-        self.in_label.setMaximumWidth(240)
+        self.in_label.setMaximumWidth(340)
         self.in_label.returnPressed.connect(self._vincular)
-        self._btn_vinc = QPushButton("🔗 " + tr("esl.link", default="VINCULAR"))
-        self._btn_vinc.setStyleSheet(_BTN_CIAN_SS); self._btn_vinc.setFixedHeight(44)
-        self._btn_vinc.setCursor(Qt.CursorShape.PointingHandCursor); self._btn_vinc.clicked.connect(self._vincular)
-        alta.addWidget(self.in_cod, 1); alta.addWidget(self.in_label); alta.addWidget(self._btn_vinc)
+
+        # Botón de lupa: busca/selecciona en la tabla de abajo la etiqueta cuyo artículo coincida con
+        # lo escrito en `in_cod` (misma tabla que ya pinta `_cargar`, sin lógica nueva de negocio).
+        self._btn_buscar = QPushButton("🔍")
+        self._btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 48x48 (no 38x38/44x44): evita que el glifo emoji 🔍 se vea recortado.
+        self._btn_buscar.setFixedSize(48, 48)
+        self._btn_buscar.setStyleSheet(_BTN_CIAN_SS.replace("padding: 12px 24px;", "padding: 0;"))
+        self._btn_buscar.clicked.connect(self._buscar_en_tabla)
+
+        # Escaneo remoto: delega el escaneo del artículo al móvil. Solo rellena `in_cod` (como al
+        # escribir a mano) — vincular exige TAMBIÉN el ID de la etiqueta en `in_label`, no se dispara
+        # `_vincular()` sola con un formulario a medias. Justo a la derecha de `in_label` (el campo
+        # al que lógicamente más se asocia el escaneo, no al final de la fila). El botón de lupa va
+        # justo a su lado (ambos conviven, ninguno sustituye al otro).
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=self.in_cod.setText, contexto="etiquetas.esl_vincular")
+
+        self._btn_loc = QPushButton("📍 " + tr("esl.locate", default="LOCALIZAR"))
+        self._btn_cfg = QPushButton("⚙  " + tr("esl.config", default="CONFIGURAR"))
+        for b in (self._btn_loc, self._btn_cfg):
+            b.setStyleSheet(_BTN_CIAN_SS); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_loc.clicked.connect(self._localizar)
+        self._btn_cfg.clicked.connect(self._configurar)
+
+        # `self.in_cod` sigue con `stretch=1`: al añadir LOCALIZAR/CONFIGURAR a esta misma fila, se
+        # estrecha solo (le queda lo que sobra tras `in_label` + icono + los 2 botones) sin tocarlo
+        # aparte.
+        alta.addWidget(self.in_cod, 1); alta.addWidget(self.in_label)
+        alta.addWidget(self._btn_buscar); alta.addWidget(btn_escaneo_movil)
+        alta.addWidget(self._btn_loc); alta.addWidget(self._btn_cfg)
         root.addLayout(alta)
 
-        # ── barra de acciones ──
-        tb = QHBoxLayout(); tb.setSpacing(10)
-        self._btn_refrescar = QPushButton("🔄 " + tr("esl.refresh", default="ACTUALIZAR"))
+        # ── barra de acciones: Sincronizar · Vincular · Desvincular a la izquierda, ACTUALIZAR
+        # pegado a la derecha (así cae justo encima de la esquina superior derecha de la tabla, que
+        # ocupa el ancho completo de la fila de abajo) — todo en la MISMA fila. LOCALIZAR se movió
+        # arriba, junto a CONFIGURAR. Con los 4 restantes YA a tamaño normal (misma letra 13px que
+        # Configurar) seguían sin caber por poco en una pantalla de 1366px (medido: pedían ~47px de
+        # más) — se recorta solo el relleno horizontal un poco (24px→18px por lado) y el espaciado
+        # entre botones, sin tocar ni la letra ni la altura, para cerrar ese hueco.
+        self._tb_acciones = tb = QHBoxLayout(); tb.setSpacing(6)
         self._btn_sync = QPushButton("⬆ " + tr("esl.sync", default="SINCRONIZAR PENDIENTES"))
-        self._btn_loc = QPushButton("📍 " + tr("esl.locate", default="LOCALIZAR"))
+        self._btn_vinc = QPushButton("🔗 " + tr("esl.link", default="VINCULAR"))
         self._btn_unlink = QPushButton("✕ " + tr("esl.unlink", default="DESVINCULAR"))
-        for b in (self._btn_refrescar, self._btn_sync, self._btn_loc):
-            b.setStyleSheet(_BTN_CIAN_SS); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_refrescar = QPushButton("🔄 " + tr("esl.refresh", default="ACTUALIZAR"))
+        _ss_fila = _BTN_CIAN_SS.replace("padding: 12px 24px;", "padding: 12px 18px;")
+        for b in (self._btn_sync, self._btn_vinc, self._btn_refrescar):
+            b.setStyleSheet(_ss_fila); b.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_unlink.setStyleSheet(f"""
             QPushButton {{ background:#0E1117; color:#F85149; font-weight:bold; border-radius:14px;
-                padding:12px 24px; font-size:13px; border:2px solid #F85149; }}
+                padding:12px 18px; font-size:13px; border:2px solid #F85149; }}
             QPushButton:hover {{ background:#F85149; color:#0E1117; }}""")
         self._btn_unlink.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_refrescar.clicked.connect(self._cargar)
         self._btn_sync.clicked.connect(self._sincronizar)
-        self._btn_loc.clicked.connect(self._localizar)
+        self._btn_vinc.clicked.connect(self._vincular)
         self._btn_unlink.clicked.connect(self._desvincular)
-        tb.addWidget(self._btn_refrescar); tb.addWidget(self._btn_sync); tb.addWidget(self._btn_loc)
-        tb.addStretch(); tb.addWidget(self._btn_unlink)
+        _conectar_actualizar(self._btn_refrescar, self._cargar)
+        for b in (self._btn_sync, self._btn_vinc, self._btn_unlink):
+            # Sin esto, un QHBoxLayout con varios botones de texto muy distinto ("VINCULAR" vs
+            # "SINCRONIZAR PENDIENTES") los repartía a TODOS con el mismo ancho (el más corto
+            # posible que cupiera), ignorando el sizeHint real de cada uno — el texto de los más
+            # largos quedaba cortado (bug real reportado). Fijar el mínimo al ancho que cada uno
+            # necesita de verdad evita que el layout los aplaste por debajo de eso.
+            b.setMinimumWidth(b.sizeHint().width())
+            tb.addWidget(b)
+        tb.addStretch()
+        self._btn_refrescar.setMinimumWidth(self._btn_refrescar.sizeHint().width())
+        tb.addWidget(self._btn_refrescar)
         root.addLayout(tb)
 
         # ── tabla ──
-        self.tabla = QTableWidget(0, 5); self.tabla.setStyleSheet(_TABLA_SS)
+        contenedor, self.tabla = construir_tabla_estilizada(self)   # contorno neón + esquinas (estándar app)
+        self.tabla.setStyleSheet(_HEADER_STD_SS)
+        self.tabla.setColumnCount(5)
         self.tabla.setHorizontalHeaderLabels([
             tr("esl.c_art", default="Artículo"), tr("esl.c_label", default="Etiqueta (ID)"),
             tr("esl.c_precio", default="Precio actual"), tr("esl.c_sync", default="Sincronizado"),
@@ -815,11 +761,13 @@ class _EtiquetasElectronicasPage(QWidget):
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tabla.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         hh = self.tabla.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for c in (1, 2, 3, 4):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
-        root.addWidget(self.tabla, 1)
+        hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        hh.setHighlightSections(True)   # hover swap de las cabeceras
+        for c in range(5):              # columnas equitativas (misma anchura → todo centrado)
+            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
+        root.addWidget(contenedor, 1)
 
         self._lbl_estado = QLabel(""); self._lbl_estado.setStyleSheet("color:#8B949E;font-size:12px;")
         root.addWidget(self._lbl_estado)
@@ -858,8 +806,7 @@ class _EtiquetasElectronicasPage(QWidget):
             self._lbl_modo.setText(tr("esl.mode_real", default="● Proveedor: {p}", p=cfg.get("proveedor")))
             self._lbl_modo.setStyleSheet("color:#2ECC71;font-size:12px;font-weight:bold;")
         else:
-            self._lbl_modo.setText(tr("esl.mode_sim", default="● Modo simulado"))
-            self._lbl_modo.setStyleSheet("color:#8B949E;font-size:12px;font-weight:bold;")
+            self._lbl_modo.setText("")
 
         labels = registro.listar()
         pend_ids = {p["label_id"] for p in sync.pendientes()}
@@ -883,6 +830,13 @@ class _EtiquetasElectronicasPage(QWidget):
                 self.tabla.setItem(r, c, it)
         n_pend = len(pend_ids)
         self._btn_sync.setText(f"⬆ {tr('esl.sync', default='SINCRONIZAR PENDIENTES')} ({n_pend})")
+        # El texto cambia en tiempo de ejecución (el contador) — se rehace el mínimo para que
+        # nunca vuelva a quedar por debajo de lo que el nuevo texto necesita. `setMinimumWidth`
+        # actualiza el tamaño del PROPIO botón pero no siempre basta para que el `QHBoxLayout`
+        # recoloque de inmediato a los botones que van DETRÁS — se comprobó que quedaban solapados
+        # con el ancho antiguo (bug real reproducido). `invalidate()` fuerza el reflujo completo.
+        self._btn_sync.setMinimumWidth(self._btn_sync.sizeHint().width())
+        self._tb_acciones.invalidate()
 
     def _sel_label(self):
         row = self.tabla.currentRow()
@@ -890,6 +844,27 @@ class _EtiquetasElectronicasPage(QWidget):
             return None
         it = self.tabla.item(row, 1)
         return it.data(Qt.ItemDataRole.UserRole) if it else None
+
+    def _buscar_en_tabla(self):
+        """Busca en la tabla ya cargada (columna Artículo) la primera fila que coincida con lo escrito
+        en `in_cod` y la selecciona/hace visible. Solo navega datos ya pintados por `_cargar`, no
+        lanza ninguna consulta ni lógica de negocio nueva."""
+        q = self.in_cod.text().strip()
+        if "–" in q:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            q = q.split("–")[0].strip()
+        q = q.lower()
+        if not q:
+            return
+        for r in range(self.tabla.rowCount()):
+            it = self.tabla.item(r, 0)
+            if it and q in it.text().lower():
+                self.tabla.selectRow(r)
+                self.tabla.scrollToItem(it)
+                return
+        if mostrar_mensaje:
+            mostrar_mensaje(self, tr("esl.title", default="ETIQUETAS ELECTRÓNICAS"),
+                            tr("esl.buscar_sin_resultado", default="Ninguna etiqueta vinculada coincide con «{q}».", q=self.in_cod.text().strip()),
+                            nivel="info")
 
     # ── acciones ──
     def _vincular(self):
@@ -899,10 +874,19 @@ class _EtiquetasElectronicasPage(QWidget):
             cod = cod.split("–")[0].strip()
         label = self.in_label.text().strip()
         if not cod or not label:
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("esl.link", default="VINCULAR"),
+                                tr("esl.link_faltan", default="Indica el artículo y el ID de la etiqueta."),
+                                nivel="info")
             return
         if registro.vincular(cod, label):
             self.in_cod.clear(); self.in_label.clear()
             self._cargar()
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("esl.link", default="VINCULAR"),
+                                tr("esl.link_ok", default="Etiqueta {l} vinculada al artículo «{c}».",
+                                   l=label, c=cod),
+                                nivel="success")
         elif mostrar_mensaje:
             mostrar_mensaje(self, tr("esl.title", default="ETIQUETAS ELECTRÓNICAS"),
                             tr("esl.link_err", default="No se pudo vincular. ¿Existe el artículo «{c}»?", c=cod),
@@ -923,6 +907,10 @@ class _EtiquetasElectronicasPage(QWidget):
         from src.services.esl import sync
         label = self._sel_label()
         if not label:
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("esl.locate", default="LOCALIZAR"),
+                                tr("esl.sel_loc", default="Selecciona antes una etiqueta de la tabla."),
+                                nivel="info")
             return
         r = sync.localizar(label)
         if mostrar_mensaje:
@@ -936,6 +924,10 @@ class _EtiquetasElectronicasPage(QWidget):
         from src.services.esl import registro
         label = self._sel_label()
         if not label:
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("esl.unlink", default="DESVINCULAR"),
+                                tr("esl.sel_unlink", default="Selecciona antes una etiqueta de la tabla."),
+                                nivel="info")
             return
         try:
             from assets.estilo_global import mostrar_confirmacion
@@ -947,6 +939,10 @@ class _EtiquetasElectronicasPage(QWidget):
             return
         registro.desvincular(label)
         self._cargar()
+        if mostrar_mensaje:
+            mostrar_mensaje(self, tr("esl.unlink", default="DESVINCULAR"),
+                            tr("esl.unlink_ok", default="Etiqueta {l} desvinculada.", l=label),
+                            nivel="success")
 
     def _configurar(self):
         from src.services.esl import config
@@ -1015,9 +1011,13 @@ class _ReglaPrecioDialog(QDialog):
         main_lyt.addWidget(cont)
         ly = QVBoxLayout(cont); ly.setContentsMargins(28, 26, 28, 26); ly.setSpacing(11)
 
+        cab = QHBoxLayout()
         lbl_t = QLabel(tr("pd.edit", default="EDITAR REGLA") if regla else tr("pd.new", default="NUEVA REGLA"))
         lbl_t.setStyleSheet(f"color:{_CIAN};font-size:15px;font-weight:900;border:none;")
-        ly.addWidget(lbl_t)
+        cab.addWidget(lbl_t); cab.addStretch()
+        from src.gui.catalogo_gestion import _btn_x
+        cab.addWidget(_btn_x(self.reject))
+        ly.addLayout(cab)
 
         ly.addWidget(QLabel(tr("pd.name", default="NOMBRE:")))
         self.in_nombre = QLineEdit(regla.get("nombre", "")); self.in_nombre.setStyleSheet(_NEON_INPUT_SS)
@@ -1034,6 +1034,23 @@ class _ReglaPrecioDialog(QDialog):
         self.cmb_tipo.currentIndexChanged.connect(self._vis)
         ly.addWidget(self.cmb_tipo)
 
+        ly.addWidget(QLabel(tr("pd.family", default="FAMILIA (opcional):")))
+        self.cmb_familia = QComboBox(); self.cmb_familia.setStyleSheet(_COMBO_SS)
+        self.cmb_familia.setMinimumWidth(150)
+        self.cmb_familia.addItem(tr("pd.family_all", default="Todas las familias"), None)
+        try:
+            from src.db.familias import listar_familias
+            for fam in listar_familias():
+                self.cmb_familia.addItem(fam.get("nombre", ""), fam.get("id"))
+        except Exception:
+            pass
+        id_familia_actual = params.get("id_familia")
+        if id_familia_actual is not None:
+            i = self.cmb_familia.findData(id_familia_actual)
+            if i >= 0:
+                self.cmb_familia.setCurrentIndex(i)
+        ly.addWidget(self.cmb_familia)
+
         # grupo horario
         self.g_hor = QWidget(); gh = QHBoxLayout(self.g_hor); gh.setContentsMargins(0, 0, 0, 0); gh.setSpacing(8)
         self.in_desde = QLineEdit(params.get("desde", "")); self.in_desde.setStyleSheet(_NEON_INPUT_SS)
@@ -1048,6 +1065,7 @@ class _ReglaPrecioDialog(QDialog):
         # grupo stock
         self.g_stk = QWidget(); gs = QHBoxLayout(self.g_stk); gs.setContentsMargins(0, 0, 0, 0); gs.setSpacing(8)
         self.cmb_campo = QComboBox(); self.cmb_campo.setStyleSheet(_COMBO_SS); self.cmb_campo.addItems(self._CAMPOS)
+        self.cmb_campo.setMinimumWidth(150)   # que no se corten "Stock_central" / "Stock_tienda"
         if params.get("campo") in self._CAMPOS:
             self.cmb_campo.setCurrentText(params["campo"])
         self.cmb_op = QComboBox(); self.cmb_op.setStyleSheet(_COMBO_SS); self.cmb_op.addItems(self._OPS)
@@ -1099,10 +1117,8 @@ class _ReglaPrecioDialog(QDialog):
         btn_lyt = QHBoxLayout()
         btn_ok = QPushButton(tr("esl.save", default="GUARDAR")); btn_ok.setStyleSheet(_BTN_CIAN_SS)
         btn_ok.setCursor(Qt.CursorShape.PointingHandCursor); btn_ok.clicked.connect(self._guardar)
-        btn_cancel = QPushButton(tr("etiq.cancel", default="CANCELAR"))
-        btn_cancel.setStyleSheet("background-color:#30363D;color:white;border-radius:10px;padding:10px;font-weight:bold;")
-        btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor); btn_cancel.clicked.connect(self.reject)
-        btn_lyt.addWidget(btn_ok); btn_lyt.addWidget(btn_cancel)
+        # Sin "Cancelar": ya está la X roja de la cabecera — era redundante.
+        btn_lyt.addWidget(btn_ok)
         ly.addLayout(btn_lyt)
 
         # Los contenedores de grupo son QWidget → toman el fondo global de la app (más oscuro). Se hacen
@@ -1137,6 +1153,9 @@ class _ReglaPrecioDialog(QDialog):
             except ValueError:
                 dias = 7
             params = {"dias": dias}
+        id_familia = self.cmb_familia.currentData()
+        if id_familia is not None:
+            params["id_familia"] = id_familia
         try:
             valor = float(self.in_valor.text().replace(",", "."))
         except ValueError:
@@ -1416,6 +1435,19 @@ class EtiquetasPreciosWindow(QWidget):
         except Exception:
             pass
 
+        # Badges de actividad (Fase 3): circulo rojo sobre "CAMBIAR PRECIO" cuando hay precios
+        # actualizados sin revisar (variante sidebar+QStackedWidget de `foundation/tab_badges.py`,
+        # calculado al vuelo desde `services.actividad.badges` — nunca almacenado aqui).
+        try:
+            from src.gui.foundation.tab_badges import instalar_badges_sidebar
+            self._gestor_badges = instalar_badges_sidebar(
+                self._nav_btns, self._contar_badges_sidebar, self._al_entrar_seccion_badge)
+            self._timer_badges = QTimer(self)
+            self._timer_badges.timeout.connect(self._gestor_badges.refrescar)
+            self._timer_badges.start(60000)
+        except Exception:
+            pass
+
     def setup_ui(self):
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1433,7 +1465,7 @@ class EtiquetasPreciosWindow(QWidget):
         side_ly.setContentsMargins(0, 40, 0, 20)
         side_ly.setSpacing(0)
 
-        lbl_m = QLabel(tr("etiq.smart_tags", default="SMART TAGS"))
+        lbl_m = QLabel(tr("etiq.smart_tags", default="SMART TAGS").upper())
         lbl_m.setStyleSheet(
             "color: #ffffff; font-size: 16px; font-weight: 900; margin-left: 30px; "
             "margin-bottom: 35px; letter-spacing: 2px; border: none; background: transparent;"
@@ -1447,7 +1479,7 @@ class EtiquetasPreciosWindow(QWidget):
 
         self._nav_btns = []
         for idx, key in enumerate(self._tab_keys):
-            btn = _SidebarBtn(tr(key, default=_tab_def[idx]))
+            btn = _SidebarBtn(tr(key, default=_tab_def[idx]).upper())
             btn.setCheckable(True)
             btn.setAutoExclusive(True)
             btn.clicked.connect(lambda _, i=idx: self._ir_a(i))
@@ -1456,7 +1488,7 @@ class EtiquetasPreciosWindow(QWidget):
 
         side_ly.addStretch()
 
-        self._btn_exit = btn_exit = _SidebarBtn(tr("etiq.exit", default="SALIR AL MENÚ"))
+        self._btn_exit = btn_exit = _SidebarBtn(tr("etiq.exit", default="SALIR AL MENÚ").upper())
         btn_exit.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -1496,8 +1528,8 @@ class EtiquetasPreciosWindow(QWidget):
         self.setWindowTitle(tr("etiq.window_title", default="Etiquetas de Precio"))
         _tab_def = ["CAMBIAR PRECIO", "ETIQUETAS ELECTRÓNICAS", "PRECIO DINÁMICO"]
         for i, btn in enumerate(self._nav_btns):
-            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
-        self._btn_exit.setText(tr("etiq.exit", default="SALIR AL MENÚ"))
+            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]).upper())
+        self._btn_exit.setText(tr("etiq.exit", default="SALIR").upper())
         for page in (self._page_precio, self._page_esl, self._page_precdyn):
             if hasattr(page, "_retraducir"):
                 page._retraducir()
@@ -1507,6 +1539,40 @@ class EtiquetasPreciosWindow(QWidget):
         for i, btn in enumerate(self._nav_btns):
             btn.setChecked(i == index)
             repolish_widget(btn)
+
+    def _id_empresa_actual(self):
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return None
+
+    def _contar_badges_sidebar(self):
+        """`obtener_counts` del `GestorBadgesSidebar`: {indice_boton: nº pendientes}. Solo "CAMBIAR
+        PRECIO" (índice 0 en `self._nav_btns`) tiene pestaña mapeada (`mapeo.TIPO_A_SUBTAB
+        ["PRECIO_ACTUALIZADO"] == "precio"`)."""
+        try:
+            from src.services.actividad import badges as _actividad_badges
+            counts = _actividad_badges.contar_subtabs(
+                "etiquetas", usuario=self.usuario_actual, id_empresa=self._id_empresa_actual())
+            n = int(counts.get("precio", 0) or 0)
+        except Exception:
+            n = 0
+        return {0: n} if n else {}
+
+    def _al_entrar_seccion_badge(self, indice):
+        """`al_entrar` del `GestorBadgesSidebar`: al pulsar "CAMBIAR PRECIO" (índice 0), marca la
+        pestaña como vista y repinta los badges. Se conecta ADEMÁS del `clicked` que ya cambia de
+        vista (`_ir_a`), no lo sustituye."""
+        if indice != 0:
+            return
+        try:
+            from src.services.actividad import badges as _actividad_badges
+            _actividad_badges.marcar_visto(
+                "etiquetas.precio", usuario=self.usuario_actual, id_empresa=self._id_empresa_actual())
+            self._gestor_badges.refrescar()
+        except Exception:
+            pass
 
     def volver_menu_principal(self):
         if self.callback_vuelta:

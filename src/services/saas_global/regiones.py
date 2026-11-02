@@ -62,7 +62,7 @@ def resolver(id_empresa, *, estrategia="region_first") -> dict:
     region = region_de(id_empresa)
     nodo = cluster = None
     try:
-        from src.platform import cloud
+        from src.plataforma import cloud
         elegido = cloud.routing.elegir(estrategia, region=region,
                                        clave_sesion=str(id_empresa))
         if elegido:

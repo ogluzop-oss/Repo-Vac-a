@@ -350,6 +350,16 @@ def _job_saas_facturacion(id_empresa):
     return facturacion_automatica.job(id_empresa)
 
 
+def _job_ia_facturacion(id_empresa):
+    from src.services.saas import facturacion_ia
+    return facturacion_ia.job(id_empresa)
+
+
+def _job_voz_facturacion(id_empresa):
+    from src.services.saas import facturacion_voz
+    return facturacion_voz.job(id_empresa)
+
+
 def registrar_jobs_por_defecto(id_empresa=None):
     """Registra los callables y crea los jobs por defecto de la empresa (idempotente)."""
     registrar("vencimientos", _job_vencimientos)
@@ -358,6 +368,8 @@ def registrar_jobs_por_defecto(id_empresa=None):
     registrar("cobros_recordatorios", _job_cobros_recordatorios)
     registrar("camaras_retencion", _job_camaras_retencion)
     registrar("saas_facturacion", _job_saas_facturacion)   # opt-in (solo SaaS): no se crea job por defecto
+    registrar("ia_facturacion", _job_ia_facturacion)   # opt-in (solo SaaS): no se crea job por defecto
+    registrar("voz_facturacion", _job_voz_facturacion)   # opt-in (solo SaaS): no se crea job por defecto
     registrar_job("vencimientos", intervalo_horas=24, descripcion="Marcar vencimientos vencidos", id_empresa=id_empresa)
     registrar_job("workflow_sla", intervalo_horas=12, descripcion="Escalado SLA de aprobaciones", id_empresa=id_empresa)
     registrar_job("backup", intervalo_horas=24, descripcion="Backup programado", id_empresa=id_empresa)
@@ -390,6 +402,7 @@ def registrar_jobs_por_defecto(id_empresa=None):
         ("src.services.crm.automatizacion", "registrar_jobs_crm"),       # automatización CRM (24 h)
         ("src.services.bi.snapshots", "registrar_jobs_bi"),              # snapshots KPI (24 h/…)
         ("src.services.finanzas.dashboard", "registrar_jobs_finanzas"),  # ratios/riesgo/anomalías (24 h)
+        ("src.services.automatizacion.programadas", "registrar_jobs"),   # dispara reglas programadas
     ):
         try:
             getattr(importlib.import_module(_mod), _fn)(id_empresa=id_empresa)

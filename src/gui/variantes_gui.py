@@ -7,11 +7,13 @@ Autocontenido y testeable offscreen. La entrada a este diálogo se gatea con `ve
 import logging
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import (
-    QDialog, QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
+    QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QVBoxLayout,
 )
 
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.gui.foundation import tokens as T
 from src.services import variantes as _V
 
@@ -58,12 +60,18 @@ class VariantesDialog(QDialog):
         if not self.codigo_padre:
             fila0 = QHBoxLayout(); fila0.addWidget(QLabel("Modelo (código):"))
             self.in_padre = QLineEdit(); self.in_padre.setPlaceholderText("Código del producto modelo")
+            instalar_sugerencias_articulo(self.in_padre)
             fila0.addWidget(self.in_padre, 1); ly.addLayout(fila0)
         fila = QHBoxLayout()
         self.in_tallas = QLineEdit(); self.in_tallas.setPlaceholderText("Tallas (S,M,L,XL)")
         self.in_colores = QLineEdit(); self.in_colores.setPlaceholderText("Colores (Rojo,Azul,Negro)")
-        self.in_precio = QDoubleSpinBox(); self.in_precio.setRange(0, 1000000); self.in_precio.setDecimals(2)
-        self.in_precio.setPrefix("€ ")
+        # QLineEdit + validador en vez de QDoubleSpinBox: la app oculta sus flechas arriba/abajo vía
+        # QSS y eso rompía su foco/clic en varios diálogos (confirmado por el usuario) — mismo
+        # criterio ya aplicado en `sat_dashboard._FormDialog`.
+        self.in_precio = QLineEdit(); self.in_precio.setPlaceholderText("€ Precio (opcional)")
+        val_precio = QDoubleValidator(0.0, 1000000.0, 2, self.in_precio)
+        val_precio.setNotation(QDoubleValidator.Notation.StandardNotation)
+        self.in_precio.setValidator(val_precio)
         for w in (self.in_tallas, self.in_colores):
             w.setStyleSheet(f"QLineEdit{{background:{T.BG2};color:{T.TEXT};border:1px solid {T.BORDE};"
                             "border-radius:8px;padding:6px;}")
@@ -79,7 +87,10 @@ class VariantesDialog(QDialog):
         ly.addWidget(self.lbl_total)
 
     def _padre(self):
-        return self.codigo_padre or (self.in_padre.text().strip() if hasattr(self, "in_padre") else "")
+        p = self.codigo_padre or (self.in_padre.text().strip() if hasattr(self, "in_padre") else "")
+        if "–" in p:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            p = p.split("–")[0].strip()
+        return p
 
     def _generar(self):
         padre = self._padre()
@@ -88,7 +99,10 @@ class VariantesDialog(QDialog):
         if not padre or not tallas or not colores:
             self._aviso("Indica modelo, tallas y colores.")
             return
-        precio = self.in_precio.value() or None
+        try:
+            precio = float((self.in_precio.text() or "0").replace(",", ".")) or None
+        except ValueError:
+            precio = None
         res = _V.crear_variantes(padre, tallas=tallas, colores=colores, id_empresa=self._emp(), precio=precio)
         if not res.get("ok"):
             self._aviso(res.get("error", "No se pudieron crear las variantes."), "error")

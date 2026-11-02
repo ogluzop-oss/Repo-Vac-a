@@ -43,6 +43,11 @@ try:
 except Exception:  # pragma: no cover
     mostrar_confirmacion = None
 
+try:
+    from assets.estilo_global import _blindar_tamano_fijo
+except Exception:  # pragma: no cover
+    _blindar_tamano_fijo = None
+
 
 def _aviso(parent, titulo, msg, nivel="info"):
     if mostrar_mensaje is not None:
@@ -63,10 +68,13 @@ def _btn_x(slot=None):
     (`gui/canal_web_gui.py::_btn_x`) — se reutiliza el patrón visual, no se inventa uno nuevo."""
     b = QPushButton("✕")
     b.setCursor(Qt.CursorShape.PointingHandCursor)
-    b.setFixedSize(50, 44)
-    b.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
-                    f"border-radius:9px;font-weight:900;font-size:18px;}}"
+    b.setFixedSize(50, 50)
+    b.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:none;"
+                    f"border-radius:25px;padding:0;font-weight:900;font-size:18px;}}"
                     f"QPushButton:hover{{background:{_ROJO};color:{_BG};}}")
+    b.setProperty("sin_glow", True)
+    if _blindar_tamano_fijo is not None:
+        _blindar_tamano_fijo(b, 50, 50)
     if slot:
         b.clicked.connect(slot)
     return b
@@ -276,7 +284,6 @@ class ComprasWindow(QWidget):
         in_email.returnPressed.connect(_enviar)
         in_email.setFocus()
         row = QHBoxLayout(); row.addStretch(1)
-        row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), dlg.reject))
         row.addWidget(_btn(tr("compras.b2b_enviar_invitacion", default="Enviar invitación"), _enviar,
                            primary=True))
         v.addLayout(row)
@@ -322,7 +329,6 @@ class _DialogoPrecioRef(QDialog):
                          self._reset, primary=True))
         v.addStretch(1)
         row = QHBoxLayout(); row.addStretch(1)
-        row.addWidget(_btn(tr("compras.cancelar", default="Cancelar"), self.reject))
         row.addWidget(_btn(tr("compras.guardar", default="Guardar"), self._ok, primary=True))
         v.addLayout(row)
         self.in_val.setFocus(); self.in_val.selectAll()

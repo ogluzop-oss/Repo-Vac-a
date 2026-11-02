@@ -89,3 +89,48 @@ class PasarelaPayPal(PasarelaPago):
         except Exception as e:
             logger.warning("PayPal verificar_pago: %s", e)
         return "pendiente"
+
+    def reembolsar(self, referencia: str, importe=None) -> bool:
+        """Reembolso real (POST /v2/payments/captures/{id}/refund). `referencia` es la Order
+        (lo que devuelve `crear_cobro`): el refund de PayPal exige el id de la CAPTURE, no el de
+        la Order, así que se resuelve primero vía GET. `importe=None` reembolsa el total capturado."""
+        if not self.configurado() or not referencia:
+            return False
+        try:
+            import requests
+        except Exception:
+            logger.warning("PayPal reembolsar: requests no disponible.")
+            return False
+        base = self._base()
+        try:
+            token = self._token(base)
+            if not token:
+                logger.warning("PayPal reembolsar: token no obtenido.")
+                return False
+            r = requests.get(f"{base}/v2/checkout/orders/{referencia}",
+                             headers={"Authorization": f"Bearer {token}"}, timeout=20)
+            if r.status_code != 200:
+                logger.warning("PayPal reembolsar: no se pudo leer la orden %s (%s).",
+                               referencia, r.status_code)
+                return False
+            unidades = r.json().get("purchase_units") or [{}]
+            capturas = ((unidades[0].get("payments") or {}).get("captures") or [])
+            capture_id = capturas[0].get("id") if capturas else None
+            if not capture_id:
+                logger.warning("PayPal reembolsar: la orden %s no tiene ninguna captura "
+                               "(¿todavía no pagada?).", referencia)
+                return False
+            payload = {}
+            if importe is not None:
+                payload = {"amount": {"value": f"{float(importe):.2f}",
+                                      "currency_code": self.moneda()}}
+            rr = requests.post(f"{base}/v2/payments/captures/{capture_id}/refund", json=payload,
+                               headers={"Authorization": f"Bearer {token}",
+                                       "Content-Type": "application/json"}, timeout=20)
+            if rr.status_code in (200, 201):
+                return True
+            logger.warning("PayPal reembolsar %s: %s", rr.status_code, rr.text[:200])
+            return False
+        except Exception as e:
+            logger.warning("PayPal reembolsar: %s", e)
+            return False

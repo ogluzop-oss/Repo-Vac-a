@@ -8,7 +8,10 @@ salarial; la indemnización legal se considera exenta) y el total líquido.
 import os
 from datetime import datetime
 
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
@@ -43,6 +46,7 @@ CONCEPTOS_IMPORTE = [
     ("imp_indemnizacion", "Indemnización"),
 ]
 DESCUENTOS_IMPORTE = [
+    ("desc_ss_trabajador", "Cuota S.S. trabajador"),
     ("desc_anticipos", "Anticipos"), ("desc_embargos", "Embargos"), ("desc_otros", "Otros"),
 ]
 RETENCION_CAMPO = ("retencion_pct", "Retención IRPF (%)")
@@ -54,7 +58,12 @@ def _n(datos, clave):
     return num(datos.get(clave))
 
 
-def generar_finiquito_pdf(datos: dict, ruta: str = None) -> str:
+def generar_finiquito_pdf(datos: dict, ruta: str = None, borrador: bool = False) -> str:
+    """`borrador=True` (disciplina borrador/aprobada — ver `finiquito_servicio.
+    calcular_y_guardar_borrador` y `rrhh_finiquito_inline.py`) estampa un aviso visible de que el
+    documento NO es la liquidación definitiva: sigue siendo un PDF real y descargable (mismo
+    criterio que `rrhh_nominas`: la aprobación es un flag de auditoría, no bloquea la generación),
+    pero nadie puede confundirlo con el finiquito firmado hasta que un SUPERADMIN lo apruebe."""
     datos = datos or {}
     if not ruta:
         folder = os.path.join(os.getcwd(), "documentos", "finiquitos")
@@ -81,6 +90,18 @@ def generar_finiquito_pdf(datos: dict, ruta: str = None) -> str:
         Paragraph("RECIBO DE FINIQUITO Y LIQUIDACIÓN DE SALDO", sty["tit"]),
         Paragraph(f"Emitido el {datetime.now().strftime('%d/%m/%Y')}", sty["sub"]),
         Spacer(1, 4 * mm),
+    ]
+    if borrador:
+        aviso = ParagraphStyle("aviso_borrador", fontName="Helvetica-Bold", fontSize=10,
+                               textColor=colors.HexColor("#B00020"), alignment=TA_CENTER, leading=13)
+        story += [
+            Paragraph(
+                "⚠ BORRADOR — PENDIENTE DE APROBACIÓN. Este documento NO es la liquidación "
+                "definitiva; los importes pueden cambiar hasta que un SUPERADMIN apruebe el "
+                "finiquito.", aviso),
+            Spacer(1, 3 * mm),
+        ]
+    story += [
         E.seccion("Datos de la empresa", usable_w, sty), Spacer(1, 1.5 * mm),
         E.grid_datos(EMPRESA_CAMPOS, datos, usable_w, sty), Spacer(1, 3 * mm),
         E.seccion("Datos del trabajador/a", usable_w, sty), Spacer(1, 1.5 * mm),

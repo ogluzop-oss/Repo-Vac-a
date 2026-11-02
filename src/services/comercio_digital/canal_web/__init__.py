@@ -51,7 +51,7 @@ def _puede(usuario, permiso, emp):
 
 def _evento(tipo, emp, payload=None):
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         eb = cap.eventbus()
         if eb is not None:
             eb.publish(tipo, id_empresa=emp, ref_entidad="canal_web", ref_id=emp, payload=payload or {})
@@ -280,15 +280,120 @@ def publicar(*, id_empresa=None, usuario=None) -> dict:
 
 
 def despublicar(*, id_empresa=None, usuario=None) -> dict:
+    """Despublicar es un TEARDOWN completo, no una simple pausa: la marca/configuración comercial
+    (nombre, descripción, color, logo, moneda, dominio, políticas legales, tema visual, borrador
+    con contraseña) vuelve a sus valores por defecto, y el canal deja de "existir"
+    (`canal_web.existe`) para la automatización de Canal Web — `gui.canal_web_gui.abrir_canal_web`
+    volverá a mostrar la pregunta inicial la próxima vez, en vez de saltar directo a la gestión,
+    hasta que se publique de nuevo. La fila técnica del canal y sus credenciales NO se destruyen
+    (publicar/regenerar siguen funcionando igual que siempre después de despublicar)."""
     emp = _emp(id_empresa)
     if not _puede(usuario, "canal_web.administrar", emp):
         return {"ok": False, "error": "forbidden", "permiso": "canal_web.administrar"}
-    ok = _upsert(emp, estado="despublicado")
-    # Fase 4: despublicar debe retirar el escaparate del storefront (fuente única `web_config.activa`).
-    _sync_web_config(emp, activa=0)
+    ok = _upsert(emp, estado="no_configurado")
+    from src.db import web_tienda
+    web_tienda.guardar_config(
+        id_empresa=emp, activa=0, nombre="", descripcion="", color="#00FFC6", logo_url="",
+        moneda="EUR", dominio="", texto_terminos="", texto_privacidad="", texto_devoluciones="",
+        texto_politica_envios="", tema_json="", borrador=0, password_hash="")
     _evento("CanalWebUnpublished", emp)
     _audit("DESPUBLICAR", emp)
     return {"ok": bool(ok), "estado": "despublicado"}
+
+
+def configurar_borrador(*, activar: bool, password: str | None = None, id_empresa=None,
+                        usuario=None) -> dict:
+    """Borrador con contraseña (Fase 5 e-commerce): la tienda sigue respondiendo (`activa` no
+    cambia) pero exige una credencial HTTP Basic antes de servir cualquier página
+    (`backend/storefront.py`). RBAC + escritura: MISMO permiso y MISMO editor único de
+    `web_config` que el resto de esta configuración (`canal_web.administrar` /
+    `web_tienda.guardar_config`) — no es una tabla/motor nuevo, solo dos columnas más de la fila
+    ya existente (migr. 0292).
+
+    `activar=True` requiere `password` (se hashea aquí mismo, vía `seguridad.passwords` — igual que
+    las contraseñas de usuario; `web_config` nunca almacena ni ve texto en claro).
+    `activar=False` desactiva el borrador y borra el hash guardado (vuelve a ser pública sin
+    credencial, comportamiento de siempre)."""
+    emp = _emp(id_empresa)
+    if not _puede(usuario, "canal_web.administrar", emp):
+        return {"ok": False, "error": "forbidden", "permiso": "canal_web.administrar"}
+    from src.db import web_tienda
+    if activar:
+        if not (password or "").strip():
+            return {"ok": False, "error": "password_requerida"}
+        from src.seguridad.passwords import hash_password
+        ok = web_tienda.guardar_config(id_empresa=emp, borrador=1,
+                                       password_hash=hash_password(password.strip()))
+    else:
+        ok = web_tienda.guardar_config(id_empresa=emp, borrador=0, password_hash="")
+    _evento("CanalWebConfigUpdated", emp, {"borrador": bool(activar)})
+    _audit("BORRADOR", emp)
+    return {"ok": bool(ok), "borrador": bool(activar)}
+
+
+def estado_publicacion_aws(id_empresa=None) -> dict:
+    """Solo lectura, nunca instancia el backend de almacenamiento (evitaría tocar red/credenciales
+    solo para informar): `disponible` = hay boto3 + `S3_BUCKET` configurado + `STORAGE_BACKEND=s3`
+    (mismas señales que `services.storage`/`services.storage.s3`, reutilizadas — no se reinventa la
+    detección). `ultima_publicacion` viene del metadato operativo ya existente (`config_negocio`,
+    MISMO JSON que usa `actualizar_config` — no se crea columna/tabla nueva)."""
+    import os
+    emp = _emp(id_empresa)
+    try:
+        from src.services.storage.s3 import boto3_disponible
+        hay_boto3 = boto3_disponible()
+    except Exception:
+        hay_boto3 = False
+    disponible = bool(hay_boto3 and os.environ.get("S3_BUCKET")
+                      and os.environ.get("STORAGE_BACKEND", "local") == "s3")
+    actual = (_fila(emp) or {}).get("config_negocio") or {}
+    return {"disponible": disponible, "ultima_publicacion": actual.get("aws_publicacion")}
+
+
+def publicar_aws(*, id_empresa=None, usuario=None) -> dict:
+    """Publicación "en un clic" a AWS (Fase 5 e-commerce): exporta el HTML REAL de la home — la
+    MISMA función (`backend.storefront.pagina_home`) que sirve el storefront en vivo, nunca una
+    maqueta aparte — al backend de almacenamiento YA existente (`services.storage`, Fase 10/12
+    AWS-readiness: S3 real o degradable a local). Si no hay credenciales/infraestructura AWS reales
+    (sin boto3, sin `S3_BUCKET`, o `STORAGE_BACKEND` no es "s3"), NUNCA finge haber publicado en AWS:
+    guarda igual en el backend local configurado y lo informa como `modo="simulado"` (una vista
+    previa real y navegable de lo que se publicaría), honestidad ya exigida al resto de
+    integraciones degradables de la app (Prophet/onvif-zeep/ffmpeg/WebAuthn). Mismo RBAC/auditoría
+    que el resto de acciones del canal."""
+    emp = _emp(id_empresa)
+    if not _puede(usuario, "canal_web.administrar", emp):
+        return {"ok": False, "error": "forbidden", "permiso": "canal_web.administrar"}
+    try:
+        from src.backend import storefront as _sf
+        from src.db import web_tienda
+        html = _sf.pagina_home(emp, web_tienda.obtener_config(emp))
+    except Exception as e:
+        return {"ok": False, "error": "render_fallido", "motivo": str(e)}
+
+    try:
+        from src.services.storage import obtener_storage
+        st = obtener_storage()
+    except Exception as e:
+        return {"ok": False, "modo": "no_disponible", "motivo": str(e)}
+
+    modo = "aws" if type(st).__name__ == "S3StorageProvider" else "simulado"
+    try:
+        clave = st.guardar(emp, "storefront", "index.html", html.encode("utf-8"),
+                           content_type="text/html")
+    except Exception as e:
+        return {"ok": False, "modo": modo, "motivo": str(e)}
+    try:
+        url = st.url_firmada(emp, clave, segundos=7 * 24 * 3600, usuario=usuario, autorizado=True)
+    except Exception:
+        url = None
+
+    meta = {"modo": modo, "url": url, "clave": clave, "publicado_en": datetime.now().isoformat()}
+    actual = (_fila(emp) or {}).get("config_negocio") or {}
+    actual["aws_publicacion"] = meta
+    _upsert(emp, config_negocio=actual)
+    _evento("CanalWebAwsPublished", emp, {"modo": modo})
+    _audit("PUBLICAR_AWS", emp, modo)
+    return {"ok": True, **meta}
 
 
 def regenerar(*, id_empresa=None, usuario=None) -> dict:

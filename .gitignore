@@ -49,6 +49,10 @@ ai_translate_cache.json
 app_settings.json
 # Edición elegida en el onboarding (per-install): NO versionar; cada instalación decide su tipo de comercio.
 config_edicion.json
+config_onboarding.json
+# Identidad de instalación para el servidor central de licencias (installation_id + credenciales
+# de activación) — per-install, nunca versionar.
+config_instalacion.json
 
 # ── Logs ────────────────────────────────────────────────────
 *.log
@@ -62,3 +66,9 @@ _tmp_*.txt
 # Credenciales OAuth (nunca versionar)
 src/gui/client_secrets.json
 client_secret*.json
+# Cliente OAuth de Google centralizado de la app (assets/google_oauth_client.json): repo PÚBLICO
+# (github.com/ogluzop-oss/Repo-Vac-a, confirmado vía API sin autenticar) — nunca se comitea aquí.
+# Cada despliegue/operador coloca su propia copia local del fichero real, o usa las variables de
+# entorno GOOGLE_OAUTH_CLIENT_ID/SECRET (o el secret manager) como alternativa sin fichero — ver
+# `_resolver_client_oauth` en src/services/correo/servicio.py.
+assets/google_oauth_client.json

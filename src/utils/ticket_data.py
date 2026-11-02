@@ -52,6 +52,29 @@ def construir_datos_ticket(venta_id, fecha, id_caja, empleado, lineas, pago,
     except Exception:
         cfg = {}
 
+    # Fecha límite de devolución de ESTA venta: se lee la que quedó CONGELADA en
+    # `ventas.fecha_limite_devolucion` al registrarse (migr. 0232) para que el ticket
+    # muestre siempre el plazo que se le comunicó al cliente, sea cual sea el plazo
+    # vigente ahora mismo (relevante sobre todo al REIMPRIMIR un ticket antiguo). Solo
+    # se recalcula con el plazo vigente si la venta es anterior a esa migración.
+    fecha_limite_devolucion = None
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT fecha_limite_devolucion FROM ventas WHERE id=%s", (venta_id,))
+            _row = cur.fetchone()
+            if _row and _row[0]:
+                fecha_limite_devolucion = _row[0]
+    except Exception:
+        pass
+    if fecha_limite_devolucion is None:
+        try:
+            from src.db.config_ticket import calcular_fecha_limite_devolucion
+            fecha_limite_devolucion = calcular_fecha_limite_devolucion(fecha, id_empresa or None)
+        except Exception:
+            pass
+    cfg["fecha_limite_devolucion"] = fecha_limite_devolucion
+
     # IVA automático según el PAÍS FISCAL (fuente única; no toca precios).
     try:
         from src.utils import fiscalidad
@@ -103,6 +126,7 @@ def construir_datos_ticket(venta_id, fecha, id_caja, empleado, lineas, pago,
             "entregado": pago.get("entregado"), "cambio": pago.get("cambio", 0.0),
             "efectivo": pago.get("efectivo_neto"), "tarjeta": pago.get("tarjeta"),
         },
+        "tax_free": pago.get("tax_free"),
         "moneda": divisas.divisa_actual(),
         "config": cfg,
         "hash": doc_hash,
@@ -121,15 +145,19 @@ def ref_operacion(prefijo: str, id_empresa="", id_tienda="") -> str:
 
 def construir_datos_operacion(titulo, empleado, *, prefijo="OP", ticket_num=None,
                               subtitulo=None, caja=None, fecha=None, secciones=None,
-                              denominaciones=None, total=None, firmas=None, pie=None) -> dict:
+                              denominaciones=None, total=None, firmas=None, pie=None,
+                              codigo_barras=None) -> dict:
     """Construye el dict del ticket de OPERACIÓN de caja (cierre diario, apertura/cierre de caja
-    fuerte y registradoras, movimiento, cambio de cajero) desde la fuente única corporativa
-    (empresa/tienda/logo). Lo consume ``impresion.generar_ticket_operacion_pdf``.
+    fuerte y registradoras, movimiento, cambio de cajero, vale de devolución…) desde la fuente
+    única corporativa (empresa/tienda/logo). Lo consume ``impresion.generar_ticket_operacion_pdf``.
 
     - `secciones`: [(titulo, [(clave, valor), …]), …] con los hechos económicos/detalles.
     - `denominaciones`: [{denominacion, cantidad, subtotal}, …] del recuento de efectivo.
     - `total`: (etiqueta, valor) para el bloque destacado, o None.
     - `firmas`: [(etiqueta, valor|None), …] (p. ej. cajero saliente encima, responsable debajo).
+    - `codigo_barras`: texto a codificar en Code128 (p. ej. el código único de un vale de
+      devolución, para poder ESCANEARLO al canjearlo en el TPV/autocobro) — None = sin barcode
+      (comportamiento de siempre para el resto de tickets de operación).
     """
     import datetime as _dt
 
@@ -169,6 +197,7 @@ def construir_datos_operacion(titulo, empleado, *, prefijo="OP", ticket_num=None
         "firmas": firmas or [],
         "pie": pie,
         "moneda": divisas.divisa_actual(),
+        "codigo_barras": codigo_barras,
     }
 
 

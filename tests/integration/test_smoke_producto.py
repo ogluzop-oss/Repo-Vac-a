@@ -37,7 +37,7 @@ def _crear_usuario_smoke():
         cols = [c[0] if not isinstance(c, dict) else c["Field"] for c in cur.fetchall()]
         col = "nombre" if "nombre" in cols else "usuario"
         cur.execute(f"DELETE FROM usuarios WHERE {col}=%s", (_USUARIO,))
-        cur.execute(f"INSERT INTO usuarios ({col}, password, perfil, tienda_id) "
+        cur.execute(f"INSERT INTO usuarios ({col}, password, perfil, centro_codigo) "
                     "VALUES (%s,%s,'ADMINISTRADOR',NULL)", (_USUARIO, h))
         conn.commit()
 
@@ -87,21 +87,47 @@ def ejecutar_smoke() -> list:
         paso("5-7. entorno Qt", False, e)
     if app is not None:
         import importlib
-        for etiqueta, modulo, clase in [
-            ("5. abrir TPV", "src.gui.tpv", "TPVWindow"),
-            ("6. abrir stock", "src.gui.mostrar_stock", "MostrarStockWindow"),
-            ("7. abrir catálogo", "src.gui.catalogo_gestion", "CatalogoWindow"),
-        ]:
+        # E1.4: `TPVWindow._verificar_caja()` lee estado GLOBAL en disco
+        # (`documentos/estado_caja.json`, compartido y persistente entre tests). Si una
+        # ejecución completa de la suite deja una caja abierta, esta instanciación abre un
+        # diálogo modal de login (`.exec()`) que en un run headless nunca se puede cerrar y
+        # cuelga el proceso para siempre. Se guarda/neutraliza/restaura el fichero SOLO
+        # alrededor de este paso — no toca `src/gui/tpv.py` ni el comportamiento real de caja.
+        from src.gui import tpv as _tpv
+        _estado_caja_previo = None
+        _habia_estado_caja = os.path.exists(_tpv._CAJA_STATE_FILE)
+        if _habia_estado_caja:
             try:
-                cls = getattr(importlib.import_module(modulo), clase)
-                w = cls()
+                with open(_tpv._CAJA_STATE_FILE, encoding="utf-8") as f:
+                    _estado_caja_previo = f.read()
+            except Exception:
+                _estado_caja_previo = None
+        try:
+            _tpv._guardar_estado_caja({"estado": "SIN_APERTURA"})
+            for etiqueta, modulo, clase in [
+                ("5. abrir TPV", "src.gui.tpv", "TPVWindow"),
+                ("6. abrir stock", "src.gui.mostrar_stock", "MostrarStockWindow"),
+                ("7. abrir catálogo", "src.gui.catalogo_gestion", "CatalogoWindow"),
+            ]:
                 try:
-                    w.close()
-                except Exception:
-                    pass
-                paso(etiqueta, True)
-            except Exception as e:
-                paso(etiqueta, False, e)
+                    cls = getattr(importlib.import_module(modulo), clase)
+                    w = cls()
+                    try:
+                        w.close()
+                    except Exception:
+                        pass
+                    paso(etiqueta, True)
+                except Exception as e:
+                    paso(etiqueta, False, e)
+        finally:
+            try:
+                if _habia_estado_caja and _estado_caja_previo is not None:
+                    with open(_tpv._CAJA_STATE_FILE, "w", encoding="utf-8") as f:
+                        f.write(_estado_caja_previo)
+                elif not _habia_estado_caja and os.path.exists(_tpv._CAJA_STATE_FILE):
+                    os.remove(_tpv._CAJA_STATE_FILE)
+            except Exception:
+                pass
 
     try:
         from src.db import fiscal as F

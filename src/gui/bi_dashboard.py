@@ -11,6 +11,7 @@ import logging
 from PyQt6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QMessageBox, QTableWidgetItem,
                              QVBoxLayout, QWidget)
 
+from assets.estilo_global import mostrar_mensaje
 from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_x, _combo, _tabla
 from src.services.bi import dashboard as _D
 from src.services.bi import kpis as _K
@@ -50,7 +51,12 @@ class BIDashboardWindow(QWidget):
         self.cmb_periodo = _combo([("Mes", "mes"), ("Semana", "semana"), ("Día", "dia"), ("Año", "anio")])
         self.cmb_periodo.setMinimumWidth(150)   # evita texto cortado en el desplegable
         cab.addWidget(QLabel("Periodo:")); cab.addWidget(self.cmb_periodo)
-        cab.addWidget(_btn("Calcular", self._load, primary=True))
+        # `lambda: self._load()` (no conectar `self._load` directamente): la señal `clicked(bool)`
+        # de Qt pasa su `checked` POSICIONALMENTE al único parámetro del slot (`avisar`), así que un
+        # `_btn(txt, self._load, ...)` directo dejaba `avisar` siempre en `False` en cada click real
+        # — el aviso de éxito/error nunca se mostraba (bug real, ya corregido). `_btn_cargando` no
+        # tenía este problema porque su wrapper interno ya llama a `cb()` sin argumentos.
+        cab.addWidget(_btn("Calcular", lambda: self._load(), primary=True))
         cab.addWidget(_btn("Exportar Excel", self._exportar_excel, primary=True))
         if callback_vuelta:
             cab.addWidget(_btn_x(self._volver))
@@ -79,9 +85,12 @@ class BIDashboardWindow(QWidget):
         root.addLayout(_fila_ver)
 
         self._dash = None
-        self._load()
+        self._load(avisar=False)
 
-    def _load(self):
+    def _load(self, avisar=True):
+        """`avisar=False` en la carga inicial del `__init__` (no es una acción del usuario, no debe
+        mostrar un aviso emergente) — mismo criterio que `tesoreria_gui.py::_load_cashflow`. El botón
+        'Calcular' y el resto de llamadas interactivas usan el valor por defecto `avisar=True`."""
         try:
             per = self.cmb_periodo.currentData() or "mes"
             self._dash = _D.panel(_empresa(), periodo=per, con_forecast=True)
@@ -93,13 +102,28 @@ class BIDashboardWindow(QWidget):
             for i, (dom, nom, val, u) in enumerate(filas):
                 for j, v in enumerate([dom, nom, f"{float(val):,.2f}", u]):
                     self.tbl.setItem(i, j, _it(v))
+            self.lbl.setStyleSheet(f"color:{_DIM};")
+            self.lbl.setText("Cuadro de mando actualizado.")
             fl = self._dash.get("forecast_liquidez", {})
             if fl.get("proyecciones"):
                 p90 = next((p for p in fl["proyecciones"] if p["horizonte_dias"] == 90), None)
                 if p90:
                     self.lbl.setText(f"Liquidez estimada a 90 días: {p90['liquidez_estimada']:.2f} €")
+            if avisar:
+                if filas:
+                    mostrar_mensaje(self, "Cuadro de mando", "Cuadro de mando calculado correctamente.",
+                                    nivel="success")
+                else:
+                    mostrar_mensaje(self, "Cuadro de mando",
+                                    "Cálculo realizado, pero no hay KPIs para el periodo seleccionado.",
+                                    nivel="info")
         except Exception as e:
             logger.error("load: %s", e)
+            self.lbl.setStyleSheet("color:#F85149;font-weight:bold;")
+            self.lbl.setText(f"Error al calcular el cuadro de mando: {e}")
+            if avisar:
+                mostrar_mensaje(self, "Cuadro de mando", f"No se pudo calcular el cuadro de mando: {e}",
+                                nivel="error")
         self._load_familias()
 
     def _load_familias(self):
@@ -157,7 +181,43 @@ class BIDashboardWindow(QWidget):
                     usuario=self.usuario, categoria_inicial="exportacion")
             else:
                 self._doc_win = CentroDocumentalWindow(usuario=self.usuario, categoria_inicial="exportacion")
+                # Ventana hija abierta fuera de manejar_apertura: sin este flag se ve con la
+                # barra de título nativa de Windows (inconsistente con el resto de módulos,
+                # todos frameless). Replica el mismo tratamiento + animación de deslizamiento.
+                try:
+                    from PyQt6.QtCore import Qt
+                    self._doc_win.setWindowFlags(
+                        self._doc_win.windowFlags() | Qt.WindowType.FramelessWindowHint)
+                except Exception:
+                    pass
+                snap = None
+                try:
+                    from src.gui.transiciones import capturar_pantalla
+                    snap = capturar_pantalla(self)
+                except Exception:
+                    pass
+                try:
+                    from PyQt6.QtWidgets import QApplication
+                    self._doc_win.setWindowOpacity(0.0)
+                    scr = self._doc_win.screen() or QApplication.primaryScreen()
+                    if scr is not None:
+                        self._doc_win.setGeometry(scr.availableGeometry())
+                except Exception:
+                    pass
                 self._doc_win.showMaximized()
+                try:
+                    from PyQt6.QtWidgets import QApplication
+                    QApplication.processEvents()
+                except Exception:
+                    pass
+                try:
+                    from src.gui.transiciones import deslizar_entrada_modulo
+                    deslizar_entrada_modulo(snap, self._doc_win, revelar=self._doc_win)
+                except Exception:
+                    try:
+                        self._doc_win.setWindowOpacity(1.0)
+                    except Exception:
+                        pass
         except Exception as e:
             self.lbl_export.setStyleSheet("color:#F85149;font-weight:bold;")
             self.lbl_export.setText(f"No se pudo abrir Documentos: {e}")

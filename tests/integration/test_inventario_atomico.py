@@ -15,7 +15,7 @@ def test_merma_atomica_descuenta_stock(db, fab):
     from src.db import mermas
     cod = fab.articulo(stock_total=10)
     fab.al_limpiar(lambda: _borra(db, "mermas", "codigo", cod))
-    assert mermas.registrar_merma(cod, 3, "rotura", columna_stock="Stock_total") is True
+    assert mermas.registrar_merma(cod, 3, "rotura", columna_stock="Stock_total")
     # Merma registrada Y stock descontado en la MISMA transacción.
     assert _stock(db, cod, "Stock_total") == 7
     with db.obtener_conexion() as conn, conn.cursor() as cur:

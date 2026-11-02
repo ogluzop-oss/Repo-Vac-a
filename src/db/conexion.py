@@ -670,6 +670,17 @@ def ensure_schema(force: bool = False):
                         fecha_actualizacion DATETIME   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                # Bloqueo de devolución por descuento (Configuración → Plazo devolución →
+                # "Artículos con descuento"): % mínimo de descuento de venta a partir del cual
+                # (inclusive) NUNCA se admite la devolución del artículo, sea cual sea su EAN —
+                # complementa (no sustituye) el bloqueo por lista de EAN de `devoluciones_baneados`.
+                # NULL/0 = función desactivada (nunca bloquea por descuento).
+                try:
+                    cur.execute(
+                        "ALTER TABLE config_ticket "
+                        "ADD COLUMN IF NOT EXISTS descuento_min_bloqueo DECIMAL(5,2) DEFAULT NULL")
+                except Exception as _e:
+                    logger.warning("No se pudo añadir config_ticket.descuento_min_bloqueo: %s", _e)
 
                 # ── CENTRO DOCUMENTAL UNIFICADO (registro, no almacén) ──
                 # Índice único de TODOS los documentos generados por el sistema
@@ -1693,6 +1704,8 @@ def registrar_venta_con_items(
     total: float | None = None,
     id_empresa: str | None = None,
     id_tienda: int | None = None,
+    origen_flujo: str | None = None,
+    id_usuario: int | None = None,
 ) -> int | None:
     """Registra una venta compleja (varios ítems) en MariaDB — RUTA CANÓNICA de venta.
 
@@ -1701,7 +1714,19 @@ def registrar_venta_con_items(
     con descuentos — si no se indica, se recalcula por líneas); `id_empresa/id_tienda` para
     override del tenant (si no, se toma del contexto activo). Cada ítem admite además
     `nombre`, `seccion`, `subtotal` (real con descuento), `peso_vendido`, `precio_kg`,
-    `modo_venta` (granel). Dispara Verifactu, contabilidad, kárdex, FEFO, stock_almacen y M4."""
+    `modo_venta` (granel). Dispara Verifactu, contabilidad, kárdex, FEFO, stock_almacen y M4.
+
+    `origen_flujo` (opcional): distingue la PANTALLA que registró la venta (p.ej. "tpv",
+    "autocobro") para el evento de actividad. `registrar_venta_con_items` es la ruta canónica
+    compartida por TPV, autocobro, ventas_comercial y utils.registro_venta; si no se indica,
+    se mantiene el `origen="tpv"` genérico de siempre (compatibilidad total con el resto de
+    llamadores).
+
+    `id_usuario` (Fase Productividad, migr. 0294, ADITIVO): el id REAL de `usuarios` del cajero que
+    procesó la venta — DISTINTO de `empleado_id` (que solo alimenta la columna legado `empleado`,
+    poblada históricamente con nombre/id/"AUTOCOBRO" sin consistencia). Ningún llamador existente
+    lo pasaba hasta ahora; queda `None` (honesto, nunca inventado) para quien no lo indique —
+    autocobro/pedidos online convertidos siguen sin un empleado real que atribuir."""
     try:
         ensure_schema()
         if fecha is None:
@@ -1710,6 +1735,13 @@ def registrar_venta_con_items(
         from src.db.empresa import empresa_actual_id, tienda_actual_id
         _eid = id_empresa or empresa_actual_id()
         _tid = id_tienda if id_tienda is not None else tienda_actual_id()
+        try:
+            from src.db.config_ticket import calcular_fecha_limite_devolucion
+            _fecha_dt = datetime.strptime(fecha, "%Y-%m-%d %H:%M:%S")
+            _fecha_limite_devol = calcular_fecha_limite_devolucion(_fecha_dt, _eid)
+        except Exception as e:
+            logger.error("No se pudo calcular fecha_limite_devolucion: %s", e)
+            _fecha_limite_devol = None
         # La columna `ventas.id_tienda` es INT, pero el contexto de tienda puede ser un
         # código alfanumérico (p. ej. 'ALMC'). Se coacciona a entero (0 si no es numérico)
         # SOLO para la columna; `_tid` (código) se conserva para kárdex/stock/lotes.
@@ -1722,10 +1754,12 @@ def registrar_venta_con_items(
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO ventas (fecha, total, forma_pago, empleado, numero_caja, "
-                    "cliente_id, cliente_nombre, cliente_nif, id_empresa, id_tienda) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "cliente_id, cliente_nombre, cliente_nif, id_empresa, id_tienda, "
+                    "fecha_limite_devolucion, id_usuario) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (fecha, 0.0, forma_pago, str(empleado_id) if empleado_id else None,
-                     numero_caja, cli_id, cli_nom, cli_nif, _eid, _tid_col),
+                     numero_caja, cli_id, cli_nom, cli_nif, _eid, _tid_col,
+                     _fecha_limite_devol, id_usuario),
                 )
                 venta_id = cur.lastrowid
                 total_acumulado = 0.0
@@ -1811,9 +1845,25 @@ def registrar_venta_con_items(
         # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
         try:
             from src.services import eventos as _EV
-            _EV.publicar("VENTA_REGISTRADA", id_empresa=_eid, id_tienda=_tid, origen="tpv",
+            # `origen="tpv:<origen_flujo>"` cuando el llamador lo indica (p.ej. "autocobro"):
+            # `registrar_venta_con_items` es la ruta canónica compartida por TPV, autocobro,
+            # ventas_comercial y utils.registro_venta; por defecto (`origen_flujo=None`) se
+            # mantiene el `origen="tpv"` genérico de siempre — cero cambio para esos llamadores.
+            _EV.publicar("VENTA_REGISTRADA", id_empresa=_eid, id_tienda=_tid,
+                         origen=(f"tpv:{origen_flujo}" if origen_flujo else "tpv"),
                          ref_entidad="venta", ref_id=venta_id,
                          payload={"total": total_final, "forma_pago": forma_pago})
+        except Exception:
+            pass
+        # Fidelización (Generador de Apps Móviles PWA, Fase 3): acumula puntos si la venta quedó
+        # vinculada a un cliente registrado (QR de su tarjeta escaneado en TPV/autocobro, o
+        # selección manual) — motor YA EXISTENTE (`db.fidelizacion`, migr. 0037), hasta ahora
+        # nunca invocado desde el registro de venta (solo lo ejercitaban los tests). Best-effort,
+        # igual criterio que el resto de ganchos de aquí arriba: nunca rompe la venta.
+        try:
+            if cli_id:
+                from src.db import fidelizacion as _fid
+                _fid.acumular_puntos(cli_id, total_final, id_venta=venta_id, id_empresa=_eid)
         except Exception:
             pass
         return venta_id

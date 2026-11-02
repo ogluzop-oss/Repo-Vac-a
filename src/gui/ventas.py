@@ -3,8 +3,21 @@ import logging
 import os
 from datetime import datetime
 
-from PyQt6.QtCore import QDate, QEvent, QObject, QPoint, QRectF, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QBitmap, QColor, QFont, QIcon, QPainter, QPainterPath, QPalette, QPen, QPolygon, QRegion
+from PyQt6.QtCore import (
+    QAbstractAnimation,
+    QDate,
+    QEasingCurve,
+    QEvent,
+    QObject,
+    QParallelAnimationGroup,
+    QPoint,
+    QPropertyAnimation,
+    QRectF,
+    Qt,
+    QTimer,
+)
+from PyQt6.QtGui import (QBitmap, QColor, QFont, QIcon, QPainter, QPainterPath, QPalette, QPen,
+                          QPixmap, QPolygon, QRegion)
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -12,8 +25,8 @@ from PyQt6.QtWidgets import (
     QCalendarWidget,
     QComboBox,
     QDateEdit,
-    QFileDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
@@ -22,20 +35,22 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
-    QProgressDialog,
     QProxyStyle,
+    QProgressBar,
     QPushButton,
     QSpinBox,
     QStackedWidget,
     QStyleFactory,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from assets.estilo_global import instalar_corner_cover, mostrar_mensaje
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.utils import divisas, i18n
 from src.utils.i18n import tr
 
@@ -399,6 +414,56 @@ class _NeonCalFrame(QFrame):
         p.end()
 
 
+_FLECHA_COMBO_ICONO = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "assets", "combo_arrow.png",
+)
+
+
+class _TrianguloIndicador(QWidget):
+    """Flecha del selector de fecha, en un widget HIJO propio — nunca un `QPainter(self)` extra
+    dentro del `paintEvent` del propio `QDateEdit` tras `super().paintEvent(event)`: ese patrón es
+    seguro en un QPushButton normal (ver `_NeonSymbolButton`), pero en un `QAbstractSpinBox` (que
+    delega su pintado al estilo con QSS activo, con un campo de edición interno propio) se
+    confirmó un crash nativo intermitente (0xc0000005 en Qt6Widgets.dll), reproducido de forma
+    aislada y con `bisect` estadístico (control sin pintado propio: 0/8 crashes; con el
+    `QPainter(self)` extra: 3/8). Nótese que el override tiene que ser un método de CLASE de
+    verdad (subclase), NO una asignación `widget.paintEvent = mi_funcion` sobre la instancia — esa
+    segunda forma NO enlaza de forma fiable con el despacho virtual de Qt/SIP para un método que
+    el motor C++ invoca polimórficamente, y sigue siendo tan intermitente como el bug original
+    (confirmado: no bajó la tasa de crash de `_page_gastos` al usarla).
+
+    Dibuja el MISMO icono (`assets/combo_arrow.png`, 14×14) que usa `QComboBox::down-arrow` en
+    toda la app (regla global en `estilo_global.py`) — antes se dibujaba un triángulo a mano con
+    una forma/tamaño ligeramente distintos, así que el desplegable "Fecha" se veía distinto al
+    resto de desplegables de la misma pestaña (p. ej. Gastos: Tipo/Pago/IVA sí son QComboBox).
+
+    IMPORTANTE — fondo transparente explícito: la regla global `QWidget {{ background-color:
+    ...; }}` de `QSS_ROOT` (`estilo_global.py`) aplica a CUALQUIER `QWidget` sin hoja de estilo
+    propia, incluido este widget hijo. Sin el `setStyleSheet` de abajo, Qt pintaba un fondo
+    OPACO (`COLOR_FONDO_APP`, más oscuro que el `COLOR_GRIS_PANEL` del campo) en todo este
+    rectángulo (24px de ancho × alto completo, pegado al borde derecho) por ENCIMA del fondo y
+    del borde cian ya pintados por el `_NeonDateEdit` padre — se veía como una caja de dos tonos
+    con el borde neón cortado justo donde empieza la zona de la flecha (mismo patrón que ya se
+    resuelve en este archivo para `backdrop` en `showPopup`, vía stylesheet local que sobreescribe
+    la regla heredada)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def paintEvent(self, _event):
+        pm = QPixmap(_FLECHA_COMBO_ICONO)
+        if pm.isNull():
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        x = self.width() - 10 - 14
+        y = (self.height() - 14) // 2
+        p.drawPixmap(x, y, 14, 14, pm)
+        p.end()
+
+
 class _NeonDateEdit(QDateEdit):
     """QDateEdit con popup de calendario propio (borde neón, esquinas redondeadas,
     posicionado bajo el campo en cualquier ventana). Dibuja su propio triángulo
@@ -411,15 +476,16 @@ class _NeonDateEdit(QDateEdit):
         # Sin popup nativo ni botones de spin: usamos showPopup() propio.
         self.setCalendarPopup(False)
         self.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self._tri = _TrianguloIndicador(self)
+        self._tri.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._posicionar_triangulo()
 
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        cx, cy = self.width() - 14, self.height() // 2
-        tri = QPolygon([QPoint(cx - 5, cy - 3), QPoint(cx + 5, cy - 3), QPoint(cx, cy + 4)])
-        p.setBrush(QColor(CIAN)); p.setPen(Qt.PenStyle.NoPen)
-        p.drawPolygon(tri); p.end()
+    def _posicionar_triangulo(self):
+        self._tri.setGeometry(self.width() - 24, 0, 24, self.height())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._posicionar_triangulo()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and event.position().x() >= self.width() - 30:
@@ -2109,63 +2175,829 @@ QListView QScrollBar::add-page:vertical, QListView QScrollBar::sub-page:vertical
 }}
 """
 
-def _separador():
-    sep = QFrame()
-    sep.setFrameShape(QFrame.Shape.HLine)
-    sep.setStyleSheet(f"color: {BORDE}; background: {BORDE};")
-    sep.setFixedHeight(1)
-    return sep
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Hilo de importación de histórico de ventas
+# Productividad — Facturación Centro / Empleados / Campaña Centro / Campaña Empleados
 # ─────────────────────────────────────────────────────────────────────────────
 
-class _ImportarHistoricoHilo(QThread):
-    finalizado = pyqtSignal(str)
+_PERIODO_LABELS = [
+    ("diario", "vta.prod_per_diario", "Diario"),
+    ("semanal", "vta.prod_per_semanal", "Semanal"),
+    ("bimensual", "vta.prod_per_bimensual", "Bimensual (2 semanas)"),
+    ("mensual", "vta.prod_per_mensual", "Mensual"),
+    ("bimestral", "vta.prod_per_bimestral", "Bimestral (2 meses)"),
+    ("trimestral", "vta.prod_per_trimestral", "Trimestral"),
+    ("semestral", "vta.prod_per_semestral", "Semestral (6 meses)"),
+    ("anual", "vta.prod_per_anual", "Anual"),
+]
 
-    def __init__(self, ruta):
-        super().__init__()
-        self.ruta = ruta
+_SS_PROD_BARRA = (
+    f"QProgressBar{{background:#11181D;border:1px solid {BORDE};border-radius:8px;"
+    f"color:{TEXTO};text-align:center;font-family:'Segoe UI';font-weight:bold;font-size:13px;}}"
+    f"QProgressBar::chunk{{background:{CIAN};border-radius:8px;}}"
+)
 
-    def run(self):
+
+def _date_neon_campana(qdate) -> "_NeonDateEdit":
+    """Selector de fecha para "campaña inicio"/"campaña fin": `_date_neon` (el MISMO desplegable
+    con calendario que usa "Resumen de Ventas" — triángulo `combo_arrow.png` estándar de la app,
+    no el triángulo cian a mano de `tpv._FechaFilter`), con Segoe UI Bold +2pt sobre su tamaño
+    base (pedido explícito)."""
+    de = _date_neon(qdate)
+    de.setStyleSheet(
+        de.styleSheet()
+        + "QDateEdit{font-family:'Segoe UI';font-weight:700;font-size:13px;}"
+    )
+    return de
+
+
+def _btn_flecha(texto: str, slot) -> QPushButton:
+    """Botón de flecha ←/→ con el MISMO diseño exacto que el botón "volver" de la pestaña
+    "Presupuestos" del CRM Comercial (`catalogo_gestion._btn`, reutilizado tal cual — nunca
+    recreado a mano, para que ambos se vean y se comporten IDÉNTICOS), con el glifo +3pt sobre el
+    tamaño base de `_btn` (pedido explícito, en dos pasos: +2pt porque a 16px quedaba descentrado
+    verticalmente dentro de la caja 44×44, y +1pt más después). El aumento de tamaño desplazó el
+    glifo hacia abajo (mismo efecto ya documentado en `btn_volver` de Presupuestos, que se compensa
+    con `padding-bottom`): se corrige con un nudge fino hacia arriba, sin tocar el tamaño/color/
+    borde/hover ya fijados arriba."""
+    from src.gui.catalogo_gestion import _btn as _btn_catalogo
+    b = _btn_catalogo(texto, slot, primary=True)
+    b.setStyleSheet(b.styleSheet() + "QPushButton{font-size:19px;padding-bottom:2px;}")
+    return b
+
+
+def _combo_periodos() -> QComboBox:
+    cb = QComboBox()
+    for clave, i18n_key, default in _PERIODO_LABELS:
+        cb.addItem(tr(i18n_key, default=default), clave)
+    idx = cb.findData("mensual")
+    if idx >= 0:
+        cb.setCurrentIndex(idx)
+    return cb
+
+
+def _prod_puede_editar(usuario, id_empresa) -> bool:
+    """RBAC (pedido explícito): SUPERADMIN edita; ADMINISTRADOR/OPERARIO son SOLO LECTURA en esta
+    pestaña. Degradación honesta: si el motor de autorización falla por cualquier motivo, nunca se
+    concede edición por defecto (fail-closed)."""
+    try:
+        from src.services.autorizacion import puede
+        return puede(usuario, "productividad.editar", id_empresa=id_empresa)
+    except Exception:
+        return False
+
+
+def _prod_centro_actual(usuario, id_empresa) -> dict | None:
+    """Centro de Productividad — IMPLÍCITO, nunca seleccionable a mano (pedido explícito, revierte
+    el desplegable "Centro" que había en las 4 secciones): el SUPERADMIN ve el centro al que está
+    CONECTADO ahora mismo (`tienda_actual_id()`, el mismo contexto operativo que usa "Cambiar de
+    Centro"/la migración de datos — para ver otro centro, tiene que conectarse a él, no elegirlo
+    aquí); ADMINISTRADOR/OPERARIO ven SIEMPRE el centro al que están vinculados
+    (`usuarios.centro_codigo`), nunca otro. Degradación honesta: sin centro resuelto, `None` (nunca
+    se inventa un "centro representativo" — a diferencia de `centros_db.centro_principal`, pensado
+    para otro caso de uso)."""
+    from src.db import centros as centros_db
+    perfil = ((usuario or {}).get("perfil") or "").upper()
+    if perfil == "SUPERADMIN":
+        from src.db.empresa import tienda_actual_id
+        id_tienda = tienda_actual_id()
+        if id_tienda is None:
+            return None
+        for c in centros_db.listar_centros(id_empresa):
+            if c.get("id_tienda") == id_tienda:
+                return c
+        return None
+    codigo = (usuario or {}).get("centro_codigo")
+    if not codigo:
+        return None
+    for c in centros_db.listar_centros(id_empresa):
+        if c.get("codigo_centro") == codigo:
+            return c
+    return None
+
+
+class _ProdCentroTab(QWidget):
+    """Sección "Facturación Centro": objetivo FIJO versionado + barra con importes EXACTOS +
+    navegación histórica (acotada al año natural en curso). El centro es IMPLÍCITO (pedido
+    explícito): nunca un desplegable — ver `_prod_centro_actual`."""
+
+    def __init__(self, usuario, id_empresa, parent=None):
+        super().__init__(parent)
+        self._usuario = usuario
+        self._id_empresa = id_empresa
+        self._cursor_fecha = datetime.now().date()
+        self._centro = _prod_centro_actual(usuario, id_empresa)
+        self.setStyleSheet(f"background:{BG};")
+        self._build()
+        self._refrescar()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        fila_sel = QHBoxLayout()
+        fila_sel.addWidget(_lbl(tr("vta.prod_centro_lbl", default="Centro:"), bold=True,
+                               size=13))
+        self.lbl_centro = _lbl(
+            (self._centro or {}).get("nombre_centro")
+            or tr("vta.prod_sin_centro", default="Sin centro conectado"),
+            bold=True, size=13, color=CIAN if self._centro else "#8B949E")
+        fila_sel.addWidget(self.lbl_centro, 1)
+        fila_sel.addWidget(_lbl(tr("vta.prod_periodo_lbl", default="Periodo:"), bold=True,
+                               size=13))
+        self.cb_periodo = _combo_periodos()
+        self.cb_periodo.setStyleSheet("font-family:'Segoe UI';font-weight:700;font-size:13px;")
+        self.cb_periodo.currentIndexChanged.connect(self._on_periodo_changed)
+        fila_sel.addWidget(self.cb_periodo)
+        root.addLayout(fila_sel)
+
+        fila_nav = QHBoxLayout()
+        self.btn_atras = _btn_flecha("←", lambda: self._navegar("atras"))
+        self.lbl_periodo = _lbl("", bold=True, color=CIAN, size=13)
+        self.lbl_periodo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.btn_adelante = _btn_flecha("→", lambda: self._navegar("adelante"))
+        fila_nav.addWidget(self.btn_atras)
+        fila_nav.addWidget(self.lbl_periodo, 1)
+        fila_nav.addWidget(self.btn_adelante)
+        root.addLayout(fila_nav)
+
+        self.barra = QProgressBar()
+        self.barra.setRange(0, 100)
+        self.barra.setFixedHeight(28)
+        self.barra.setStyleSheet(_SS_PROD_BARRA)
+        root.addWidget(self.barra)
+
+        fila_edit = QHBoxLayout()
+        self.ed_objetivo = QLineEdit()
+        self.ed_objetivo.setPlaceholderText(tr("vta.prod_objetivo_ph", default="Objetivo fijo (€)"))
+        self.ed_objetivo.setFixedWidth(160)
+        self.btn_guardar = QPushButton(tr("vta.prod_guardar", default="Guardar objetivo"))
+        self.btn_guardar.setStyleSheet(_SS_BTN_VERDE)
+        self.btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_guardar.clicked.connect(self._guardar_objetivo)
+        fila_edit.addWidget(self.ed_objetivo)
+        fila_edit.addWidget(self.btn_guardar)
+        fila_edit.addStretch()
+        root.addLayout(fila_edit)
+        self._fila_edit_widgets = [self.ed_objetivo, self.btn_guardar]
+
+        self.lbl_obligatorios = _lbl("", size=10, color="#8B949E")
+        root.addWidget(self.lbl_obligatorios)
+        root.addStretch()
+
+    def _on_periodo_changed(self):
+        self._cursor_fecha = datetime.now().date()
+        self._refrescar()
+
+    def _navegar(self, direccion):
+        from src.services.productividad import periodos as P
+        periodo = self.cb_periodo.currentData()
+        nueva = P.navegar(periodo, self._cursor_fecha, direccion)
+        if nueva is None:
+            return
+        self._cursor_fecha = nueva
+        self._refrescar()
+
+    def _refrescar(self):
+        editar = _prod_puede_editar(self._usuario, self._id_empresa)
+        for w in self._fila_edit_widgets:
+            w.setVisible(editar)
+        if not self._centro:
+            self.lbl_periodo.setText("—")
+            self.barra.setValue(0)
+            self.barra.setFormat("—")
+            self.btn_atras.setEnabled(False)
+            self.btn_adelante.setEnabled(False)
+            return
+
+        from src.services.productividad import facturacion as F
+        from src.services.productividad import objetivos as O
+        from src.services.productividad import periodos as P
+
+        periodo = self.cb_periodo.currentData()
+        desde, hasta = P.limites_periodo(periodo, self._cursor_fecha)
+        self.lbl_periodo.setText(f"{desde.strftime('%d/%m/%Y')} – {hasta.strftime('%d/%m/%Y')}")
+        self.btn_atras.setEnabled(P.navegar(periodo, self._cursor_fecha, "atras") is not None)
+        self.btn_adelante.setEnabled(P.navegar(periodo, self._cursor_fecha, "adelante") is not None)
+
+        codigo_centro = self._centro.get("codigo_centro")
+        obj = O.objetivo_en_fecha("centro", periodo, self._id_empresa, desde,
+                                   centro_codigo=codigo_centro)
+        objetivo_valor = obj["valor"] if obj else 0.0
+        facturado = F.facturado_centro(self._centro.get("id_tienda"), desde, hasta, self._id_empresa)
+        pct = 0 if objetivo_valor <= 0 else max(0, min(100, round(facturado / objetivo_valor * 100)))
+        self.barra.setValue(pct)
+        self.barra.setFormat(f"{divisas.formatear(facturado)} / {divisas.formatear(objetivo_valor)}")
+        self.ed_objetivo.setText(f"{objetivo_valor:.2f}" if objetivo_valor else "")
+
+        completos = O.objetivos_obligatorios_completos("centro", self._id_empresa, desde,
+                                                         centro_codigo=codigo_centro)
+        faltan = [p for p, ok in completos.items() if not ok]
+        if faltan:
+            self.lbl_obligatorios.setText(
+                tr("vta.prod_obligatorios_faltan", default="Objetivos obligatorios pendientes: ")
+                + ", ".join(faltan))
+        else:
+            self.lbl_obligatorios.setText("")
+
+    def _guardar_objetivo(self):
+        if not self._centro:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_sin_centro", default="No hay ningún centro conectado."),
+                            "info")
+            return
+        if not _prod_puede_editar(self._usuario, self._id_empresa):
+            return
         try:
-            import pandas as pd
-            ext = os.path.splitext(self.ruta)[1].lower()
-            if ext == ".xlsx":
-                df = pd.read_excel(self.ruta)
-            elif ext == ".csv":
-                df = pd.read_csv(self.ruta)
-            else:
-                self.finalizado.emit(tr("vta.fmt_unsupported", default="Formato no soportado. Usa Excel (.xlsx) o CSV."))
-                return
+            valor = float((self.ed_objetivo.text() or "0").replace(",", "."))
+        except ValueError:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_valor", default="Introduce un número válido."), "error")
+            return
+        from src.services.productividad import objetivos as O
+        periodo = self.cb_periodo.currentData()
+        uid = (self._usuario or {}).get("id")
+        oid = O.fijar_objetivo_centro(self._centro.get("codigo_centro"), periodo, valor,
+                                       self._id_empresa, creado_por_id=uid)
+        if oid is None:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_guardar", default="No se pudo guardar el objetivo."),
+                            "error")
+            return
+        mostrar_mensaje(self, tr("vta.prod_ok_title", default="Objetivo guardado"),
+                        tr("vta.prod_ok_objetivo", default="El objetivo se ha guardado correctamente."),
+                        "success")
+        self._refrescar()
 
-            df.columns = [c.strip().lower() for c in df.columns]
-            col_fecha  = next((c for c in df.columns if "fecha" in c or "date" in c), None)
-            col_total  = next((c for c in df.columns if "total" in c or "importe" in c or "factur" in c), None)
 
-            if not col_fecha or not col_total:
-                self.finalizado.emit(
-                    tr("vta.need_columns", default="El archivo debe tener columnas 'fecha' y 'total' (o variantes similares).")
-                )
-                return
+class _ProdEmpleadoTab(QWidget):
+    """Sección "Facturación Empleados": objetivo DINÁMICO (tarifa/hora × horas trabajadas, vía
+    Fichajes) + barra con importes EXACTOS + navegación histórica. El centro es IMPLÍCITO (pedido
+    explícito): solo se eligen los empleados DE ESE centro — ver `_prod_centro_actual`."""
 
-            # Cliente fino (Fase 3): la GUI prepara los datos; el upsert vive en la capa de datos.
-            items = []
-            for _, row in df.iterrows():
-                try:
-                    fecha_val = pd.to_datetime(row[col_fecha]).date()
-                    items.append((fecha_val, float(row[col_total]), fecha_val.weekday()))
-                except Exception:
-                    continue
-            from src.db.ventas_analitica import importar_prevision_historico
-            insertados = importar_prevision_historico(items)
+    def __init__(self, usuario, id_empresa, parent=None):
+        super().__init__(parent)
+        self._usuario = usuario
+        self._id_empresa = id_empresa
+        self._cursor_fecha = datetime.now().date()
+        self._centro = _prod_centro_actual(usuario, id_empresa)
+        self._empleados = []
+        self.setStyleSheet(f"background:{BG};")
+        self._build()
+        self._cargar_empleados()
 
-            self.finalizado.emit(
-                tr("vta.hist_import_ok", default="Histórico importado: {n} días cargados desde\n{ruta}", n=insertados, ruta=self.ruta)
-            )
-        except Exception as e:
-            self.finalizado.emit(tr("vta.import_err", default="Error al importar: {e}", e=e))
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        fila_sel = QHBoxLayout()
+        fila_sel.addWidget(_lbl(tr("vta.prod_centro_lbl", default="Centro:"), bold=True,
+                               size=13))
+        self.lbl_centro = _lbl(
+            (self._centro or {}).get("nombre_centro")
+            or tr("vta.prod_sin_centro", default="Sin centro conectado"),
+            bold=True, size=13, color=CIAN if self._centro else "#8B949E")
+        fila_sel.addWidget(self.lbl_centro, 1)
+        root.addLayout(fila_sel)
+
+        fila_emp = QHBoxLayout()
+        fila_emp.addWidget(_lbl(tr("vta.prod_empleado_lbl", default="Empleado:"), bold=True,
+                               size=13))
+        self.cb_empleado = QComboBox()
+        self.cb_empleado.setStyleSheet("font-family:'Segoe UI';font-weight:700;font-size:13px;")
+        self.cb_empleado.currentIndexChanged.connect(self._refrescar)
+        fila_emp.addWidget(self.cb_empleado, 1)
+        fila_emp.addWidget(_lbl(tr("vta.prod_periodo_lbl", default="Periodo:"), bold=True,
+                               size=13))
+        self.cb_periodo = _combo_periodos()
+        self.cb_periodo.setStyleSheet("font-family:'Segoe UI';font-weight:700;font-size:13px;")
+        self.cb_periodo.currentIndexChanged.connect(self._on_periodo_changed)
+        fila_emp.addWidget(self.cb_periodo)
+        root.addLayout(fila_emp)
+
+        fila_nav = QHBoxLayout()
+        self.btn_atras = _btn_flecha("←", lambda: self._navegar("atras"))
+        self.lbl_periodo = _lbl("", bold=True, color=CIAN, size=13)
+        self.lbl_periodo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.btn_adelante = _btn_flecha("→", lambda: self._navegar("adelante"))
+        fila_nav.addWidget(self.btn_atras)
+        fila_nav.addWidget(self.lbl_periodo, 1)
+        fila_nav.addWidget(self.btn_adelante)
+        root.addLayout(fila_nav)
+
+        self.lbl_horas = _lbl("", size=11, color="#8B949E")
+        root.addWidget(self.lbl_horas)
+
+        self.barra = QProgressBar()
+        self.barra.setRange(0, 100)
+        self.barra.setFixedHeight(28)
+        self.barra.setStyleSheet(_SS_PROD_BARRA)
+        root.addWidget(self.barra)
+
+        fila_edit = QHBoxLayout()
+        self.ed_valor_hora = QLineEdit()
+        self.ed_valor_hora.setPlaceholderText(tr("vta.prod_valor_hora_ph", default="Tarifa/hora (€)"))
+        self.ed_valor_hora.setFixedWidth(160)
+        self.btn_guardar = QPushButton(tr("vta.prod_guardar", default="Guardar objetivo"))
+        self.btn_guardar.setStyleSheet(_SS_BTN_VERDE)
+        self.btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_guardar.clicked.connect(self._guardar_objetivo)
+        fila_edit.addWidget(self.ed_valor_hora)
+        fila_edit.addWidget(self.btn_guardar)
+        fila_edit.addStretch()
+        root.addLayout(fila_edit)
+        self._fila_edit_widgets = [self.ed_valor_hora, self.btn_guardar]
+
+        self.lbl_obligatorios = _lbl("", size=10, color="#8B949E")
+        root.addWidget(self.lbl_obligatorios)
+        root.addStretch()
+
+    def _cargar_empleados(self):
+        from src.db.usuario import listar_usuarios_empresa
+        codigo_centro = (self._centro or {}).get("codigo_centro")
+        self._empleados = listar_usuarios_empresa(self._id_empresa, centro_codigo=codigo_centro) \
+            if codigo_centro else []
+        self.cb_empleado.clear()
+        for e in self._empleados:
+            self.cb_empleado.addItem((e.get("nombre") or f"Usuario {e.get('id')}").upper(), e.get("id"))
+        self._refrescar()
+
+    def _on_periodo_changed(self):
+        self._cursor_fecha = datetime.now().date()
+        self._refrescar()
+
+    def _navegar(self, direccion):
+        from src.services.productividad import periodos as P
+        periodo = self.cb_periodo.currentData()
+        nueva = P.navegar(periodo, self._cursor_fecha, direccion)
+        if nueva is None:
+            return
+        self._cursor_fecha = nueva
+        self._refrescar()
+
+    def _refrescar(self):
+        editar = _prod_puede_editar(self._usuario, self._id_empresa)
+        for w in self._fila_edit_widgets:
+            w.setVisible(editar)
+
+        from src.services.productividad import periodos as P
+
+        periodo = self.cb_periodo.currentData()
+        # El rango de fechas del periodo depende SOLO del periodo + cursor seleccionados — se
+        # calcula y muestra siempre, igual que en "Facturación Centro", independientemente de si
+        # ya hay un empleado elegido (antes se ocultaba del todo sin empleado, inconsistente).
+        desde, hasta = P.limites_periodo(periodo, self._cursor_fecha)
+        self.lbl_periodo.setText(f"{desde.strftime('%d/%m/%Y')} – {hasta.strftime('%d/%m/%Y')}")
+        self.btn_atras.setEnabled(P.navegar(periodo, self._cursor_fecha, "atras") is not None)
+        self.btn_adelante.setEnabled(P.navegar(periodo, self._cursor_fecha, "adelante") is not None)
+
+        usuario_id = self.cb_empleado.currentData()
+        if not usuario_id:
+            self.lbl_horas.setText("")
+            self.barra.setValue(0)
+            self.barra.setFormat("—")
+            self.ed_valor_hora.setText("")
+            self.lbl_obligatorios.setText("")
+            return
+
+        from src.services.productividad import facturacion as F
+        from src.services.productividad import objetivos as O
+
+        dyn = O.objetivo_dinamico_empleado(usuario_id, periodo, self._id_empresa, self._cursor_fecha)
+        desde, hasta = dyn["desde"], dyn["hasta"]
+        facturado = F.facturado_empleado(usuario_id, desde, hasta, self._id_empresa)
+        objetivo_valor = dyn["objetivo_calculado"]
+        pct = 0 if objetivo_valor <= 0 else max(0, min(100, round(facturado / objetivo_valor * 100)))
+        self.barra.setValue(pct)
+        self.barra.setFormat(f"{divisas.formatear(facturado)} / {divisas.formatear(objetivo_valor)}")
+        self.lbl_horas.setText(
+            tr("vta.prod_horas_trabajadas", default="Horas trabajadas: {h} h · Tarifa: {t}")
+            .format(h=f"{dyn['horas_trabajadas']:.2f}", t=divisas.formatear(dyn["valor_hora"])))
+        self.ed_valor_hora.setText(f"{dyn['valor_hora']:.2f}" if dyn["valor_hora"] else "")
+
+        completos = O.objetivos_obligatorios_completos("empleado", self._id_empresa, desde,
+                                                         usuario_id=usuario_id)
+        faltan = [p for p, ok in completos.items() if not ok]
+        if faltan:
+            self.lbl_obligatorios.setText(
+                tr("vta.prod_obligatorios_faltan", default="Objetivos obligatorios pendientes: ")
+                + ", ".join(faltan))
+        else:
+            self.lbl_obligatorios.setText("")
+
+    def _guardar_objetivo(self):
+        usuario_id = self.cb_empleado.currentData()
+        if not usuario_id:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_sin_empleado", default="Selecciona primero un empleado."),
+                            "info")
+            return
+        if not _prod_puede_editar(self._usuario, self._id_empresa):
+            return
+        try:
+            valor = float((self.ed_valor_hora.text() or "0").replace(",", "."))
+        except ValueError:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_valor", default="Introduce un número válido."), "error")
+            return
+        from src.services.productividad import objetivos as O
+        periodo = self.cb_periodo.currentData()
+        uid = (self._usuario or {}).get("id")
+        oid = O.fijar_objetivo_empleado(usuario_id, periodo, valor, self._id_empresa, creado_por_id=uid)
+        if oid is None:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_guardar", default="No se pudo guardar el objetivo."),
+                            "error")
+            return
+        mostrar_mensaje(self, tr("vta.prod_ok_title", default="Objetivo guardado"),
+                        tr("vta.prod_ok_objetivo", default="El objetivo se ha guardado correctamente."),
+                        "success")
+        self._refrescar()
+
+
+class _ProdCampanaCentroTab(QWidget):
+    """Sección "Facturación Campaña Centro": objetivo de campaña, EXPLÍCITAMENTE PARALELO al
+    objetivo ordinario del centro (barra propia, fechas propias de la campaña). El centro es
+    IMPLÍCITO (pedido explícito) — ver `_prod_centro_actual`."""
+
+    def __init__(self, usuario, id_empresa, parent=None):
+        super().__init__(parent)
+        self._usuario = usuario
+        self._id_empresa = id_empresa
+        self._centro = _prod_centro_actual(usuario, id_empresa)
+        self._campanas = []
+        self.setStyleSheet(f"background:{BG};")
+        self._build()
+        self._cargar()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        fila_camp = QHBoxLayout()
+        fila_camp.addWidget(_lbl(tr("vta.prod_campana_lbl", default="Campaña:"), bold=True,
+                               size=13))
+        self.cb_campana = QComboBox()
+        self.cb_campana.setStyleSheet("font-family:'Segoe UI';font-weight:700;font-size:13px;")
+        self.cb_campana.currentIndexChanged.connect(self._refrescar)
+        fila_camp.addWidget(self.cb_campana, 1)
+        root.addLayout(fila_camp)
+
+        self._fila_alta = QWidget()
+        alta = QHBoxLayout(self._fila_alta)
+        alta.setContentsMargins(0, 0, 0, 0)
+        self.ed_nombre = QLineEdit()
+        self.ed_nombre.setPlaceholderText(tr("vta.prod_camp_nombre_ph", default="Nombre de la campaña"))
+        hoy = QDate.currentDate()
+        self.df_desde = _date_neon_campana(hoy)
+        self.df_hasta = _date_neon_campana(hoy)
+        self.btn_crear_campana = QPushButton(tr("vta.prod_camp_crear", default="Crear campaña"))
+        self.btn_crear_campana.setStyleSheet(_SS_BTN_VERDE)
+        self.btn_crear_campana.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_crear_campana.clicked.connect(self._crear_campana)
+        alta.addWidget(self.ed_nombre, 1)
+        alta.addWidget(_lbl(tr("vta.prod_camp_inicio", default="Inicio:"), bold=True, size=13))
+        alta.addWidget(self.df_desde)
+        alta.addWidget(_lbl(tr("vta.prod_camp_fin", default="Fin:"), bold=True, size=13))
+        alta.addWidget(self.df_hasta)
+        alta.addWidget(self.btn_crear_campana)
+        root.addWidget(self._fila_alta)
+
+        fila_centro = QHBoxLayout()
+        fila_centro.addWidget(_lbl(tr("vta.prod_centro_lbl", default="Centro:"), bold=True,
+                               size=13))
+        self.lbl_centro = _lbl(
+            (self._centro or {}).get("nombre_centro")
+            or tr("vta.prod_sin_centro", default="Sin centro conectado"),
+            bold=True, size=13, color=CIAN if self._centro else "#8B949E")
+        fila_centro.addWidget(self.lbl_centro, 1)
+        root.addLayout(fila_centro)
+
+        self.lbl_fechas = _lbl("", color=CIAN, bold=True, size=13)
+        root.addWidget(self.lbl_fechas)
+
+        self.barra = QProgressBar()
+        self.barra.setRange(0, 100)
+        self.barra.setFixedHeight(28)
+        self.barra.setStyleSheet(_SS_PROD_BARRA)
+        root.addWidget(self.barra)
+
+        fila_edit = QHBoxLayout()
+        self.ed_objetivo = QLineEdit()
+        self.ed_objetivo.setPlaceholderText(tr("vta.prod_objetivo_ph", default="Objetivo fijo (€)"))
+        self.ed_objetivo.setFixedWidth(160)
+        self.btn_guardar = QPushButton(tr("vta.prod_guardar", default="Guardar objetivo"))
+        self.btn_guardar.setStyleSheet(_SS_BTN_VERDE)
+        self.btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_guardar.clicked.connect(self._guardar_objetivo)
+        fila_edit.addWidget(self.ed_objetivo)
+        fila_edit.addWidget(self.btn_guardar)
+        fila_edit.addStretch()
+        root.addLayout(fila_edit)
+        self._fila_edit_widgets = [self.ed_objetivo, self.btn_guardar]
+        root.addStretch()
+
+    def _cargar(self):
+        self._fila_alta.setVisible(_prod_puede_editar(self._usuario, self._id_empresa))
+        self._cargar_campanas()
+
+    def _cargar_campanas(self):
+        from src.services.productividad import campanas as C
+        self._campanas = C.listar_campanas(self._id_empresa)
+        self.cb_campana.blockSignals(True)
+        self.cb_campana.clear()
+        for c in self._campanas:
+            self.cb_campana.addItem(c["nombre"], c["id"])
+        self.cb_campana.blockSignals(False)
+        self._refrescar()
+
+    def _crear_campana(self):
+        if not _prod_puede_editar(self._usuario, self._id_empresa):
+            return
+        nombre = (self.ed_nombre.text() or "").strip()
+        if not nombre:
+            mostrar_mensaje(self, tr("vta.prod_camp_err_nombre_title", default="Falta el nombre"),
+                            tr("vta.prod_camp_err_nombre", default="Indica un nombre de campaña."),
+                            "error")
+            return
+        if self.df_hasta.date() < self.df_desde.date():
+            mostrar_mensaje(self, tr("vta.prod_camp_err_fechas_title", default="Fechas inválidas"),
+                            tr("vta.prod_camp_err_fechas",
+                               default="La fecha de fin no puede ser anterior a la de inicio."),
+                            "error")
+            return
+        from src.services.productividad import campanas as C
+        uid = (self._usuario or {}).get("id")
+        cid = C.crear_campana(nombre, self.df_desde.date().toPyDate(), self.df_hasta.date().toPyDate(),
+                              self._id_empresa, creado_por_id=uid)
+        if cid is None:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_camp_err_crear", default="No se pudo crear la campaña."),
+                            "error")
+            return
+        mostrar_mensaje(self, tr("vta.prod_camp_ok_title", default="Campaña creada"),
+                        tr("vta.prod_camp_ok_crear", default="La campaña se ha creado correctamente."),
+                        "success")
+        self.ed_nombre.clear()
+        self._cargar_campanas()
+
+    def _refrescar(self):
+        editar = _prod_puede_editar(self._usuario, self._id_empresa)
+        for w in self._fila_edit_widgets:
+            w.setVisible(editar)
+        id_campana = self.cb_campana.currentData()
+        if id_campana is None or not self._centro:
+            self.barra.setValue(0)
+            self.barra.setFormat("—")
+            self.lbl_fechas.setText("")
+            self.ed_objetivo.setText("")
+            return
+        from src.services.productividad import campanas as C
+        r = C.progreso_campana_centro(id_campana, self._centro.get("id_tienda"),
+                                      self._centro.get("codigo_centro"), self._id_empresa)
+        objetivo = r.get("objetivo", 0.0)
+        facturado = r.get("facturado", 0.0)
+        pct = 0 if objetivo <= 0 else max(0, min(100, round(facturado / objetivo * 100)))
+        self.barra.setValue(pct)
+        self.barra.setFormat(f"{divisas.formatear(facturado)} / {divisas.formatear(objetivo)}")
+        if r.get("desde"):
+            self.lbl_fechas.setText(f"{r['desde']} – {r['hasta']}")
+        self.ed_objetivo.setText(f"{objetivo:.2f}" if objetivo else "")
+
+    def _guardar_objetivo(self):
+        if not _prod_puede_editar(self._usuario, self._id_empresa):
+            return
+        id_campana = self.cb_campana.currentData()
+        if id_campana is None or not self._centro:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_sin_campana_centro",
+                               default="Selecciona una campaña (y asegúrate de estar conectado a "
+                                       "un centro)."), "info")
+            return
+        try:
+            valor = float((self.ed_objetivo.text() or "0").replace(",", "."))
+        except ValueError:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_valor", default="Introduce un número válido."), "error")
+            return
+        from src.services.productividad import campanas as C
+        oid = C.fijar_objetivo_campana(id_campana, "centro", valor, self._id_empresa,
+                                       centro_codigo=self._centro.get("codigo_centro"))
+        if oid is None:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_guardar", default="No se pudo guardar el objetivo."),
+                            "error")
+            return
+        mostrar_mensaje(self, tr("vta.prod_ok_title", default="Objetivo guardado"),
+                        tr("vta.prod_ok_objetivo", default="El objetivo se ha guardado correctamente."),
+                        "success")
+        self._refrescar()
+
+
+class _ProdCampanaEmpleadoTab(QWidget):
+    """Sección "Facturación Campaña Empleados": objetivo DINÁMICO de campaña (tarifa/hora × horas
+    trabajadas EN el rango de la campaña), paralelo al objetivo ordinario del empleado. El centro
+    es IMPLÍCITO (pedido explícito): solo se eligen los empleados DE ESE centro — ver
+    `_prod_centro_actual`."""
+
+    def __init__(self, usuario, id_empresa, parent=None):
+        super().__init__(parent)
+        self._usuario = usuario
+        self._id_empresa = id_empresa
+        self._centro = _prod_centro_actual(usuario, id_empresa)
+        self._campanas = []
+        self._empleados = []
+        self.setStyleSheet(f"background:{BG};")
+        self._build()
+        self._cargar()
+
+    def _build(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        fila_camp = QHBoxLayout()
+        fila_camp.addWidget(_lbl(tr("vta.prod_campana_lbl", default="Campaña:"), bold=True,
+                               size=13))
+        self.cb_campana = QComboBox()
+        self.cb_campana.setStyleSheet("font-family:'Segoe UI';font-weight:700;font-size:13px;")
+        self.cb_campana.currentIndexChanged.connect(self._refrescar)
+        fila_camp.addWidget(self.cb_campana, 1)
+        root.addLayout(fila_camp)
+
+        self._fila_alta = QWidget()
+        alta = QHBoxLayout(self._fila_alta)
+        alta.setContentsMargins(0, 0, 0, 0)
+        self.ed_nombre = QLineEdit()
+        self.ed_nombre.setPlaceholderText(tr("vta.prod_camp_nombre_ph", default="Nombre de la campaña"))
+        hoy = QDate.currentDate()
+        self.df_desde = _date_neon_campana(hoy)
+        self.df_hasta = _date_neon_campana(hoy)
+        self.btn_crear_campana = QPushButton(tr("vta.prod_camp_crear", default="Crear campaña"))
+        self.btn_crear_campana.setStyleSheet(_SS_BTN_VERDE)
+        self.btn_crear_campana.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_crear_campana.clicked.connect(self._crear_campana)
+        alta.addWidget(self.ed_nombre, 1)
+        alta.addWidget(_lbl(tr("vta.prod_camp_inicio", default="Inicio:"), bold=True, size=13))
+        alta.addWidget(self.df_desde)
+        alta.addWidget(_lbl(tr("vta.prod_camp_fin", default="Fin:"), bold=True, size=13))
+        alta.addWidget(self.df_hasta)
+        alta.addWidget(self.btn_crear_campana)
+        root.addWidget(self._fila_alta)
+
+        fila_sel = QHBoxLayout()
+        fila_sel.addWidget(_lbl(tr("vta.prod_centro_lbl", default="Centro:"), bold=True,
+                               size=13))
+        self.lbl_centro = _lbl(
+            (self._centro or {}).get("nombre_centro")
+            or tr("vta.prod_sin_centro", default="Sin centro conectado"),
+            bold=True, size=13, color=CIAN if self._centro else "#8B949E")
+        fila_sel.addWidget(self.lbl_centro, 1)
+        fila_sel.addWidget(_lbl(tr("vta.prod_empleado_lbl", default="Empleado:"), bold=True,
+                               size=13))
+        self.cb_empleado = QComboBox()
+        self.cb_empleado.setStyleSheet("font-family:'Segoe UI';font-weight:700;font-size:13px;")
+        self.cb_empleado.currentIndexChanged.connect(self._refrescar)
+        fila_sel.addWidget(self.cb_empleado, 1)
+        root.addLayout(fila_sel)
+
+        self.lbl_fechas = _lbl("", color=CIAN, bold=True, size=13)
+        root.addWidget(self.lbl_fechas)
+        self.lbl_horas = _lbl("", size=11, color="#8B949E")
+        root.addWidget(self.lbl_horas)
+
+        self.barra = QProgressBar()
+        self.barra.setRange(0, 100)
+        self.barra.setFixedHeight(28)
+        self.barra.setStyleSheet(_SS_PROD_BARRA)
+        root.addWidget(self.barra)
+
+        fila_edit = QHBoxLayout()
+        self.ed_valor_hora = QLineEdit()
+        self.ed_valor_hora.setPlaceholderText(tr("vta.prod_valor_hora_ph", default="Tarifa/hora (€)"))
+        self.ed_valor_hora.setFixedWidth(160)
+        self.btn_guardar = QPushButton(tr("vta.prod_guardar", default="Guardar objetivo"))
+        self.btn_guardar.setStyleSheet(_SS_BTN_VERDE)
+        self.btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_guardar.clicked.connect(self._guardar_objetivo)
+        fila_edit.addWidget(self.ed_valor_hora)
+        fila_edit.addWidget(self.btn_guardar)
+        fila_edit.addStretch()
+        root.addLayout(fila_edit)
+        self._fila_edit_widgets = [self.ed_valor_hora, self.btn_guardar]
+        root.addStretch()
+
+    def _cargar(self):
+        self._fila_alta.setVisible(_prod_puede_editar(self._usuario, self._id_empresa))
+        self._cargar_campanas()
+        self._cargar_empleados()
+
+    def _cargar_campanas(self):
+        from src.services.productividad import campanas as C
+        self._campanas = C.listar_campanas(self._id_empresa)
+        self.cb_campana.blockSignals(True)
+        self.cb_campana.clear()
+        for c in self._campanas:
+            self.cb_campana.addItem(c["nombre"], c["id"])
+        self.cb_campana.blockSignals(False)
+
+    def _cargar_empleados(self):
+        from src.db.usuario import listar_usuarios_empresa
+        codigo_centro = (self._centro or {}).get("codigo_centro")
+        self._empleados = listar_usuarios_empresa(self._id_empresa, centro_codigo=codigo_centro) \
+            if codigo_centro else []
+        self.cb_empleado.clear()
+        for e in self._empleados:
+            self.cb_empleado.addItem((e.get("nombre") or f"Usuario {e.get('id')}").upper(), e.get("id"))
+        self._refrescar()
+
+    def _crear_campana(self):
+        if not _prod_puede_editar(self._usuario, self._id_empresa):
+            return
+        nombre = (self.ed_nombre.text() or "").strip()
+        if not nombre:
+            mostrar_mensaje(self, tr("vta.prod_camp_err_nombre_title", default="Falta el nombre"),
+                            tr("vta.prod_camp_err_nombre", default="Indica un nombre de campaña."),
+                            "error")
+            return
+        if self.df_hasta.date() < self.df_desde.date():
+            mostrar_mensaje(self, tr("vta.prod_camp_err_fechas_title", default="Fechas inválidas"),
+                            tr("vta.prod_camp_err_fechas",
+                               default="La fecha de fin no puede ser anterior a la de inicio."),
+                            "error")
+            return
+        from src.services.productividad import campanas as C
+        uid = (self._usuario or {}).get("id")
+        cid = C.crear_campana(nombre, self.df_desde.date().toPyDate(), self.df_hasta.date().toPyDate(),
+                              self._id_empresa, creado_por_id=uid)
+        if cid is None:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_camp_err_crear", default="No se pudo crear la campaña."),
+                            "error")
+            return
+        mostrar_mensaje(self, tr("vta.prod_camp_ok_title", default="Campaña creada"),
+                        tr("vta.prod_camp_ok_crear", default="La campaña se ha creado correctamente."),
+                        "success")
+        self.ed_nombre.clear()
+        self._cargar_campanas()
+
+    def _refrescar(self):
+        editar = _prod_puede_editar(self._usuario, self._id_empresa)
+        for w in self._fila_edit_widgets:
+            w.setVisible(editar)
+        id_campana = self.cb_campana.currentData()
+        usuario_id = self.cb_empleado.currentData()
+        if id_campana is None or not usuario_id:
+            self.barra.setValue(0)
+            self.barra.setFormat("—")
+            self.lbl_fechas.setText("")
+            self.lbl_horas.setText("")
+            self.ed_valor_hora.setText("")
+            return
+        from src.services.productividad import campanas as C
+        r = C.progreso_campana_empleado(id_campana, usuario_id, self._id_empresa)
+        objetivo = r.get("objetivo", 0.0)
+        facturado = r.get("facturado", 0.0)
+        pct = 0 if objetivo <= 0 else max(0, min(100, round(facturado / objetivo * 100)))
+        self.barra.setValue(pct)
+        self.barra.setFormat(f"{divisas.formatear(facturado)} / {divisas.formatear(objetivo)}")
+        if r.get("desde"):
+            self.lbl_fechas.setText(f"{r['desde']} – {r['hasta']}")
+        self.lbl_horas.setText(
+            tr("vta.prod_horas_trabajadas", default="Horas trabajadas: {h} h · Tarifa: {t}")
+            .format(h=f"{r.get('horas_trabajadas', 0):.2f}", t=divisas.formatear(r.get("valor_hora", 0))))
+        self.ed_valor_hora.setText(f"{r.get('valor_hora', 0):.2f}" if r.get("valor_hora") else "")
+
+    def _guardar_objetivo(self):
+        if not _prod_puede_editar(self._usuario, self._id_empresa):
+            return
+        id_campana = self.cb_campana.currentData()
+        usuario_id = self.cb_empleado.currentData()
+        if id_campana is None or not usuario_id:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_sin_campana_empleado",
+                               default="Selecciona una campaña y un empleado."), "info")
+            return
+        try:
+            valor = float((self.ed_valor_hora.text() or "0").replace(",", "."))
+        except ValueError:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_valor", default="Introduce un número válido."), "error")
+            return
+        from src.services.productividad import campanas as C
+        oid = C.fijar_objetivo_campana(id_campana, "empleado", valor, self._id_empresa,
+                                       usuario_id=usuario_id)
+        if oid is None:
+            mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
+                            tr("vta.prod_err_guardar", default="No se pudo guardar el objetivo."),
+                            "error")
+            return
+        mostrar_mensaje(self, tr("vta.prod_ok_title", default="Objetivo guardado"),
+                        tr("vta.prod_ok_objetivo", default="El objetivo se ha guardado correctamente."),
+                        "success")
+        self._refrescar()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2194,7 +3026,7 @@ class VentasAnaliticaWindow(QWidget):
             pass
 
     def _retraducir(self):
-        _tab_def = ["RESUMEN DE VENTAS", "IMPORTAR VENTAS", "RENDIMIENTO"]
+        _tab_def = ["RESUMEN DE VENTAS", "RENDIMIENTO", "PRODUCTIVIDAD"]
         for i, btn in enumerate(self._sidebar_btns):
             _d = _tab_def[i] if i < len(_tab_def) else ""
             btn.setText(tr(self._tab_keys[i], default=_d))
@@ -2212,16 +3044,16 @@ class VentasAnaliticaWindow(QWidget):
 
         self.stack = QStackedWidget()
         self.stack.setStyleSheet(f"background: {BG};")
-        # BUSCAR VENTAS se ha migrado a la ventana de BÚSQUEDA/REIMPRESIÓN del TPV.
-        # Lazy loading (init en primer acceso): construir las 3 pestañas por adelantado —
-        # PREVISIÓN y RENDIMIENTO cargan datos históricos vía consultas a BD durante su propia
-        # construcción — es lo que causaba tanto la apertura lenta del módulo como el parpadeo
-        # de la animación de entrada (el primer fotograma real, ya con tablas pobladas, tardaba
-        # más en pintarse de lo que la animación esperaba). Solo se construye de verdad la
-        # pestaña que se va a mostrar; el resto queda como placeholder hasta que el usuario la
-        # visita por primera vez (ver `_asegurar_panel`).
+        # BUSCAR VENTAS se ha migrado a la ventana de BÚSQUEDA/REIMPRESIÓN del TPV. IMPORTAR VENTAS
+        # se retiró (importación centralizada en "Migrar datos", sin duplicar aquí ninguna pestaña).
+        # Lazy loading (init en primer acceso): RENDIMIENTO carga datos históricos vía consultas a
+        # BD durante su propia construcción — es lo que causaba tanto la apertura lenta del módulo
+        # como el parpadeo de la animación de entrada (el primer fotograma real, ya con tablas
+        # pobladas, tardaba más en pintarse de lo que la animación esperaba). Solo se construye de
+        # verdad la pestaña que se va a mostrar; el resto queda como placeholder hasta que el
+        # usuario la visita por primera vez (ver `_asegurar_panel`).
         self._panel_factories = [
-            self._panel_resumen_ventas, self._panel_prevision, self._panel_rendimiento,
+            self._panel_resumen_ventas, self._panel_rendimiento, self._panel_productividad,
         ]
         self._paneles_listos = set()
         for _ in self._panel_factories:
@@ -2251,10 +3083,10 @@ class VentasAnaliticaWindow(QWidget):
         )
         ly.addWidget(titulo)
 
-        self._tab_keys = ["vta.tab_summary", "vta.tab_forecast", "vta.tab_rendimiento"]
-        _tab_def = ["RESUMEN DE VENTAS", "IMPORTAR VENTAS", "RENDIMIENTO"]
+        self._tab_keys = ["vta.tab_summary", "vta.tab_rendimiento", "vta.tab_productividad"]
+        _tab_def = ["RESUMEN DE VENTAS", "RENDIMIENTO", "PRODUCTIVIDAD"]
         for i, texto in enumerate(_tab_def):
-            btn = QPushButton(tr(self._tab_keys[i], default=texto))
+            btn = QPushButton(tr(self._tab_keys[i], default=texto).upper())
             btn.setObjectName("btn_sidebar")
             btn.setStyleSheet(_SS_SIDEBAR_BTN)
             btn.setFixedHeight(55)
@@ -2266,7 +3098,7 @@ class VentasAnaliticaWindow(QWidget):
 
         ly.addStretch()
 
-        self._btn_exit = btn_exit = QPushButton(tr("vta.exit", default="SALIR AL MENÚ"))
+        self._btn_exit = btn_exit = QPushButton(tr("vta.exit", default="SALIR AL MENÚ").upper())
         btn_exit.setObjectName("btn_sidebar_exit")
         btn_exit.setStyleSheet(_SS_BTN_EXIT)
         btn_exit.setFixedHeight(55)
@@ -2320,7 +3152,6 @@ class VentasAnaliticaWindow(QWidget):
         root.setSpacing(14)
 
         root.addWidget(_lbl(tr("vta.summary_title", default="RESUMEN DE VENTAS"), bold=True, size=15, color=CIAN))
-        root.addWidget(_separador())
 
         # Filtros
         filtros_frame = QFrame()
@@ -2348,6 +3179,7 @@ class VentasAnaliticaWindow(QWidget):
 
         row_f = QHBoxLayout(); row_f.setSpacing(6)
         self.res_articulo = _input_neon(tr("vta.ph_article_opt", default="Nombre o código de artículo (opcional)"))
+        instalar_sugerencias_articulo(self.res_articulo)
         self.res_seccion  = _input_neon(tr("vta.ph_section_opt", default="Sección (opcional)"))
         for txt, w in ((tr("vta.lbl_article", default="Artículo"), self.res_articulo), (tr("vta.lbl_section", default="Sección"), self.res_seccion)):
             lbl = _filter_lbl(txt)
@@ -2355,6 +3187,24 @@ class VentasAnaliticaWindow(QWidget):
             lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             row_f.addWidget(lbl); row_f.addWidget(w)
             row_f.addSpacing(10)
+        # Selector de tienda (petición explícita: tráfico exterior/Capture Rate "filtrable por
+        # tienda y rango de fechas"). "(Todas)" preserva el comportamiento previo a esta función
+        # (ámbito de la sesión activa); una tienda concreta fuerza ese filtro en todo el resumen.
+        self.res_tienda = QComboBox()
+        self.res_tienda.addItem(tr("vta.opt_all_stores", default="(Todas)"), None)
+        try:
+            from src.db import tiendas as _T
+            from src.db.empresa import empresa_actual_id as _emp_id
+            for tnd in _T.listar_tiendas(_emp_id()):
+                etq = (f"{tnd.get('codigo_tienda') or ''} {tnd.get('nombre') or ''}".strip()
+                       or str(tnd.get("id")))
+                self.res_tienda.addItem(etq, tnd.get("id"))
+        except Exception as e:
+            logger.warning("listar tiendas (resumen ventas): %s", e)
+        lbl_tnd = _filter_lbl(tr("vta.lbl_store", default="Tienda"))
+        lbl_tnd.setFixedWidth(65)
+        lbl_tnd.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        row_f.addWidget(lbl_tnd); row_f.addWidget(self.res_tienda)
         fly.addLayout(row_f)
 
         btn_row = QHBoxLayout(); btn_row.addStretch()
@@ -2371,6 +3221,17 @@ class VentasAnaliticaWindow(QWidget):
         btn_row.addWidget(btn_env); btn_row.addSpacing(10); btn_row.addWidget(btn_res)
         fly.addLayout(btn_row)
         root.addWidget(filtros_frame)
+
+        # Franja de KPIs (petición explícita: Tickets/Ticket medio/Facturación junto a Tráfico
+        # exterior/Capture Rate, alimentando "Resumen de Ventas" EXISTENTE — sin vista propia).
+        self.kpi_frame = QFrame()
+        self.kpi_frame.setStyleSheet(
+            f"QFrame {{ background: #0B0F14; border: 1px solid {BORDE}; border-radius: 10px; }}"
+        )
+        self._kpi_ly = QHBoxLayout(self.kpi_frame)
+        self._kpi_ly.setContentsMargins(14, 10, 14, 10)
+        self._kpi_ly.setSpacing(18)
+        root.addWidget(self.kpi_frame)
 
         # Área de gráfica
         self.chart_frame = QFrame()
@@ -2402,27 +3263,115 @@ class VentasAnaliticaWindow(QWidget):
             params.append(tid)
         return frag, params
 
+    def _filtro_tienda_sel(self):
+        """kwargs {} ó {id_empresa, id_tienda} según el selector de tienda del resumen. Vacío =
+        comportamiento previo a esta función (ámbito de la sesión activa, intacto)."""
+        id_tienda = self.res_tienda.currentData()
+        if id_tienda is None:
+            return {}
+        from src.db.empresa import empresa_actual_id
+        return {"id_empresa": empresa_actual_id(), "id_tienda": id_tienda}
+
     def _generar_resumen(self):
         desde  = self.res_fecha_desde.date().toString("yyyy-MM-dd")
         hasta  = self.res_fecha_hasta.date().toString("yyyy-MM-dd")
-        art    = self.res_articulo.text().strip() or None
+        art    = self.res_articulo.text().strip()
+        if "–" in art:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            art = art.split("–")[0].strip()
+        art    = art or None
         secc   = self.res_seccion.text().strip() or None
+        filtro_tnd = self._filtro_tienda_sel()
         try:
             # Cliente fino (Fase 3): las consultas y el filtro de tenant viven en la capa de datos.
-            from src.db.ventas_analitica import serie_por_dia, top_articulos
-            datos = serie_por_dia(desde, hasta, art, secc)
-            # Integra el canal de venta online (solo cuando no se filtra por artículo/sección).
-            if not art and not secc:
-                datos = self._merge_facturacion_online(datos, desde, hasta)
-            top10 = top_articulos(desde, hasta, secc)
-            self._dibujar_grafica(datos, top10, desde, hasta)
+            from src.db.ventas_analitica import serie_por_dia, serie_por_hora, top_articulos
+            # Período de un solo día => desglose HORARIO (08:00-22:00), no de un único punto diario.
+            es_hora = (desde == hasta)
+            if es_hora:
+                datos = serie_por_hora(desde, art, secc, **filtro_tnd)
+            else:
+                datos = serie_por_dia(desde, hasta, art, secc, **filtro_tnd)
+                # Integra el canal de venta online (solo cuando no se filtra por artículo/sección;
+                # la facturación online se registra por día, no aplica al desglose horario).
+                if not art and not secc:
+                    datos = self._merge_facturacion_online(datos, desde, hasta)
+            top10 = top_articulos(desde, hasta, secc, **filtro_tnd)
+            self._dibujar_grafica(datos, top10, desde, hasta, es_hora=es_hora)
+            self._actualizar_kpis(desde, hasta, filtro_tnd)
             # Guarda el último resumen para poder enviarlo por Correo (PDF).
             self._res_last = {"datos": datos, "top10": top10, "desde": desde, "hasta": hasta,
-                              "art": art, "secc": secc}
+                              "art": art, "secc": secc, "es_hora": es_hora}
         except Exception as e:
             self._chart_placeholder.setText(tr("vta.summary_err", default="Error al generar resumen: {e}", e=e))
 
-    def _dibujar_grafica(self, datos, top10, desde, hasta):
+    def _kpi_badge(self, etiqueta, valor):
+        box = QVBoxLayout(); box.setSpacing(2)
+        lbl_v = _lbl(valor, bold=True, size=14, color=CIAN)
+        lbl_e = _lbl(etiqueta, size=9, color="#8B949E")
+        box.addWidget(lbl_v); box.addWidget(lbl_e)
+        cont = QWidget(); cont.setLayout(box)
+        return cont
+
+    def _actualizar_kpis(self, desde, hasta, filtro_tnd):
+        """Puebla la franja de KPIs (Tickets/Ticket medio/Facturación + Tráfico exterior/Entradas/
+        Capture Rate) para el período y tienda seleccionados — datos de sensor 100% en segundo
+        plano, alimentando el "Resumen de Ventas" EXISTENTE (sin vista propia nueva)."""
+        while self._kpi_ly.count():
+            item = self._kpi_ly.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        try:
+            from src.db.ventas_analitica import resumen_periodo as _resumen_ventas
+            rv = _resumen_ventas(desde, hasta, **filtro_tnd)
+        except Exception as e:
+            logger.warning("_actualizar_kpis ventas: %s", e)
+            rv = {"facturacion": 0.0, "tickets": 0, "ticket_medio": 0.0, "unidades_ticket": 0.0,
+                 "ventas_cruzadas": 0.0, "ventas_promocionales": 0.0}
+        try:
+            from src.db.trafico_sensores import resumen_periodo as _resumen_trafico
+            rt = _resumen_trafico(desde, hasta, **filtro_tnd)
+        except Exception as e:
+            logger.warning("_actualizar_kpis trafico: %s", e)
+            rt = {"passerby": 0, "entries": 0, "capture_rate": None}
+        try:
+            from src.services.tpv.online_orders_service import resumen_online as _resumen_online
+            ro = _resumen_online(fecha_desde=desde, fecha_hasta=hasta, **filtro_tnd)
+        except Exception as e:
+            logger.warning("_actualizar_kpis online: %s", e)
+            ro = {"pedidos": 0, "facturacion": 0.0}
+
+        sim = divisas.simbolo()
+        sin_datos = tr("vta.kpi_sin_datos", default="—")
+        self._kpi_ly.addWidget(self._kpi_badge(
+            tr("vta.kpi_tickets", default="Tickets"), str(rv.get("tickets", 0))))
+        self._kpi_ly.addWidget(self._kpi_badge(
+            tr("vta.kpi_ticket_medio", default="Ticket medio"), f"{rv.get('ticket_medio', 0):.2f}{sim}"))
+        self._kpi_ly.addWidget(self._kpi_badge(
+            tr("vta.kpi_facturacion", default="Facturación"), f"{rv.get('facturacion', 0):.2f}{sim}"))
+        self._kpi_ly.addWidget(self._kpi_badge(
+            tr("vta.kpi_unidades_ticket", default="Unidades/ticket"), f"{rv.get('unidades_ticket', 0):.2f}"))
+        self._kpi_ly.addWidget(self._kpi_badge(
+            tr("vta.kpi_ventas_cruzadas", default="Ventas cruzadas"), f"{rv.get('ventas_cruzadas', 0):.0f}"))
+        self._kpi_ly.addWidget(self._kpi_badge(
+            tr("vta.kpi_ventas_promocionales", default="Ventas promocionales"), f"{rv.get('ventas_promocionales', 0):.0f}"))
+        self._kpi_ly.addWidget(self._kpi_badge(
+            tr("vta.kpi_ventas_online", default="Ventas online"), str(ro.get("pedidos", 0))))
+        self._kpi_ly.addWidget(self._kpi_badge(
+            tr("vta.kpi_trafico", default="Tráfico exterior"), str(rt.get("passerby", 0))))
+        self._kpi_ly.addWidget(self._kpi_badge(
+            tr("vta.kpi_entradas", default="Entradas"), str(rt.get("entries", 0))))
+        capture_rate = rt.get("capture_rate")
+        cr_txt = f"{capture_rate:.1f}%" if capture_rate is not None else tr("vta.kpi_sin_sensor", default="Sin sensor")
+        self._kpi_ly.addWidget(self._kpi_badge(tr("vta.kpi_capture_rate", default="Capture Rate"), cr_txt))
+        # Tasa de conversión (petición explícita) = entradas de clientes / tickets. Se calcula aquí
+        # (no en una capa de datos) porque combina dos fuentes ya resumidas por separado
+        # (sensores + ventas) sin necesitar una tabla/consulta conjunta nueva.
+        entries, tickets = rt.get("entries") or 0, rv.get("tickets") or 0
+        tc_txt = f"{(entries / tickets * 100):.1f}%" if tickets else sin_datos
+        self._kpi_ly.addWidget(self._kpi_badge(tr("vta.kpi_tasa_conversion", default="Tasa de conversión"), tc_txt))
+
+        self._kpi_ly.addStretch()
+
+    def _dibujar_grafica(self, datos, top10, desde, hasta, es_hora=False):
         # Clear old chart
         while self._chart_ly.count():
             item = self._chart_ly.takeAt(0)
@@ -2444,10 +3393,28 @@ class VentasAnaliticaWindow(QWidget):
             self._chart_ly.addWidget(lbl)
             return
 
-        fechas = [str(r[0]) for r in datos]
-        totales = [float(r[1] or 0) for r in datos]
-        n_dias  = (QDate.fromString(hasta, "yyyy-MM-dd").toJulianDay()
-                   - QDate.fromString(desde, "yyyy-MM-dd").toJulianDay()) + 1
+        if es_hora:
+            # Desglose horario (08:00-22:00) ya viene zero-fill desde `serie_por_hora`: una
+            # entrada por hora del rango, con total=0 en las horas sin ventas.
+            fechas = [f"{int(r[0]):02d}:00" for r in datos]
+            totales = [float(r[1] or 0) for r in datos]
+        else:
+            # Bug fix: `serie_por_dia` solo devuelve filas de días CON ventas (dispersa). Sin
+            # completar el rango, un período con pocos días vendidos generaba una lista `fechas`
+            # con muy pocas categorías y `ax.bar()` estiraba esa(s) barra(s) para ocupar casi
+            # todo el ancho (parecía "una única barra unificada"). Se reconstruye aquí el rango
+            # COMPLETO de días naturales (desde -> hasta, inclusive) con QDate y se rellenan a 0
+            # los días sin ventas, así cada día del período recibe su propia barra, separada y
+            # correctamente posicionada.
+            por_dia = {str(r[0])[:10]: float(r[1] or 0) for r in datos}
+            fechas, totales = [], []
+            d = QDate.fromString(desde, "yyyy-MM-dd")
+            d_hasta = QDate.fromString(hasta, "yyyy-MM-dd")
+            while d <= d_hasta:
+                clave = d.toString("yyyy-MM-dd")
+                fechas.append(clave)
+                totales.append(por_dia.get(clave, 0.0))
+                d = d.addDays(1)
 
         fig = Figure(figsize=(8, 3.5), facecolor="#161B22", tight_layout=True)
         ax  = fig.add_subplot(111)
@@ -2457,14 +3424,27 @@ class VentasAnaliticaWindow(QWidget):
         ax.xaxis.label.set_color("#8B949E")
         ax.yaxis.label.set_color("#8B949E")
 
-        if n_dias == 1:
+        if es_hora:
             ax.plot(fechas, totales, color=CIAN, linewidth=2, marker="o", markersize=5)
             ax.fill_between(range(len(fechas)), totales, alpha=0.15, color=CIAN)
         else:
             bars = ax.bar(fechas, totales, color=CIAN, alpha=0.85)
-            ax.bar_label(bars, fmt=f"%.0f{divisas.simbolo()}", fontsize=7, color="#8B949E")
+            if len(fechas) <= 15:
+                ax.bar_label(bars, fmt=f"%.0f{divisas.simbolo()}", fontsize=7, color="#8B949E")
+            else:
+                # Con muchos días en el período, etiquetar TODAS las barras (incluidas las de 0)
+                # satura el gráfico. Se etiquetan solo las barras con venta real.
+                for rect, total in zip(bars, totales):
+                    if total > 0:
+                        ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height(),
+                                 f"{total:.0f}{divisas.simbolo()}", ha="center", va="bottom",
+                                 fontsize=7, color="#8B949E")
 
-        ax.set_title(tr("vta.chart_title", default="Facturación  {desde} → {hasta}", desde=desde, hasta=hasta), color=CIAN, fontsize=10, pad=8)
+        if es_hora:
+            titulo = tr("vta.chart_title_hora", default="Facturación por hora  {desde}  (08:00-22:00)", desde=desde)
+        else:
+            titulo = tr("vta.chart_title", default="Facturación  {desde} → {hasta}", desde=desde, hasta=hasta)
+        ax.set_title(titulo, color=CIAN, fontsize=10, pad=8)
         ax.set_ylabel(divisas.simbolo(), color="#8B949E", fontsize=9)
         step = max(1, len(fechas) // 8)
         ax.set_xticks(range(0, len(fechas), step))
@@ -2473,6 +3453,7 @@ class VentasAnaliticaWindow(QWidget):
         canvas = FigureCanvasQTAgg(fig)
         canvas.setStyleSheet("background: #161B22;")
         self._chart_ly.addWidget(canvas)
+        self._anim_fade_in_subir(canvas)
 
         if top10:
             lbl_top = _lbl(tr("vta.top10_title", default="TOP 10 MÁS VENDIDOS"), bold=True, size=10, color=CIAN)
@@ -2481,6 +3462,54 @@ class VentasAnaliticaWindow(QWidget):
             _u = tr("vta.unit_uds_low", default="uds")
             top_txt = "  |  ".join(f"{nom or cod} ({int(uds)} {_u})" for cod, nom, uds in top10)
             self._chart_ly.addWidget(_lbl(top_txt, size=9, color="#8B949E"))
+
+    def _anim_fade_in_subir(self, widget, distancia=22, duracion=420):
+        """Entrada "fade-in desde abajo" para un widget recién insertado en un QVBoxLayout
+        (aquí: el canvas de la gráfica de barras o de líneas). Efecto puramente de
+        presentación — NO retoca ni retrasa el contenido/datos ya renderizados en `widget`.
+
+        Es un helper LOCAL a esta pantalla, deliberadamente NO integrado con
+        `gui/transiciones.py`: ese módulo es un motor de slide IZQUIERDA/DERECHA para la
+        NAVEGACIÓN entre pantallas completas del `QStackedWidget` (según su propio
+        docstring) — un problema distinto al de revelar in-place un widget que ya está en
+        su sitio dentro de un layout.
+
+        Patrón: `QGraphicsOpacityEffect` (opacidad 0→1) + `QPropertyAnimation` sobre la
+        posición (`pos`) del propio widget. Un `QVBoxLayout` solo reafirma la geometría de
+        sus hijos cuando se invalida/reactiva el layout (resize, alta/baja de ítems,
+        `invalidate()+activate()`) — no en cada frame — así que, tras forzar aquí una
+        pasada de layout para fijar la posición FINAL real, es seguro desplazar el widget
+        a un punto de partida más abajo y animarlo de vuelta a esa posición sin que el
+        layout la revierta a mitad de la animación.
+        """
+        efecto = QGraphicsOpacityEffect(widget)
+        widget.setGraphicsEffect(efecto)
+        efecto.setOpacity(0.0)
+
+        # Fuerza una pasada de layout para conocer la posición FINAL correcta antes de animar.
+        self._chart_ly.activate()
+        pos_final = QPoint(widget.pos())
+        pos_inicial = QPoint(pos_final.x(), pos_final.y() + distancia)
+        widget.move(pos_inicial)
+
+        anim_opacidad = QPropertyAnimation(efecto, b"opacity", widget)
+        anim_opacidad.setDuration(duracion)
+        anim_opacidad.setStartValue(0.0)
+        anim_opacidad.setEndValue(1.0)
+        anim_opacidad.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        anim_pos = QPropertyAnimation(widget, b"pos", widget)
+        anim_pos.setDuration(duracion)
+        anim_pos.setStartValue(pos_inicial)
+        anim_pos.setEndValue(pos_final)
+        anim_pos.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        grupo = QParallelAnimationGroup(widget)
+        grupo.addAnimation(anim_opacidad)
+        grupo.addAnimation(anim_pos)
+        # Referencia viva mientras corre, para que no la recolecte el GC a mitad de camino.
+        widget._anim_entrada = grupo
+        grupo.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
     def _pick_perfiles_correo(self, max_n=3):
         """Diálogo de selección de perfiles destinatarios (máx `max_n`). Devuelve [ids], [] o None (cancela)."""
@@ -2582,268 +3611,36 @@ class VentasAnaliticaWindow(QWidget):
                         nivel="success" if enviados else "error")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # TAB 3 — PREVISIÓN FACTURACIÓN
+    # TAB 4 — PRODUCTIVIDAD (objetivos de facturación por centro/empleado + campañas)
     # ══════════════════════════════════════════════════════════════════════════
+    def _panel_productividad(self):
+        page = QWidget(); page.setStyleSheet(f"background: {BG};")
+        root = QVBoxLayout(page); root.setContentsMargins(24, 20, 24, 16); root.setSpacing(12)
+        root.addWidget(_lbl(tr("vta.prod_title", default="PRODUCTIVIDAD"), bold=True, size=15,
+                            color=CIAN))
 
-    def _panel_prevision(self):
-        page = QWidget()
-        page.setStyleSheet(f"background: {BG};")
-        root = QVBoxLayout(page)
-        root.setContentsMargins(24, 20, 24, 16)
-        root.setSpacing(14)
+        from src.db.empresa import empresa_actual_id
+        id_empresa = empresa_actual_id()
 
-        _center = Qt.AlignmentFlag.AlignCenter
-        root.addWidget(_lbl(tr("vta.forecast_title", default="IMPORTAR VENTAS"), bold=True, size=15, color=CIAN))
-        root.addWidget(_separador())
+        from src.gui.foundation import tokens as _T
+        from src.gui.transiciones import TabsActual, instalar_transicion_tabs
 
-        # ── Recuadro explicativo (arriba) ──────────────────────────────────────
-        expl = QFrame(); expl.setObjectName("expl_hist")
-        expl.setStyleSheet(f"QFrame#expl_hist {{ background: #161B22; border: 1px solid {BORDE}; border-radius: 10px; }}")
-        ely = QVBoxLayout(expl); ely.setContentsMargins(18, 12, 18, 12); ely.setSpacing(4)
-        ely.addWidget(_lbl(tr("vta.hist_help_title", default="¿QUÉ ES ESTA PESTAÑA?"), bold=True, size=13, color=CIAN))
-        _help = _lbl(tr(
-            "vta.hist_help_body",
-            default=(
-                "Sube tu facturación de años anteriores para alimentar la previsión inteligente. "
-                "La tabla de abajo resume el histórico importado, columna por columna:\n"
-                "•  Año — ejercicio al que pertenecen los datos.\n"
-                "•  Días — número de días con datos registrados ese año.\n"
-                "•  Total facturado — suma de la facturación de todo el año.\n"
-                "•  Fuente — origen de los datos (archivo importado o ventas reales del TPV).\n\n"
-                "Archivos compatibles: .xlsx o .csv con DOS columnas → FECHA (DD/MM/AAAA) "
-                "y TOTAL (importe facturado ese día). Cada fila = un día."
-            )), bold=True, size=14, color="#C9D1D9")
-        _help.setWordWrap(True); ely.addWidget(_help)
-        root.addWidget(expl)
-
-        root.addStretch()
-
-        # Icono + subtítulo + botón (centrados, más abajo)
-        lbl_icon = QLabel("📈")
-        lbl_icon.setAlignment(_center)
-        lbl_icon.setStyleSheet("font-size: 60px; background: transparent; color: white;")
-        root.addWidget(lbl_icon)
-
-        lbl_sub = _lbl(tr("vta.forecast_subtitle", default="Sistema de previsión inteligente basado en histórico de ventas y modelos IA"),
-                       size=11, color="#8B949E")
-        lbl_sub.setAlignment(_center)
-        lbl_sub.setWordWrap(True)
-        root.addWidget(lbl_sub)
-
-        root.addSpacing(16)
-
-        btn_row = QHBoxLayout(); btn_row.addStretch()
-        self.btn_subir_hist = QPushButton(tr("vta.btn_upload_hist", default="SUBIR VENTAS PASADAS"))
-        self.btn_subir_hist.setStyleSheet(_SS_BTN_CIAN)
-        self.btn_subir_hist.setFixedHeight(48)
-        self.btn_subir_hist.setMinimumWidth(200); self.btn_subir_hist.setMaximumWidth(320)  # responsive (P2)
-        self.btn_subir_hist.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_subir_hist.clicked.connect(self._subir_ventas_pasadas)
-        btn_row.addWidget(self.btn_subir_hist); btn_row.addStretch()
-        root.addLayout(btn_row)
-
-        # Estado importación
-        self.lbl_prev_estado = _lbl("", size=10, color="#8B949E")
-        self.lbl_prev_estado.setAlignment(_center)
-        root.addWidget(self.lbl_prev_estado)
-
-        root.addStretch()
-
-        # Info tabla de objetivos
-        info_frame = QFrame()
-        info_frame.setObjectName("info_historico")
-        info_frame.setStyleSheet(
-            f"QFrame#info_historico {{ background: #161B22; border: 1px solid {BORDE}; border-radius: 10px; }}"
-        )
-        ifly = QVBoxLayout(info_frame)
-        ifly.setContentsMargins(16, 12, 16, 12)
-        ifly.setSpacing(6)
-        ifly.addWidget(_lbl(tr("vta.hist_imported", default="HISTÓRICO IMPORTADO"), bold=True, size=13, color=CIAN))
-        self.tbl_historico = QTableWidget(0, 4)
-        self.tbl_historico.setHorizontalHeaderLabels([
-            tr("vta.col_year", default="Año"),
-            tr("vta.col_days", default="Días"),
-            tr("vta.col_total_billed", default="Total facturado"),
-            tr("vta.col_source", default="Fuente"),
-        ])
-        self.tbl_historico.setStyleSheet(_SS_TABLE)
-        self.tbl_historico.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tbl_historico.setMaximumHeight(180)
-        self.tbl_historico.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.tbl_historico.verticalHeader().setVisible(False)
-        _ClipTableTopCorners(self.tbl_historico)
-        ifly.addWidget(self.tbl_historico)
-        root.addWidget(info_frame)
-
-        self._cargar_resumen_historico()
+        tabs = TabsActual()
+        tabs.setStyleSheet(_T.qss_tabs())
+        tabs.addTab(_ProdCentroTab(self.usuario, id_empresa),
+                    tr("vta.prod_tab_centro", default="FACTURACIÓN CENTRO"))
+        tabs.addTab(_ProdEmpleadoTab(self.usuario, id_empresa),
+                    tr("vta.prod_tab_empleados", default="FACTURACIÓN EMPLEADOS"))
+        tabs.addTab(_ProdCampanaCentroTab(self.usuario, id_empresa),
+                    tr("vta.prod_tab_camp_centro", default="FACTURACIÓN CAMPAÑA CENTRO"))
+        tabs.addTab(_ProdCampanaEmpleadoTab(self.usuario, id_empresa),
+                    tr("vta.prod_tab_camp_emp", default="FACTURACIÓN CAMPAÑA EMPLEADOS"))
+        instalar_transicion_tabs(tabs)
+        root.addWidget(tabs, 1)
         return page
 
-    def _cargar_resumen_historico(self):
-        try:
-            from src.db.ventas_analitica import resumen_historico
-            filas = resumen_historico()
-            self.tbl_historico.setRowCount(len(filas))
-            for r, (anio, dias, total, fuente) in enumerate(filas):
-                for c, val in enumerate([str(anio), str(dias), f"{divisas.formatear(float(total or 0))}", fuente]):
-                    item = QTableWidgetItem(val)
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    self.tbl_historico.setItem(r, c, item)
-        except Exception:
-            pass
-
-    def _subir_ventas_pasadas(self):
-        ruta, _ = QFileDialog.getOpenFileName(
-            self, tr("vta.file_dialog_hist", default="Seleccionar archivo de ventas históricas"),
-            "", "Archivos (*.xlsx *.csv)"
-        )
-        if not ruta:
-            return
-
-        prog = QProgressDialog(tr("vta.importing_hist", default="Importando histórico…"), None, 0, 0, self)
-        prog.setWindowModality(Qt.WindowModality.ApplicationModal)
-        prog.setWindowTitle(tr("vta.import_title", default="Importación"))
-        prog.setCancelButton(None)
-        prog.show()
-
-        self._import_hilo = _ImportarHistoricoHilo(ruta)
-
-        def _fin(msg):
-            prog.close()
-            self.lbl_prev_estado.setText(msg)
-            self._cargar_resumen_historico()
-
-        self._import_hilo.finalizado.connect(_fin)
-        self._import_hilo.start()
-
-    def _ver_prevision(self):
-        try:
-            anio_actual = datetime.now().year
-            from src.db.ventas_analitica import contar_historico
-            cnt = contar_historico()
-
-            if cnt == 0:
-                mostrar_mensaje(
-                    self, tr("vta.no_data_title", default="Sin datos"),
-                    tr("vta.forecast_need_data",
-                       default="Primero sube al menos un archivo de ventas pasadas\npara que el sistema pueda calcular previsiones.")
-                )
-                return
-
-            self._generar_prevision_excel(anio_actual)
-        except Exception as e:
-            mostrar_mensaje(self, tr("vta.error_title", default="Error"), str(e), "error")
-
-    def _generar_prevision_excel(self, anio: int):
-        try:
-            import pandas as pd
-            from openpyxl import Workbook
-            from openpyxl.styles import Alignment, Font, PatternFill
-
-            from src.db.ventas_analitica import serie_historico
-            hist = serie_historico()
-
-            if not hist:
-                return
-
-            df = pd.DataFrame(hist, columns=["fecha", "total"])
-            df["fecha"] = pd.to_datetime(df["fecha"])
-            total_anual = df["total"].sum()
-
-            if total_anual == 0:
-                mostrar_mensaje(self, tr("vta.no_data_title", default="Aviso"), tr("vta.not_enough_data", default="El histórico no tiene datos suficientes."), "warning")
-                return
-
-            df["peso"] = df["total"] / total_anual
-
-            # Generate forecast for target year using weights
-            fechas_anio = pd.date_range(f"{anio}-01-01", f"{anio}-12-31")
-            objetivo = total_anual  # default: same as historical total
-            try:
-                from src.db.ventas_analitica import objetivo_anual as _obj_anual
-                _o = _obj_anual(anio)
-                if _o:
-                    objetivo = _o
-            except Exception:
-                pass
-
-            peso_medio = df["peso"].mean() if len(df) else 1 / 365
-
-            wb = Workbook()
-            ws = wb.active
-            ws.title = tr("vta.report_sheet", default="Previsión {anio}", anio=anio)
-
-            amarillo = PatternFill("solid", fgColor="FFC000")
-            turquesa = PatternFill("solid", fgColor="00BCD4")
-            hdr_font = Font(name="Segoe UI", bold=True, size=10)
-            cab_font = Font(name="Segoe UI", bold=True, size=11, color="FFFFFF")
-            cen = Alignment(horizontal="center", vertical="center")
-
-            cabeceras = [
-                tr("vta.col_day", default="Día"),
-                tr("vta.col_prev_year", default="Año anterior"),
-                tr("vta.col_year_n", default="Año {anio}", anio=anio),
-                tr("vta.col_forecast", default="Previsión ventas"),
-                tr("vta.col_diff", default="Diferencia"),
-            ]
-            for c, h in enumerate(cabeceras, 1):
-                cell = ws.cell(row=1, column=c, value=h)
-                cell.fill = amarillo
-                cell.font = hdr_font
-                cell.alignment = cen
-
-            fila = 2
-            for fecha in fechas_anio:
-                mes = fecha.month
-                dia = fecha.day
-                hist_match = df[df["fecha"].dt.month == mes][df["fecha"].dt.day == dia]
-                anio_ant  = round(hist_match["total"].mean(), 2) if not hist_match.empty else 0
-                prevision = round(objetivo * peso_medio, 2)
-
-                ws.cell(row=fila, column=1, value=fecha.strftime("%d/%m/%Y")).alignment = cen
-                ws.cell(row=fila, column=2, value=anio_ant).alignment = cen
-                ws.cell(row=fila, column=3, value="").alignment = cen  # introduce manual
-                ws.cell(row=fila, column=4, value=prevision).alignment = cen
-                f = ws.cell(row=fila, column=5, value=f"=C{fila}-D{fila}")
-                f.alignment = cen
-
-                if dia == 1 or fecha == fechas_anio[-1]:
-                    mes_lbl = fecha.strftime("%B %Y").upper()
-                    ws.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=5)
-                    cell = ws.cell(row=fila, column=1, value=mes_lbl)
-                    cell.fill = turquesa
-                    cell.font = cab_font
-                    cell.alignment = cen
-                    fila += 1
-                    ws.cell(row=fila, column=1, value=fecha.strftime("%d/%m/%Y")).alignment = cen
-                    ws.cell(row=fila, column=2, value=anio_ant).alignment = cen
-                    ws.cell(row=fila, column=3, value="").alignment = cen
-                    ws.cell(row=fila, column=4, value=prevision).alignment = cen
-                    ws.cell(row=fila, column=5, value=f"=C{fila}-D{fila}").alignment = cen
-
-                fila += 1
-
-            carpeta = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "../../documentos/informes")
-            )
-            os.makedirs(carpeta, exist_ok=True)
-            ruta = os.path.join(carpeta, f"Prevision_{anio}.xlsx")
-            wb.save(ruta)
-
-            from src.db.ventas_analitica import guardar_objetivo
-            guardar_objetivo(anio, objetivo, ruta)
-
-            mostrar_mensaje(self, tr("vta.forecast_generated_title", default="Previsión generada"), tr("vta.excel_saved", default="Excel guardado en:\n{ruta}", ruta=ruta))
-            try:
-                from src.utils import plataforma
-                plataforma.abrir_archivo(ruta)
-            except Exception:
-                pass
-
-        except Exception as e:
-            mostrar_mensaje(self, tr("vta.error_title", default="Error"), tr("vta.excel_gen_err", default="No se pudo generar el Excel:\n{e}", e=e), "error")
-
     # ══════════════════════════════════════════════════════════════════════════
-    # TAB 4 — RENDIMIENTO (facturación diaria + productividad por tienda)
+    # TAB 3 — RENDIMIENTO (facturación diaria + productividad por tienda)
     # ══════════════════════════════════════════════════════════════════════════
     _MESES_RND = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
@@ -2856,7 +3653,6 @@ class VentasAnaliticaWindow(QWidget):
         self._rend_updating = False
 
         root.addWidget(_lbl(tr("vta.perf_title", default="RENDIMIENTO"), bold=True, size=15, color=CIAN))
-        root.addWidget(_separador())
         self._rend_mes_lbl = _lbl(f"{self._MESES_RND[self._rend_mes]} {self._rend_anio}", bold=True, size=14, color="#C9D1D9")
         root.addWidget(self._rend_mes_lbl)
 
@@ -2898,7 +3694,7 @@ class VentasAnaliticaWindow(QWidget):
         root.addWidget(t, 1)
 
         br = QHBoxLayout(); br.addStretch()
-        self.btn_rend_guardar = QPushButton(tr("vta.perf_save", default="GUARDAR CAMBIOS"))
+        self.btn_rend_guardar = QPushButton(tr("vta.perf_save", default="Guardar cambios"))
         self.btn_rend_guardar.setStyleSheet(_SS_BTN_VERDE)
         self.btn_rend_guardar.setFixedHeight(44)
         self.btn_rend_guardar.setMinimumWidth(180); self.btn_rend_guardar.setMaximumWidth(300)  # responsive (P2)
@@ -2913,7 +3709,8 @@ class VentasAnaliticaWindow(QWidget):
 
     # ── IA predictiva de facturación (alimentada por HISTÓRICO DE VENTAS) ──────
     def _serie_historica(self):
-        """Serie diaria [(fecha, importe)] del histórico subido (prevision_historico)."""
+        """Serie diaria [(fecha, importe)] del histórico de ventas (ventas_historicas, importado
+        desde el módulo centralizado "Migrar datos")."""
         try:
             from src.db.ventas_analitica import serie_historico_agrupada
             filas = serie_historico_agrupada()
@@ -2972,10 +3769,10 @@ class VentasAnaliticaWindow(QWidget):
     def _prever_facturacion_mensual(self, anio, mes):
         """Previsión IA de facturación diaria para (anio, mes).
 
-        Se alimenta del histórico de ventas pasadas subido en la pestaña
-        HISTÓRICO DE VENTAS (tabla ``prevision_historico``) y, si no hay ningún
-        archivo subido, recurre automáticamente a las ventas reales acumuladas
-        por el TPV/autocobro (tabla ``ventas``). Tiene en cuenta eventos
+        Se alimenta del histórico de ventas importado vía "Migrar datos" (tabla
+        ``ventas_historicas``) y, si no hay ningún histórico importado, recurre
+        automáticamente a las ventas reales acumuladas por el TPV/autocobro
+        (tabla ``ventas``). Tiene en cuenta eventos
         comerciales y festividades (Navidad, Black Friday, Halloween, Reyes,
         Rebajas, Semana Santa, etc.) además del día de la semana y la tendencia.
         Intenta primero un modelo de series temporales (Prophet, con las
@@ -3205,7 +4002,7 @@ class VentasAnaliticaWindow(QWidget):
             for d, mins in horas_por_dia_mes(anio, mes):
                 if d in data:
                     data[d]["horas"] = round(float(mins or 0) / 60.0, 2)
-            # Previsión IA: modelo predictivo alimentado por el histórico de ventas (prevision_historico).
+            # Previsión IA: modelo predictivo alimentado por el histórico de ventas (ventas_historicas).
             try:
                 pred = self._prever_facturacion_mensual(anio, mes)
                 for d, v in pred.items():

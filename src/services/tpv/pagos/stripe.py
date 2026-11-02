@@ -74,3 +74,39 @@ class PasarelaStripe(PasarelaPago):
         except Exception as e:
             logger.warning("Stripe verificar_pago: %s", e)
         return "pendiente"
+
+    def reembolsar(self, referencia: str, importe=None) -> bool:
+        """Reembolso real (POST /v1/refunds). `referencia` es la Checkout Session (lo que
+        devuelve `crear_cobro`): el Refund de Stripe exige el PaymentIntent, no la Session, así
+        que se resuelve primero vía GET. `importe=None` reembolsa el total del cobro."""
+        if not self.configurado() or not referencia:
+            return False
+        try:
+            import requests
+        except Exception:
+            logger.warning("Stripe reembolsar: requests no disponible.")
+            return False
+        try:
+            r = requests.get(f"{_API}/checkout/sessions/{referencia}",
+                             auth=(self.config["api_key"], ""), timeout=20)
+            if r.status_code != 200:
+                logger.warning("Stripe reembolsar: no se pudo leer la sesión %s (%s).",
+                               referencia, r.status_code)
+                return False
+            payment_intent = r.json().get("payment_intent")
+            if not payment_intent:
+                logger.warning("Stripe reembolsar: la sesión %s no tiene payment_intent "
+                               "(¿todavía no pagada?).", referencia)
+                return False
+            data = {"payment_intent": payment_intent}
+            if importe is not None:
+                data["amount"] = str(int(round(float(importe) * 100)))
+            rr = requests.post(f"{_API}/refunds", data=data,
+                               auth=(self.config["api_key"], ""), timeout=20)
+            if rr.status_code in (200, 201):
+                return True
+            logger.warning("Stripe reembolsar %s: %s", rr.status_code, rr.text[:200])
+            return False
+        except Exception as e:
+            logger.warning("Stripe reembolsar: %s", e)
+            return False

@@ -16,7 +16,8 @@ PROVEEDORES = "proveedores"
 VENTAS_HIST = "ventas_hist"        # histórico de ventas (para forecasting; NO toca `ventas`)
 SALDOS = "saldos"                  # saldos de apertura contable (asiento de apertura)
 TESORERIA = "tesoreria"            # cuentas bancarias + saldo inicial
-ENTIDADES = (PRODUCTOS, CLIENTES, PROVEEDORES, VENTAS_HIST, SALDOS, TESORERIA)
+PLAN_CONTABLE = "plan_contable"    # alta de cuentas contables (debe importarse ANTES que SALDOS)
+ENTIDADES = (PRODUCTOS, CLIENTES, PROVEEDORES, VENTAS_HIST, SALDOS, TESORERIA, PLAN_CONTABLE)
 
 # Campo canónico → (requerido, sinónimos de cabecera). El auto-mapeo compara cabeceras normalizadas.
 CAMPOS = {
@@ -30,8 +31,23 @@ CAMPOS = {
         "familia": (False, ("familia", "family", "categoria", "category", "grupo", "seccion", "rubro",
                            "gama", "linea", "gpc", "unspsc", "eclass", "clasificacion", "classification",
                            "grupomercancia")),
+        # "stock" = stock de TIENDA (lineal, expuesto al público): escribe la tabla `stock_tienda`
+        # REAL por centro (la que escribía ya este campo) — "stock_tienda"/"stock_total" quedan como
+        # sinónimos de ESTE mismo campo (no uno nuevo): en la inmensa mayoría de negocios de un solo
+        # centro, "stock total" y "stock de tienda" son el mismo número, que es exactamente lo que ya
+        # hacía el importador legado (`Stock_tienda`/`Stock_total` al mismo valor). Granularidad real
+        # por ubicación (Fase migración-centralizada, 2 campos GENUINAMENTE nuevos):
+        # "stock_central" (almacén central, vía `stock_almacen.ajustar_stock` — fuente de verdad real,
+        # recalcula la caché `articulos.Stock_central`/`Stock_total` sola) y "stock_esperado" (umbral
+        # mínimo de reposición, vía `db.articulos.marcar_stock_esperado` — NUNCA el campo de reposición
+        # `marcar_repuesto_exportado`, que tiene efectos secundarios de otro flujo distinto).
         "stock": (False, ("stock", "existencias", "cantidad", "qty", "quantity", "unidades", "stockactual",
-                         "inventario", "onhand", "disponible", "saldo")),
+                         "inventario", "onhand", "disponible", "saldo", "stock_tienda", "stocktienda",
+                         "stock_total", "stocktotal", "stocklineal", "stock_lineal")),
+        "stock_central": (False, ("stock_central", "stockcentral", "stock_almacen_central",
+                                  "almacencentral")),
+        "stock_esperado": (False, ("stock_esperado", "stockesperado", "stock_minimo_esperado",
+                                   "stockminimoesperado")),
         "imagen": (False, ("imagen", "image", "foto", "photo", "img", "imageurl", "urlimagen", "imagenurl",
                           "urlfoto", "fotourl", "picture", "rutaimagen", "imagenprincipal", "fotoprincipal",
                           "imagen1", "foto1", "thumbnail", "miniatura", "imagenes")),
@@ -72,6 +88,12 @@ CAMPOS = {
         "titular": (False, ("titular", "holder", "propietario")),
         "bic": (False, ("bic", "swift", "codigobic")),
         "banco": (False, ("banco", "entidad", "bank", "entidadbancaria")),
+    },
+    PLAN_CONTABLE: {
+        "codigo": (True, ("codigo", "cuenta", "codigocuenta", "account", "cuentacontable", "pgc", "cta")),
+        "nombre": (True, ("nombre", "denominacion", "descripcion", "concepto", "name")),
+        "tipo": (False, ("tipo", "type", "clase")),
+        "naturaleza": (False, ("naturaleza", "nature", "deudorahaber")),
     },
 }
 

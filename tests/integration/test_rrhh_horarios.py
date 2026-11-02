@@ -8,7 +8,7 @@ headless y que ConfiguracionWindow no sufre regresiones.
 
 import pytest
 
-_CLASES = ("_HorarioComboBox", "_TurnoCelda", "_EmpNameEdit", "_HorarioLoadingWidget",
+_CLASES = ("_HorarioComboBox", "_TurnoCelda", "_EmpSelectCell", "_HorarioLoadingWidget",
            "_AusenciaDialog", "_HorarioTable", "_HorarioSemana", "_HorarioContainer")
 
 
@@ -59,7 +59,7 @@ def test_herencia_qt():
     assert issubclass(H._HorarioComboBox, QComboBox)
     assert issubclass(H._AusenciaDialog, QDialog)
     assert issubclass(H._HorarioSemana, QFrame)
-    for c in ("_TurnoCelda", "_EmpNameEdit", "_HorarioLoadingWidget",
+    for c in ("_TurnoCelda", "_EmpSelectCell", "_HorarioLoadingWidget",
               "_HorarioTable", "_HorarioContainer"):
         assert issubclass(getattr(H, c), QWidget)
 

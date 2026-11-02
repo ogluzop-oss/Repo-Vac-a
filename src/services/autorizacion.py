@@ -157,6 +157,11 @@ def puede(usuario, permiso, *, id_empresa=None, recurso_tipo=None, recurso_id=No
     emp = _empresa(id_empresa or u.get("id_empresa"))
     perms = _permisos_efectivos(u["id"], emp)
     concedido = _coincide(permiso, perms) if perms is not None else _coincide(permiso, _cat.permisos_de_perfil(perfil))
+    # Concesiones individuales (Seguridad · Roles → tabla de usuarios): capa ADITIVA sobre lo
+    # anterior, exclusiva de ESTE usuario — nunca resta lo que el perfil/rol ya conceda.
+    if not concedido:
+        from src.db import rbac as _rbac
+        concedido = _coincide(permiso, set(_rbac.permisos_individuales_de_usuario(u["id"], emp)))
     # ACL fina sobre un recurso concreto (la denegación explícita prevalece).
     if recurso_tipo is not None:
         roles, grupos = _ids_roles_grupos(u["id"], emp)

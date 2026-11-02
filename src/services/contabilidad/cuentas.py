@@ -162,6 +162,23 @@ def cerrar_ejercicio(anio, id_empresa=None) -> bool:
         return False
 
 
+def reabrir_ejercicio(anio, id_empresa=None) -> bool:
+    """Simétrica a `cerrar_ejercicio`: vuelve a marcar el ejercicio como abierto. Solo cambia el
+    estado — la reversión de los asientos de regularización/cierre/apertura la orquesta
+    `cierre.reabrir_ejercicio_formal` (que llama a esta función primero)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE contab_ejercicios SET estado='abierto', fecha_cierre=NULL "
+                        "WHERE id_empresa=%s AND anio=%s AND estado='cerrado'", (id_empresa, anio))
+            ok = cur.rowcount > 0
+            conn.commit()
+        return ok
+    except Exception as e:
+        logger.error("reabrir_ejercicio(%s): %s", anio, e)
+        return False
+
+
 # ── Cuentas (CRUD) ───────────────────────────────────────────────────────────
 def crear_cuenta(codigo, nombre, tipo="otro", naturaleza="deudora", id_empresa=None) -> bool:
     id_empresa = _empresa(id_empresa)

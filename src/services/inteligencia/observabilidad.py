@@ -83,7 +83,7 @@ def replay(id_decision, *, id_empresa=None, usuario=None):
         return None
     eventos = []
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         bus = cap.eventbus()
         if bus is not None and hasattr(bus, "replay"):
             eventos = bus.replay(ref_entidad="decision_ia", ref_id=id_decision, id_empresa=emp) or []

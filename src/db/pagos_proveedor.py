@@ -132,6 +132,38 @@ def saldo_pendiente(id_factura_compra, total_factura, id_empresa=None) -> float:
     return round(float(total_factura or 0) - total_pagado(id_factura_compra, id_empresa), 2)
 
 
+def listar_pendientes_pago(id_empresa=None, importe_min=None, importe_max=None, limite=200) -> list:
+    """Facturas de proveedor con saldo pendiente de pago (total - Σpagos 'pagado' > 0), con
+    razón social del proveedor. `compras_facturas.estado` es documental (registrada/validada/
+    con_diferencias) y NO representa el estado de pago — el saldo se deriva de `pagos_proveedor`
+    (mismo criterio que `saldo_pendiente`). Fuente para la conciliación bancaria (FASE 8 extendida):
+    empareja líneas de extracto directamente contra facturas de compra pendientes de pago."""
+    id_empresa = _emp(id_empresa)
+    cond = ["(f.total-COALESCE(pp.pagado,0)) > 0.005"]
+    params = [id_empresa, id_empresa]
+    if importe_min is not None:
+        cond.append("(f.total-COALESCE(pp.pagado,0)) >= %s"); params.append(importe_min)
+    if importe_max is not None:
+        cond.append("(f.total-COALESCE(pp.pagado,0)) <= %s"); params.append(importe_max)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT f.id_factura, f.id_proveedor, f.numero_factura, f.fecha_factura, f.estado, "
+                "f.total, COALESCE(pp.pagado,0) AS pagado, (f.total-COALESCE(pp.pagado,0)) AS pendiente, "
+                "COALESCE(p.razon_social,'') AS proveedor "
+                "FROM compras_facturas f "
+                "LEFT JOIN proveedores p ON p.id_proveedor=f.id_proveedor "
+                "LEFT JOIN (SELECT id_factura_compra, SUM(importe) AS pagado FROM pagos_proveedor "
+                "           WHERE id_empresa=%s AND estado='pagado' GROUP BY id_factura_compra) pp "
+                "  ON pp.id_factura_compra = f.id_factura "
+                "WHERE f.id_empresa=%s AND " + " AND ".join(cond) +
+                " ORDER BY f.id_factura DESC LIMIT %s", (*params, int(limite)))
+            return _filas(cur)
+    except Exception as e:
+        logger.error("listar_pendientes_pago: %s", e)
+        return []
+
+
 def desglose_por_metodo(id_empresa=None, desde=None, hasta=None) -> dict:
     id_empresa = _emp(id_empresa)
     cond, params = ["id_empresa=%s", "estado='pagado'"], [id_empresa]

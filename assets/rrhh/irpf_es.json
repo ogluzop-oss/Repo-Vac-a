@@ -1,0 +1,84 @@
+{
+  "_meta": {
+    "descripcion": "Parámetros del procedimiento general de cálculo de retenciones del IRPF (España, RIRPF art. 80-87 / Modelo 145) por ejercicio. Fuente única y editable; se actualiza una vez al año por normativa. Mismo patrón que assets/rrhh/cotizacion_es.json.",
+    "pais": "ES",
+    "unidades": "importes en euros/año; tipos y reducciones en porcentajes (%)",
+    "aviso_legal": "Valores de referencia conforme a la normativa general vigente (mínimo personal y familiar del art. 57-61 LIRPF, escala general de retenciones del art. 101 LIRPF/85-87 RIRPF). Son una aproximación fiel a la estructura legal real (tramos, mínimos por descendiente/ascendiente/discapacidad, minoración por vivienda pre-2013), NO una certificación AEAT letra a letra — revisar contra la Orden de retenciones del ejercicio antes de uso en producción. Casos no cubiertos por falta de dato de entrada (p.ej. importe exacto de rentas irregulares, nº de declarantes con derecho a mínimo por ascendiente) se documentan como aproximación en irpf_calculator.py."
+  },
+  "2025": {
+    "minimo_contribuyente": 5550.00,
+    "incremento_situacion_2_conyuge_sin_rentas": 3400.00,
+    "reduccion_situacion_1_monoparental": 2150.00,
+    "minimo_descendientes_tramos": [2400.00, 2700.00, 4000.00, 4500.00],
+    "incremento_descendiente_menor_3_anios": 2800.00,
+    "minimo_ascendiente": 1150.00,
+    "incremento_ascendiente_mayor_75_anios": 1400.00,
+    "edad_minima_ascendiente": 65,
+    "edad_incremento_ascendiente": 75,
+    "edad_maxima_descendiente_computable": 25,
+    "discapacidad": {
+      "pct_minimo_computable": 33,
+      "pct_grave": 65,
+      "incremento_33_65": 3000.00,
+      "incremento_65_mas": 9000.00,
+      "incremento_ayuda_terceros_movilidad": 3000.00
+    },
+    "gasto_generico_anual": 2000.00,
+    "gasto_movilidad_geografica_anual": 2000.00,
+    "reduccion_rentas_irregulares_pct": 30.0,
+    "factor_convivencia_ascendiente_compartida": 0.5,
+    "computo_hijo_compartido_pct": 0.5,
+    "vivienda_pre2013": {
+      "puntos_reduccion_tipo": 2.0,
+      "limite_retribucion_anual": 33007.20
+    },
+    "tipo_minimo_pct": 0.0,
+    "tipo_maximo_pct": 47.0,
+    "escala_general_retenciones": [
+      {"hasta": 12450.00, "tipo": 19.0},
+      {"hasta": 20200.00, "tipo": 24.0},
+      {"hasta": 35200.00, "tipo": 30.0},
+      {"hasta": 60000.00, "tipo": 37.0},
+      {"hasta": 300000.00, "tipo": 45.0},
+      {"hasta": null, "tipo": 47.0}
+    ]
+  },
+  "2026": {
+    "minimo_contribuyente": 5550.00,
+    "incremento_situacion_2_conyuge_sin_rentas": 3400.00,
+    "reduccion_situacion_1_monoparental": 2150.00,
+    "minimo_descendientes_tramos": [2400.00, 2700.00, 4000.00, 4500.00],
+    "incremento_descendiente_menor_3_anios": 2800.00,
+    "minimo_ascendiente": 1150.00,
+    "incremento_ascendiente_mayor_75_anios": 1400.00,
+    "edad_minima_ascendiente": 65,
+    "edad_incremento_ascendiente": 75,
+    "edad_maxima_descendiente_computable": 25,
+    "discapacidad": {
+      "pct_minimo_computable": 33,
+      "pct_grave": 65,
+      "incremento_33_65": 3000.00,
+      "incremento_65_mas": 9000.00,
+      "incremento_ayuda_terceros_movilidad": 3000.00
+    },
+    "gasto_generico_anual": 2000.00,
+    "gasto_movilidad_geografica_anual": 2000.00,
+    "reduccion_rentas_irregulares_pct": 30.0,
+    "factor_convivencia_ascendiente_compartida": 0.5,
+    "computo_hijo_compartido_pct": 0.5,
+    "vivienda_pre2013": {
+      "puntos_reduccion_tipo": 2.0,
+      "limite_retribucion_anual": 33007.20
+    },
+    "tipo_minimo_pct": 0.0,
+    "tipo_maximo_pct": 47.0,
+    "escala_general_retenciones": [
+      {"hasta": 12450.00, "tipo": 19.0},
+      {"hasta": 20200.00, "tipo": 24.0},
+      {"hasta": 35200.00, "tipo": 30.0},
+      {"hasta": 60000.00, "tipo": 37.0},
+      {"hasta": 300000.00, "tipo": 45.0},
+      {"hasta": null, "tipo": 47.0}
+    ]
+  }
+}

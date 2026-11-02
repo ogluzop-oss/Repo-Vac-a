@@ -35,7 +35,7 @@ graph TB
       GQL[GraphQL<br/>src/api/graphql]
       WSGI[gunicorn wsgi:app]
       SVC[Servicios de dominio<br/>src/services]
-      PLT[Plataforma<br/>src/platform]
+      PLT[Plataforma<br/>src/plataforma]
     end
     DB[(MariaDB)]
 

@@ -42,7 +42,9 @@ articulos_bajo_umbral = _IAA.articulos_bajo_umbral
 articulos_exceso = _IAA.articulos_exceso
 mermas_recientes = _IAA.mermas_recientes
 facturas_pendientes = _IAA.facturas_pendientes
+facturacion_resumen = _IAA.facturacion_resumen
 contratos_por_vencer = _IAA.contratos_por_vencer
+crm_resumen = _IAA.crm_resumen
 kpis = _IAA.kpis
 sincronizacion = _IAA.sincronizacion
 

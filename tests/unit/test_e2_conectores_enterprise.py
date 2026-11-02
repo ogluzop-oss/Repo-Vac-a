@@ -71,7 +71,7 @@ def test_los_7_conectores_registrados():
 
 
 def test_auto_registro_en_platform_registry():
-    from src.platform import registry
+    from src.plataforma import registry
     # El registry es estado global en memoria; re-sincronizamos (idempotente) para independencia de
     # orden de tests. En arranque real basta con importar el paquete (auto-registro).
     enterprise.sincronizar_platform()

@@ -40,20 +40,54 @@ def test_tablas_existen(db):
 
 
 def test_migracion_reversible(db):
+    import inspect
+
     from src.db.migrador import descubrir
-    m = [x for x in descubrir() if x.version == "0017"][0]
+    migs = descubrir()
+    m = next(x for x in migs if x.version == "0017")
     # FK_CHECKS=0: migraciones posteriores (0018 control horario, 0019 firma) añaden
     # tablas/columnas que dependen de 0017; revertir 0017 aislado no debe bloquearse.
     # Tras reaplicar 0017 se reaplican también las posteriores para restaurar el esquema
     # completo (idempotentes: CREATE/ADD COLUMN IF NOT EXISTS). OJO: 0017.revertir() hace
-    # DROP TABLE rrhh_empleados y 0017.aplicar() la recrea desde cero con id_tienda VARCHAR
-    # (su definición original) — 0195 (posterior, unifica id_tienda a INT en rrhh_empleados)
-    # también debe reaplicarse aquí o la tabla queda regresada a VARCHAR para el resto de la
-    # sesión/base de datos, aunque schema_migraciones siga marcando 0195 como ya aplicada
+    # DROP TABLE de las 6 tablas del expediente (rrhh_empleados/contratos/nominas/
+    # vacaciones/ausencias/documentos) y 0017.aplicar() las recrea desde cero con su
+    # definición ORIGINAL — CUALQUIER migración posterior que también altere alguna de esas
+    # tablas debe reaplicarse aquí o quedan regresadas a su forma antigua para el resto de la
+    # sesión/base de datos, aunque `schema_migraciones` siga marcándolas como ya aplicadas
     # (este test llama a .aplicar()/.revertir() directamente, sin pasar por el runner, así
-    # que no actualiza esa tabla de seguimiento — detectado porque dejaba
-    # test_id_tienda_rrhh.py::test_empleado_id_tienda_int fallando en sesiones posteriores).
-    posteriores = [x for x in descubrir() if x.version in ("0017", "0018", "0019", "0195")]
+    # que no actualiza esa tabla de seguimiento). Mantener esto como una lista escrita a mano
+    # ya se quedó obsoleto TRES veces (id_tienda/discapacidad_pct → 0195/0238; bolsa de horas/
+    # tipo_contingencia → 0264; y de nuevo con id_responsable/firma_criptografica/cifrado →
+    # 0322, detectado en una sesión de suite completa con 17 tests de RRHH fallando con
+    # "Unknown column" en pantallas que ni siquiera tocan este test). Generalizado ahora,
+    # como ya invitaba el comentario original: se descubren AUTOMÁTICAMENTE todas las
+    # migraciones posteriores a 0017 cuyo CÓDIGO mencione alguna de las 6 tablas del
+    # expediente, sin mantener ninguna lista a mano — reaplicar de más es inofensivo (todo
+    # `aplicar()` de este runner es idempotente, vía CREATE/ADD COLUMN IF NOT EXISTS).
+    _TABLAS_EXPEDIENTE = ("rrhh_empleados", "rrhh_contratos", "rrhh_nominas",
+                          "rrhh_vacaciones", "rrhh_ausencias", "rrhh_documentos")
+
+    def _toca_expediente(mig) -> bool:
+        # Fichero COMPLETO del módulo (no solo el cuerpo de `aplicar`): algunas migraciones
+        # (p. ej. 0195) listan las tablas en una constante a nivel de módulo y `aplicar()` solo
+        # las referencia por variable — `inspect.getsource(mig.aplicar)` por sí solo las pierde.
+        if mig.aplicar is None:
+            return False
+        try:
+            ruta = inspect.getsourcefile(mig.aplicar)
+            if not ruta:
+                return False
+            with open(ruta, encoding="utf-8") as f:
+                fuente = f.read()
+        except OSError:
+            return False
+        return any(t in fuente for t in _TABLAS_EXPEDIENTE)
+
+    posteriores = sorted(
+        (x for x in migs if x.version == "0017"
+         or (x.version > "0017" and _toca_expediente(x))),
+        key=lambda x: x.version,
+    )
     with db.obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("SET FOREIGN_KEY_CHECKS=0")
         try:

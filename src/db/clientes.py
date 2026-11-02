@@ -79,7 +79,7 @@ def buscar_cliente_por_codigo(codigo, id_empresa=None) -> dict | None:
 
 def crear_cliente(nombre, nif=None, telefono=None, email=None,
                   direccion=None, id_empresa=None, *, cp=None, poblacion=None,
-                  provincia=None, pais=None) -> int | None:
+                  provincia=None, pais=None, origen_flujo: str | None = None) -> int | None:
     id_empresa = id_empresa or empresa_actual_id()
     if not (nombre or "").strip():
         return None
@@ -106,7 +106,12 @@ def crear_cliente(nombre, nif=None, telefono=None, email=None,
         # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
         try:
             from src.services import eventos as _EV
-            _EV.publicar("CLIENTE_CREADO", id_empresa=id_empresa, origen="crm",
+            # `origen="crm:<origen_flujo>"` cuando el llamador lo indica (p.ej. "tpv"/
+            # "distribucion"/"ficha"): `crear_cliente` es compartida por la GUI de escritorio y
+            # ~10 adaptadores de marketplace (WooCommerce/Shopify/…), que por defecto
+            # (`origen_flujo=None`) mantienen el `origen="crm"` genérico de siempre.
+            _EV.publicar("CLIENTE_CREADO", id_empresa=id_empresa,
+                         origen=(f"crm:{origen_flujo}" if origen_flujo else "crm"),
                          ref_entidad="cliente", ref_id=_cid,
                          payload={"nombre": (nombre or "").strip(), "nif": nif or None})
         except Exception:
@@ -193,7 +198,16 @@ def actualizar_cliente(cliente_id, id_empresa=None, **campos) -> bool:
                         (*sets.values(), cliente_id, id_empresa))
             ok = cur.rowcount > 0
             conn.commit()
-            return ok
+        if ok:
+            # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+            try:
+                from src.services import eventos as _EV
+                _EV.publicar("CLIENTE_MODIFICADO", id_empresa=id_empresa, origen="crm",
+                             ref_entidad="cliente", ref_id=cliente_id,
+                             payload={"campos": list(sets.keys())})
+            except Exception:
+                pass
+        return ok
     except Exception as e:
         logger.error("actualizar_cliente(%s): %s", cliente_id, e)
         return False

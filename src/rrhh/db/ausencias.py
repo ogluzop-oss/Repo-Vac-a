@@ -13,7 +13,7 @@ from src.db.empresa import empresa_actual_id
 logger = logging.getLogger("rrhh.ausencias")
 
 _PERMITIDOS = ("tipo", "fecha_inicio", "fecha_fin", "dias", "motivo", "justificada",
-               "ref_documento")
+               "ref_documento", "tipo_contingencia")
 
 
 def crear_ausencia(id_empleado, id_empresa=None, **campos) -> int | None:
@@ -28,7 +28,16 @@ def crear_ausencia(id_empleado, id_empresa=None, **campos) -> int | None:
             cur.execute(f"INSERT INTO rrhh_ausencias ({', '.join(cols)}) VALUES ({ph})", vals)
             aid = cur.lastrowid
             conn.commit()
-            return aid
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("BAJA_REGISTRADA", id_empresa=id_empresa, origen="rrhh",
+                         ref_entidad="ausencia", ref_id=aid,
+                         payload={"id_empleado": id_empleado, "tipo": datos.get("tipo"),
+                                  "tipo_contingencia": datos.get("tipo_contingencia")})
+        except Exception:
+            pass
+        return aid
     except Exception as e:
         logger.error("crear_ausencia(emp=%s): %s", id_empleado, e)
         return None

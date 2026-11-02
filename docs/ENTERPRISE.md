@@ -16,7 +16,7 @@ src/gui/        UI PyQt6 (foundation → components → panels → windows)
 src/api/        Enterprise REST API (/api/v1) + GraphQL ; consume servicios
 src/backend/    App Flask/WSGI (gunicorn) + probes/metrics
 src/services/   Lógica de negocio (78 dominios)
-src/platform/   capabilities · registry · discovery · gateway · cloud · contracts
+src/plataforma/   capabilities · registry · discovery · gateway · cloud · contracts
 src/db/         Acceso a datos (pymysql) ; src/database/migraciones (151)
 src/sdk/        SDK de plugins ; sdk/ SDK cliente distribuible (pip/npm)
 ```

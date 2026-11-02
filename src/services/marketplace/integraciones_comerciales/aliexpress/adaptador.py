@@ -220,8 +220,17 @@ class AliExpressAdapter(_AliExpressPreparado):
                        "precio": _num(li.get("price"))} for li in filas]
             if not lineas:
                 continue
+            # Dirección de envío: mismo criterio defensivo de claves alternativas que el resto de
+            # este adaptador (`logistics_address` es el nombre oficial Open Platform; se cubren
+            # variantes razonables por si la pasarela concreta difiere).
+            addr = o.get("logistics_address") or o.get("shipping_address") or o.get("address") or {}
+            cp = addr.get("zip") or addr.get("zipcode") or addr.get("postcode") or addr.get("postal_code")
+            direccion_envio = ", ".join(str(x) for x in (
+                addr.get("address") or addr.get("address1"), addr.get("city"),
+                addr.get("province") or addr.get("state"), cp, addr.get("country")) if x)
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="aliexpress", referencia_externa=ref)
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="aliexpress", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido aliexpress %s: %s", ref, e)

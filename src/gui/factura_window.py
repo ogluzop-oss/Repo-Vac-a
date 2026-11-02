@@ -23,7 +23,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from assets.estilo_global import mostrar_confirmacion, mostrar_mensaje
+from assets.estilo_global import (_blindar_tamano_fijo, instalar_corner_cover,
+                                  mostrar_confirmacion, mostrar_mensaje)
 from src.db import clientes as CLI
 from src.db import facturas_cliente as FC
 from src.db import ventas_busqueda as VB
@@ -44,15 +45,25 @@ _INPUT_SS = (
     f"QLineEdit:focus{{border-color:{_CIAN};}}"
 )
 _BTN_CIAN = (
-    f"QPushButton{{background:{_CIAN};color:#0B1118;border:none;border-radius:10px;"
+    f"QPushButton{{background:{_FONDO};color:{_CIAN};border:2px solid {_CIAN};border-radius:10px;"
     f"padding:10px 18px;font-weight:bold;font-family:'Segoe UI';font-size:14px;}}"
-    f"QPushButton:hover{{background:#FFFFFF;}}"
+    f"QPushButton:hover{{background:{_CIAN};color:{_FONDO};}}"
     f"QPushButton:disabled{{background:#2A3038;color:#6E7681;}}"
 )
 _BTN_GREY = (
     f"QPushButton{{background:transparent;color:{_TEXTO};border:2px solid {_BORDE};"
     f"border-radius:10px;padding:10px 18px;font-weight:bold;font-family:'Segoe UI';font-size:13px;}}"
     f"QPushButton:hover{{border-color:{_CIAN};color:{_CIAN};}}"
+)
+# Diseño ESTÁNDAR de la app (contorno turquesa, fondo azul muy oscuro, texto turquesa; hover invierte
+# a relleno turquesa + texto oscuro) — para los 5 botones de la barra de acciones de FACTURAS
+# (Buscar/Ver ticket/Exportar-Enviar/Cobrar/Generar factura), que antes usaban dos estilos distintos
+# (`_BTN_CIAN` sólido, `_BTN_GREY` sin relleno) inconsistentes entre sí y con el resto de la app.
+_BTN_STD = (
+    f"QPushButton{{background:{_FONDO};color:{_CIAN};border:2px solid {_CIAN};border-radius:10px;"
+    f"padding:10px 18px;font-weight:bold;font-family:'Segoe UI';font-size:14px;}}"
+    f"QPushButton:hover{{background:{_CIAN};color:{_FONDO};}}"
+    f"QPushButton:disabled{{background:{_FONDO};color:#4B5563;border:2px solid #2B3440;}}"
 )
 _TABLA_SS = (
     f"QTableWidget{{background:{_PANEL};color:{_TEXTO};border:2px solid {_CIAN};"
@@ -65,6 +76,23 @@ _TABLA_SS = (
     f"QHeaderView::section:horizontal:first{{border-top-left-radius:10px;}}"
     f"QHeaderView::section:horizontal:last{{border-top-right-radius:10px;}}"
 )
+
+
+def _x_cerrar_rojo(dlg) -> QPushButton:
+    """Botón circular rojo con una ✕ para la esquina superior derecha de un diálogo — mismo diseño
+    estándar de la app (ver `gui.ubicacion_tienda._x_cerrar_rojo`); factorizado aquí porque
+    `FacturaWindow` ya tenía este mismo patrón en línea para su propio botón de volver."""
+    b = QPushButton("✕")
+    b.setFixedSize(46, 46)
+    b.setCursor(Qt.CursorShape.PointingHandCursor)
+    b.setStyleSheet(
+        "QPushButton{background:transparent;color:#F85149;border:none;border-radius:23px;"
+        "padding:0;font-family:'Segoe UI';font-weight:900;font-size:16px;}"
+        "QPushButton:hover{background:#F85149;color:#0B1118;}")
+    b.setProperty("sin_glow", True)
+    _blindar_tamano_fijo(b, 46, 46)
+    b.clicked.connect(dlg.reject)
+    return b
 
 
 def _icono_accion(name: str, color: str, size: int = 22) -> QIcon:
@@ -164,6 +192,88 @@ def _nif_match(c: dict, nif: str) -> bool:
     return (c.get("nif") or "").strip().upper() == (nif or "").strip().upper()
 
 
+# Divisas ofrecidas en el selector (FASE C): EUR + las ya relevantes para esta app (mismo listado
+# que `services/facturacion/internacional.py::seed_minimo` — países/zonas ya soportados).
+_DIVISAS_SOPORTADAS = ["EUR", "USD", "GBP", "CHF", "AED", "MAD"]
+
+
+# ============================================================
+# Selector de divisa (FASE C: conecta `internacional.aplicar_divisa`, antes huérfana)
+# ============================================================
+class _DivisaDialog(QDialog):
+    """Selector de divisa + tipo de cambio para facturas a clientes NO españoles. Llama a la
+    función YA EXISTENTE `services.facturacion.internacional.aplicar_divisa` — hasta ahora nunca
+    invocada desde ninguna pantalla."""
+
+    def __init__(self, parent=None, *, pais_cliente=None):
+        super().__init__(parent)
+        self.divisa = None
+        self.tipo_cambio = None
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMinimumSize(440, 300)
+        _root = QVBoxLayout(self)
+        _root.setContentsMargins(0, 0, 0, 0)
+        card = QFrame(self)
+        card.setObjectName("card")
+        card.setStyleSheet(
+            f"QFrame#card{{background:{_FONDO};border:2px solid {_CIAN};border-radius:18px;}}")
+        _root.addWidget(card)
+        ly = QVBoxLayout(card)
+        ly.setContentsMargins(22, 22, 22, 22)
+        ly.setSpacing(10)
+
+        tit = QLabel(tr("fact.divisa_header", default="💱 FACTURA EN DIVISA EXTRANJERA"))
+        tit.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:16px;")
+        ly.addWidget(tit)
+
+        info = QLabel(tr("fact.divisa_info",
+                         default="El cliente es de {p}. Puede fijar la divisa de emisión y el "
+                                 "tipo de cambio aplicado (importe EUR = importe divisa ÷ tipo de "
+                                 "cambio). Elija/deje EUR para no aplicar conversión.",
+                         p=pais_cliente or "—"))
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#8B949E;font-size:12px;")
+        ly.addWidget(info)
+
+        ly.addWidget(QLabel(tr("fact.divisa_lbl", default="Divisa:")))
+        self.cmb_divisa = QComboBox()
+        for d in _DIVISAS_SOPORTADAS:
+            self.cmb_divisa.addItem(d, d)
+        self.cmb_divisa.setStyleSheet(
+            "QComboBox{background:#0D1117;color:#E6EDF3;border:2px solid #30363D;border-radius:8px;"
+            "padding:6px 10px;font-weight:700;}QComboBox:hover{border-color:#22F4E6;}")
+        ly.addWidget(self.cmb_divisa)
+
+        ly.addWidget(QLabel(tr("fact.tc_lbl", default="Tipo de cambio (1 EUR = X divisa):")))
+        self.in_tc = QLineEdit("1.00")
+        self.in_tc.setStyleSheet(_INPUT_SS)
+        ly.addWidget(self.in_tc)
+
+        botones = QHBoxLayout()
+        bs = QPushButton(tr("fact.divisa_omitir", default="OMITIR (queda en EUR)"))
+        bs.setStyleSheet(_BTN_GREY)
+        bs.clicked.connect(self.reject)
+        ba = QPushButton(tr("fact.divisa_aplicar", default="APLICAR DIVISA"))
+        ba.setStyleSheet(_BTN_STD)
+        ba.clicked.connect(self._aceptar)
+        botones.addStretch()
+        botones.addWidget(bs)
+        botones.addWidget(ba)
+        ly.addLayout(botones)
+
+    def _aceptar(self, *_):
+        try:
+            tc = float((self.in_tc.text() or "1").replace(",", "."))
+        except ValueError:
+            tc = 1.0
+        if tc <= 0:
+            tc = 1.0
+        self.divisa = self.cmb_divisa.currentData()
+        self.tipo_cambio = tc
+        self.accept()
+
+
 # ============================================================
 # Ticket digital (vista de confirmación, solo lectura)
 # ============================================================
@@ -184,9 +294,13 @@ class _TicketDialog(QDialog):
         ly.setContentsMargins(22, 22, 22, 22)
         ly.setSpacing(10)
 
+        cab_tit = QHBoxLayout()
         tit = QLabel(tr("fact.ticket_header", default="🧾 TICKET DIGITAL"))
         tit.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:18px;")
-        ly.addWidget(tit)
+        cab_tit.addWidget(tit)
+        cab_tit.addStretch()
+        cab_tit.addWidget(_x_cerrar_rojo(self))
+        ly.addLayout(cab_tit)
 
         cab = (f"Ticket Nº {venta.get('id')}   ·   {venta.get('fecha')}\n"
                f"Cajero: {venta.get('empleado') or '—'}   ·   Caja: {venta.get('numero_caja') or '—'}\n"
@@ -203,7 +317,7 @@ class _TicketDialog(QDialog):
             tr("fact.col_item", default="Artículo"), tr("fact.col_qty", default="Cant."),
             tr("fact.col_price", default="P.Unit."), tr("fact.col_subtotal", default="Subtotal")])
         tabla.setStyleSheet(_TABLA_SS)
-        _RoundTableCorners(tabla)
+        instalar_corner_cover(tabla, 12, bg=_PANEL, border=_CIAN)
         tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         tabla.verticalHeader().setVisible(False)
         tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -223,17 +337,12 @@ class _TicketDialog(QDialog):
         tot.setAlignment(Qt.AlignmentFlag.AlignRight)
         ly.addWidget(tot)
 
-        bcerrar = QPushButton(tr("fact.close", default="CERRAR"))
-        bcerrar.setStyleSheet(_BTN_GREY)
-        bcerrar.clicked.connect(self.accept)
-        ly.addWidget(bcerrar, alignment=Qt.AlignmentFlag.AlignRight)
-
 
 # ============================================================
 # Selector de cliente registrado (popup de asignación)
 # ============================================================
 class _SelectorClienteDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, texto_boton=None):
         super().__init__(parent)
         self.cliente = None
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
@@ -250,9 +359,13 @@ class _SelectorClienteDialog(QDialog):
         ly.setContentsMargins(22, 22, 22, 22)
         ly.setSpacing(12)
 
+        cab_tit = QHBoxLayout()
         tit = QLabel(tr("fact.assign_header", default="👤 SELECCIONE UN CLIENTE REGISTRADO"))
         tit.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:17px;")
-        ly.addWidget(tit)
+        cab_tit.addWidget(tit)
+        cab_tit.addStretch()
+        cab_tit.addWidget(_x_cerrar_rojo(self))
+        ly.addLayout(cab_tit)
 
         info = QLabel(tr("fact.assign_info",
                          default="Si no encuentra al cliente deseado, asegúrese de haber registrado "
@@ -263,11 +376,11 @@ class _SelectorClienteDialog(QDialog):
 
         fila = QHBoxLayout()
         self.buscar = QLineEdit()
-        self.buscar.setPlaceholderText(tr("fact.client_search_ph", default="Nombre, NIF, teléfono o email…"))
+        self.buscar.setPlaceholderText(tr("fact.client_search_ph", default="🔍 Nombre, NIF, teléfono o email…"))
         self.buscar.setStyleSheet(_INPUT_SS)
         self.buscar.returnPressed.connect(self._buscar)
-        b = QPushButton(tr("fact.search", default="BUSCAR"))
-        b.setStyleSheet(_BTN_CIAN)
+        b = QPushButton(tr("fact.search", default="🔍"))
+        b.setStyleSheet(_BTN_STD)
         b.clicked.connect(self._buscar)
         fila.addWidget(self.buscar, 1)
         fila.addWidget(b)
@@ -276,7 +389,7 @@ class _SelectorClienteDialog(QDialog):
         self.tabla = QTableWidget(0, 4)
         self.tabla.setHorizontalHeaderLabels(["Nombre", "NIF", "Teléfono", "Email"])
         self.tabla.setStyleSheet(_TABLA_SS)
-        _RoundTableCorners(self.tabla)
+        instalar_corner_cover(self.tabla, 12, bg=_PANEL, border=_CIAN)
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -286,14 +399,10 @@ class _SelectorClienteDialog(QDialog):
         ly.addWidget(self.tabla, 1)
 
         botones = QHBoxLayout()
-        bc = QPushButton(tr("fact.cancel", default="CANCELAR"))
-        bc.setStyleSheet(_BTN_GREY)
-        bc.clicked.connect(self.reject)
-        ba = QPushButton(tr("fact.assign_btn", default="ASIGNAR Y FACTURAR"))
-        ba.setStyleSheet(_BTN_CIAN)
+        ba = QPushButton(texto_boton or tr("fact.assign_btn", default="ASIGNAR Y FACTURAR"))
+        ba.setStyleSheet(_BTN_STD)
         ba.clicked.connect(self._aceptar)
         botones.addStretch()
-        botones.addWidget(bc)
         botones.addWidget(ba)
         ly.addLayout(botones)
 
@@ -350,12 +459,14 @@ class FacturaWindow(QWidget):
         cab.addWidget(tit)
         cab.addStretch()
         bvolver = QPushButton("✕")
-        bvolver.setFixedSize(50, 44)
+        bvolver.setFixedSize(50, 50)
         bvolver.setCursor(Qt.CursorShape.PointingHandCursor)
         bvolver.setStyleSheet(
-            "QPushButton{background:transparent;color:#F85149;border:2px solid #F85149;"
-            "border-radius:9px;font-size:18px;font-weight:900;}"
+            "QPushButton{background:transparent;color:#F85149;border:none;"
+            "border-radius:25px;padding:0;font-size:18px;font-weight:900;}"
             "QPushButton:hover{background:#F85149;color:#0B1118;}")
+        bvolver.setProperty("sin_glow", True)
+        _blindar_tamano_fijo(bvolver, 50, 50)
         bvolver.clicked.connect(self._volver)
         cab.addWidget(bvolver)
         root.addLayout(cab)
@@ -371,11 +482,11 @@ class FacturaWindow(QWidget):
         fila = QHBoxLayout()
         self.buscar = QLineEdit()
         self.buscar.setPlaceholderText(tr("fact.search_ph",
-                                          default="Cliente, NIF, teléfono, email o código de barras del ticket…"))
+                                          default="🔍 Cliente, NIF, teléfono, email o código de barras del ticket…"))
         self.buscar.setStyleSheet(_INPUT_SS)
         self.buscar.returnPressed.connect(self._buscar)
-        bb = QPushButton(tr("fact.search", default="BUSCAR"))
-        bb.setStyleSheet(_BTN_CIAN)
+        bb = QPushButton(tr("fact.search", default="🔍"))
+        bb.setStyleSheet(_BTN_STD)
         bb.setMinimumWidth(120)   # evita que el texto se corte en horizontal
         bb.setMinimumHeight(44)   # altura suficiente: el padding+fuente recortaban el texto abajo
         bb.clicked.connect(self._buscar)
@@ -391,7 +502,7 @@ class FacturaWindow(QWidget):
             tr("fact.col_pay", default="Pago"), tr("fact.col_cashier", default="Cajero"),
             tr("fact.col_nitems", default="Artículos"), tr("fact.col_actions", default="Acciones")])
         self.tabla.setStyleSheet(_TABLA_SS)
-        _RoundTableCorners(self.tabla)
+        instalar_corner_cover(self.tabla, 12, bg=_PANEL, border=_CIAN)
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabla.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -422,21 +533,22 @@ class FacturaWindow(QWidget):
         self.cmb_tipo.setStyleSheet(
             "QComboBox{background:#0D1117;color:#E6EDF3;border:2px solid #30363D;border-radius:8px;"
             "padding:4px 10px;font-weight:700;}QComboBox:hover{border-color:#22F4E6;}"
+            "QComboBox::drop-down{border:none;width:22px;background:transparent;}"
             "QComboBox QAbstractItemView{min-width:180px;}")
         self.btn_ticket = QPushButton(tr("fact.view_ticket", default="👁  VER TICKET"))
-        self.btn_ticket.setStyleSheet(_BTN_GREY)
+        self.btn_ticket.setStyleSheet(_BTN_STD)
         self.btn_ticket.clicked.connect(self._ver_ticket)
         self.btn_dist = QPushButton(tr("fact.distribuir", default="📤  EXPORTAR / ENVIAR"))
-        self.btn_dist.setStyleSheet(_BTN_GREY)
+        self.btn_dist.setStyleSheet(_BTN_STD)
         self.btn_dist.clicked.connect(self._distribuir)
         # Cobro express (ledger, NO pasarela): registra el saldo pendiente de la venta como cobrado en 1 clic.
         self.btn_cobrar = QPushButton(tr("fact.cobrar_express", default="💶  COBRAR"))
-        self.btn_cobrar.setStyleSheet(_BTN_CIAN)
+        self.btn_cobrar.setStyleSheet(_BTN_STD)
         self.btn_cobrar.setToolTip(tr("fact.cobrar_tip",
                                       default="Registra el saldo pendiente de la venta como cobrado (efectivo)."))
         self.btn_cobrar.clicked.connect(self._cobrar_express)
         self.btn_factura = QPushButton(tr("fact.generate", default="🧾  GENERAR FACTURA"))
-        self.btn_factura.setStyleSheet(_BTN_CIAN)
+        self.btn_factura.setStyleSheet(_BTN_STD)
         self.btn_factura.clicked.connect(self._generar_factura)
         acc.addWidget(self.cmb_tipo)
         acc.addWidget(self.btn_ticket)
@@ -763,6 +875,19 @@ class FacturaWindow(QWidget):
             mostrar_mensaje(self, tr("fact.error", default="Error"),
                             tr("fact.gen_err", default="No se pudo generar la factura."), "error")
             return
+
+        # FASE C (facturación internacional): cliente NO español → ofrecer fijar divisa/tipo de
+        # cambio (conecta `internacional.aplicar_divisa`, hasta ahora huérfana). Gate sobre el
+        # mismo campo real ya existente en `clientes` (migración 0054): `pais_fiscal`.
+        pais_cli = (cliente.get("pais_fiscal") or "ES").upper()
+        if pais_cli != "ES":
+            dlg_div = _DivisaDialog(self, pais_cliente=pais_cli)
+            if dlg_div.exec() == QDialog.DialogCode.Accepted and dlg_div.divisa:
+                try:
+                    from src.services.facturacion import internacional as INTL
+                    INTL.aplicar_divisa(fid, dlg_div.divisa, tipo_cambio=dlg_div.tipo_cambio)
+                except Exception as e:
+                    logger.error("aplicar_divisa: %s", e)
 
         # PDF de la factura + alta en el Centro Documental (tipo 'factura').
         numero = f"FC{fid:06d}"

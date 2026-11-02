@@ -7,24 +7,35 @@
  *
  * Requiere configuración nativa (permisos de cámara en AndroidManifest / Info.plist) — ver README.
  */
-import React, {useEffect, useState} from 'react';
-import {StyleSheet, Text, View} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {
   Camera,
   useCameraDevice,
   useCodeScanner,
+  type PhotoFile,
 } from 'react-native-vision-camera';
+import {useTranslation} from 'react-i18next';
 import {colors} from '@/theme/colors';
 
 interface Props {
-  /** Se invoca con el valor leído (una sola vez hasta re-armar). */
-  onScanned: (value: string, type: string) => void;
+  /** Se invoca con el valor leído (una sola vez hasta re-armar). Solo aplica en modo 'scan'. */
+  onScanned?: (value: string, type: string) => void;
+  /** Se invoca con el `file://` local de la foto tomada. Solo aplica en modo 'foto'. */
+  onCaptured?: (uri: string) => void;
   active: boolean;
+  /** 'scan' (por defecto, comportamiento existente) decodifica códigos; 'foto' muestra un disparador
+   * de captura de imagen — mismo módulo nativo ya enlazado (`react-native-vision-camera`), sin
+   * dependencia nueva. */
+  modo?: 'scan' | 'foto';
 }
 
-export default function CameraScanner({onScanned, active}: Props) {
+export default function CameraScanner({onScanned, onCaptured, active, modo = 'scan'}: Props) {
+  const {t} = useTranslation();
   const device = useCameraDevice('back');
   const [permiso, setPermiso] = useState<boolean | null>(null);
+  const [capturando, setCapturando] = useState(false);
+  const camRef = useRef<Camera>(null);
 
   useEffect(() => {
     (async () => {
@@ -36,18 +47,36 @@ export default function CameraScanner({onScanned, active}: Props) {
   const codeScanner = useCodeScanner({
     codeTypes: ['ean-13', 'ean-8', 'code-128', 'code-39', 'upc-a', 'qr'],
     onCodeScanned: codes => {
+      if (modo !== 'scan') {
+        return;
+      }
       const first = codes[0];
       if (first?.value) {
-        onScanned(first.value, first.type ?? 'unknown');
+        onScanned?.(first.value, first.type ?? 'unknown');
       }
     },
   });
+
+  const disparar = async () => {
+    if (!camRef.current || capturando) {
+      return;
+    }
+    setCapturando(true);
+    try {
+      const foto: PhotoFile = await camRef.current.takePhoto();
+      onCaptured?.(`file://${foto.path}`);
+    } catch {
+      // Silencioso: el usuario puede reintentar pulsando el disparador de nuevo.
+    } finally {
+      setCapturando(false);
+    }
+  };
 
   if (permiso === false) {
     return (
       <View style={styles.msg}>
         <Text style={styles.msgText}>
-          Permiso de cámara denegado. Habilítalo en los ajustes del dispositivo.
+          {t('camara.permiso_denegado', 'Permiso de cámara denegado. Habilítalo en los ajustes del dispositivo.')}
         </Text>
       </View>
     );
@@ -55,7 +84,7 @@ export default function CameraScanner({onScanned, active}: Props) {
   if (!device || permiso === null) {
     return (
       <View style={styles.msg}>
-        <Text style={styles.msgText}>Inicializando cámara…</Text>
+        <Text style={styles.msgText}>{t('camara.inicializando', 'Inicializando cámara…')}</Text>
       </View>
     );
   }
@@ -63,12 +92,22 @@ export default function CameraScanner({onScanned, active}: Props) {
   return (
     <View style={styles.wrap}>
       <Camera
+        ref={camRef}
         style={StyleSheet.absoluteFill}
         device={device}
         isActive={active}
-        codeScanner={codeScanner}
+        photo={modo === 'foto'}
+        codeScanner={modo === 'scan' ? codeScanner : undefined}
       />
-      <View style={styles.reticle} />
+      {modo === 'scan' ? (
+        <View style={styles.reticle} />
+      ) : (
+        <TouchableOpacity
+          style={[styles.disparador, capturando && styles.disparadorActivo]}
+          onPress={disparar}
+          disabled={capturando}
+        />
+      )}
     </View>
   );
 }
@@ -87,4 +126,16 @@ const styles = StyleSheet.create({
   },
   msg: {flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20},
   msgText: {color: colors.textDim, textAlign: 'center'},
+  disparador: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: 24,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: colors.bg,
+    borderWidth: 4,
+    borderColor: colors.cyan,
+  },
+  disparadorActivo: {opacity: 0.5},
 });

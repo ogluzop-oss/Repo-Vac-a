@@ -45,7 +45,7 @@ def test_gobernanza_solo_capacidades_no_motor():
     for prohibido in ("from src.services.autorizacion", "from src.services.saas_global",
                       "from src.services.ccp", "from src.services.observabilidad"):
         assert not any(prohibido in l for l in imports), f"gobernanza acopla a {prohibido}"
-    assert "from src.platform import capabilities" in src
+    assert "from src.plataforma import capabilities" in src
     d = g.descriptor()
     assert d["es_motor"] is False and "comercio.ver" in d["permisos"]
 

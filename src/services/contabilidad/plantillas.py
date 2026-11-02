@@ -174,11 +174,23 @@ def _job_asientos_recurrentes(id_empresa=None) -> dict:
         return {"generados": generados, "error": str(e)}
 
 
+def _job_facturacion_bi(id_empresa):
+    from src.services.facturacion import analitica
+    k = analitica.registrar_en_bi(id_empresa=id_empresa)
+    return f"facturacion_kpis_bi={len(k)}"
+
+
 def registrar_jobs_contabilidad(id_empresa=None):
     try:
         from src.services import scheduler
         scheduler.registrar("contab_asientos_recurrentes", _job_asientos_recurrentes)
         scheduler.registrar_job("contab_asientos_recurrentes", intervalo_horas=24,
                                 descripcion="Generación de asientos contables recurrentes")
+        # KPIs de facturación (facturación/MRR-ARR/morosidad) a BI/IA — la analítica de facturación no
+        # tenía ningún caller en todo el repo; se conecta aquí para que llegue a BI aunque no exista
+        # (todavía) un dashboard propio de facturación que la muestre en pantalla.
+        scheduler.registrar("facturacion_kpis_bi", _job_facturacion_bi)
+        scheduler.registrar_job("facturacion_kpis_bi", intervalo_horas=24,
+                                descripcion="KPIs de facturación a BI", id_empresa=id_empresa)
     except Exception as e:
         logger.debug("registrar_jobs_contabilidad: %s", e)

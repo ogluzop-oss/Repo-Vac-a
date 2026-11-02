@@ -180,6 +180,27 @@ def crear_factura(id_cliente=None, id_venta=None, lineas=None, base=None, iva=No
                             (id_empresa, fid, round(float(tipo), 2), acc["base"], acc["cuota"],
                              acc["total"], acc.get("tipo_recargo", 0), acc.get("cuota_recargo", 0)))
             nuevo_fid = fid
+        # FASE B (sincronización en tiempo real): hasta ahora `crear_factura` NUNCA
+        # encolaba el asiento contable cuando la factura no provenía de una venta TPV
+        # (`id_venta` nulo) — exactamente el caso de una factura B2B/internacional emitida
+        # directamente (o cualquier factura de suscripción/recurrente/CRM). El TPV YA
+        # contabiliza sus tickets por su propio camino (`encolar_venta(subtipo="ticket")`
+        # en `db/conexion.py`/`db/reconciliacion.py`); aquí se cierra el hueco para
+        # CUALQUIER factura de venta, sin duplicar nada cuando SÍ hay `id_venta` (ese
+        # ticket ya se encoló en su propio flujo — por eso el guard `if not id_venta`).
+        # `ref` usa el prefijo "fc:" para no colisionar con los `venta_id` numéricos que ya
+        # usa el camino de tickets en la misma cola `contab_cola` (evento="venta").
+        if not id_venta:
+            try:
+                from src.services.contabilidad.posting import encolar_venta
+                es_negativo = tipo_documento in ("abono", "rectificativa")   # paridad con compras.py
+                signo = -1 if es_negativo else 1
+                encolar_venta(f"fc:{nuevo_fid}", signo * total_f,
+                              fecha_emision or _dt.date.today().isoformat(),
+                              forma_pago="factura", subtipo="factura", id_empresa=id_empresa,
+                              base=signo * base_f, iva=signo * iva_f)
+            except Exception:
+                pass
         # Enlace fiscal (best-effort, POST-commit): SOLO si el tipo es elegible Verifactu
         # (una proforma NUNCA genera registro fiscal).
         try:
@@ -203,9 +224,24 @@ def crear_factura(id_cliente=None, id_venta=None, lineas=None, base=None, iva=No
         # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
         try:
             from src.services import eventos as _EV
-            _EV.publicar("FACTURA_GENERADA", id_empresa=id_empresa, origen="facturacion",
+            # `origen="facturacion:<tipo_documento>"` (no solo "facturacion" fijo):
+            # `crear_factura` ya recibe `tipo_documento` de TODOS sus llamadores (factura/abono/
+            # rectificativa/proforma/simplificada/intracom/...) — se reutiliza para distinguir el
+            # circuito de negocio en el evento sin tocar ni un llamador.
+            _EV.publicar("FACTURA_GENERADA", id_empresa=id_empresa,
+                         origen=f"facturacion:{tipo_documento}",
                          prioridad=_EV.prioridades.ALTA, ref_entidad="factura", ref_id=nuevo_fid,
                          payload={"id_cliente": id_cliente, "id_venta": id_venta, "serie": serie})
+            # Evento ADICIONAL (no sustituye a FACTURA_GENERADA de arriba) cuando el documento
+            # generado es una rectificativa: `FACTURA_RECTIFICADA` es un tipo propio del catalogo
+            # (mapeo.TIPO_A_VID), con su propia prioridad/descripcion — una rectificativa sigue
+            # siendo tambien una "factura generada" a todos los efectos, asi que ambos eventos
+            # se publican para el mismo documento.
+            if tipo_documento == "rectificativa":
+                _EV.publicar("FACTURA_RECTIFICADA", id_empresa=id_empresa,
+                             origen=f"facturacion:{tipo_documento}",
+                             ref_entidad="factura", ref_id=nuevo_fid,
+                             payload={"id_cliente": id_cliente, "id_venta": id_venta, "serie": serie})
         except Exception:
             pass
         return nuevo_fid
@@ -510,6 +546,15 @@ def anular_factura(fid, motivo=None, generar_abono=True, id_empresa=None) -> dic
         if id_abono:
             registrar_evento(id_abono, "generada",
                              detalle=f"abono de {orig.get('numero')}", id_empresa=id_empresa)
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("FACTURA_ANULADA", id_empresa=id_empresa, origen="facturacion",
+                         ref_entidad="factura", ref_id=fid,
+                         payload={"numero": orig.get("numero"), "motivo": motivo,
+                                 "id_abono": id_abono})
+        except Exception:
+            pass
         return res
     except Exception as e:
         logger.error("anular_factura(%s): %s", fid, e)
@@ -660,6 +705,34 @@ def listar_facturas(id_empresa=None, id_cliente=None, estado=None, limite=500) -
             return _filas_a_dicts(cur, cur.fetchall())
     except Exception as e:
         logger.error("listar_facturas: %s", e); return []
+
+
+def listar_pendientes_cobro(id_empresa=None, importe_min=None, importe_max=None, limite=200) -> list:
+    """Facturas de cliente con saldo pendiente de cobro (total-cobrado>0), excluyendo
+    borradores/anuladas, con nombre del cliente. Fuente para la conciliación bancaria
+    (FASE 8 extendida): empareja líneas de extracto directamente contra facturas pendientes,
+    reutilizando el mismo criterio de 'pendiente' que `recordatorios.pendientes()`
+    (total-cobrado>0.005), sin restringir por fecha de vencimiento."""
+    id_empresa = _emp(id_empresa)
+    cond = ["f.id_empresa=%s", "f.estado NOT IN ('borrador','anulada','rechazada')",
+            "COALESCE(f.total,0)-COALESCE(f.cobrado,0) > 0.005"]
+    params = [id_empresa]
+    if importe_min is not None:
+        cond.append("COALESCE(f.total,0)-COALESCE(f.cobrado,0) >= %s"); params.append(importe_min)
+    if importe_max is not None:
+        cond.append("COALESCE(f.total,0)-COALESCE(f.cobrado,0) <= %s"); params.append(importe_max)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT f.id_factura, f.id_cliente, f.numero, f.serie, f.estado, f.total, f.cobrado, "
+                "(f.total-f.cobrado) AS pendiente, f.fecha_emision, f.fecha_vencimiento, "
+                "COALESCE(c.nombre,'') AS cliente_nombre "
+                "FROM facturas_cliente f LEFT JOIN clientes c ON c.id = f.id_cliente "
+                "WHERE " + " AND ".join(cond) + " ORDER BY f.id_factura DESC LIMIT %s",
+                (*params, int(limite)))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_pendientes_cobro: %s", e); return []
 
 
 # ── Informes de ventas / márgenes / rentabilidad ─────────────────────────────

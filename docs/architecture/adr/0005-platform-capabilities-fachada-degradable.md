@@ -11,7 +11,7 @@ acoplarse a su implementación concreta ni romperse si una capacidad no está di
 
 ## Decisión
 
-Toda dependencia transversal se resuelve a través de **`src/platform/capabilities`**, una **fachada
+Toda dependencia transversal se resuelve a través de **`src/plataforma/capabilities`**, una **fachada
 única** que devuelve la capacidad o `None` (degradable). Los servicios comprueban disponibilidad y
 degradan limpiamente; nunca importan la implementación concreta de otra capa transversal directamente
 cuando existe la capacidad.

@@ -6,9 +6,9 @@ Reutiliza el estilo global. Aditivo.
 
 import logging
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QTabWidget, QVBoxLayout, QWidget
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _info, _tabla
 
 logger = logging.getLogger("gui.resiliencia")
 
@@ -40,7 +40,7 @@ class ResilienciaDashboardWindow(QWidget):
         cab.addWidget(t); cab.addStretch()
         cab.addWidget(_btn("Watchdog", self._watchdog, primary=True))
         cab.addWidget(_btn("Sincronizar", self._sync, primary=True))
-        cab.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
+        cab.addWidget(_btn_cargando("🔄  Actualizar", self._load, primary=True))
         if callback_vuelta:
             cab.addWidget(_btn("Volver", self._volver))
         root.addLayout(cab)
@@ -50,10 +50,79 @@ class ResilienciaDashboardWindow(QWidget):
         self.tbl_estado = _tabla(["Indicador", "Valor"])
         self.tbl_breakers = _tabla(["Servicio", "Estado", "Fallos"])
         self.tbl_edge = _tabla(["Tienda", "Modo", "Pendientes", "Salud"])
-        self.tabs.addTab(self.tbl_estado, "Estado")
-        self.tabs.addTab(self.tbl_breakers, "Cortacircuitos")
-        self.tabs.addTab(self.tbl_edge, "Nodos de borde")
+        self.tabs.addTab(self._envolver(self.tbl_estado), "Estado")
+        self.tabs.addTab(self._wrap(self.tbl_breakers, self._barra_breakers(), arriba=False), "Cortacircuitos")
+        self.tabs.addTab(self._wrap(self.tbl_edge, self._barra_edge(), arriba=True), "Nodos de borde")
         root.addWidget(self.tabs)
+        self._load()
+
+    def _envolver(self, tabla):
+        """Tabla sin barra de acciones propia: solo el margen superior — pegada directamente al
+        borde de la pestaña, su contorno se veía más fino por arriba que por los otros lados."""
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 12, 0, 0)
+        lay.addWidget(tabla, 1)
+        return w
+
+    def _wrap(self, tabla, barra, *, arriba):
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 12, 0, 0)
+        if arriba:
+            lay.addLayout(barra)
+            lay.addWidget(tabla, 1)
+        else:
+            lay.addWidget(tabla, 1)
+            lay.addLayout(barra)
+        return w
+
+    def _barra_breakers(self):
+        b = QHBoxLayout(); b.addStretch(1)
+        b.addWidget(_btn("Resetear breaker", self._resetear_breaker, primary=True))
+        return b
+
+    def _barra_edge(self):
+        b = QHBoxLayout(); b.addStretch(1)
+        b.addWidget(_btn("Forzar reconexión", self._reconectar_nodo, primary=True))
+        b.addWidget(_btn("Forzar offline", self._forzar_offline_nodo, primary=True))
+        return b
+
+    def _resetear_breaker(self):
+        r = self.tbl_breakers.currentRow()
+        if r < 0 or self.tbl_breakers.item(r, 0) is None:
+            _info(self, "Cortacircuitos", "Selecciona antes un servicio en la tabla.")
+            return
+        servicio = self.tbl_breakers.item(r, 0).text()
+        from src.services.resiliencia import circuit_breaker
+        if circuit_breaker.resetear(servicio, id_empresa=_empresa()):
+            _info(self, "Cortacircuitos", f"Breaker de «{servicio}» reseteado (cerrado, fallos a 0).")
+            self._load()
+        else:
+            _info(self, "Cortacircuitos", "No se pudo resetear el breaker.")
+
+    def _edge_tienda_sel(self):
+        r = self.tbl_edge.currentRow()
+        if r < 0 or self.tbl_edge.item(r, 0) is None:
+            _info(self, "Nodos de borde", "Selecciona antes una tienda en la tabla.")
+            return None
+        try:
+            return int(self.tbl_edge.item(r, 0).text())
+        except (TypeError, ValueError):
+            return None
+
+    def _reconectar_nodo(self):
+        id_tienda = self._edge_tienda_sel()
+        if id_tienda is None:
+            return
+        from src.services.resiliencia import edge_node
+        r = edge_node.reconectar(_empresa(), id_tienda)
+        _info(self, "Nodos de borde", f"Tienda {id_tienda} reconectada (modo: {r.get('modo')}).")
+        self._load()
+
+    def _forzar_offline_nodo(self):
+        id_tienda = self._edge_tienda_sel()
+        if id_tienda is None:
+            return
+        from src.services.resiliencia import edge_node
+        r = edge_node.entrar_offline(_empresa(), id_tienda)
+        _info(self, "Nodos de borde", f"Tienda {id_tienda} forzada a modo offline (modo: {r.get('modo')}).")
         self._load()
 
     def _load(self):
@@ -94,16 +163,19 @@ class ResilienciaDashboardWindow(QWidget):
         try:
             from src.services.resiliencia import sync_engine
             r = sync_engine.push_offline_a_central(id_empresa=_empresa())
-            QMessageBox.information(self, "Sync", f"Sincronizado: {r['resumen']}")
+            _info(self, "Sync", f"Sincronizado: {r['resumen']}")
             self._load()
         except Exception as e:
-            QMessageBox.critical(self, "Sync", str(e))
+            _info(self, "Sync", f"Error: {e}")
 
     def _watchdog(self):
         try:
             from src.services.resiliencia import resilience_watchdog
             r = resilience_watchdog.ejecutar(id_empresa=_empresa())
-            QMessageBox.information(self, "Watchdog", f"Acciones: {r['acciones']}")
+            acciones = r.get("acciones") or []
+            texto = ("Sin acciones necesarias: no se han detectado incidencias."
+                     if not acciones else "Acciones aplicadas:\n· " + "\n· ".join(acciones))
+            _info(self, "Watchdog", texto)
             self._load()
         except Exception as e:
-            QMessageBox.critical(self, "Watchdog", str(e))
+            _info(self, "Watchdog", f"Error: {e}")

@@ -28,7 +28,36 @@ _PERMITIDOS = (
     "nacionalidad", "nif", "num_ss", "direccion", "municipio", "provincia", "cp",
     "pais", "telefono", "email", "id_centro", "categoria", "grupo_prof", "convenio",
     "puesto", "salario_base", "jornada", "estado", "fecha_alta", "fecha_baja",
+    "discapacidad_pct", "id_responsable", "iban", "iban_mascara",
 )
+
+# IBAN (migr. 0322, petición explícita — domiciliación de nómina): nunca se persiste en claro ni
+# se expone sin enmascarar. Mismo patrón que `db.tesoreria.cuentas_bancarias`/`db.sepa`
+# (`utils.cripto.cifrar` + `utils.iban.mascara_iban`), reutilizado tal cual — ningún motor de
+# cifrado paralelo.
+_CAMPO_IBAN = "iban"
+
+
+def _preparar_iban(campos: dict) -> dict:
+    """Si `campos` trae un IBAN en claro, lo sustituye por {iban: <cifrado>, iban_mascara: <····1234>}.
+    Cadena vacía = borrar la cuenta (ambas columnas a NULL). `None`/ausente = no tocar el IBAN ya
+    guardado (permite actualizar otros campos del empleado sin reenviar ni sobrescribir el IBAN)."""
+    if _CAMPO_IBAN not in campos:
+        return campos
+    campos = dict(campos)
+    crudo = campos.pop(_CAMPO_IBAN)
+    if not (crudo or "").strip():
+        campos["iban"] = None
+        campos["iban_mascara"] = None
+        return campos
+    from src.utils import cripto
+    from src.utils import iban as _iban
+    normalizado = _iban.normalizar_iban(crudo)
+    if not _iban.validar_iban(normalizado):
+        raise ValueError("El IBAN introducido no es válido.")
+    campos["iban"] = cripto.cifrar(normalizado)
+    campos["iban_mascara"] = _iban.mascara_iban(normalizado)
+    return campos
 
 
 def crear_empleado(id_empresa=None, **campos) -> int | None:
@@ -39,6 +68,7 @@ def crear_empleado(id_empresa=None, **campos) -> int | None:
     if not nombre or not nif:
         logger.warning("crear_empleado: nombre y nif son obligatorios")
         return None
+    campos = _preparar_iban(campos)
     datos = {k: campos.get(k) for k in _PERMITIDOS if k in campos}
     datos["nombre"] = nombre
     datos["nif"] = nif
@@ -122,6 +152,7 @@ def listar_empleados(id_empresa=None, estado=None, texto=None) -> list[dict]:
 
 def actualizar_empleado(id_empleado, id_empresa=None, **campos) -> bool:
     id_empresa = id_empresa or empresa_actual_id()
+    campos = _preparar_iban(campos)
     sets = {k: campos[k] for k in _PERMITIDOS if k in campos}
     if "nif" in sets and sets["nif"]:
         sets["nif"] = str(sets["nif"]).strip().upper()
@@ -166,12 +197,13 @@ def expediente(id_empleado, id_empresa=None) -> dict | None:
     ficha = obtener_empleado(id_empleado, id_empresa)
     if not ficha:
         return None
-    from src.rrhh.db import (ausencias, contratos, documentos, nominas,
-                             vacaciones)
+    from src.rrhh.db import (ausencias, contratos, documentos, finiquitos,
+                             nominas, vacaciones)
     exp = {
         "empleado": ficha,
         "contratos": contratos.listar_contratos(id_empleado, id_empresa),
         "nominas": nominas.listar_nominas(id_empleado, id_empresa),
+        "finiquitos": finiquitos.listar_finiquitos(id_empleado, id_empresa),
         "vacaciones": vacaciones.listar_vacaciones(id_empleado, id_empresa),
         "ausencias": ausencias.listar_ausencias(id_empleado, id_empresa),
         "documentos": documentos.listar_documentos(id_empleado, id_empresa),

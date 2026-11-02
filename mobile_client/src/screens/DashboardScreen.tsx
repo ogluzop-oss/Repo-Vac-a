@@ -13,18 +13,35 @@ import {
   View,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {CAPABILITIES, type Capability} from '@/api/capabilities';
+import {useTranslation} from 'react-i18next';
+import {CAPABILITIES, capacidadesVisibles, type Capability} from '@/api/capabilities';
+import {obtenerBadges, type Badges} from '@/api/badges';
 import {api} from '@/api/client';
+import Badge from '@/components/Badge';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 import {outbox} from '@/db/sync';
 import {useAuth} from '@/store/AuthContext';
 import {colors} from '@/theme/colors';
 import type {DashboardProps} from '@/navigation/types';
 
+// Módulos con badge de notificación (mismo criterio que el círculo rojo del menú de escritorio) —
+// solo las capacidades que `GET /activity/badges` sabe contar (ver `src/api/routers/activity.py`).
+const BADGE_INTERVALO_MS = 60_000; // mismo refresco periódico que usa el escritorio (60s)
+
 export default function DashboardScreen({navigation}: DashboardProps) {
+  const {t} = useTranslation();
   const {usuario, empresa, signOut} = useAuth();
   const [pendientes, setPendientes] = useState(0);
   const [online, setOnline] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
+  const [badges, setBadges] = useState<Badges>({
+    logistica: 0,
+    pedidos: 0,
+    etiquetas: 0,
+  });
+  // Catálogo filtrado por la edición/vertical de esta instalación (Obrador vs Producción/MRP, etc.)
+  // — arranca con el catálogo completo para no mostrar la lista vacía mientras llega la respuesta.
+  const [capacidades, setCapacidades] = useState<Capability[]>(CAPABILITIES);
 
   const refrescar = useCallback(async () => {
     setPendientes(await outbox.contarPendientes());
@@ -34,13 +51,30 @@ export default function DashboardScreen({navigation}: DashboardProps) {
     } catch {
       setOnline(false);
     }
+    setBadges(await obtenerBadges());
   }, []);
 
   useEffect(() => {
     refrescar();
     const unsub = navigation.addListener('focus', refrescar);
-    return unsub;
+    const intervalo = setInterval(refrescar, BADGE_INTERVALO_MS);
+    return () => {
+      unsub();
+      clearInterval(intervalo);
+    };
   }, [navigation, refrescar]);
+
+  useEffect(() => {
+    let vivo = true;
+    capacidadesVisibles().then(c => {
+      if (vivo) {
+        setCapacidades(c);
+      }
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   const sincronizar = useCallback(async () => {
     setBusy(true);
@@ -56,35 +90,39 @@ export default function DashboardScreen({navigation}: DashboardProps) {
     (cap: Capability) => {
       if (cap.key === 'stock') {
         navigation.navigate('Stock');
-      } else if (cap.key === 'directorio') {
-        navigation.navigate('Directorio');
-      } else if (cap.key === 'ccp') {
-        navigation.navigate('Comunicaciones');
-      } else if (cap.key === 'clientes') {
-        navigation.navigate('Clientes');
-      } else if (cap.key === 'proveedores') {
-        navigation.navigate('Proveedores');
+      } else if (cap.key === 'correo') {
+        navigation.navigate('Correo');
+      } else if (cap.key === 'mermas') {
+        navigation.navigate('Mermas');
+      } else if (cap.key === 'ubicacion') {
+        navigation.navigate('Ubicacion');
+      } else if (cap.key === 'etiquetas') {
+        navigation.navigate('Etiquetas');
+      } else if (cap.key === 'logistica') {
+        navigation.navigate('Logistica');
       } else if (cap.key === 'pedidos') {
-        navigation.navigate('Pedidos');
-      } else if (cap.key === 'notificaciones') {
-        navigation.navigate('Notificaciones');
-      } else if (cap.key === 'agenda') {
-        navigation.navigate('Agenda');
-      } else if (cap.key === 'tareas') {
-        navigation.navigate('Tareas');
-      } else if (cap.key === 'incidencias') {
-        navigation.navigate('Incidencias');
-      } else if (cap.key === 'workflow') {
-        navigation.navigate('Workflow');
-      } else if (cap.key === 'documentos') {
-        navigation.navigate('Documentos');
-      } else if (cap.key === 'timeline') {
-        navigation.navigate('Timeline');
+        navigation.navigate('Distribucion');
+      } else if (cap.key === 'gmao') {
+        navigation.navigate('GMAO');
+      } else if (cap.key === 'calidad') {
+        navigation.navigate('Calidad');
+      } else if (cap.key === 'sat') {
+        navigation.navigate('SAT');
+      } else if (cap.key === 'transporte') {
+        navigation.navigate('Transporte');
+      } else if (cap.key === 'obrador') {
+        navigation.navigate('Obrador');
+      } else if (cap.key === 'mrp') {
+        navigation.navigate('MRP');
+      } else if (cap.key === 'gastos_viaje') {
+        navigation.navigate('GastosViaje');
+      } else if (cap.key === 'info_articulo') {
+        navigation.navigate('InfoArticulo');
       } else {
         // El resto del catálogo aún no tiene endpoint REST en el backend (ver core.py):
         // se muestra un estado honesto en vez de datos simulados.
         navigation.navigate('Proximamente', {
-          label: cap.label,
+          label: t(`cap.${cap.key}`, cap.label),
           endpoint: cap.endpoint,
           icon: cap.icon,
         });
@@ -97,35 +135,47 @@ export default function DashboardScreen({navigation}: DashboardProps) {
     <SafeAreaView style={styles.root} edges={['top']}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.hello}>Hola{usuario ? `, ${usuario}` : ''}</Text>
+          <Text style={styles.hello}>
+            {usuario ? t('dash.hola_nombre', 'Hola, {{n}}', {n: usuario}) : t('dash.hola', 'Hola')}
+          </Text>
           <Text style={styles.sub}>
-            Empresa {empresa ?? '—'} ·{' '}
+            {t('dash.empresa', 'Empresa {{e}}', {e: empresa ?? '—'})} ·{' '}
             <Text style={{color: online === false ? colors.danger : colors.ok}}>
-              {online === null ? 'comprobando…' : online ? 'en línea' : 'sin conexión'}
+              {online === null
+                ? t('dash.comprobando', 'comprobando…')
+                : online
+                  ? t('dash.en_linea', 'en línea')
+                  : t('dash.sin_conexion', 'sin conexión')}
             </Text>
           </Text>
         </View>
-        <TouchableOpacity onPress={signOut}>
-          <Text style={styles.logout}>Salir</Text>
-        </TouchableOpacity>
+        <View style={styles.headerAcciones}>
+          <LanguageSwitcher />
+          <TouchableOpacity onPress={signOut}>
+            <Text style={styles.logout}>{t('dash.salir', 'Salir')}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.syncBar}>
         <Text style={styles.syncText}>
           {pendientes > 0
-            ? `${pendientes} operación(es) pendiente(s) de sincronizar`
-            : 'Todo sincronizado'}
+            ? t('dash.operaciones_pendientes', '{{n}} operación(es) pendiente(s) de sincronizar',
+                {n: pendientes})
+            : t('dash.todo_sincronizado', 'Todo sincronizado')}
         </Text>
         <TouchableOpacity
           style={[styles.syncBtn, (busy || pendientes === 0) && styles.syncBtnOff]}
           onPress={sincronizar}
           disabled={busy || pendientes === 0}>
-          <Text style={styles.syncBtnText}>{busy ? 'Sincronizando…' : 'Sincronizar'}</Text>
+          <Text style={styles.syncBtnText}>
+            {busy ? t('dash.sincronizando', 'Sincronizando…') : t('dash.sincronizar', 'Sincronizar')}
+          </Text>
         </TouchableOpacity>
       </View>
 
       <FlatList
-        data={CAPABILITIES}
+        data={capacidades}
         keyExtractor={item => item.key}
         numColumns={2}
         columnWrapperStyle={styles.row}
@@ -135,18 +185,12 @@ export default function DashboardScreen({navigation}: DashboardProps) {
         }
         renderItem={({item}) => (
           <TouchableOpacity style={styles.tile} onPress={() => abrirCapacidad(item)}>
+            <Badge n={badges[item.key as keyof Badges] ?? 0} />
             <Text style={styles.tileIcon}>{item.icon}</Text>
-            <Text style={styles.tileLabel}>{item.label}</Text>
-            <Text style={styles.tileEndpoint}>{item.endpoint}</Text>
+            <Text style={styles.tileLabel}>{t(`cap.${item.key}`, item.label)}</Text>
           </TouchableOpacity>
         )}
       />
-
-      <TouchableOpacity
-        style={styles.scanFab}
-        onPress={() => navigation.navigate('Scanner')}>
-        <Text style={styles.scanFabText}>Escanear</Text>
-      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -162,6 +206,7 @@ const styles = StyleSheet.create({
   },
   hello: {color: colors.text, fontSize: 20, fontWeight: '800'},
   sub: {color: colors.textDim, marginTop: 2},
+  headerAcciones: {flexDirection: 'row', alignItems: 'center', gap: 10},
   logout: {color: colors.danger, fontWeight: '700'},
   syncBar: {
     marginHorizontal: 16,
@@ -193,19 +238,4 @@ const styles = StyleSheet.create({
   },
   tileIcon: {fontSize: 28},
   tileLabel: {color: colors.text, fontWeight: '800', marginTop: 8, fontSize: 15},
-  tileEndpoint: {color: colors.textDim, fontSize: 11, marginTop: 2},
-  scanFab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 24,
-    backgroundColor: colors.cyan,
-    borderRadius: 30,
-    paddingHorizontal: 22,
-    paddingVertical: 14,
-    shadowColor: colors.cyan,
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  scanFabText: {color: colors.bg, fontWeight: '900', letterSpacing: 1},
 });

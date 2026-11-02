@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QMessageBox,
                              QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from src.db import compras as C, proveedores as P
-from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_x, _combo,
+from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_cargando, _btn_x, _combo,
                                       _dialogo_frameless, _inp, _tabla)
 
 try:
@@ -97,6 +97,12 @@ class ComprasAvanzadoWindow(QWidget):
         tabs.addTab(self._tab_devoluciones(), "Devoluciones")
         tabs.addTab(self._tab_incidencias(), "Incidencias")
         tabs.addTab(self._tab_evaluacion(), "Evaluación")
+        # Delegación a SOMA — SOLO SUPERADMIN: generación de pedidos de compra + autorrelleno de
+        # proveedores nuevos (ver services.soma_delegacion.catalogo, pantalla="compras_avanzado").
+        if str((self.usuario or {}).get("perfil", "")).strip().upper() == "SUPERADMIN":
+            from src.gui.soma_delegacion_gui import DelegacionSomaPanel
+            tabs.addTab(DelegacionSomaPanel(pantalla="compras_avanzado", usuario=self.usuario),
+                       "Delegación IA")
         self.tabs = tabs   # expuesto para poder EMBEBER estas sub-pestañas en la sección Proveedores
         root.addWidget(tabs)
 
@@ -279,7 +285,7 @@ class ComprasAvanzadoWindow(QWidget):
         w = QWidget(); ly = QVBoxLayout(w)
         # "Actualizar" en la ESQUINA SUPERIOR DERECHA (sobre la tabla), no debajo.
         barra = QHBoxLayout(); barra.addStretch(1)
-        barra.addWidget(_btn("🔄  Actualizar", self._carga_inc, primary=True))
+        barra.addWidget(_btn_cargando("🔄  Actualizar", self._carga_inc, primary=True))
         ly.addLayout(barra)
         self.tbl_inc = _tabla(["ID", "Tipo", "Artículo", "Cantidad", "Estado", "Fecha"])
         ly.addWidget(self.tbl_inc, 1)

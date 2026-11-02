@@ -40,10 +40,16 @@ def _anthropic_backend():
     cliente = anthropic.Anthropic(api_key=api_key)
 
     def _call(system_prompt, user_text):
-        msg = cliente.messages.create(
-            model=_MODEL, max_tokens=1000,
-            system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": user_text}])
+        from src.services.ia_control_uso import ejecutar_tarea_ia, resolver_tenant_actual
+
+        def _llamar():
+            return cliente.messages.create(
+                model=_MODEL, max_tokens=1000,
+                system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": user_text}])
+
+        id_empresa, id_usuario = resolver_tenant_actual()
+        msg = ejecutar_tarea_ia(id_empresa, id_usuario, "import_mapping", _llamar)
         return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
 
     return _call

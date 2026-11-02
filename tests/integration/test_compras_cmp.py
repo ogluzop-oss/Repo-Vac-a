@@ -136,14 +136,24 @@ def test_cmp5_abono_y_conciliacion(db, fab):
 
 # ── CMP.6 costes ──────────────────────────────────────────────────────────────
 def test_cmp6_prorrateo_y_coste_almacen(db, fab):
+    """Fase B (Landed Cost) reescribió `prorratear_costes_recepcion`: firma nueva por keyword
+    (`id_recepcion=`/`id_tx=`/`id_empresa=`/`metodo=`) y ya NO hace un `+=` destructivo sobre
+    coste_actual/coste_medio — recalcula el coste LANDED (base + indirecto) vía
+    `actualizar_costes_entrada`, reemplazando (no acumulando) la actualización PMP que ya hizo
+    `recibir()` con el coste base. Con una sola línea y un solo componente de coste extra,
+    landed = base + (importe/cantidad) = 4 + 50/10 = 9.0."""
     cod = _art(fab, db); central = SA.almacen_central(E); pid = _prov(fab, db)
     ped = C.crear_pedido(id_proveedor=pid, lineas=[{"codigo": cod, "cantidad": 10, "precio_unitario": 4}],
                          id_almacen=central, id_empresa=E)
     C.enviar_pedido(ped, E); pd = C.obtener_pedido(ped, E)
     rec = C.recibir(ped, [{"id_linea": pd["lineas"][0]["id"], "cantidad": 10}], id_empresa=E)
+    assert C.obtener_costes(cod)["coste_medio"] == 4.0     # PMP base, antes de prorratear
     C.registrar_coste_extra("transporte", 50, id_recepcion=rec["id_recepcion"], id_empresa=E)
-    pr = C.prorratear_costes_recepcion(rec["id_recepcion"], E)
-    assert pr["coste_unitario_extra"] == 5.0          # 50 / 10
+    pr = C.prorratear_costes_recepcion(id_recepcion=rec["id_recepcion"], id_empresa=E)
+    assert pr["ok"] is True
+    assert pr["por_articulo"][cod]["coste_indirecto"] == 5.0    # 50 / 10
+    assert pr["por_articulo"][cod]["coste_landed"] == 9.0       # 4 + 5
+    assert C.obtener_costes(cod)["coste_medio"] == 9.0          # landed, NO 4+5 acumulado dos veces
     val = C.coste_por_almacen(cod, central, E)
     assert val["cantidad"] == 10 and val["valoracion"] >= 0
 

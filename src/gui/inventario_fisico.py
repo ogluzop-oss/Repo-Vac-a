@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QTableWidgetItem
 from src.db import inventario_fisico as inv
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo,
                                       _inp, _tabla)
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 
 logger = logging.getLogger("inventario.fisico.gui")
 
@@ -52,11 +53,21 @@ class InventarioFisicoWindow(QWidget):
         sel.addWidget(QLabel("Estado:")); sel.addWidget(self.f_estado)
         self.f_estado.currentIndexChanged.connect(self._recargar)
         sel.addWidget(QLabel("Inventario:")); sel.addWidget(self.cmb_inv, 1)
-        sel.addWidget(_btn("Nuevo", self._nuevo, primary=True))
-        sel.addWidget(_btn("Abrir", self._abrir))
-        sel.addWidget(_btn("Cerrar", self._cerrar))
-        sel.addWidget(_btn("Anular", self._anular, danger=True))
+        self.btn_nuevo = _btn("Nuevo", self._nuevo, primary=True)
+        sel.addWidget(self.btn_nuevo)
+        sel.addWidget(_btn("Abrir", self._abrir, primary=True))
+        self.btn_cerrar = _btn("Cerrar", self._cerrar, primary=True)
+        sel.addWidget(self.btn_cerrar)
+        self.btn_anular = _btn("Anular", self._anular, danger=True)
+        sel.addWidget(self.btn_anular)
         root.addLayout(sel)
+
+        # OPERARIO: solo consulta/recuento — Nuevo/Cerrar/Anular son de gestión del inventario,
+        # ADMINISTRADOR/SUPERADMIN.
+        if str(self.usuario.get("perfil", "")).upper() == "OPERARIO":
+            self.btn_nuevo.setVisible(False)
+            self.btn_cerrar.setVisible(False)
+            self.btn_anular.setVisible(False)
 
         # ── barra INLINE "Nuevo inventario" (sin QInputDialog modal, que en este entorno puede
         # aflorar la corrupción de heap del stack de audio de SOMA). Oculta hasta pulsar "Nuevo". ──
@@ -92,12 +103,13 @@ class InventarioFisicoWindow(QWidget):
         # ── recuento ──
         rec = QHBoxLayout()
         self.in_cod = _inp("Código artículo"); self.in_cod.setFixedWidth(180)
+        instalar_sugerencias_articulo(self.in_cod)
         self.in_cant = _inp("Contado"); self.in_cant.setFixedWidth(110)
         rec.addWidget(QLabel("Contar:")); rec.addWidget(self.in_cod)
         rec.addWidget(self.in_cant)
         rec.addWidget(_btn("Registrar recuento", self._contar, primary=True))
         rec.addStretch()
-        rec.addWidget(_btn("📡 Barrido RFID (PDA/MDE)", self._barrido_rfid))
+        rec.addWidget(_btn("📡 Barrido RFID", self._barrido_rfid, primary=True))
         root.addLayout(rec)
 
         self.tabla = _tabla(["Artículo", "Esperado", "Contado", "Diferencia", "Observaciones"])
@@ -239,6 +251,8 @@ class InventarioFisicoWindow(QWidget):
         if not iid:
             self._feedback("⚠️ Selecciona un inventario."); return
         cod = self.in_cod.text().strip()
+        if "–" in cod:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            cod = cod.split("–")[0].strip()
         try:
             cant = int(self.in_cant.text().strip())
         except ValueError:

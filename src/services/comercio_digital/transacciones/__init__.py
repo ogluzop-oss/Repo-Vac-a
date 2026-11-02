@@ -17,7 +17,7 @@ import logging
 import uuid
 
 from src.db.conexion import EMPRESA_DEFAULT_ID, obtener_conexion, transaccion
-from src.platform import capabilities as cap
+from src.plataforma import capabilities as cap
 
 logger = logging.getLogger("cd.transacciones")
 
@@ -158,7 +158,8 @@ def obtener(id_tx, id_empresa=None) -> dict | None:
         return None
 
 
-def listar(id_empresa=None, id_tienda="auto", estado=None, origen=None, limite=500) -> list:
+def listar(id_empresa=None, id_tienda="auto", estado=None, origen=None, limite=500,
+          cliente_id=None) -> list:
     ctx_emp, ctx_tnd, _u, _t = _ctx()
     id_empresa = id_empresa or ctx_emp
     if id_tienda == "auto":
@@ -170,6 +171,8 @@ def listar(id_empresa=None, id_tienda="auto", estado=None, origen=None, limite=5
         cond.append("estado=%s"); params.append(estado)
     if origen:
         cond.append("origen=%s"); params.append(origen)
+    if cliente_id is not None:
+        cond.append("cliente_id=%s"); params.append(cliente_id)
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM transaccion_comercial WHERE " + " AND ".join(cond) +

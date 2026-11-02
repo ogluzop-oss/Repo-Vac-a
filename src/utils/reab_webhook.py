@@ -67,8 +67,19 @@ class _Handler(BaseHTTPRequestHandler):
 
         propuesta_id, nuevo_estado = entry
         try:
-            from src.db.reabastecimiento import cambiar_estado_propuesta
-            ok = cambiar_estado_propuesta(propuesta_id, nuevo_estado)
+            if nuevo_estado == "aprobado":
+                # Aprobar debe generar de verdad el pedido de compra al proveedor (INV.6.4), no solo
+                # cambiar una etiqueta de estado — antes esta rama solo marcaba 'aprobado' y nadie
+                # convertía nunca la propuesta en un pedido real. `generar_pedidos_compra` exige que la
+                # propuesta siga en 'pendiente' (la deja en 'pedido' ella misma si tiene éxito), así que
+                # aquí NO se llama a `cambiar_estado_propuesta` — se generaría un pedido vacío si la
+                # propuesta ya no estuviera en 'pendiente'.
+                from src.db.reabastecimiento import generar_pedidos_compra
+                pedidos = generar_pedidos_compra(propuesta_ids=[propuesta_id])
+                ok = bool(pedidos)
+            else:
+                from src.db.reabastecimiento import cambiar_estado_propuesta
+                ok = cambiar_estado_propuesta(propuesta_id, nuevo_estado)
         except Exception:
             ok = False
 
@@ -78,10 +89,12 @@ class _Handler(BaseHTTPRequestHandler):
         if nuevo_estado == "aprobado":
             if ok:
                 self._html(200, "#00FFC6", "✅", "Propuesta APROBADA",
-                           f"La propuesta #{propuesta_id} ha sido aprobada correctamente.")
+                           f"La propuesta #{propuesta_id} ha sido aprobada y se ha generado el pedido "
+                           "de compra al proveedor.")
             else:
                 self._html(500, "#FF4B4B", "❌", "Error",
-                           "No se pudo actualizar la propuesta. Inténtalo de nuevo.")
+                           "No se pudo generar el pedido de compra a partir de la propuesta. "
+                           "Inténtalo de nuevo.")
         else:
             if ok:
                 self._html(200, "#FF4B4B", "❌", "Propuesta DENEGADA",

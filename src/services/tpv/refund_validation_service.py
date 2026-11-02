@@ -54,10 +54,17 @@ def evaluar_ticket(venta_id: int) -> dict:
         except ValueError:
             fecha = datetime.now()
 
-    dentro, dias, plazo = validar_plazo(fecha)
+    fecha_limite_dt = venta.get("fecha_limite_devolucion")
+    if isinstance(fecha_limite_dt, str):
+        try:
+            fecha_limite_dt = datetime.fromisoformat(fecha_limite_dt)
+        except ValueError:
+            fecha_limite_dt = None
+
+    dentro, dias, plazo = validar_plazo(fecha, fecha_limite_dt)
 
     from datetime import timedelta
-    fecha_limite = (fecha + timedelta(days=plazo)).strftime("%d/%m/%Y")
+    fecha_limite = (fecha_limite_dt or (fecha + timedelta(days=plazo))).strftime("%d/%m/%Y")
 
     if dentro:
         msg = "Ticket dentro del plazo de devolución."

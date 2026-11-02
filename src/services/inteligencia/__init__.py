@@ -47,7 +47,7 @@ def _emp(id_empresa=None):
 def _puede(usuario, permiso, id_empresa):
     """RBAC por capacidad (degradable/legacy-safe)."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         rbac = cap.rbac()
         if rbac is not None and hasattr(rbac, "puede"):
             return bool(rbac.puede(usuario, permiso, id_empresa=id_empresa))
@@ -58,7 +58,7 @@ def _puede(usuario, permiso, id_empresa):
 
 def _correlation():
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         obs = cap.observabilidad()
         corr = getattr(obs, "correlation", None)
         if corr is None and obs is not None:
@@ -73,7 +73,7 @@ def _correlation():
 
 def _evento(tipo, id_empresa, ref_id, payload):
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         bus = cap.eventbus()
         if bus is not None and hasattr(bus, "publish"):
             bus.publish(tipo, id_empresa=id_empresa, origen="inteligencia",

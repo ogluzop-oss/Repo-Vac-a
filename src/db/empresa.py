@@ -207,6 +207,9 @@ def actualizar_empresa(id_empresa: str, **campos) -> bool:
         "cod_pais", "cod_provincia", "cod_municipio", "cod_actividad",
         # País fiscal (determina el IVA; ver src/utils/fiscalidad.py)
         "pais_fiscal",
+        # Sector Comercial (Smart Suppliers B2B, migr. 0217/0296): condiciona el catálogo/proveedores
+        # visibles en el Portal B2B — ver `services.compras.sectores`/`compras_gestion.py`.
+        "sector_id",
     )
     sets = {k: v for k, v in campos.items() if k in permitidos}
     if not sets:

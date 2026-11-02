@@ -75,20 +75,31 @@ def _suscripcion(id_empresa):
         return _fila(cur, r) if r else None
 
 
-def _facturar_y_cobrar(id_empresa, sid, codigo_plan, ciclo, proveedor):
-    cfg = _P.plan(codigo_plan)
-    meses = {"mensual": 1, "trimestral": 3, "anual": 12}.get(ciclo, 1)
-    importe = round(float(cfg["precio"]) * meses, 2)
+def emitir_factura_y_cobrar(id_empresa, importe, concepto, *, id_suscripcion=None, proveedor=None):
+    """Primitiva de cobro COMPARTIDA (N7 — un solo mecanismo de cobro, nunca uno paralelo): emite
+    una fila en `facturas_saas` con el `concepto` dado ('suscripcion' | 'ia_uso', migr 0276) y
+    ejecuta el cobro real vía el `BillingProvider` configurado (simulado/Stripe/PayPal/Redsys).
+
+    La usa la renovación de suscripciones (`_facturar_y_cobrar`, concepto='suscripcion') y la
+    facturación de uso de IA (`services.saas.facturacion_ia`, concepto='ia_uso') — misma llamada a
+    `cobrar()`, mismo registro en `pagos_saas`, mismo criterio de "procesando" (cobro asíncrono,
+    p. ej. SEPA vía Stripe: se confirma más tarde por webhook, la factura queda "emitida" y NUNCA
+    se marca pagada sin confirmación real).
+
+    Devuelve (id_factura, numero, estado_pago)."""
     import uuid
     numero = "SAAS-" + uuid.uuid4().hex[:10].upper()
     with obtener_conexion() as conn, conn.cursor() as cur:
-        cur.execute("INSERT INTO facturas_saas (id_empresa, id_suscripcion, numero, importe, estado, fecha) "
-                    "VALUES (%s,%s,%s,%s,'emitida',%s)",
-                    (id_empresa, sid, numero, importe, _dt.date.today()))
+        cur.execute("INSERT INTO facturas_saas (id_empresa, id_suscripcion, numero, importe, estado, "
+                    "fecha, concepto) VALUES (%s,%s,%s,%s,'emitida',%s,%s)",
+                    (id_empresa, id_suscripcion, numero, importe, _dt.date.today(), concepto))
         fid = cur.lastrowid
         conn.commit()
-    res = _B.proveedor(proveedor).cobrar(importe, referencia=numero)
-    estado_pago = "pagado" if res.get("ok") else "fallido"
+    res = _B.proveedor(proveedor).cobrar(importe, referencia=numero, datos={"id_empresa": id_empresa})
+    if res.get("estado") == "procesando":
+        estado_pago = "procesando"
+    else:
+        estado_pago = "pagado" if res.get("ok") else "fallido"
     with obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("INSERT INTO pagos_saas (id_empresa, id_factura, proveedor, importe, estado, "
                     "ref_externa, intentos) VALUES (%s,%s,%s,%s,%s,%s,1)",
@@ -96,8 +107,17 @@ def _facturar_y_cobrar(id_empresa, sid, codigo_plan, ciclo, proveedor):
         if estado_pago == "pagado":
             cur.execute("UPDATE facturas_saas SET estado='pagada' WHERE id=%s", (fid,))
         conn.commit()
-    _audit("PAGO_RECIBIDO" if estado_pago == "pagado" else "PAGO_FALLIDO", id_empresa,
-           f"factura={numero} {importe}")
+    return fid, numero, estado_pago
+
+
+def _facturar_y_cobrar(id_empresa, sid, codigo_plan, ciclo, proveedor):
+    cfg = _P.plan(codigo_plan)
+    meses = {"mensual": 1, "trimestral": 3, "anual": 12}.get(ciclo, 1)
+    importe = round(float(cfg["precio"]) * meses, 2)
+    fid, numero, estado_pago = emitir_factura_y_cobrar(id_empresa, importe, "suscripcion",
+                                                        id_suscripcion=sid, proveedor=proveedor)
+    _eventos = {"pagado": "PAGO_RECIBIDO", "procesando": "PAGO_EN_PROCESO", "fallido": "PAGO_FALLIDO"}
+    _audit(_eventos[estado_pago], id_empresa, f"factura={numero} {importe}")
     return estado_pago
 
 
@@ -108,8 +128,18 @@ def renovar(id_empresa, *, proveedor=None) -> dict:
         return {"ok": False, "error": "sin suscripción"}
     estado_pago = _facturar_y_cobrar(id_empresa, s["id"], s["codigo_plan"], s["ciclo"],
                                      proveedor or s.get("proveedor_pago"))
-    nuevo_estado = "activa" if estado_pago == "pagado" else "suspendida"
+    # `proximo_cobro` avanza SIEMPRE, incluso si el cobro está solo "procesando" — es lo que hace
+    # idempotente a `facturacion_automatica.facturar_vencidas` (no vuelve a facturar el mismo ciclo);
+    # el webhook, cuando confirme el cobro asíncrono, corrige el estado de la suscripción por su cuenta
+    # sin depender del temporizador del ciclo.
     prox = _dt.date.today() + _dt.timedelta(days=CICLOS.get(s["ciclo"], 30))
+    if estado_pago == "procesando":
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE suscripciones SET proximo_cobro=%s WHERE id=%s", (prox, s["id"]))
+            conn.commit()
+        _audit("RENOVACION_PENDIENTE", id_empresa, f"{s['codigo_plan']} cobro en proceso")
+        return {"ok": True, "estado": "procesando"}
+    nuevo_estado = "activa" if estado_pago == "pagado" else "suspendida"
     with obtener_conexion() as conn, conn.cursor() as cur:
         cur.execute("UPDATE suscripciones SET estado=%s, proximo_cobro=%s WHERE id=%s",
                     (nuevo_estado, prox, s["id"]))
@@ -164,6 +194,64 @@ def reactivar(id_empresa):
 
 def estado(id_empresa=None) -> dict | None:
     return _suscripcion(_emp(id_empresa))
+
+
+# ── Domiciliación bancaria (cobro mensual de la suscripción) ────────────────
+def _validar_iban(iban: str) -> tuple[bool, str]:
+    """Validación de FORMATO (ISO 13616): 2 letras de país + 2 dígitos de control + hasta 30
+    alfanuméricos, sin espacios. No hace la comprobación de dígito de control (mod-97) — basta
+    para detectar entradas claramente erróneas antes de guardar."""
+    if not iban:
+        return False, "El IBAN es obligatorio."
+    v = iban.replace(" ", "").upper()
+    if len(v) < 15 or len(v) > 34:
+        return False, "El IBAN no tiene una longitud válida."
+    if not v[:2].isalpha() or not v[2:4].isdigit() or not v[4:].isalnum():
+        return False, "El IBAN no tiene un formato válido (país + dígitos de control + código de cuenta)."
+    return True, v
+
+
+def guardar_iban(id_empresa, iban: str) -> dict:
+    """Guarda el IBAN de domiciliación de la suscripción, CIFRADO en reposo (misma utilidad que
+    el resto de secretos de la app, `utils.cripto`) — nunca se guarda ni se vuelve a mostrar en
+    claro. Se persisten también los 4 últimos dígitos, en plano, para poder enseñarlos sin tener
+    que descifrar en cada lectura (son la única parte que la UI muestra)."""
+    id_empresa = _emp(id_empresa)
+    ok, resultado = _validar_iban(iban)
+    if not ok:
+        return {"ok": False, "error": resultado}
+    v = resultado
+    try:
+        from src.utils import cripto
+        cifrado = cripto.cifrar(v)
+        if not cifrado:
+            return {"ok": False, "error": "No se pudo cifrar el IBAN."}
+        sus = _suscripcion(id_empresa)
+        if not sus:
+            return {"ok": False, "error": "La empresa no tiene ninguna suscripción todavía."}
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE suscripciones SET iban_cifrado=%s, iban_ultimos4=%s WHERE id=%s",
+                (cifrado, v[-4:], sus["id"]),
+            )
+            conn.commit()
+        logger.info("IBAN de domiciliación actualizado (empresa=%s, suscripción=%s)", id_empresa, sus["id"])
+        return {"ok": True, "ultimos4": v[-4:]}
+    except Exception as e:
+        logger.error("guardar_iban(%s): %s", id_empresa, e)
+        return {"ok": False, "error": str(e)}
+
+
+def iban_enmascarado(id_empresa=None) -> str | None:
+    """Devuelve el IBAN guardado con todo oculto salvo los 4 últimos dígitos (p. ej.
+    '•••• •••• •••• •••• 3d4f'), o None si la empresa no tiene ninguno domiciliado. NUNCA
+    descifra ni expone el IBAN completo — para eso solo sirven los últimos 4 dígitos guardados
+    en plano (`iban_ultimos4`), la propia cifra completa no hace falta leerla para mostrar la UI."""
+    sus = _suscripcion(_emp(id_empresa))
+    ult4 = (sus or {}).get("iban_ultimos4")
+    if not ult4:
+        return None
+    return f"•••• •••• •••• •••• {ult4}"
 
 
 # ── Avisos de vencimiento de la suscripción ──────────────────────────────────

@@ -349,6 +349,25 @@ def buzon_de_usuario(id_usuario, id_empresa=None):
         return None
 
 
+def existe_recibido(id_correo, message_id, id_empresa=None) -> bool:
+    """True si ya hay un correo recibido guardado con ese message_id (mismo criterio de
+    idempotencia que `guardar_recibido`, UNIQUE KEY uq_corr_rx). Permite a quien sincroniza
+    (IMAP/Gmail API) distinguir mensajes NUEVOS de ya sincronizados antes, ya que
+    `guardar_recibido` devuelve un id válido en ambos casos. Sin message_id no hay forma de
+    deduplicar (devuelve False: se contará como nuevo, igual que antes de esta función)."""
+    if not message_id:
+        return False
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM correos_recibidos WHERE id_empresa=%s AND id_correo=%s "
+                        "AND message_id=%s LIMIT 1", (id_empresa, id_correo, message_id))
+            return cur.fetchone() is not None
+    except Exception as e:
+        logger.debug("existe_recibido(%s): %s", message_id, e)
+        return False
+
+
 def guardar_recibido(id_correo, remitente, asunto, cuerpo=None, *, message_id=None,
                      fecha=None, adjuntos=None, id_empresa=None):
     """Persiste (idempotente por message_id) un correo recibido y sus adjuntos. Audita."""
@@ -360,7 +379,8 @@ def guardar_recibido(id_correo, remitente, asunto, cuerpo=None, *, message_id=No
                         "asunto, cuerpo, message_id, fecha) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                         (id_empresa, id_correo, remitente, asunto, cuerpo, message_id, fecha))
             rid = cur.lastrowid
-            if not rid:        # ya existía (idempotente)
+            es_nuevo = bool(rid)        # INSERT IGNORE: lastrowid=0 si ya existía (idempotente)
+            if not rid:
                 cur.execute("SELECT id FROM correos_recibidos WHERE id_empresa=%s AND id_correo=%s "
                             "AND message_id=%s", (id_empresa, id_correo, message_id))
                 r = cur.fetchone()
@@ -374,14 +394,20 @@ def guardar_recibido(id_correo, remitente, asunto, cuerpo=None, *, message_id=No
             log_auditoria("sistema", "CORREO_RECIBIDO", "correos_recibidos", f"id={rid} de {remitente}")
         except Exception:
             pass
-        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
-        try:
-            from src.services import eventos as _EV
-            _EV.publicar("CORREO_RECIBIDO", id_empresa=id_empresa, origen="correo",
-                         ref_entidad="correo_recibido", ref_id=rid,
-                         payload={"remitente": remitente, "asunto": asunto})
-        except Exception:
-            pass
+        # Fase 1 (motor de eventos): publicación OBSERVACIONAL, aditiva y bulletproof. SOLO para
+        # mensajes genuinamente NUEVOS: `sincronizar_imap`/`sincronizar_gmail_api` reprocesan los
+        # últimos N mensajes en CADA sincronización (no solo los nuevos), así que sin este guard
+        # el evento se republicaría para correos YA VISTOS en cada ciclo — y cualquier automatización
+        # suscrita (p. ej. respuesta automática de SOMA) acabaría respondiendo una y otra vez al
+        # mismo correo antiguo.
+        if es_nuevo:
+            try:
+                from src.services import eventos as _EV
+                _EV.publicar("CORREO_RECIBIDO", id_empresa=id_empresa, origen="correo",
+                             ref_entidad="correo_recibido", ref_id=rid,
+                             payload={"remitente": remitente, "asunto": asunto})
+            except Exception:
+                pass
         return rid
     except Exception as e:
         logger.error("guardar_recibido: %s", e)
@@ -389,8 +415,13 @@ def guardar_recibido(id_correo, remitente, asunto, cuerpo=None, *, message_id=No
 
 
 def listar_recibidos(id_correo=None, *, solo_no_leidos=False, id_empresa=None):
+    """Bandeja «Recibidos» real: excluye lo movido a Papelera y lo POSPUESTO que aún no ha
+    despertado (`pospuesto_hasta` en el futuro) — igual que Gmail, el pospuesto reaparece solo en
+    la siguiente lectura cuando `pospuesto_hasta<=NOW()`, sin necesidad de ningún job en segundo
+    plano (ver `listar_pospuestos`/`listar_papelera` para esas carpetas dedicadas)."""
     id_empresa = _emp_corr(id_empresa)
-    q = "SELECT * FROM correos_recibidos WHERE id_empresa=%s"
+    q = ("SELECT * FROM correos_recibidos WHERE id_empresa=%s AND papelera=0 "
+         "AND (pospuesto_hasta IS NULL OR pospuesto_hasta<=NOW())")
     p = [id_empresa]
     if id_correo:
         q += " AND id_correo=%s"; p.append(id_correo)
@@ -404,6 +435,136 @@ def listar_recibidos(id_correo=None, *, solo_no_leidos=False, id_empresa=None):
     except Exception as e:
         logger.error("listar_recibidos: %s", e)
         return []
+
+
+def obtener_recibido(id_recibido, id_empresa=None) -> dict | None:
+    """Un correo Gmail recibido concreto (cuerpo completo), tenant-checked: devuelve None si no
+    existe o pertenece a otra empresa (nunca se confía en que el llamador ya filtró — mismo
+    criterio que el resto de funciones de este módulo). Usado por la REST API (`GET
+    /correo/gmail/<id>`); la GUI de escritorio no lo necesitaba porque ya opera con la fila
+    completa que trae `listar_recibidos`."""
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM correos_recibidos WHERE id=%s AND id_empresa=%s",
+                        (id_recibido, id_empresa))
+            return _fila_a_dict(cur, cur.fetchone())
+    except Exception as e:
+        logger.error("obtener_recibido(%s): %s", id_recibido, e)
+        return None
+
+
+def listar_recibidos_papelera(id_empresa=None) -> list[dict]:
+    """Correos Gmail sincronizados movidos a la papelera LOCAL (`papelera=1`). Nunca refleja ni
+    provoca ninguna acción sobre la cuenta real de Gmail (sync de solo lectura)."""
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM correos_recibidos WHERE id_empresa=%s AND papelera=1 "
+                        "ORDER BY fecha DESC, id DESC LIMIT 500", (id_empresa,))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_recibidos_papelera: %s", e)
+        return []
+
+
+def listar_recibidos_pospuestos(id_empresa=None) -> list[dict]:
+    """Correos Gmail pospuestos que TODAVÍA no han despertado (`pospuesto_hasta` en el futuro)."""
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM correos_recibidos WHERE id_empresa=%s AND papelera=0 "
+                        "AND pospuesto_hasta IS NOT NULL AND pospuesto_hasta>NOW() "
+                        "ORDER BY pospuesto_hasta ASC LIMIT 500", (id_empresa,))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_recibidos_pospuestos: %s", e)
+        return []
+
+
+def listar_recibidos_importantes(id_empresa=None) -> list[dict]:
+    """Correos Gmail marcados con la estrella MANUAL de Smart Manager (`importante=1`). Deliberado:
+    la sync de Gmail es de solo lectura y no persiste la etiqueta algorítmica IMPORTANT real de
+    Google — esta es una marca propia, controlada por el usuario (igual que el propio Gmail
+    permite marcar a mano)."""
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM correos_recibidos WHERE id_empresa=%s AND papelera=0 "
+                        "AND importante=1 ORDER BY fecha DESC, id DESC LIMIT 500", (id_empresa,))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_recibidos_importantes: %s", e)
+        return []
+
+
+def mover_recibido_papelera(id_recibido, id_empresa=None) -> bool:
+    """Papelera LOCAL (soft-delete): nunca llama a la API de Gmail. Usa `eliminar_recibido` (si se
+    añadiera) para un borrado definitivo real; esto solo oculta el mensaje de Recibidos."""
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE correos_recibidos SET papelera=1 WHERE id=%s AND id_empresa=%s",
+                        (id_recibido, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("mover_recibido_papelera(%s): %s", id_recibido, e)
+        return False
+
+
+def restaurar_recibido(id_recibido, id_empresa=None) -> bool:
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE correos_recibidos SET papelera=0 WHERE id=%s AND id_empresa=%s",
+                        (id_recibido, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("restaurar_recibido(%s): %s", id_recibido, e)
+        return False
+
+
+def eliminar_recibido_definitivo(id_recibido, id_empresa=None) -> bool:
+    """Borrado REAL (permanente) desde la Papelera. Distinto de `mover_recibido_papelera` (soft)."""
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM correos_adjuntos WHERE id_correo_recibido=%s", (id_recibido,))
+            cur.execute("DELETE FROM correos_recibidos WHERE id=%s AND id_empresa=%s",
+                        (id_recibido, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("eliminar_recibido_definitivo(%s): %s", id_recibido, e)
+        return False
+
+
+def posponer_recibido(id_recibido, hasta, id_empresa=None) -> bool:
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE correos_recibidos SET pospuesto_hasta=%s WHERE id=%s AND id_empresa=%s",
+                        (hasta, id_recibido, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("posponer_recibido(%s): %s", id_recibido, e)
+        return False
+
+
+def marcar_recibido_importante(id_recibido, valor: bool, id_empresa=None) -> bool:
+    id_empresa = _emp_corr(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE correos_recibidos SET importante=%s WHERE id=%s AND id_empresa=%s",
+                        (1 if valor else 0, id_recibido, id_empresa))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("marcar_recibido_importante(%s): %s", id_recibido, e)
+        return False
 
 
 def marcar_recibido_leido(id_recibido, id_empresa=None):

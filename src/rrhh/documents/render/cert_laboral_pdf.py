@@ -84,4 +84,7 @@ def generar_cert_laboral_pdf(datos: dict, ruta: str = None) -> str:
         f"{rep}<br/>(Firma y sello de la empresa)"
     story.append(E.firmas_cols(usable_w, sty, [("Por la empresa", firma_val)]))
     doc.build(story)
+    # "Repositorio cifrado" (petición explícita) — ver nomina_pdf.py para el detalle del criterio.
+    from src.utils import cripto
+    cripto.cifrar_archivo_en_disco(ruta)
     return ruta

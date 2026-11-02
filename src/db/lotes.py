@@ -17,7 +17,7 @@ from src.db.conexion import (_fila_a_dict, _filas_a_dicts, ensure_schema,
 
 logger = logging.getLogger("inventario.lotes")
 
-ACTIVO, AGOTADO = "activo", "agotado"
+ACTIVO, AGOTADO, BLOQUEADO = "activo", "agotado", "bloqueado"
 TIPOS_SALIDA = ("SALIDA_VENTA", "MERMA", "TRASPASO", "AJUSTE", "DEVOLUCION_PROVEEDOR",
                 "SALIDA_PRODUCCION")  # SALIDA_PRODUCCION: consumo de componentes (MRP, BLOQUE 3)
 
@@ -56,9 +56,27 @@ def _mov(cur, id_empresa, id_lote, codigo, tipo, cantidad, id_documento=None,
 # ── Entrada ───────────────────────────────────────────────────────────────────
 def registrar_entrada(codigo, lote, cantidad, fecha_caducidad=None, id_empresa=None,
                       id_tienda=None, origen="manual", id_documento=None, usuario=None,
-                      id_almacen=None) -> int | None:
+                      id_almacen=None, id_recepcion_origen=None, id_tx_origen=None,
+                      propiedad=None, id_suministrador=None) -> int | None:
     """Crea o incrementa un lote y registra el movimiento ENTRADA. Devuelve id del lote.
-    id_almacen (INV.4) localiza el lote por almacén (opcional, retrocompatible)."""
+    id_almacen (INV.4) localiza el lote por almacén (opcional, retrocompatible).
+
+    `id_recepcion_origen`/`id_tx_origen` (Fase B — Landed Cost, migración 0266): referencia a la
+    recepción de compra o transacción B2B que originó la entrada — `prorratear_costes_recepcion()`
+    los usa para localizar qué lotes actualizar con el snapshot de coste landed. Ambos opcionales
+    y retrocompatibles (cero cambio para el resto de llamadores); si el lote ya existía (se
+    incrementa, no se crea), NUNCA se sobreescribe un origen ya fijado por una entrada anterior
+    (COALESCE) — el snapshot landed es por definición un best-effort ligado a la PRIMERA entrada
+    de ese lote, documentado en `0266_lotes_coste_landed.py`.
+
+    `propiedad`/`id_suministrador` (Fase C — Stock en Consignación, migración 0267): marca el lote
+    como `'consignacion'` (propiedad del proveedor hasta que se consume, ver `consumir_fefo`) en vez
+    del `'propio'` por defecto de la columna. Ambos opcionales/retrocompatibles — `None` deja la
+    columna en su DEFAULT ('propio')/NULL para el resto de llamadores (~15 call sites existentes,
+    cero cambio de comportamiento). Igual que `id_recepcion_origen`/`id_tx_origen`, en un
+    incremento sobre un lote ya existente NUNCA se sobreescribe una propiedad/suministrador ya
+    fijados por una entrada anterior (COALESCE) — un lote de consignación no puede "volverse propio"
+    por una entrada posterior sin marcar, y viceversa."""
     id_empresa, id_tienda = _tenant(id_empresa, id_tienda)
     cantidad = int(cantidad or 0)
     if not codigo or not lote or cantidad <= 0:
@@ -74,16 +92,23 @@ def registrar_entrada(codigo, lote, cantidad, fecha_caducidad=None, id_empresa=N
                 id_lote = row[0] if not isinstance(row, dict) else row["id"]
                 cur.execute("UPDATE lotes SET cantidad=cantidad+%s, cantidad_inicial=cantidad_inicial+%s, "
                             "estado=%s, fecha_caducidad=COALESCE(%s, fecha_caducidad), "
-                            "id_almacen=COALESCE(%s, id_almacen) WHERE id=%s",
-                            (cantidad, cantidad, ACTIVO, fecha_caducidad, id_almacen, id_lote))
+                            "id_almacen=COALESCE(%s, id_almacen), "
+                            "id_recepcion_origen=COALESCE(id_recepcion_origen,%s), "
+                            "id_tx_origen=COALESCE(id_tx_origen,%s), "
+                            "propiedad=COALESCE(%s, propiedad), "
+                            "id_suministrador=COALESCE(id_suministrador,%s) WHERE id=%s",
+                            (cantidad, cantidad, ACTIVO, fecha_caducidad, id_almacen,
+                             id_recepcion_origen, id_tx_origen, propiedad, id_suministrador, id_lote))
             else:
                 cur.execute(
                     "INSERT INTO lotes (id_empresa, id_tienda, codigo_articulo, lote, "
                     "fecha_caducidad, cantidad, cantidad_inicial, origen, id_documento, estado, "
-                    "id_almacen) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "id_almacen, id_recepcion_origen, id_tx_origen, propiedad, id_suministrador) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (id_empresa, id_tienda, codigo, lote, fecha_caducidad, cantidad, cantidad,
                      origen, str(id_documento) if id_documento is not None else None, ACTIVO,
-                     id_almacen))
+                     id_almacen, id_recepcion_origen, id_tx_origen, propiedad or "propio",
+                     id_suministrador))
                 id_lote = cur.lastrowid
             _mov(cur, id_empresa, id_lote, codigo, "ENTRADA", cantidad,
                  id_documento=id_documento, usuario=usuario, observaciones=origen)
@@ -129,9 +154,9 @@ def consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA", id_empresa=None, id_tie
             # exactamente esta misma lógica (solo cambia el criterio de selección de lotes).
             _orden = orden or "(fecha_caducidad IS NULL), fecha_caducidad, fecha_entrada, id"
             cur.execute(
-                "SELECT id, lote, cantidad FROM lotes WHERE id_empresa=%s AND id_tienda=%s "
-                "AND codigo_articulo=%s AND estado=%s AND cantidad>0" + cond_alm +
-                f" ORDER BY {_orden} FOR UPDATE",
+                "SELECT id, lote, cantidad, propiedad, id_suministrador FROM lotes WHERE "
+                "id_empresa=%s AND id_tienda=%s AND codigo_articulo=%s AND estado=%s AND "
+                "cantidad>0" + cond_alm + f" ORDER BY {_orden} FOR UPDATE",
                 params)
             lotes = _filas_a_dicts(cur, cur.fetchall())
             restante = cantidad
@@ -144,12 +169,100 @@ def consumir_fefo(codigo, cantidad, tipo="SALIDA_VENTA", id_empresa=None, id_tie
                             (nuevo, ACTIVO if nuevo > 0 else AGOTADO, ln["id"]))
                 _mov(cur, id_empresa, ln["id"], codigo, tipo, toma,
                      id_documento=id_documento, usuario=usuario, observaciones=observaciones)
-                detalle.append({"id_lote": ln["id"], "lote": ln["lote"], "consumido": toma})
+                detalle.append({"id_lote": ln["id"], "lote": ln["lote"], "consumido": toma,
+                                "propiedad": ln.get("propiedad"),
+                                "id_suministrador": ln.get("id_suministrador")})
                 restante -= toma
+        _liquidar_consumo_consignacion(detalle, tipo, codigo, id_documento, id_empresa, usuario)
         return {"consumido": cantidad - restante, "faltante": restante, "detalle": detalle}
     except Exception as e:
         logger.error("consumir_fefo(%s,%s): %s", codigo, cantidad, e)
         return {"consumido": 0, "faltante": cantidad, "detalle": detalle}
+
+
+def _liquidar_consumo_consignacion(detalle, tipo, codigo, id_documento, id_empresa, usuario):
+    """Fase C — Stock en Consignación: dispara la liquidación (auto-factura idempotente) del stock de
+    consignación consumido por ESTE `consumir_fefo`, tras el commit de la salida real. Best-effort
+    ABSOLUTO (mismo espíritu que el resto del módulo, ver docstring de cabecera): esta función NUNCA
+    puede hacer que `consumir_fefo` falle ni se comporte distinto para el llamador — cualquier fallo
+    aquí queda solo logueado. `DEVOLUCION_PROVEEDOR` se excluye a propósito (Fase C, punto 5): esa
+    salida es la devolución de mercancía en consignación al proveedor, no una venta/consumo real, así
+    que estructuralmente NUNCA debe generar factura. Import perezoso tras el commit — mismo patrón que
+    `db/compras.py::recibir()` (sync multialmacén/lotes) para evitar un ciclo de imports en frío
+    (`b2b_pedidos` → ... → `db.lotes`)."""
+    if tipo == "DEVOLUCION_PROVEEDOR":
+        return
+    consignacion = [d for d in detalle if d.get("propiedad") == "consignacion" and d.get("consumido")]
+    if not consignacion:
+        return
+    try:
+        from src.services.compras import b2b_pedidos as _B2B
+        por_suministrador: dict = {}
+        for d in consignacion:
+            por_suministrador[d["id_suministrador"]] = (
+                por_suministrador.get(d["id_suministrador"], 0) + int(d["consumido"]))
+        for id_sum, cant in por_suministrador.items():
+            if not id_sum or cant <= 0:
+                continue
+            _B2B.registrar_consumo_consignacion(id_sum, codigo, cant, id_documento, id_empresa,
+                                                usuario=usuario)
+    except Exception as e:
+        logger.error("_liquidar_consumo_consignacion(%s): %s", codigo, e)
+
+
+# ── Bloqueo/desbloqueo (calidad: NC sobre un lote) ─────────────────────────────
+def bloquear_lote(id_lote, motivo, usuario=None, id_empresa=None) -> bool:
+    """Bloquea un lote (estado='bloqueado'). `consumir_fefo` filtra explícitamente
+    `WHERE estado=ACTIVO`, así que un lote bloqueado queda automáticamente excluido de FEFO/
+    FIFO/LIFO sin tocar esa función. No modifica la cantidad (el stock sigue existiendo, solo
+    deja de ser consumible). El motivo es obligatorio y se registra como movimiento 'BLOQUEO'
+    en `lotes_movimientos` (auditoría, sin columna nueva)."""
+    id_empresa, _ = _tenant(id_empresa)
+    motivo = (motivo or "").strip()
+    if not motivo:
+        return False
+    try:
+        ensure_schema()
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT codigo_articulo FROM lotes WHERE id=%s AND id_empresa=%s",
+                        (id_lote, id_empresa))
+            row = cur.fetchone()
+            if not row:
+                return False
+            codigo = row[0] if not isinstance(row, dict) else row["codigo_articulo"]
+            cur.execute("UPDATE lotes SET estado=%s WHERE id=%s AND id_empresa=%s",
+                        (BLOQUEADO, id_lote, id_empresa))
+            _mov(cur, id_empresa, id_lote, codigo, "BLOQUEO", 0, usuario=usuario,
+                 observaciones=motivo)
+        return True
+    except Exception as e:
+        logger.error("bloquear_lote(%s): %s", id_lote, e)
+        return False
+
+
+def desbloquear_lote(id_lote, usuario=None, id_empresa=None) -> bool:
+    """Desbloquea un lote (estado vuelve a 'activo'): vuelve a ser elegible por FEFO/FIFO/LIFO.
+    No-op (False) si el lote no está bloqueado."""
+    id_empresa, _ = _tenant(id_empresa)
+    try:
+        ensure_schema()
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT codigo_articulo, estado FROM lotes WHERE id=%s AND id_empresa=%s",
+                        (id_lote, id_empresa))
+            row = cur.fetchone()
+            if not row:
+                return False
+            codigo = row[0] if not isinstance(row, dict) else row["codigo_articulo"]
+            estado = row[1] if not isinstance(row, dict) else row["estado"]
+            if estado != BLOQUEADO:
+                return False
+            cur.execute("UPDATE lotes SET estado=%s WHERE id=%s AND id_empresa=%s",
+                        (ACTIVO, id_lote, id_empresa))
+            _mov(cur, id_empresa, id_lote, codigo, "DESBLOQUEO", 0, usuario=usuario)
+        return True
+    except Exception as e:
+        logger.error("desbloquear_lote(%s): %s", id_lote, e)
+        return False
 
 
 # ── Consultas ─────────────────────────────────────────────────────────────────

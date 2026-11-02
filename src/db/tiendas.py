@@ -65,19 +65,117 @@ def obtener_tienda(id_tienda) -> dict | None:
         return None
 
 
+def tienda_de_codigo(codigo, id_empresa=None) -> int | None:
+    """Resuelve un `codigo_tienda` (p.ej. 'TND-001') al `id` INT de esa tienda. Es el mismo
+    texto que el JWT/sesión de un empleado lleva como `centro_codigo` (`usuarios.centro_codigo`,
+    ver `api/security.py`/`api/routers/logistics.py`) cuando el empleado está asignado a una
+    tienda — permite a los consumidores de la API/portales resolver el `id_tienda` INT que
+    necesitan servicios como `stock_almacen.almacen_de_tienda` o `online_orders_service
+    .listar_pedidos_online`, algo que el propio JWT no lleva. None si no hay tienda con ese
+    código (p.ej. el centro es un almacén, no una tienda)."""
+    if not codigo:
+        return None
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            filtros, params = ["codigo_tienda=%s"], [codigo]
+            if id_empresa:
+                filtros.append("id_empresa=%s"); params.append(id_empresa)
+            cur.execute(f"SELECT id FROM tiendas WHERE {' AND '.join(filtros)} LIMIT 1", params)
+            r = cur.fetchone()
+            return (r["id"] if isinstance(r, dict) else r[0]) if r else None
+    except Exception as e:
+        logger.error("tienda_de_codigo(%s): %s", codigo, e)
+        return None
+
+
+def crear_tienda(nombre, id_empresa=None, codigo_tienda=None) -> int | None:
+    """Alta de una tienda REAL (tabla `tiendas`). Hasta ahora `tiendas` no tenía alta dinámica en
+    ningún punto de la app — sus filas solo se sembraban vía `database/bootstrap_mariadb.sql`
+    (TND-001/002/003). Esta función existe para el AUTO-PROVISIONING de "Centros de empresa"
+    (`gui/gestion_usuarios.py::_de_add_centro`): cuando se crea un centro `tipo_centro='tienda'`,
+    se crea inmediatamente su tienda real vinculada, en la MISMA operación — decisión explícita del
+    usuario tras rechazar el diseño anterior de "crear el centro y luego vincularlo a mano a una
+    tienda YA existente" (poco intuitivo: cada centro debe nacer con su PROPIA identidad, nunca
+    adoptar la de otra tienda distinta).
+
+    `codigo_tienda`: si no se indica, reutiliza el propio código/nombre del centro de origen (p. ej.
+    'CDT-002') en vez de generar una secuencia 'TND-NNN' desconectada — coherente con "identidad
+    propia desde la creación" (la convención TND- solo queda como fallback de compatibilidad para
+    el caso, hoy inexistente en la práctica, de llamar a esta función sin un centro de origen).
+
+    `tiendas.nombre` es UNIQUE GLOBAL (todas las empresas comparten el mismo espacio de nombres,
+    limitación heredada del esquema original en `bootstrap_mariadb.sql` — no se toca aquí). Si el
+    nombre ya existe, se sufija con el propio código para garantizar el alta sin inventar un nombre
+    irreconocible (mismo criterio defensivo que `stock_almacen.ensure_almacenes_empresa` frente a
+    `almacen.nombre`, también UNIQUE global). Devuelve el `id` INT de la tienda creada, o None."""
+    from src.db.empresa import empresa_actual_id
+    id_empresa = id_empresa or empresa_actual_id()
+    nombre = (nombre or "").strip() or "TIENDA"
+    codigo = (codigo_tienda or "").strip()
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            if not codigo:
+                # Fallback de compatibilidad (sin centro de origen): secuencia TND-NNN, mismo
+                # patrón de "siguiente código" que `db/centros.py::_siguiente_codigo`.
+                cur.execute(
+                    "SELECT codigo_tienda FROM tiendas WHERE codigo_tienda LIKE 'TND-%%' "
+                    "ORDER BY codigo_tienda DESC LIMIT 1")
+                row = cur.fetchone()
+                ultimo = 0
+                if row:
+                    val = row[0] if not isinstance(row, dict) else row["codigo_tienda"]
+                    try:
+                        ultimo = int(str(val).split("-")[-1])
+                    except (ValueError, IndexError):
+                        ultimo = 0
+                codigo = f"TND-{ultimo + 1:03d}"
+            nombre_final = nombre
+            cur.execute("SELECT COUNT(*) FROM tiendas WHERE nombre=%s", (nombre_final,))
+            row = cur.fetchone()
+            existe = (row[0] if not isinstance(row, dict) else list(row.values())[0]) or 0
+            if existe:
+                nombre_final = f"{nombre} ({codigo})"
+            cur.execute(
+                "INSERT INTO tiendas (nombre, activo, id_empresa, codigo_tienda) VALUES (%s,1,%s,%s)",
+                (nombre_final, id_empresa, codigo))
+            nuevo_id = cur.lastrowid
+            conn.commit()
+        logger.info("Tienda creada (auto-provisioning): id=%s codigo=%s nombre=%s (empresa=%s)",
+                    nuevo_id, codigo, nombre_final, id_empresa)
+        return nuevo_id
+    except Exception as e:
+        logger.error("Error crear_tienda(%s): %s", nombre, e)
+        return None
+
+
 def puede_acceder(id_tienda) -> bool:
-    """True si el usuario en sesión puede operar la tienda dada:
-    SUPERADMIN → cualquiera; ADMINISTRADOR → solo las de SU empresa."""
+    """True si el usuario en sesión puede CAMBIAR de contexto a la tienda dada.
+    SOLO SUPERADMIN puede conectarse a distintas tiendas de su empresa; ADMINISTRADOR y
+    OPERARIO están atados a su propia tienda (no pueden cambiar de tienda en absoluto, ni
+    siquiera dentro de la misma empresa). Esto nunca permite cruzar de empresa: la lista de
+    tiendas ofrecida a SUPERADMIN ya está acotada a la empresa elegida en el selector."""
     try:
         from src.db.usuario import sesion_global
-        if sesion_global.es_superadmin():
-            return True
-        if not sesion_global.es_admin():
-            return False
-        t = obtener_tienda(id_tienda) or {}
-        return (t.get("id_empresa") or EMPRESA_DEFAULT_ID) == sesion_global.empresa_id()
+        return bool(sesion_global.es_superadmin())
     except Exception:
         return False
+
+
+def codigo_tienda_actual() -> str | None:
+    """`codigo_tienda` (p.ej. 'TND-001') de la tienda ACTIVA del proceso (`tienda_actual_id()`, la
+    que fija "Cambiar de centro") — el MISMO espacio de valores que `usuarios.centro_codigo`
+    (ver `tienda_de_codigo`). None si no hay tienda activa fijada (p. ej. un superadmin que aún no
+    ha elegido centro). Extraído para que cualquier feature que necesite "el centro_codigo EFECTIVO
+    ahora mismo" (no solo el fijo del usuario) use el mismo resolutor — ver
+    `gui.components.remote_scan._centro_codigo_activo`, que antes duplicaba esta misma lógica."""
+    from src.db import empresa as emp_db
+    tid = emp_db.tienda_actual_id()
+    if tid is None:
+        return None
+    t = obtener_tienda(tid)
+    return (t or {}).get("codigo_tienda") or None
 
 
 def etiqueta_tienda_actual() -> str:

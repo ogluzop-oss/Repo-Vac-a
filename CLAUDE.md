@@ -112,9 +112,14 @@ oficiales y permanentes (aplican a TODO desarrollo futuro):
   reutilizada — N7), que es lo que sirve `backend/storefront.py`. Canal Web es el **único editor** de
   `web_config`; `crear/actualizar_config/publicar/despublicar` la mantienen sincronizada (`_sync_web_config`).
   `cd_canal_web.config_negocio` es metadato operativo, NO fuente de marca. Canal Web NO edita datos maestros.
-- **Marketplace** (`services/marketplace/`, `gui/marketplace_gui.py`) = **App Store de Plugins y
-  Extensiones** (reutiliza el Plugin SDK). NO es canal de venta ni gestiona negocio (solo instala/administra;
-  la EJECUCIÓN de cada conector vive en su módulo consumidor, p. ej. Canal Web).
+- **Marketplace** (`services/marketplace/`, App Store de Plugins y Extensiones, reutiliza el Plugin SDK):
+  módulo de escritorio **RETIRADO** (`gui/marketplace_gui.py` queda `@deprecated`, sin tarjeta ni ruta en
+  `menu_principal.py`) — decisión de producto informada tras confirmar que ninguna capacidad esencial
+  dependía de "instalar" nada ahí: pasarelas de pago, e-commerce y Canal Web ya son módulos núcleo
+  autónomos, configurables desde su propia pantalla (`_PasarelaConfigDialog` en TPV,
+  `services/tpv/ecommerce/`, Canal Web). El servicio `services/marketplace` y sus endpoints REST/GraphQL
+  se conservan (legacy/sin consumidores conocidos) porque aún los usa Cloud Manager/observabilidad y el
+  SDK de plugins internamente.
 - `ecommerce_config` (`db/ecommerce.py`) = **Escenario A** (conexión a plataforma EXTERNA:
   WooCommerce/Shopify/Prestashop) — responsabilidad DISTINTA de la web propia (Escenario B/`web_config`),
   NO una duplicidad. Sigue en uso (`services/tpv/ecommerce/*`, `catalog_sync_service`).
@@ -221,7 +226,8 @@ slot directo (`clicked.connect`) un método cuyo nombre contenga caracteres no-A
 
 **SAT/Helpdesk (OPERATIVO núcleo — iteración 4)**: motor en `src/services/sat/` (`tickets, intervenciones,
 contratos_sla, sat_pro, kb`); GUI operativa en `gui/sat_dashboard.py` (`SATDashboardWindow`, ruta de menú
-**`sat`**, tarjeta "Soporte (SAT)"): tickets (ciclo abierto→…→cerrado + asignar técnico + comentar +
+**`sat`**, tarjeta "Posventa" — módulo de nivel superior propio en el menú principal, MIGRADO de la
+antigua pestaña embebida "SAT / Postventa" del dashboard de CRM): tickets (ciclo abierto→…→cerrado + asignar técnico + comentar +
 intervención), SLA/contratos y **bolsa de horas** (`sat_pro.consumir_horas` = facturación por horas). RBAC
 `tickets.crear/gestionar`, `sat.admin`; `tecnico`/`autor` INT. **Honestidad**: el backend SAT NO consume
 stock por repuestos ni genera factura comercial desde el ticket (no se inventó); la facturación real es la
@@ -240,6 +246,43 @@ de brechas: **5/5 áreas** hechas. Ver `CERTIFICACION_CIERRE_FISCAL_PRODUCCION_G
 ### RFID Integration
 
 `src/utils/rfid_gateway.py` communicates with Zebra RFID readers over HTTP. `src/utils/rfid_worker.py` wraps this in a QThread. A simulated mode is available when hardware is absent.
+
+### Videovigilancia (Cámaras)
+
+Motor en `src/services/camaras/` (`registro, grabacion, reproduccion, deteccion, ptz, orquestacion,
+descubrimiento, prerrequisitos`); GUI en `gui/camaras_gui.py` (`CamarasWindow`, ruta de menú
+**`camaras`**, tarjeta "Cámaras"). Aislamiento estricto por empresa+departamento en toda consulta.
+**Requisitos de sistema**: `ffmpeg` en el `PATH` (binario, no pip) habilita la grabación 24/7 de
+producción por stream-copy — sin él, degrada a un motor OpenCV (funciona, más CPU); `onvif-zeep`
+(pip, en `requirements.txt`) habilita descubrimiento WS-Discovery, extracción de perfiles
+mainstream/substream y PTZ — sin ella, degrada a alta 100% manual. La GUI muestra un aviso visible
+(nunca silencioso) si alguno falta, vía `services.camaras.prerrequisitos`.
+
+**Descubrimiento y alta (`descubrimiento.py`)**: WS-Discovery (UDP multicast 239.255.255.250:3702)
+implementado a mano con `socket`+`xml.etree` de la librería estándar (protocolo simple, mismo
+criterio que el motor TOTP/el cliente SOAP-AEAT propios: no se añade una dependencia para un
+protocolo bien entendido). `probar_conexion`/`extraer_perfiles` usan `onvif-zeep`, degradable y
+honesto (motivo real si falla, nunca inventa una URI). El wizard de alta (`_AltaCamaraWizard` en
+`camaras_gui.py`) orquesta buscar → credenciales maestras → confirmar, con alta manual como
+fallback siempre disponible (`_AltaManualDialog`).
+
+**Dual-stream (`fuente_main`/`fuente_sub`)**: columnas opcionales sobre `camaras` (migración 0250),
+protegidas con el mismo `secret_manager`/Fernet que ya protegía `fuente` (jamás credenciales en
+claro). `registro.fuente_para(camara, calidad)` resuelve con fallback en cascada
+(main/sub → legacy `fuente`) — cámaras sin perfiles ONVIF siguen funcionando exactamente igual que
+antes. La grabación 24/7 (`grabacion.py`) usa mainstream si existe; la rejilla en vivo usa
+substream (menor CPU/ancho de banda), la vista de pantalla completa usa mainstream.
+
+**Vivo real (`CamaraLiveWorker` en `camaras_gui.py`)**: mismo patrón que `rfid_worker.py`
+(`QObject` + `moveToThread`, nunca toca widgets desde el hilo secundario), decodifica con
+`cv2.VideoCapture` (no un pipe FFmpeg — FFmpeg queda reservado a la grabación en segundo plano por
+su ventaja de stream-copy; el vivo interactivo reutiliza el mismo motor OpenCV que ya usan
+`deteccion.py`/`reproduccion.py`). Fotograma "SIN SEÑAL" honesto si la fuente cae, nunca congela ni
+inventa imagen.
+
+**RBAC** (`catalogo.py`): `camaras.ver`/`camaras.gestionar`/`camaras.ptz`/
+`camaras.grabaciones.descargar`, vía `services.autorizacion.puede` — gatea alta/baja/PTZ/descarga
+tanto en la GUI como en `/recordings*` (API).
 
 ## Output Files
 

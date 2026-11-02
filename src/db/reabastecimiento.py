@@ -657,7 +657,8 @@ def generar_pedidos_compra(propuesta_ids=None, usuario=None, id_empresa=None) ->
     for proveedor, pid_list in grupos.items():
         ped = compras.crear_pedido_desde_propuestas(propuesta_ids=pid_list,
                                                     id_proveedor=proveedor, usuario=usuario,
-                                                    id_empresa=id_empresa)
+                                                    id_empresa=id_empresa,
+                                                    origen_flujo="reposicion")
         if ped:
             pedidos.append(ped)
     return pedidos

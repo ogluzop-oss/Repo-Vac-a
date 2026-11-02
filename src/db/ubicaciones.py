@@ -642,7 +642,7 @@ def propagar_coordenadas_estanteria(pasillo, estanteria, ambito, mapa_x, mapa_y)
         return 0
 
 
-def asignar_ubicacion(codigo, pasillo, estanteria, nivel, es_lineal) -> dict:
+def asignar_ubicacion(codigo, pasillo, estanteria, nivel, es_lineal, *, id_empresa=None) -> dict:
     """Transacción completa de asignación de ubicación de un artículo, POR ÁMBITO.
 
     Modelo de datos (migr 0105 + 0215): la ubicación ESTRUCTURADA vive en `ubicaciones` por
@@ -657,7 +657,7 @@ def asignar_ubicacion(codigo, pasillo, estanteria, nivel, es_lineal) -> dict:
 
     Devuelve {ok, con_coordenadas, mapa_x, mapa_y}.
     """
-    emp = _emp()
+    emp = id_empresa if id_empresa is not None else _emp()
     ambito = "LINEAL" if es_lineal else "ALMACEN"
     ubicacion_legible = f"{pasillo}-{estanteria}-{nivel}"
     try:
@@ -725,13 +725,14 @@ def buscar_codigo_nombre(busqueda):
         return None
 
 
-def buscar_con_ubicacion_stock(termino):
+def buscar_con_ubicacion_stock(termino, *, id_empresa=None):
     """(codigo, nombre, ubicacion_tienda, ubicacion_almacen, stock) por nombre parcial o código exacto."""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT codigo, nombre, ubicacion_tienda, ubicacion_almacen, COALESCE(Stock_total, 0) "
-                "FROM articulos WHERE nombre LIKE %s OR codigo=%s", (f"%{termino}%", termino))
+                "FROM articulos WHERE (nombre LIKE %s OR codigo=%s) AND (%s IS NULL OR id_empresa=%s)",
+                (f"%{termino}%", termino, id_empresa, id_empresa))
             return cur.fetchone()
     except Exception:
         return None
@@ -750,7 +751,7 @@ def variante_de_codigo(codigo):
         return None
 
 
-def buscar_articulo_con_ubicaciones(termino):
+def buscar_articulo_con_ubicaciones(termino, *, id_empresa=None):
     """LEFT JOIN articulos+ubicaciones por término (código exacto o nombre parcial). Devuelve
     (codigo, nombre, ubicacion_tienda, pasillo, estanteria, ubicacion_almacen, pasillo_almacen,
     estanteria_almacen) o None. Pasillo/estantería viven en `ubicaciones` (migr 0105)."""
@@ -760,9 +761,9 @@ def buscar_articulo_con_ubicaciones(termino):
                 "SELECT a.codigo, a.nombre, a.ubicacion_tienda, u.pasillo, u.estanteria, "
                 "a.ubicacion_almacen, u.pasillo_almacen, u.estanteria_almacen "
                 "FROM articulos a LEFT JOIN ubicaciones u ON u.codigo_articulo = a.codigo "
-                "WHERE a.codigo=%s OR a.nombre LIKE %s "
+                "WHERE (a.codigo=%s OR a.nombre LIKE %s) AND (%s IS NULL OR a.id_empresa=%s) "
                 "ORDER BY CASE WHEN a.codigo=%s THEN 0 ELSE 1 END, a.nombre ASC LIMIT 1",
-                (termino, f"%{termino}%", termino))
+                (termino, f"%{termino}%", id_empresa, id_empresa, termino))
             return cur.fetchone()
     except Exception:
         return None
@@ -967,4 +968,104 @@ def reportar_discrepancia(codigo) -> bool:
         return True
     except Exception as e:
         logger.error("reportar_discrepancia(%s): %s", codigo, e)
+        return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# VINCULACIÓN RFID (pestaña RFID, módulo Ubicación) — EAN ↔ número de serie ↔ EPC (SGTIN-96)
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+def siguiente_numero_serie(codigo_articulo) -> int:
+    """Siguiente número de serie LIBRE para este artículo (MAX ya emitido + 1, o 1 si es el primero).
+    Base del asistente de grabación: cada unidad física de un mismo EAN necesita un serial SGTIN
+    distinto (migr. 0298, columna `numero_serie`)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COALESCE(MAX(numero_serie), 0) FROM ubicaciones WHERE codigo_articulo=%s",
+                        (codigo_articulo,))
+            r = cur.fetchone()
+            maximo = (r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0
+            return int(maximo) + 1
+    except Exception as e:
+        logger.error("siguiente_numero_serie(%s): %s", codigo_articulo, e)
+        return 1
+
+
+def registrar_etiqueta_rfid(epc, codigo_articulo, numero_serie, *, id_empresa=None,
+                            pasillo=None, estanteria=None) -> dict:
+    """Alta de una etiqueta RFID de PRODUCTO ya grabada y verificada físicamente: una fila nueva en
+    `ubicaciones` (epc, codigo_articulo, numero_serie), sin coordenadas de mapa todavía (se añaden
+    después si el operario la posiciona físicamente en Gestión Estructura). `UNIQUE KEY uk_ubi_epc`
+    impide registrar el mismo EPC dos veces — se reporta como error honesto, no como excepción.
+
+    `pasillo`/`estanteria` son `NOT NULL` sin valor por defecto en el esquema, y
+    `UNIQUE KEY uq_ubicacion_codigo_pasillo (codigo_articulo, pasillo)` exige un `pasillo` DISTINTO
+    por fila del mismo artículo — así que, sin ubicación física real todavía (caso normal: la unidad
+    se serializa antes de colocarla en un pasillo concreto), se usa un marcador POR SERIE, único por
+    construcción, nunca una cadena vacía compartida por todas las unidades del mismo artículo (eso
+    chocaría con la 2ª etiqueta en adelante). Al posicionar la unidad físicamente más tarde (Gestión
+    Estructura), el UPDATE por `epc` ya existente sustituye este marcador por el pasillo/estantería
+    reales sin necesidad de tocar este alta."""
+    emp = id_empresa if id_empresa is not None else _emp()
+    pasillo_final = pasillo or f"RFID-{numero_serie}"
+    estanteria_final = estanteria or "SIN-UBICAR"
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO ubicaciones (epc, codigo_articulo, numero_serie, id_empresa, "
+                "pasillo, estanteria, verificado) VALUES (%s,%s,%s,%s,%s,%s,1)",
+                (epc, codigo_articulo, numero_serie, emp, pasillo_final, estanteria_final))
+            conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        msg = str(e)
+        if "uk_ubi_epc" in msg or "Duplicate entry" in msg:
+            logger.warning("registrar_etiqueta_rfid: EPC duplicado %s", epc)
+            return {"ok": False, "error": "epc_ya_registrado"}
+        logger.error("registrar_etiqueta_rfid(%s,%s): %s", epc, codigo_articulo, e)
+        return {"ok": False, "error": "error_interno"}
+
+
+def listar_etiquetas_articulo(codigo_articulo) -> list:
+    """[{epc, numero_serie, pasillo, estanteria, verificado, fecha_actualizacion}] de las etiquetas
+    RFID ya vinculadas a este artículo, más recientes primero."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT epc, numero_serie, pasillo, estanteria, verificado, fecha_actualizacion "
+                "FROM ubicaciones WHERE codigo_articulo=%s AND numero_serie IS NOT NULL "
+                "ORDER BY numero_serie DESC", (codigo_articulo,))
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) if not isinstance(r, dict) else r for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_etiquetas_articulo(%s): %s", codigo_articulo, e)
+        return []
+
+
+def contar_etiquetas_articulo(codigo_articulo) -> int:
+    """Número de etiquetas RFID ya vinculadas a este artículo."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM ubicaciones WHERE codigo_articulo=%s AND epc IS NOT NULL",
+                        (codigo_articulo,))
+            r = cur.fetchone()
+            return int((r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0)
+    except Exception as e:
+        logger.error("contar_etiquetas_articulo(%s): %s", codigo_articulo, e)
+        return 0
+
+
+def obtener_por_epc(epc) -> dict | None:
+    """Fila completa de `ubicaciones` para un EPC concreto, o None. Punto de resolución EPC→artículo
+    reutilizable (mismo dato que ya consulta `services.rfid.antihurto._codigo_desde_epc` por su
+    cuenta; esta función es la variante genérica, de fila completa, para el asistente de vinculación)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM ubicaciones WHERE epc=%s", (epc,))
+            r = cur.fetchone()
+            if not r:
+                return None
+            cols = [d[0] for d in cur.description]
+            return dict(zip(cols, r)) if not isinstance(r, dict) else r
+    except Exception as e:
+        logger.error("obtener_por_epc(%s): %s", epc, e)
         return False

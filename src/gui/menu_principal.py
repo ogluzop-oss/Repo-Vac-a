@@ -27,6 +27,8 @@ from PyQt6.QtWidgets import (
 )
 
 from src.db.conexion import obtener_referencias
+from src.services.seguridad import modulos_menu as _mm
+from src.services.seguridad import pestanas_app as _pa
 
 # Importaciones de negocio y datos
 from src.db.usuario import sesion_global
@@ -277,10 +279,15 @@ class MenuPrincipal(QWidget):
         self._cerrando = False
         # Registros para la re-traducción en caliente (i18n)
         self._cards = {}  # v_id -> MenuCardButton
-        self._lock_lbls = []  # etiquetas de tarjetas bloqueadas
 
         # Mantener el comportamiento actual del ciclo de vida sin alterar diseño.
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+        # ACL (Seguridad · Reglas de acceso): reglas EXPLÍCITAS (permitir o denegar) de este usuario
+        # en concreto sobre módulos concretos — excepción sobre su perfil habitual, en cualquier
+        # dirección. Se calcula UNA vez aquí (una sola consulta) para que el resto de esta ventana
+        # solo tenga que mirar un dict en memoria.
+        self._reglas_acl_modulos = self._cargar_reglas_acl_modulos()
 
         self.setup_ui()
 
@@ -322,6 +329,15 @@ class MenuPrincipal(QWidget):
             counts = actividad.contar(usuario=usuario, perfil=self.perfil)
         except Exception:
             counts = {}
+        # Incidencias: badge propio (nº pendientes/en proceso), SOLO visible para SUPERADMIN (quien
+        # las gestiona) — a ADMINISTRADOR (solo envía) no le aporta nada ver el total de la empresa.
+        if "incidencias" in self._cards and (self.perfil or "").upper() == "SUPERADMIN":
+            try:
+                from src.services.incidencias_internas import tickets as _IT
+                counts = dict(counts)
+                counts["incidencias"] = _IT.contar_pendientes()
+            except Exception:
+                pass
         for v_id, btn in self._cards.items():
             try:
                 btn.set_badge(counts.get(v_id, 0))
@@ -363,7 +379,6 @@ class MenuPrincipal(QWidget):
             if antiguo is not None:
                 QWidget().setLayout(antiguo)   # transfiere la propiedad → se destruye con sus hijos
             self._cards = {}
-            self._lock_lbls = []
             self.setup_ui()
             try:
                 from src.services import onboarding
@@ -415,9 +430,12 @@ class MenuPrincipal(QWidget):
         self.ref_label.hide()
         left_hbox.addWidget(self.ref_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        # ── Selector de tienda (multitienda, F1) — solo SUPERADMIN / ADMINISTRADOR.
+        # ── Selector de tienda (multitienda, F1) — SOLO SUPERADMIN. ADMINISTRADOR/OPERARIO
+        # están atados a su propia tienda de la empresa (no pueden conectarse a otra, ni
+        # siquiera dentro de la misma empresa).
         self.btn_tienda = None
-        if self.perfil in ("SUPERADMIN", "ADMINISTRADOR"):
+        self.lbl_centro_pill = None
+        if self.perfil == "SUPERADMIN":
             self.btn_tienda = QPushButton("")
             self.btn_tienda.setCursor(Qt.CursorShape.PointingHandCursor)
             self.btn_tienda.setStyleSheet(
@@ -426,9 +444,21 @@ class MenuPrincipal(QWidget):
                 "font-weight:900;font-size:11px;letter-spacing:0.5px;}"
                 "QPushButton:hover{background:#11312B;}"
             )
-            self.btn_tienda.clicked.connect(self._abrir_selector_tienda)
+            self.btn_tienda.clicked.connect(lambda: self._abrir_selector_centro())
             left_hbox.addWidget(self.btn_tienda, 0, Qt.AlignmentFlag.AlignVCenter)
             self._actualizar_chip_tienda()
+        else:
+            # Centros de empresa (migración 0257): ADMINISTRADOR/OPERARIO no pueden cambiar de
+            # centro (atados al suyo, ver `db/tiendas.py::puede_acceder`) — piloto de SOLO LECTURA
+            # con el centro (`centros_trabajo`) vinculado a su usuario (`usuarios.
+            # id_centro_trabajo`), mismo estilo visual que el chip de arriba pero sin acción de click.
+            self.lbl_centro_pill = QLabel(self._texto_centro_asignado())
+            self.lbl_centro_pill.setStyleSheet(
+                "QLabel{background:#0E1117;color:#8B949E;border:2px solid #30363D;"
+                "border-radius:10px;padding:5px 14px;font-family:'Segoe UI';"
+                "font-weight:900;font-size:11px;letter-spacing:0.5px;}"
+            )
+            left_hbox.addWidget(self.lbl_centro_pill, 0, Qt.AlignmentFlag.AlignVCenter)
         left_hbox.addStretch()
 
         top_bar.addWidget(left_panel, 1)  # stretch=1 → mirrors right side
@@ -522,7 +552,7 @@ class MenuPrincipal(QWidget):
             ("Logística", "logistica", 0, 1, False, "#22F4E6", "truck"),
             ("Stock", "stock", 0, 2, False, "#22F4E6", "box"),
             ("Ubicación", "ubicacion", 0, 3, False, "#22F4E6", "search"),
-            ("Artículo", "info", 0, 4, False, "#22F4E6", "hand_bag"),
+            ("Info artículo", "info", 0, 4, False, "#22F4E6", "hand_bag"),
             (
                 "Documentos",
                 "documentos",
@@ -532,9 +562,9 @@ class MenuPrincipal(QWidget):
                 "#22F4E6",
                 "document",
             ),
-            ("Correo", "correo", 1, 0, "ADMINISTRADOR", "#22F4E6", "mail"),
+            ("Correo", "correo", 1, 0, "ADMINISTRADOR|SUPERADMIN", "#22F4E6", "mail"),
             ("Mermas", "mermas", 1, 1, False, "#22F4E6", "trash"),
-            ("Etiquetas", "etiquetas", 1, 2, False, "#22F4E6", "tag"),
+            ("Etiquetas", "etiquetas", 1, 2, "ADMINISTRADOR|SUPERADMIN", "#22F4E6", "tag"),
             ("Reposición", "reposicion", 1, 3, False, "#22F4E6", "box_refresh"),
             ("Ventas", "ventas", 1, 4, True, "#22F4E6", "line_chart"),
             (
@@ -548,64 +578,47 @@ class MenuPrincipal(QWidget):
             ),
         ]
 
-        for texto, v_id, fila, col, solo_admin, color, icon_key in botones_principales:
-            tiene_acceso = True
-            if solo_admin:
-                if isinstance(solo_admin, str):
-                    allowed = [
-                        p.strip().upper() for p in solo_admin.split("|") if p.strip()
-                    ]
-                    if self.perfil not in allowed:
-                        tiene_acceso = False
-                elif solo_admin is True:
-                    if v_id == "ventas" and self.perfil not in [
-                        "ADMINISTRADOR",
-                    ]:
-                        tiene_acceso = False
-
-            if tiene_acceso:
-                if not self._visible_en_menu(v_id):
-                    continue   # modo pyme simple: ocultar módulo no esencial (celda vacía, sin candado)
-                # Gating por EDICIÓN: Catálogo Web se oculta en Bakery (carta física en el local).
-                if v_id == "catalogo":
-                    try:
-                        from src.services import verticales as _V
-                        if not _V.visible("catalogo.web"):
-                            continue
-                    except Exception:
-                        pass
-                btn = self.crear_tarjeta_menu(texto, v_id, color, icon_key)
-                grid_layout.addWidget(
-                    btn, fila, col, alignment=Qt.AlignmentFlag.AlignCenter
-                )
-            else:
-                self.crear_bloqueo_visual(grid_layout, fila, col)
-
-        menu_layout.addWidget(grid_container, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        footer_container = QWidget()
-        footer_container.setStyleSheet("background: transparent; border: none;")
-        footer_layout = QVBoxLayout(footer_container)
-        footer_layout.setContentsMargins(0, 0, 0, 0)
-        footer_layout.setSpacing(0)
-
-        footer_grid = QGridLayout()
-        footer_grid.setHorizontalSpacing(8)
-        footer_grid.setVerticalSpacing(4)
-        footer_grid.setContentsMargins(0, 0, 0, 0)
-
+        # Rejilla ÚNICA y continua: TODAS las tarjetas (las "principales" de aquí abajo y las que
+        # antes se colocaban en una rejilla de pie aparte, más adelante) se acumulan en una sola
+        # lista ordenada y se colocan de una vez al final, en secuencia. Así, en un perfil con
+        # pocas tarjetas (p. ej. OPERARIO), la fila que quedaría a medias no dispara un salto visual
+        # a un bloque separado — las tarjetas siguientes simplemente continúan rellenando esa misma
+        # fila. Sin candados "RESTRINGIDO": un módulo no accesible para el perfil actual simplemente
+        # no se coloca.
         footer_buttons = []
+        for texto, v_id, _fila, _col, _solo_admin_legacy, color, icon_key in botones_principales:
+            # Visibilidad por defecto centralizada en `modulos_menu.default_visible` (antes
+            # calculada aquí mismo a partir de `_solo_admin_legacy` — ya no se usa ese campo, se
+            # conserva en la tupla solo para no reescribir `botones_principales`).
+            tiene_acceso = _mm.default_visible(v_id, self.perfil)
+
+            # ACL (Seguridad · Reglas de acceso): una regla explícita para este usuario prevalece,
+            # en cualquier dirección, sobre el criterio de perfil calculado arriba.
+            tiene_acceso = self._acceso_modulo(v_id, tiene_acceso)
+            if not tiene_acceso:
+                continue
+            if not self._visible_en_menu(v_id):
+                continue   # modo pyme simple: ocultar módulo no esencial (celda vacía)
+            # Gating por EDICIÓN: Catálogo Web se oculta en Bakery (carta física en el local).
+            if v_id == "catalogo":
+                try:
+                    from src.services import verticales as _V
+                    if not _V.visible("catalogo.web"):
+                        continue
+                except Exception:
+                    pass
+            footer_buttons.append(self.crear_tarjeta_menu(texto, v_id, color, icon_key))
 
         # Configuración → esquina inferior IZQUIERDA (botón plano, fuera del grid).
         btn_config = None
-        if self.perfil == "ADMINISTRADOR":
+        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
             btn_config = self._crear_boton_esquina(
                 "Configuración", "configuracion", "#F1E55B", "gear"
             )
 
-        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
-            # UX-TPV-01 (P4): acceso directo a la Gestión de Caja existente. Icono caja
-            # fuerte en turquesa (color de tarjeta cian, no amarillo).
+        # UX-TPV-01 (P4): acceso directo a la Gestión de Caja existente. Icono caja fuerte en
+        # turquesa (color de tarjeta cian, no amarillo).
+        if self._acceso_modulo("gestion_caja", _mm.default_visible("gestion_caja", self.perfil)):
             btn_caja = self.crear_tarjeta_menu(
                 "Gestión Caja", "gestion_caja", "#22F4E6", "safe"
             )
@@ -616,138 +629,313 @@ class MenuPrincipal(QWidget):
 
         # Proveedores (antes "Compras"): SOLO superadmin — acceso restringido a propósito, a
         # diferencia del resto de tarjetas de este bloque. Compras avanzado vive como pestaña interna.
-        if self.perfil == "SUPERADMIN":
+        if self._acceso_modulo("compras", _mm.default_visible("compras", self.perfil)):
             btn_compras = self.crear_tarjeta_menu(
                 "Proveedores", "compras", "#22F4E6", "delivery_clipboard"
             )
             footer_buttons.append(btn_compras)
 
-        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
+        # CRM (Clientes), Contabilidad, Tesorería, Centro de Inteligencia (Dashboard) y
+        # Seguridad (Roles/permisos): restringidos a SUPERADMIN a petición explícita — ADMINISTRADOR
+        # deja de tener acceso a estos módulos. Cada tarjeta se resuelve por separado (en vez de bajo
+        # un único `if`) para que una regla ACL pueda conceder o denegar cada una individualmente.
+        if (self._acceso_modulo("clientes_crm", _mm.default_visible("clientes_crm", self.perfil))
+                or self._acceso_por_pestana("clientes_crm")):
             btn_clientes = self.crear_tarjeta_menu(
                 "Clientes", "clientes_crm", "#22F4E6", "people"
             )
             footer_buttons.append(btn_clientes)
 
-        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
+        if (self._acceso_modulo("contabilidad", _mm.default_visible("contabilidad", self.perfil))
+                or self._acceso_por_pestana("contabilidad")):
             btn_contab = self.crear_tarjeta_menu(
                 "Contabilidad", "contabilidad", "#22F4E6", "calculator_coins"
             )
             footer_buttons.append(btn_contab)
+            # Modelos AEAT migrado → Contabilidad (pestaña AEAT).
+
+        if (self._acceso_modulo("tesoreria", _mm.default_visible("tesoreria", self.perfil))
+                or self._acceso_por_pestana("tesoreria")):
             btn_tes = self.crear_tarjeta_menu(
                 "Tesorería", "tesoreria", "#22F4E6", "bank_money"
             )
             footer_buttons.append(btn_tes)
+
+        if (self._acceso_modulo("bi", _mm.default_visible("bi", self.perfil))
+                or self._acceso_por_pestana("bi")):
             btn_bi = self.crear_tarjeta_menu(
                 "Centro de Inteligencia", "bi", "#22F4E6", "dashboard"
             )
             footer_buttons.append(btn_bi)
-            # Modelos AEAT migrado → Contabilidad (pestaña AEAT).
 
-        if self.perfil in ("SUPERADMIN", "ADMINISTRADOR"):
+        if (self._acceso_modulo("seguridad", _mm.default_visible("seguridad", self.perfil))
+                or self._acceso_por_pestana("seguridad")):
             btn_seg = self.crear_tarjeta_menu(
-                "Seguridad", "seguridad", "#22F4E6", "guard"
+                "Permisos", "seguridad", "#22F4E6", "guard"
             )
             footer_buttons.append(btn_seg)
 
-        btn_wf = self.crear_tarjeta_menu(
-            "Aprobaciones", "workflow", "#22F4E6", "clipboard_check"
-        )
-        footer_buttons.append(btn_wf)
+        if self._acceso_modulo("workflow", _mm.default_visible("workflow", self.perfil)):
+            btn_wf = self.crear_tarjeta_menu(
+                "Tareas", "workflow", "#22F4E6", "clipboard_check"
+            )
+            footer_buttons.append(btn_wf)
+
+        # Restructuración Aprobaciones/Tareas (2026-09): el antiguo módulo mixto "Aprobaciones ·
+        # Workflow/BPM" (6 pestañas heterogéneas) se segmenta. "Tareas" (arriba, mismo v_id "workflow"
+        # de siempre) conserva el Programador de Jobs y gana "Tareas de tienda" (encargos del
+        # SUPERADMIN para el personal de una tienda). Las 3 pestañas restantes pasan a ser módulos de
+        # nivel superior propios, SOLO SUPERADMIN (las acciones que aprueban son, en exclusiva, planes
+        # de Autonomía IA y sugerencias de Automatización — ver `aprobaciones_gui.py`):
+        if self._acceso_modulo("autonomia_ia", _mm.default_visible("autonomia_ia", self.perfil)):
+            btn_autonomia_ia = self.crear_tarjeta_menu(
+                "Autonomía IA", "autonomia_ia", "#22F4E6", "cloud"
+            )
+            footer_buttons.append(btn_autonomia_ia)
+
+        if self._acceso_modulo("automatizacion", _mm.default_visible("automatizacion", self.perfil)):
+            btn_automatizacion = self.crear_tarjeta_menu(
+                "Automatización", "automatizacion", "#22F4E6", "box_refresh"
+            )
+            footer_buttons.append(btn_automatizacion)
+
+        if self._acceso_modulo("aprobaciones", _mm.default_visible("aprobaciones", self.perfil)):
+            btn_aprobaciones = self.crear_tarjeta_menu(
+                "Aprobaciones", "aprobaciones", "#22F4E6", "clipboard_check"
+            )
+            footer_buttons.append(btn_aprobaciones)
+        # Delegación a SOMA: NO es un módulo aparte del menú — cada tipo de delegación vive como
+        # pestaña "Delegación IA" dentro de la ventana del módulo al que pertenece (Correo, CRM,
+        # Posventa, Compras, Configuración…), ver `gui.soma_delegacion_gui.DelegacionSomaPanel`.
+
+        # Registro Temperatura (control de cadena de frío): módulo nuevo, SOLO OPERARIO/ADMINISTRADOR
+        # (ejecución in situ por el personal de tienda — el SUPERADMIN programa el recordatorio desde
+        # "Tareas", pero no registra lecturas él mismo). Exclusión explícita de SUPERADMIN: sin el
+        # `self.perfil != "SUPERADMIN"` de aquí, `_mm.default_visible` deja pasar a SUPERADMIN por su
+        # comodín habitual de "ve todos los módulos" (ver `modulos_menu.default_visible`) — este módulo
+        # es la excepción deliberada a ese comodín (el propio guard de ruta en
+        # `abrir_ventana_por_id` ya bloqueaba a SUPERADMIN; ahora la tarjeta tampoco se muestra).
+        if self.perfil != "SUPERADMIN" and self._acceso_modulo(
+                "registro_temperatura", _mm.default_visible("registro_temperatura", self.perfil)):
+            btn_regtemp = self.crear_tarjeta_menu(
+                "Temperaturas", "registro_temperatura", "#22F4E6", "document"
+            )
+            footer_buttons.append(btn_regtemp)
+
+        # Fichajes (control de asistencia por PIN): EXTRAÍDO de la pestaña "FICHAJES" de
+        # Configuración a módulo de nivel superior propio, disponible para los 3 ROLES
+        # (OPERARIO/ADMINISTRADOR/SUPERADMIN) — sin gate de perfil, mismo criterio que otras
+        # tarjetas universales (TPV/Stock/...). Dentro del módulo, "REVISAR FICHAJES EMPLEADOS" sí
+        # queda restringido a SOLO SUPERADMIN (ver `fichajes_gui.py`).
+        if self._acceso_modulo("fichajes", _mm.default_visible("fichajes", self.perfil)):
+            btn_fichajes = self.crear_tarjeta_menu(
+                "Fichajes", "fichajes", "#22F4E6", "hourglass"
+            )
+            footer_buttons.append(btn_fichajes)
+
+        # Horarios (antes "Horario empleados", pestaña de Configuración): EXTRAÍDO a módulo de
+        # nivel superior propio. Visible para ADMINISTRADOR y SUPERADMIN, NUNCA para OPERARIO.
+        # (Instrucción previa del usuario excluía también a SUPERADMIN "por falta de espacio en su
+        # menú" — ya no aplica: al retirarse la tarjeta "App Store" de este mismo menú, SUPERADMIN
+        # recupera hueco y el usuario ha pedido explícitamente que vuelva a ver "Horarios". Ver
+        # también el guard de ruta en `abrir_ventana_por_id` y el docstring de `horarios_gui.py`).
+        # RRHH Fase E: OPERARIO entra también, pero la ventana se abre para él en modo SOLO
+        # LECTURA con el único botón "Bolsa de horas" visible — el gate de perfil aquí solo decide
+        # si VE la tarjeta; el modo de solo lectura lo aplica `HorariosWindow` según su perfil.
+        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN", "OPERARIO") and self._acceso_modulo(
+                "horarios", _mm.default_visible("horarios", self.perfil)):
+            btn_horarios = self.crear_tarjeta_menu(
+                "Horarios", "horarios", "#22F4E6", "calendar_clock"
+            )
+            footer_buttons.append(btn_horarios)
 
         # La tarjeta "Notificaciones" se retira del menu principal (el motor interno de
         # notificaciones sigue activo; el Centro de Actividad permanece accesible por ruta).
 
-        if self.perfil in ("SUPERADMIN", "ADMINISTRADOR"):
-            btn_saas = self.crear_tarjeta_menu("SaaS", "saas", "#22F4E6", "subscription")
-            footer_buttons.append(btn_saas)
+        # SaaS/Suscripción: MIGRADA tal cual (petición explícita) a la pestaña "SUSCRIPCIÓN" de
+        # Configuración (`gestion_usuarios.py::ConfiguracionWindow`, SUPERADMIN, mismo gate que
+        # tenía esta tarjeta). El enrutado v_id "saas" se conserva por compatibilidad (no crea
+        # tarjeta) — `SaaSAdminWindow` sigue intacta, ahora embebida ahí sin su botón X.
 
-        # Multi-Tenant Cloud Manager (Fase V · Bloque 7): panel maestro de TODAS las empresas SaaS.
-        # SOLO SUPERADMIN (ve datos de todas las empresas → nunca visible para un admin de empresa).
-        if self.perfil == "SUPERADMIN":
-            btn_cloud = self.crear_tarjeta_menu(
-                "Cloud Manager", "cloud_manager", "#22F4E6", "cloud"
-            )
-            footer_buttons.append(btn_cloud)
+        # Multi-Tenant Cloud Manager: SIN tarjeta en el menú principal, a petición explícita —
+        # un panel que administra TODAS las empresas de la plataforma no debe vivir dentro del
+        # mismo software que cada empresa cliente instala; su lugar es un panel web separado,
+        # solo accesible para el operador de la plataforma (ver CLAUDE.md/conversación). El
+        # motor y la ventana (`services/cloud_manager`, `gui/cloud_manager_gui.py`) se
+        # conservan intactos por si se reutilizan para ese panel externo; el enrutado v_id
+        # "cloud_manager" también se conserva por compatibilidad (no crea tarjeta).
 
-        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
+        # RRHH y Proyectos: restringidos a SUPERADMIN a petición explícita.
+        if (self._acceso_modulo("rrhh", _mm.default_visible("rrhh", self.perfil))
+                or self._acceso_por_pestana("rrhh")):
             btn_rrhh = self.crear_tarjeta_menu("RRHH", "rrhh", "#22F4E6", "people_search")
             footer_buttons.append(btn_rrhh)
 
+        if (self._acceso_modulo("proyectos", _mm.default_visible("proyectos", self.perfil))
+                or self._acceso_por_pestana("proyectos")):
             btn_proy = self.crear_tarjeta_menu("Proyectos", "proyectos", "#22F4E6", "kanban")
             footer_buttons.append(btn_proy)
 
-        btn_portal = self.crear_tarjeta_menu(
-            "Portal del empleado", "portal", "#22F4E6", "monitor_search"
-        )
-        footer_buttons.append(btn_portal)
+        # Portal del empleado: RETIRADO del menú principal a petición explícita (confirmada de
+        # nuevo). El enrutado v_id "portal" se conserva por compatibilidad (no crea tarjeta) — la
+        # ventana sigue intacta. OJO (riesgo real, no resuelto todavía — ver conversación): con esta
+        # tarjeta fuera, un empleado de perfil OPERARIO (que no tiene acceso a RRHH/Documentos) se
+        # queda SIN ninguna vía de escritorio para ver sus nóminas/vacaciones/documentos pendientes
+        # de firma. Pendiente de que el usuario decida dónde debe vivir ese acceso.
 
-        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
-            # Kárdex, Inventario físico, Stock por almacén y Lotes migrados → Mostrar stock (pestañas).
+        # Portal de Incidencias / Helpdesk interno: SOLO ADMINISTRADOR (enviar) y SUPERADMIN
+        # (gestionar) — a petición explícita, nunca OPERARIO.
+        if (self._acceso_modulo("incidencias", _mm.default_visible("incidencias", self.perfil))
+                or self._acceso_por_pestana("incidencias")):
+            btn_incidencias = self.crear_tarjeta_menu(
+                "Incidencias", "incidencias", "#22F4E6", "support_agent"
+            )
+            footer_buttons.append(btn_incidencias)
+
+        # Kárdex, Inventario físico, Stock por almacén y Lotes migrados → Mostrar stock (pestañas).
+        if self._acceso_modulo("almacenes", _mm.default_visible("almacenes", self.perfil)):
             btn_gesalm = self.crear_tarjeta_menu(
                 "Almacenes", "almacenes", "#22F4E6", "warehouse"
             )
             footer_buttons.append(btn_gesalm)
 
-            # Producción / Fabricación (MRP): SIN tarjeta en el menú principal (retirada a propósito). El
-            # cuadro de mando (`MRPDashboardWindow`, con pestañas Órdenes · Sugerencias · KPIs · BOM) se
-            # accede EXCLUSIVAMENTE desde Almacenes · Operaciones → pestaña "MRP / Fabricación". Se evita la
-            # doble entrada al mismo módulo. Toda la lógica sigue en `services.mrp` (sin cambios).
+        # Producción / Fabricación (MRP): EXTRAÍDA de la pestaña embebida "MRP / Fabricación" en
+        # Almacenes · Operaciones a módulo de nivel superior propio (tarjeta "Fabricación", v_id
+        # "mrp", más abajo junto con Mantenimiento). Toda la lógica sigue en `services.mrp` (sin
+        # cambios); `MRPDashboardWindow` sigue siendo la misma ventana completa de siempre.
 
-            # Calidad: SIN tarjeta en el menú principal (retirada a propósito). El módulo de Calidad
-            # (`CalidadDashboardWindow`) y su servicio siguen intactos y se acceden EXCLUSIVAMENTE desde la
-            # pestaña "Calidad" de Compras/Proveedores (`compras_gestion.py`), evitando una doble entrada al
-            # mismo módulo. El enrutado por v_id "calidad" se conserva por compatibilidad (no crea tarjeta).
+        # Calidad: SIN tarjeta en el menú principal (retirada a propósito). El módulo de Calidad
+        # (`CalidadDashboardWindow`) y su servicio siguen intactos y se acceden EXCLUSIVAMENTE desde la
+        # pestaña "Calidad" de Compras/Proveedores (`compras_gestion.py`), evitando una doble entrada al
+        # mismo módulo. El enrutado por v_id "calidad" se conserva por compatibilidad (no crea tarjeta).
 
-            # Mantenimiento (GMAO): SIN tarjeta en el menú principal (MIGRADO a "Soporte Posventa", que aloja
-            # ahora sus 4 pestañas: Activos · Órdenes de trabajo · Planes preventivos · KPIs [unificados con
-            # los de SAT]). Se evita la doble entrada. El enrutado v_id "gmao" se conserva (compatibilidad).
+        # Mantenimiento (GMAO): EXTRAÍDA de la pestaña embebida "GMAO / Mantenimiento" en Almacenes ·
+        # Operaciones a módulo de nivel superior propio (tarjeta "Mantenimiento", v_id "gmao", más
+        # abajo). También sigue reutilizándose íntegramente desde "Posventa"
+        # (`sat_dashboard.py`) sin duplicar lógica; ambos puntos de entrada abren la misma
+        # `GMAODashboardWindow`.
 
-            # Posventa (SAT + GMAO): SIN tarjeta en el menú principal (retirada a propósito). El módulo de
-            # soporte (`SATDashboardWindow`) se accede desde el dashboard de CRM, y GMAO/Mantenimiento desde
-            # Almacenes · Operaciones → pestaña "GMAO / Mantenimiento". Se evita la doble entrada.
+        # Posventa (SAT): EXTRAÍDA de la pestaña embebida "SAT / Postventa" en el dashboard de CRM
+        # (`crm_dashboard.py`) a módulo de nivel superior propio (tarjeta "Posventa", v_id "sat", más
+        # abajo junto con Mantenimiento). Mismo patrón que la extracción de GMAO; toda la lógica
+        # sigue en `services.sat` y `SATDashboardWindow` es la misma ventana de siempre.
 
-            # Fiscal: SIN tarjeta en el menú principal (MIGRADO a Contabilidad → pestaña AEAT, que aloja
-            # ahora 3 apartados: Generar · Certificados · Registros Verifactu, reutilizando `FiscalPanels`).
-            # Se evita la doble entrada al mismo módulo. El enrutado v_id "fiscal" se conserva (compatibilidad).
+        # Fiscal: SIN tarjeta en el menú principal (MIGRADO a Contabilidad → pestaña AEAT, que aloja
+        # ahora 3 apartados: Generar · Certificados · Registros Verifactu, reutilizando `FiscalPanels`).
+        # Se evita la doble entrada al mismo módulo. El enrutado v_id "fiscal" se conserva (compatibilidad).
 
+        if self._acceso_modulo("migracion", _mm.default_visible("migracion", self.perfil)):
             btn_migracion = self.crear_tarjeta_menu(
                 "Migrar datos", "migracion", "#22F4E6", "box_refresh"
             )
             footer_buttons.append(btn_migracion)
 
         # Cámaras (videovigilancia): SOLO admin/superadmin — acceso restringido a propósito.
-        if self.perfil in ("ADMINISTRADOR", "SUPERADMIN"):
+        if self._acceso_modulo("camaras", _mm.default_visible("camaras", self.perfil)):
             btn_camaras = self.crear_tarjeta_menu(
                 "Cámaras", "camaras", "#22F4E6", "security_camera"
             )
             footer_buttons.append(btn_camaras)
 
-            # Edición PHARMACY: recetas y dispensación (tarjeta gateada por edición).
-            try:
-                from src.services import verticales
-                if verticales.visible("pharmacy.recetas"):
-                    btn_recetas = self.crear_tarjeta_menu("Recetas", "recetas", "#22F4E6", "document")
-                    footer_buttons.append(btn_recetas)
-                # Edición BAKERY: obrador / producción diaria (tarjeta gateada por edición).
-                if verticales.visible("bakery.obrador"):
-                    btn_obrador = self.crear_tarjeta_menu("Obrador", "obrador", "#22F4E6", "box_refresh")
-                    footer_buttons.append(btn_obrador)
-                # Reparto: FUNCIÓN BASE (no edición); flota y rutas de reparto, visible en las versiones que la incluyen.
-                if verticales.visible("transporte.reparto"):
-                    btn_transporte = self.crear_tarjeta_menu("Reparto", "transporte", "#22F4E6", "truck")
-                    footer_buttons.append(btn_transporte)
-                # Distribución B2B: FUNCIÓN BASE (no edición); visible en las versiones que la incluyen.
-                if verticales.visible("distribucion.expedicion"):
-                    btn_distri = self.crear_tarjeta_menu("Distribución", "distribucion", "#22F4E6",
-                                                         "delivery_clipboard")
-                    footer_buttons.append(btn_distri)
-            except Exception:
-                pass
+        # Edición PHARMACY: recetas y dispensación (tarjeta gateada por edición — el gate de edición
+        # NUNCA lo revoca una ACL: qué funciones incluye la instalación no es un permiso de usuario).
+        try:
+            from src.services import verticales
+            if verticales.visible("pharmacy.recetas") and self._acceso_modulo(
+                    "recetas", _mm.default_visible("recetas", self.perfil)):
+                btn_recetas = self.crear_tarjeta_menu("Recetas", "recetas", "#22F4E6", "document")
+                footer_buttons.append(btn_recetas)
+            # Edición BAKERY: obrador / producción diaria (tarjeta gateada por edición).
+            if verticales.visible("bakery.obrador") and self._acceso_modulo(
+                    "obrador", _mm.default_visible("obrador", self.perfil)):
+                btn_obrador = self.crear_tarjeta_menu("Obrador", "obrador", "#22F4E6", "box_refresh")
+                footer_buttons.append(btn_obrador)
+        except Exception:
+            pass
 
-            btn_market = self.crear_tarjeta_menu(
-                "App Store", "marketplace", "#22F4E6", "marketplace"
-            )
-            footer_buttons.append(btn_market)
+        # App Store (v_id "marketplace"): RETIRADA a propósito (decisión de producto informada — ver
+        # `marketplace_gui.py`, docstring @deprecated). Ninguna capacidad esencial (pasarelas de pago,
+        # e-commerce, Canal Web) dependía de "instalar" nada aquí; todas ya son módulos núcleo
+        # autónomos con su propia pantalla de configuración (`_PasarelaConfigDialog` en TPV,
+        # `services/tpv/ecommerce/`, Canal Web). Ni la tarjeta ni el enrutado por v_id sobreviven
+        # (`MarketplaceWindow` queda inalcanzable desde el escritorio); el servicio
+        # `services/marketplace` se conserva porque lo sigue usando Cloud Manager/observabilidad y el
+        # propio SDK de plugins internamente.
+
+        # Distribución y Reparto: restringidos a SUPERADMIN a petición explícita (antes
+        # ADMINISTRADOR|SUPERADMIN, junto con Cámaras). Se mantiene el gating por edición
+        # (FUNCIÓN BASE, visible solo en las versiones que la incluyen).
+        try:
+            from src.services import verticales
+            if verticales.visible("transporte.reparto") and (self._acceso_modulo(
+                    "transporte", _mm.default_visible("transporte", self.perfil))
+                    or self._acceso_por_pestana("transporte")):
+                btn_transporte = self.crear_tarjeta_menu("Reparto", "transporte", "#22F4E6", "truck")
+                footer_buttons.append(btn_transporte)
+            if verticales.visible("distribucion.expedicion") and self._acceso_modulo(
+                    "distribucion", _mm.default_visible("distribucion", self.perfil)):
+                btn_distri = self.crear_tarjeta_menu("Distribución", "distribucion", "#22F4E6",
+                                                     "delivery_clipboard")
+                footer_buttons.append(btn_distri)
+        except Exception:
+            pass
+
+        # Fabricación (MRP) y Mantenimiento (GMAO): extraídos de las pestañas embebidas en
+        # "Almacenes · Operaciones" (almacenes_gui.py) a módulos de nivel superior propios, con
+        # tarjeta en el menú principal. Misma audiencia que Almacenes/Migrar datos (ADMINISTRADOR|
+        # SUPERADMIN). Fabricación conserva el gate por edición (oculto en BAKERY, sustituido por
+        # Obrador); Mantenimiento no tenía gate y no se le añade uno. v_id "mrp" es nuevo; v_id
+        # "gmao" reutiliza el enrutado ya existente (antes solo alcanzable por compatibilidad).
+        try:
+            from src.services import verticales
+            _mrp_visible = verticales.visible("almacenes.mrp")
+        except Exception:
+            _mrp_visible = True
+        if _mrp_visible and self._acceso_modulo("mrp", _mm.default_visible("mrp", self.perfil)):
+            btn_mrp = self.crear_tarjeta_menu("Producción", "mrp", "#22F4E6", "box_refresh")
+            footer_buttons.append(btn_mrp)
+
+        if self._acceso_modulo("gmao", _mm.default_visible("gmao", self.perfil)):
+            btn_gmao = self.crear_tarjeta_menu("Mantenimiento", "gmao", "#22F4E6", "warehouse")
+            footer_buttons.append(btn_gmao)
+
+        # Posventa (SAT): EXTRAÍDA de la pestaña embebida "SAT / Postventa" en el dashboard de CRM
+        # (`crm_dashboard.py`) a módulo de nivel superior propio (tarjeta "Posventa", v_id "sat"),
+        # mismo patrón que la extracción de Mantenimiento (GMAO). Toda la lógica sigue en
+        # `services.sat` (sin cambios); `SATDashboardWindow` sigue siendo la misma ventana completa
+        # de siempre — solo cambia su punto de entrada. Disponible EXCLUSIVAMENTE para
+        # OPERARIO/ADMINISTRADOR — excepción INVERSA a propósito (se oculta al perfil de MÁS
+        # privilegio, no al de menos; `default_visible`/`DEFAULT_OPERARIO` ya cubren
+        # OPERARIO/ADMINISTRADOR, aquí solo se excluye SUPERADMIN explícitamente). Mismo criterio
+        # aplicado también en el routing de `abrir_ventana_por_id` para cerrar el acceso por vías
+        # que no pasan por la tarjeta (p. ej. comando de voz de SOMA).
+        if self.perfil != "SUPERADMIN" and self._acceso_modulo("sat", _mm.default_visible("sat", self.perfil)):
+            btn_sat = self.crear_tarjeta_menu("Posventa", "sat", "#22F4E6", "clipboard_check")
+            footer_buttons.append(btn_sat)
+
+        # Nóminas: módulo de nivel superior NUEVO (petición explícita, F4.10 — cierre de la brecha
+        # de acceso que dejó la retirada de la tarjeta "Portal del empleado" del menú: un OPERARIO
+        # sin acceso a RRHH/Documentos se quedaba sin ninguna vía de escritorio para ver sus propias
+        # nóminas). Autoconsulta SOLO LECTURA de la nómina PROPIA de cada trabajador con cuenta
+        # vinculada — mismo criterio INVERSO que "sat": exclusivo de ADMINISTRADOR/OPERARIO, oculto
+        # a SUPERADMIN (que gestiona/aprueba nóminas desde RRHH, no desde aquí).
+        if self.perfil != "SUPERADMIN" and self._acceso_modulo(
+                "nominas", _mm.default_visible("nominas", self.perfil)):
+            btn_nominas = self.crear_tarjeta_menu("Nóminas", "nominas", "#22F4E6", "wallet")
+            footer_buttons.append(btn_nominas)
+
+        # Redes Sociales Corporativas: módulo de nivel superior NUEVO, EXCLUSIVO de SUPERADMIN a
+        # petición explícita (bandeja omnicanal, calendario de contenidos, analítica cruzada con
+        # el ERP, monitorización de reputación con escalado automático a Incidencias). Mismo
+        # criterio que Cámaras/Reparto/Distribución: la tarjeta respeta ACL (`_acceso_modulo`) por
+        # consistencia visual, pero el gate AUTORITATIVO es el `self.perfil != "SUPERADMIN"` en el
+        # routing de `abrir_ventana_por_id` (alcanzable también sin tarjeta, p. ej. por voz SOMA).
+        if self.perfil == "SUPERADMIN" and (self._acceso_modulo(
+                "redes_sociales", _mm.default_visible("redes_sociales", self.perfil))
+                or self._acceso_por_pestana("redes_sociales")):
+            btn_redes_sociales = self.crear_tarjeta_menu("RRSS", "redes_sociales",
+                                                         "#22F4E6", "bell")
+            footer_buttons.append(btn_redes_sociales)
 
         # Salir → esquina inferior DERECHA (botón plano, fuera del grid).
         btn_salir = self._crear_boton_esquina("Salir", "logout", "#FF5C70", "logout")
@@ -760,12 +948,11 @@ class MenuPrincipal(QWidget):
         for index, widget in enumerate(footer_buttons):
             row = index // columns
             col = index % columns
-            footer_grid.addWidget(
+            grid_layout.addWidget(
                 widget, row, col, alignment=Qt.AlignmentFlag.AlignCenter
             )
 
-        footer_layout.addLayout(footer_grid)
-        menu_layout.addWidget(footer_container, alignment=Qt.AlignmentFlag.AlignCenter)
+        menu_layout.addWidget(grid_container, alignment=Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(menu_container, alignment=Qt.AlignmentFlag.AlignCenter)
         main_layout.addStretch()
 
@@ -825,11 +1012,6 @@ class MenuPrincipal(QWidget):
                 )
             if hasattr(self, "_version_lbl"):
                 self._version_lbl.setText(f"v2.4.0 - {tr('menu.powered_by')}")
-            for lbl in self._lock_lbls:
-                try:
-                    lbl.setText("🔒\n" + tr("menu.restricted"))
-                except Exception:
-                    pass
         except Exception:
             pass
 
@@ -865,13 +1047,24 @@ class MenuPrincipal(QWidget):
         "rrhh": "RRHH.png",
         "proyectos": "Proyectos.png",
         "portal": "Portal_empleado.png",
+        "incidencias": "portal_incidencias.png",
         "almacenes": "Almacenes.png",
         "camaras": "Cámaras.png",
         "migracion": "Migrar datos.png",
         "obrador": "Obrador.png",
         "distribucion": "Distribucion.png",
         "transporte": "Reparto.png",
-        "marketplace": "App_store.png",
+        "mrp": "Fabricación.png",
+        "gmao": "Mantenimiento.png",
+        "sat": "SAT_Posventa.png",
+        "autonomia_ia": "Autonomía IA.png",
+        "automatizacion": "Automatización.png",
+        "aprobaciones": "Aprobaciones.png",
+        "registro_temperatura": "Control Temperatura.png",
+        "fichajes": "Fichajes.png",
+        "horarios": "Horario.png",
+        "redes_sociales": "RRSS.png",
+        "nominas": "nominas.png",
     }
 
     # Iconos que se RECOLOREAN a neón. Los PNG ya traen su color propio (mismo tono turquesa apagado),
@@ -914,6 +1107,7 @@ class MenuPrincipal(QWidget):
         "saas": "menu.card_saas",
         "rrhh": "menu.card_rrhh",
         "portal": "menu.card_portal",
+        "incidencias": "menu.card_incidencias",
         "kardex": "menu.card_kardex",
         "inventario_fisico": "menu.card_inventario_fisico",
         "lotes": "menu.card_lotes",
@@ -1024,7 +1218,7 @@ class MenuPrincipal(QWidget):
             pm = type(self)._png_cache.get(clave)
             if pm is None:
                 from src.utils import recursos
-                ruta = recursos.ruta_recurso("assets", filename)
+                ruta = recursos.ruta_recurso("assets", "iconos_menu", filename)
                 pm = QPixmap(ruta)
                 if pm.isNull():
                     return None
@@ -1056,10 +1250,60 @@ class MenuPrincipal(QWidget):
         except Exception:
             return None
 
+    def _cargar_reglas_acl_modulos(self) -> dict:
+        """Reglas ACL EXPLÍCITAS (Seguridad · Reglas de acceso) de este usuario sobre módulos
+        concretos: {v_id: True (permitir) | False (denegar)}. Una regla explícita SIEMPRE prevalece
+        —en cualquier dirección— sobre el criterio de perfil habitual (ver `_acceso_modulo`).
+        SUPERADMIN nunca se ve afectado (mismo criterio que el resto de la app: acceso completo)."""
+        if self.perfil == "SUPERADMIN":
+            return {}
+        try:
+            from src.db import rbac as _rbac
+            usuario = getattr(sesion_global, "usuario_actual", None) or {}
+            uid = usuario.get("id")
+            if not uid:
+                return {}
+            reglas = _rbac.listar_acl(recurso_tipo="modulo", id_empresa=usuario.get("id_empresa"))
+            return {
+                r.get("recurso_id"): bool(r.get("permitido")) for r in reglas
+                if r.get("sujeto_tipo") == "usuario" and str(r.get("sujeto_id")) == str(uid)
+            }
+        except Exception:
+            return {}
+
+    def _acceso_modulo(self, v_id, permitido_por_defecto: bool) -> bool:
+        """Resuelve si el usuario en sesión ve la tarjeta de `v_id`: si hay una regla ACL explícita
+        para ese módulo, PREVALECE (permitir o denegar, en cualquier dirección) sobre el criterio de
+        perfil habitual que se le pasa como valor por defecto."""
+        return self._reglas_acl_modulos.get(v_id, permitido_por_defecto)
+
+    def _acceso_por_pestana(self, v_id) -> bool:
+        """¿Tiene el usuario en sesión al menos una PESTAÑA concedida (Seguridad · Reglas de
+        acceso) dentro del módulo `v_id`? Si es así, deja entrar a la tarjeta aunque no tenga
+        acceso completo — el propio módulo (`pestanas_app.tiene_modulo_completo` en su sidebar/
+        pestañas) se encarga de mostrarle SOLO la(s) pestaña(s) concedida(s), nunca las demás."""
+        usuario = getattr(sesion_global, "usuario_actual", None) or {}
+        return _pa.tiene_alguna_pestana_permitida(v_id, usuario)
+
     def crear_tarjeta_menu(self, texto, v_id, color, icon_key):
         # MODO PYME SIMPLE: no crear (ni registrar) las tarjetas de módulos no esenciales.
         if not self._visible_en_menu(v_id):
             return None
+        # ACL (Seguridad · Reglas de acceso): red de seguridad adicional por si algún punto de
+        # llamada no pasara por `_acceso_modulo` — una denegación explícita nunca debe colarse.
+        if self._reglas_acl_modulos.get(v_id) is False:
+            return None
+        # Plan de suscripción (SaaS): un módulo no incluido en el plan actual ni siquiera se
+        # muestra en el menú — mostrar una tarjeta que al pulsarla solo da un aviso de "no
+        # incluido en tu plan" confunde al usuario. Mismo gate que `manejar_apertura`, aplicado
+        # aquí ANTES de crear la tarjeta (punto único: cubre todos los módulos gateados a la vez).
+        try:
+            from src.services.saas import enforcement as _enf
+            permitido, _motivo = _enf.acceso_modulo(v_id)
+            if not permitido:
+                return None
+        except Exception:
+            pass
         png = self._PNG_MODULOS.get(v_id)
         tint = color if v_id in self._PNG_TINT_NEON else None   # recolorear a neón los apagados
         ajuste = 2 if v_id in self._PNG_GRUESO else (-2 if v_id in self._PNG_FINO else 1)  # +2 engrosar / -2 afinar / 1 leve
@@ -1123,16 +1367,6 @@ class MenuPrincipal(QWidget):
                   <g fill="none" stroke="{color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M40 92h48a20 20 0 0 0 4 -39 26 26 0 0 0 -50 -8 18 18 0 0 0 -2 47z"/>
                     <path d="M52 74l8 8 16 -16"/>
-                  </g>
-                </svg>
-            """,
-            "marketplace": f"""
-                <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-                  <g fill="none" stroke="{color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="26" y="26" width="32" height="32" rx="8"/>
-                    <rect x="70" y="26" width="32" height="32" rx="8"/>
-                    <rect x="26" y="70" width="32" height="32" rx="8"/>
-                    <path d="M86 72v28M72 86h28"/>
                   </g>
                 </svg>
             """,
@@ -1496,6 +1730,29 @@ class MenuPrincipal(QWidget):
                   </g>
                 </svg>
             """,
+            "hourglass": f"""
+                <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+                  <g fill="none" stroke="{color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M34 20h60"/>
+                    <path d="M34 108h60"/>
+                    <path d="M38 20c0 22 13 34 26 34s26-12 26-34"/>
+                    <path d="M38 108c0-22 13-34 26-34s26 12 26 34"/>
+                    <path d="M64 54v20"/>
+                  </g>
+                </svg>
+            """,
+            "calendar_clock": f"""
+                <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+                  <g fill="none" stroke="{color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="16" y="24" width="62" height="72" rx="8"/>
+                    <path d="M16 44h62"/>
+                    <path d="M33 16v14M61 16v14"/>
+                    <path d="M28 60h12M28 74h12M48 60h10"/>
+                    <circle cx="92" cy="80" r="26"/>
+                    <path d="M92 66v14l10 8"/>
+                  </g>
+                </svg>
+            """,
             "delivery_clipboard": f"""
                 <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
                   <g fill="none" stroke="{color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
@@ -1522,44 +1779,6 @@ class MenuPrincipal(QWidget):
         painter.end()
         return QIcon(pixmap)
 
-    def crear_bloqueo_visual(self, layout, fila, col):
-        lock_container = QFrame()
-        lock_container.setFixedSize(170, 150)
-        lock_container.setStyleSheet("""
-            background-color: rgba(20, 28, 36, 0.90);
-            border: 1px dashed #3E4C5C;
-            border-radius: 24px;
-            """)
-
-        glow = QGraphicsDropShadowEffect(lock_container)
-        glow.setBlurRadius(12)
-        glow.setColor(QColor("#2A3440"))
-        glow.setOffset(0, 0)
-        lock_container.setGraphicsEffect(glow)
-
-        l_layout = QVBoxLayout(lock_container)
-        l_layout.setContentsMargins(18, 18, 18, 18)
-        l_layout.setSpacing(8)
-
-        spacer_top = QLabel("")
-        spacer_top.setFixedHeight(28)
-        l_layout.addWidget(spacer_top)
-
-        lbl = QLabel("🔒\n" + tr("menu.restricted"))
-        lbl.setStyleSheet("""
-            color: #667586;
-            font-weight: 900;
-            font-size: 16px;
-            border: none;
-            background: transparent;
-            """)
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._lock_lbls.append(lbl)
-        l_layout.addWidget(lbl, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(
-            lock_container, fila, col, alignment=Qt.AlignmentFlag.AlignCenter
-        )
-
     # ============================================================
     # BLOQUE ESTADO DE CONEXIÓN A BASE DE DATOS
     # ============================================================
@@ -1576,7 +1795,7 @@ class MenuPrincipal(QWidget):
         """Tipo de perfil traducido SOLO para mostrar (ADMINISTRADOR/OPERARIO →
         idioma activo). self.perfil se mantiene en español como valor de lógica
         (control de acceso por rol), por eso no se traduce esa variable."""
-        return tr("roles." + self.perfil.lower(), default=self.perfil).upper()
+        return tr("roles." + self.perfil.lower(), default=self.perfil)
 
     def _actualizar_logo_label(self):
         # Logo CORPORATIVO del cliente, a la IZQUIERDA junto a la referencia de
@@ -1693,17 +1912,30 @@ class MenuPrincipal(QWidget):
 
                 self.manejar_apertura(v_id, ObradorWindow, **kwargs)
             elif v_id == "transporte":
+                # Restringido a SUPERADMIN — la tarjeta ya está oculta para el resto de perfiles,
+                # pero esta ruta también es alcanzable sin pasar por la tarjeta, así que se aplica
+                # el mismo filtro aquí (mismo patrón que "camaras").
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.transporte_gui import TransporteWindow
 
                 self.manejar_apertura(v_id, TransporteWindow, **kwargs)
             elif v_id == "distribucion":
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.distribucion_gui import DistribucionWindow
 
                 self.manejar_apertura(v_id, DistribucionWindow, **kwargs)
-            elif v_id == "marketplace":
-                from src.gui.marketplace_gui import MarketplaceWindow
+            elif v_id == "redes_sociales":
+                # EXCLUSIVO de SUPERADMIN (petición explícita) — la tarjeta ya está oculta para
+                # el resto de perfiles, pero esta ruta también es alcanzable sin pasar por la
+                # tarjeta (p. ej. comando de voz de SOMA), así que se aplica el mismo filtro aquí
+                # (mismo patrón que "camaras"/"transporte"/"distribucion").
+                if self.perfil != "SUPERADMIN":
+                    return
+                from src.gui.redes_sociales_gui import RedesSocialesWindow
 
-                self.manejar_apertura(v_id, MarketplaceWindow, **kwargs)
+                self.manejar_apertura(v_id, RedesSocialesWindow, **kwargs)
             elif v_id == "cloud_manager":
                 from src.gui.cloud_manager_gui import CloudManagerWindow
 
@@ -1728,12 +1960,19 @@ class MenuPrincipal(QWidget):
                     self.manejar_apertura(v_id, ComprasAvanzadoWindow, **kwargs)
             elif v_id == "clientes_crm":
                 # Dominio CRM: la entrada es el Cuadro de mando Comercial (CRMDashboard), que hospeda
-                # como pestañas la gestión de Clientes y el SAT/postventa. Reutiliza las ventanas
-                # existentes (clientes_gui, sat) sin duplicarlas.
+                # como pestaña la gestión de Clientes (reutiliza `clientes_gui` sin duplicarla). El
+                # SAT/Postventa se MIGRÓ a su propio módulo de nivel superior (tarjeta "Posventa",
+                # v_id "sat", más arriba) y ya no vive aquí como pestaña.
+                # Restringido a SUPERADMIN — la tarjeta ya está oculta para el resto de perfiles,
+                # pero esta ruta también es alcanzable sin pasar por la tarjeta.
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.crm_dashboard import CRMDashboardWindow
 
                 self.manejar_apertura(v_id, CRMDashboardWindow, **kwargs)
             elif v_id == "rrhh":
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.rrhh_gestion import RRHHWindow
 
                 self.manejar_apertura(v_id, RRHHWindow, **kwargs)
@@ -1741,11 +1980,27 @@ class MenuPrincipal(QWidget):
                 from src.gui.portal_empleado import PortalEmpleadoWindow
 
                 self.manejar_apertura(v_id, PortalEmpleadoWindow, **kwargs)
+            elif v_id == "nominas":
+                # Exclusivo de ADMINISTRADOR/OPERARIO (petición explícita) — la tarjeta ya está
+                # oculta para SUPERADMIN, pero esta ruta también es alcanzable sin pasar por la
+                # tarjeta (p. ej. comando de voz de SOMA), así que se aplica el mismo filtro aquí
+                # (mismo patrón inverso que "sat").
+                if self.perfil == "SUPERADMIN":
+                    return
+                from src.gui.nominas_personales import NominasPersonalesWindow
+
+                self.manejar_apertura(v_id, NominasPersonalesWindow, **kwargs)
+            elif v_id == "incidencias":
+                from src.gui.portal_incidencias_gui import PortalIncidenciasWindow
+
+                self.manejar_apertura(v_id, PortalIncidenciasWindow, **kwargs)
             elif v_id == "kardex":
                 from src.gui.kardex_visor import KardexVisorWindow
 
                 self.manejar_apertura(v_id, KardexVisorWindow, **kwargs)
             elif v_id == "tesoreria":
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.tesoreria_gui import TesoreriaWindow
 
                 self.manejar_apertura(v_id, TesoreriaWindow, **kwargs)
@@ -1753,6 +2008,8 @@ class MenuPrincipal(QWidget):
                 # Centro de Inteligencia Empresarial (Enterprise Shell): Dashboard Ejecutivo +
                 # Centro de Actividad + Gemelo + Predicción + Simulador. v_id "bi" se conserva por
                 # compatibilidad (SaaS-gate, badges, cache de ventanas).
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.inteligencia_gui import InteligenciaWindow
 
                 self.manejar_apertura(v_id, InteligenciaWindow, **kwargs)
@@ -1761,6 +2018,8 @@ class MenuPrincipal(QWidget):
 
                 self.manejar_apertura(v_id, AEATWindow, **kwargs)
             elif v_id == "seguridad":
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.seguridad_gui import SeguridadWindow
 
                 self.manejar_apertura(v_id, SeguridadWindow, **kwargs)
@@ -1768,6 +2027,46 @@ class MenuPrincipal(QWidget):
                 from src.gui.workflow_gui import WorkflowWindow
 
                 self.manejar_apertura(v_id, WorkflowWindow, **kwargs)
+            elif v_id == "autonomia_ia":
+                if self.perfil != "SUPERADMIN":
+                    return
+                from src.gui.autonomia_ia_gui import AutonomiaIAWindow
+
+                self.manejar_apertura(v_id, AutonomiaIAWindow, **kwargs)
+            elif v_id == "automatizacion":
+                if self.perfil != "SUPERADMIN":
+                    return
+                from src.gui.automatizacion_gui import AutomatizacionWindow
+
+                self.manejar_apertura(v_id, AutomatizacionWindow, **kwargs)
+            elif v_id == "aprobaciones":
+                if self.perfil != "SUPERADMIN":
+                    return
+                from src.gui.aprobaciones_gui import AprobacionesWindow
+
+                self.manejar_apertura(v_id, AprobacionesWindow, **kwargs)
+            elif v_id == "registro_temperatura":
+                if self.perfil not in ("OPERARIO", "ADMINISTRADOR"):
+                    return
+                from src.gui.registro_temperatura_gui import RegistroTemperaturaWindow
+
+                self.manejar_apertura(v_id, RegistroTemperaturaWindow, **kwargs)
+            elif v_id == "fichajes":
+                # Disponible para los 3 roles — sin guard de perfil (mismo criterio que otras
+                # rutas universales como "stock"/"tpv"). La restricción de "REVISAR FICHAJES
+                # EMPLEADOS" a SOLO SUPERADMIN se aplica DENTRO de FichajesWindow.
+                from src.gui.fichajes_gui import FichajesWindow
+
+                self.manejar_apertura(v_id, FichajesWindow, **kwargs)
+            elif v_id == "horarios":
+                # ADMINISTRADOR, SUPERADMIN y (RRHH Fase E) OPERARIO en modo solo lectura — mismo
+                # criterio que la tarjeta del menú, ver más arriba. Alcanzable también sin pasar
+                # por la tarjeta (p. ej. comandos de voz), de ahí el guard aquí también.
+                if self.perfil not in ("ADMINISTRADOR", "SUPERADMIN", "OPERARIO"):
+                    return
+                from src.gui.horarios_gui import HorariosWindow
+
+                self.manejar_apertura(v_id, HorariosWindow, **kwargs)
             elif v_id == "notificaciones":
                 # Fase 3: "Notificaciones" evoluciona al Centro de Actividad Empresarial
                 # (timeline del Event Bus + panel de sincronizacion + historial).
@@ -1775,6 +2074,12 @@ class MenuPrincipal(QWidget):
 
                 self.manejar_apertura(v_id, CentroActividadWindow, **kwargs)
             elif v_id == "saas":
+                # Suscripción: restringido a SUPERADMIN (la tarjeta ya está oculta para el resto de
+                # perfiles vía `modulos_menu.DEFAULT_ADMINISTRADOR`, pero esta ruta también es
+                # alcanzable sin pasar por la tarjeta — p. ej. comando de voz de SOMA — mismo
+                # criterio ya aplicado a "compras"/Proveedores).
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.saas_admin import SaaSAdminWindow
 
                 self.manejar_apertura(v_id, SaaSAdminWindow, **kwargs)
@@ -1802,7 +2107,24 @@ class MenuPrincipal(QWidget):
                 from src.gui.gmao_dashboard import GMAODashboardWindow
 
                 self.manejar_apertura(v_id, GMAODashboardWindow, **kwargs)
+            elif v_id == "sat":
+                # Posventa: disponible EXCLUSIVAMENTE para OPERARIO/ADMINISTRADOR (excepción
+                # INVERSA — se oculta al perfil de MÁS privilegio, no al de menos). La tarjeta ya
+                # no se crea para SUPERADMIN (ver el gate justo antes de `crear_tarjeta_menu("Posventa"...)`
+                # más arriba), pero esta ruta también es alcanzable sin pasar por la tarjeta, p. ej.
+                # comando de voz de SOMA.
+                if self.perfil == "SUPERADMIN":
+                    return
+                from src.gui.sat_dashboard import SATDashboardWindow
+
+                self.manejar_apertura(v_id, SATDashboardWindow, **kwargs)
+            elif v_id == "mrp":
+                from src.gui.mrp_dashboard import MRPDashboardWindow
+
+                self.manejar_apertura(v_id, MRPDashboardWindow, **kwargs)
             elif v_id == "proyectos":
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.proyectos_gui import ProyectosWindow
 
                 self.manejar_apertura(v_id, ProyectosWindow, **kwargs)
@@ -1811,6 +2133,8 @@ class MenuPrincipal(QWidget):
 
                 self.manejar_apertura(v_id, FiscalWindow, **kwargs)
             elif v_id == "contabilidad":
+                if self.perfil != "SUPERADMIN":
+                    return
                 from src.gui.contabilidad_gestion import ContabilidadWindow
 
                 self.manejar_apertura(v_id, ContabilidadWindow, **kwargs)
@@ -1827,6 +2151,21 @@ class MenuPrincipal(QWidget):
             else:
                 QMessageBox.critical(self, tr("menu.error_title"), _msg)
             self.mostrar_menu_principal()
+
+    @staticmethod
+    def _gate_soma_tpv(activo: bool) -> None:
+        """Gate explícito de SOMA para el TPV (petición explícita, para TODOS los roles): se llama
+        en los puntos GARANTIZADOS de `_abrir_tpv_en_stack` donde el TPV pasa a ser/deja de ser la
+        página actual del `QStackedWidget` raíz — no se delega SOLO en `TPVWindow.showEvent`/
+        `hideEvent` (`gui.soma.overlay.set_tpv_activo`) porque, con el TPV embebido como página de un
+        stack (en vez de ventana top-level propia) detrás de las transiciones animadas de
+        `transiciones.deslizar_entrada_modulo`, esos eventos de Qt no siempre llegan a disparase de
+        forma fiable; esta llamada directa es idempotente y sirve de refuerzo, no de sustituto."""
+        try:
+            from src.gui.soma import set_tpv_activo as _soma_set_tpv_activo
+            _soma_set_tpv_activo(activo)
+        except Exception:
+            pass
 
     def _abrir_tpv_en_stack(self, TPVWindow):
         """Abre el TPV dentro del QStackedWidget raíz (SmartManagerApp).
@@ -1857,31 +2196,56 @@ class MenuPrincipal(QWidget):
             except Exception:
                 pass
 
-        def volver_de_tpv():
+        def volver_de_tpv(*, animar=True):
+            # `animar=False` (usado por `TPVWindow._cerrar_tpv_e_ir_al_menu`, tras cerrar Gestión
+            # Caja): ese caso YA tiene su PROPIO overlay de salida (el de `deslizar_salida_y_cerrar`
+            # sobre la ventana de Gestión Caja) cubriendo la pantalla mientras dura la transición — si
+            # ADEMÁS este método monta su propio overlay+animación de deslizamiento (independiente,
+            # en una superficie distinta: una ventana top-level "siempre encima" vs. este QLabel hijo
+            # de `smart_app`), ambas animaciones corren en paralelo pero compuestas por Windows/DWM
+            # con timing independiente — un desajuste de solo un fotograma entre ambas deja ver
+            # brevemente ESTA instantánea (el TPV, con la pantalla de bloqueo) antes de que la suya
+            # propia termine de deslizarse. Sin animación propia aquí, el cambio de página ocurre
+            # instantáneo DEBAJO del overlay ajeno que ya lo tapa — sin esa segunda animación no hay
+            # nada que pueda desincronizarse.
             instancia = self._ventanas.pop("tpv", None)
             # Instantánea del TPV para el deslizamiento de SALIDA (mismo patrón que la entrada,
             # invertido), capturada ANTES de quitarlo del stack mientras aún es la página visible.
             _snap_tpv = None
-            if instancia is not None:
+            if animar and instancia is not None:
                 try:
-                    _snap_tpv = instancia.grab()
+                    from src.gui.transiciones import capturar_pantalla
+                    _snap_tpv = capturar_pantalla(instancia)
                 except Exception:
                     _snap_tpv = None
-                try:
-                    smart_app.removeWidget(instancia)
-                    instancia.deleteLater()
-                except Exception:
-                    pass
-            try:
-                from src.gui.transiciones import deslizar_entrada_modulo
-                deslizar_entrada_modulo(
-                    _snap_tpv, smart_app,
-                    al_cubrir=lambda: smart_app.setCurrentWidget(self))
-            except Exception:
+
+            def _cubrir():
+                self._gate_soma_tpv(False)
+                # `removeWidget` (quitar TPV del stack) va AQUÍ, dentro de `al_cubrir` — no antes de
+                # llamar a `deslizar_entrada_modulo`: un QStackedWidget, al perder su página ACTUAL,
+                # cae de inmediato a otra (normalmente el menú, índice 0) — si eso ocurre ANTES de que
+                # el overlay ya esté tapando, el menú se ve un instante sin nada que lo cubra (el
+                # "parpadeo transparente" reportado). Con esto dentro de `al_cubrir`, ya ocurre con el
+                # overlay ya pintado y encima.
+                if instancia is not None:
+                    try:
+                        smart_app.removeWidget(instancia)
+                        instancia.deleteLater()
+                    except Exception:
+                        pass
                 try:
                     smart_app.setCurrentWidget(self)
                 except Exception:
                     pass
+
+            if animar:
+                try:
+                    from src.gui.transiciones import deslizar_entrada_modulo
+                    deslizar_entrada_modulo(_snap_tpv, smart_app, al_cubrir=_cubrir)
+                except Exception:
+                    _cubrir()
+            else:
+                _cubrir()
             self.show()
 
         tpv = TPVWindow(
@@ -1906,21 +2270,25 @@ class MenuPrincipal(QWidget):
             pass
         # Instantánea del menú para la animación de deslizamiento de entrada (con el menú aún visible).
         try:
-            _snap_menu = self.grab()
+            from src.gui.transiciones import capturar_pantalla
+            _snap_menu = capturar_pantalla(self)
         except Exception:
             _snap_menu = None
         smart_app.addWidget(tpv)
+
+        def _entrar_tpv():
+            self._gate_soma_tpv(True)
+            smart_app.setCurrentWidget(tpv)
+
         # Deslizamiento de ENTRADA al TPV: la instantánea del menú se coloca sobre el stack, el cambio de
         # página menú→TPV ocurre DEBAJO (al_cubrir, no se ve el TPV aparecer) y la instantánea se desliza a
         # la derecha revelando el TPV. Sin destello ni TPV previo.
         try:
             from src.gui.transiciones import deslizar_entrada_modulo
-            deslizar_entrada_modulo(
-                _snap_menu, smart_app,
-                al_cubrir=lambda: smart_app.setCurrentWidget(tpv))
+            deslizar_entrada_modulo(_snap_menu, smart_app, al_cubrir=_entrar_tpv)
         except Exception:
             try:
-                smart_app.setCurrentWidget(tpv)
+                _entrar_tpv()
             except Exception:
                 pass
         self.hide()   # el menú ya no es la página actual del stack; ocultarlo es invisible
@@ -1942,9 +2310,9 @@ class MenuPrincipal(QWidget):
             permitido, motivo = _enf.acceso_modulo(identificador)
             if not permitido:
                 try:
-                    from PyQt6.QtWidgets import QMessageBox
+                    from assets.estilo_global import mostrar_mensaje
 
-                    QMessageBox.warning(self, "Suscripción", motivo)
+                    mostrar_mensaje(self, "Suscripción", motivo, "warning")
                 except Exception:
                     pass
                 return
@@ -1974,11 +2342,28 @@ class MenuPrincipal(QWidget):
             # oculta todavía — se mantiene visible DEBAJO mientras se construye y revela el módulo, para
             # que no haya parpadeo del fondo durante la construcción; se ocultará tras revelar el módulo.
             try:
-                _snap_menu = self.grab()
+                from src.gui.transiciones import capturar_pantalla
+                _snap_menu = capturar_pantalla(self)
             except Exception:
                 _snap_menu = None
 
             kwargs["main"] = self
+
+            # Si la pre-carga en segundo plano (`_precargar_modulos_pesados`) todavía está
+            # importando módulos pesados (cv2/reportlab/etc.) en su propio hilo, se espera aquí
+            # (con margen) a que termine ANTES de construir la ventana del módulo. Dos hilos
+            # cargando extensiones nativas C/C++ a la vez (import concurrente) es una fuente real
+            # de corrupción de memoria intermitente en Windows (loader lock), que puede
+            # manifestarse como un crash nativo en CUALQUIER DLL de Qt más tarde, no solo en el
+            # propio import — de ahí el patrón "a veces se abre y a veces no" reportado en varios
+            # módulos. Construir SIEMPRE de forma serializada respecto a la pre-carga es más
+            # barato (como mucho ~1-2 s una sola vez tras el arranque) que el riesgo de colisión.
+            _hilo_precarga = getattr(self, "_hilo_precarga", None)
+            if _hilo_precarga is not None and _hilo_precarga.is_alive():
+                try:
+                    _hilo_precarga.join(timeout=5.0)
+                except Exception:
+                    pass
 
             nueva_v = clase_ventana(**kwargs)
             self._ventanas[identificador] = nueva_v
@@ -2100,7 +2485,8 @@ class MenuPrincipal(QWidget):
             visibles = [v for v in ventanas if v.isVisible()]
             origen = visibles[0] if len(visibles) == 1 else (ventanas[-1] if ventanas else None)
             if origen is not None:
-                _snap_modulo = origen.grab()
+                from src.gui.transiciones import capturar_pantalla
+                _snap_modulo = capturar_pantalla(origen)
         except Exception:
             _snap_modulo = None
 
@@ -2266,17 +2652,86 @@ class MenuPrincipal(QWidget):
         except Exception:
             pass
 
-    def _abrir_selector_tienda(self):
-        """Abre el selector de tienda; si se cambia, recarga el contexto."""
+    def _texto_centro_asignado(self) -> str:
+        """Texto del piloto de solo lectura (ADMINISTRADOR/OPERARIO): el centro (`centros_trabajo`)
+        vinculado al usuario actual vía `usuarios.id_centro_trabajo` — "Sin centro asignado" si no
+        hay vínculo (aún no lo ha vinculado ningún SUPERADMIN, ver «🔗 Vincular a centro»)."""
         try:
-            from src.gui.selector_tienda import SelectorTiendaDialog
+            from src.db.usuario import obtener_usuario, sesion_global
+            uid = (sesion_global.usuario_actual or {}).get("id")
+            actual = obtener_usuario(uid) if uid else None
+            id_centro = (actual or {}).get("id_centro_trabajo")
+            if id_centro:
+                from src.db import centros as _cts
+                c = _cts.obtener_centro(id_centro)
+                if c:
+                    return f"📍  {c.get('nombre_centro') or c.get('codigo_centro') or '—'}"
+        except Exception as e:
+            logger.debug("No se pudo resolver el centro asignado: %s", e)
+        return "📍  " + tr("menu.sin_centro", default="Sin centro asignado")
 
-            dlg = SelectorTiendaDialog(self)
+    def _abrir_selector_centro(self, es_login=False):
+        """Abre "Cambiar de Centro"; si se cambia, recarga el contexto.
+
+        Bloqueado mientras haya una migración de datos abierta (pedido explícito): el asistente
+        captura el centro una sola vez al abrirse y lo usa durante todo el flujo — cambiarlo a
+        mitad de camino lo dejaría trabajando contra un centro distinto del que de verdad está
+        activo.
+
+        `es_login=True` (pedido explícito, solo lo usa `main.py::_abrir_selector_centro_tras_login`,
+        auto-abierto tras el login de un SUPERADMIN sin centro activo): si el diálogo se cierra SIN
+        elegir (✕ roja / Escape), redirige de vuelta al selector de perfil — igual que un logout —
+        en vez de dejar al SUPERADMIN parado en el Menú Principal sin centro. Al reabrirlo luego a
+        mano desde el chip (ya con sesión y centro resueltos), `es_login` es False y cerrarlo sin
+        elegir simplemente no hace nada, como siempre."""
+        try:
+            from src.gui.migracion_gui import migracion_en_curso
+            if migracion_en_curso():
+                if mostrar_mensaje is not None:
+                    mostrar_mensaje(
+                        self, tr("menu.centro_bloqueado_t", default="Migración en curso"),
+                        tr("menu.centro_bloqueado_msg",
+                           default="No puedes cambiar de centro mientras el asistente de Migrar "
+                                   "datos está abierto. Ciérralo y vuelve a intentarlo."),
+                        nivel="warning")
+                return
+        except Exception:
+            pass
+        try:
+            from src.gui.selector_tienda import SelectorCentroDialog
+
+            dlg = SelectorCentroDialog(self)
             dlg.exec()
             if dlg.get_resultado():
                 self._recargar_contexto_tienda()
+            elif es_login:
+                self._volver_a_selector_perfil()
         except Exception as e:
-            logger.error("Error al abrir el selector de tienda: %s", e, exc_info=True)
+            logger.error("Error al abrir el selector de centro: %s", e, exc_info=True)
+
+    def _volver_a_selector_perfil(self):
+        """Redirige de vuelta a la ventana previa al login (selector de perfil) — SOLO usado tras
+        un login de SUPERADMIN sin centro que cierra "Cambiar de Centro" sin elegir (ver
+        `_abrir_selector_centro`). Reutiliza el MISMO mecanismo que "Cerrar sesión" (`cerrar_sesion`
+        más abajo): limpia recursos, limpia la sesión con `sesion_global.cerrar_sesion()` (no una
+        asignación directa a `usuario_actual` — esa se salta el flush de stock y el cierre del
+        registro de sesión de escritorio que sí hace el método real) y CIERRA esta ventana — con
+        `WA_DeleteOnClose` eso dispara `destroyed` -> `detectar_logout()`, que hace la transición
+        real al selector.
+
+        BUG CORREGIDO: llamar a `detectar_logout()` DIRECTAMENTE (sin cerrar la ventana) dejaba
+        este `MenuPrincipal` vivo pero huérfano dentro del stack. El SIGUIENTE login lo encontraba
+        (`abrir_menu_principal` limpia cualquier `MenuPrincipal` previo antes de crear uno nuevo) y
+        lo destruía con `deleteLater()`, disparando un `destroyed` TARDÍO de esa instancia vieja ya
+        con la sesión NUEVA activa — `_procesar_retorno_o_cierre` interpretaba eso como "se cerró
+        la ventana de la app entera" y apagaba el proceso (`QApplication.quit()`), cerrando toda la
+        aplicación en mitad del segundo login."""
+        try:
+            self._cerrar_recursos()
+            sesion_global.cerrar_sesion()
+            self.close()
+        except Exception as e:
+            logger.error("Error al volver al selector de perfil: %s", e, exc_info=True)
 
     def _recargar_contexto_tienda(self):
         """Tras cambiar de tienda: cierra los módulos abiertos (se reabrirán con el
@@ -2318,15 +2773,18 @@ class MenuPrincipal(QWidget):
         self.mostrar_menu_principal()
         return cerro_alguna
 
-    def abrir_gestion_caja(self, accion_inicial=None):
+    def abrir_gestion_caja(self, accion_inicial=None, callback_vuelta=None):
         """P4/P4.1 — Abre la Gestión de Caja en su VENTANA PROPIA (GestionCajaWindow),
         reutilizando la lógica de caja existente. accion_inicial (opcional) dispara
-        directamente movimiento/cambio de cajero (acceso rápido desde el TPV)."""
+        directamente movimiento/cambio de cajero (acceso rápido desde el TPV).
+        `callback_vuelta` (opcional): a dónde vuelve la X — por defecto el menú principal, pero el
+        acceso rápido desde el TPV (`TPVWindow._ir_gestion_caja`) pasa uno propio para volver al TPV
+        en vez de al menú (antes siempre volvía al menú, aunque se hubiera entrado desde el TPV)."""
         try:
             from src.gui.gestion_usuarios import GestionCajaWindow
 
             kwargs = {
-                "callback_vuelta": self.mostrar_menu_principal,
+                "callback_vuelta": callback_vuelta or self.mostrar_menu_principal,
                 "usuario": sesion_global.usuario_actual,
             }
             if accion_inicial is not None:
@@ -2431,13 +2889,31 @@ class MenuPrincipal(QWidget):
         btn.setStyleSheet(f"QPushButton{{background:#0E1117;color:{color};border:2px solid {color};"
                           "border-radius:10px;font-weight:900;font-size:12px;padding:0 18px;}"
                           f"QPushButton:hover{{background:{color};color:#0E1117;}}")
-        btn.clicked.connect(lambda: (card.hide(), card.deleteLater()))
+        btn.clicked.connect(self._cerrar_notif_saas)
         fila.addWidget(btn); lay.addLayout(fila)
         self._notif_saas_widget = card
         card.adjustSize(); card.setFixedWidth(max(420, card.sizeHint().width()))
         self._posicionar_notif_saas()
         card.show(); card.raise_()
-        QTimer.singleShot(14000, lambda: (card.hide(), card.deleteLater()) if card else None)
+        # 14s más tarde, autocierre — PERO el usuario puede haber pulsado "ENTENDIDO" bastante antes
+        # (bug real, crash reportado en terminal: `RuntimeError: wrapped C/C++ object of type QFrame
+        # has been deleted`). La lambda original comprobaba `if card` — eso solo mira si la
+        # referencia PYTHON sigue sin ser None, no si el objeto C++ subyacente sigue vivo (`.hide()`
+        # sobre uno ya borrado por `deleteLater()` revienta con RuntimeError). Fix: comparar contra
+        # `self._notif_saas_widget` (que `_cerrar_notif_saas` pone a None al cerrarse manualmente)
+        # en vez de comprobar la variable capturada, que nunca cambia.
+        QTimer.singleShot(14000, lambda c=card: self._cerrar_notif_saas() if self._notif_saas_widget is c else None)
+
+    def _cerrar_notif_saas(self):
+        card = getattr(self, "_notif_saas_widget", None)
+        if card is None:
+            return
+        self._notif_saas_widget = None
+        try:
+            card.hide()
+            card.deleteLater()
+        except RuntimeError:
+            pass   # ya se había cerrado (doble disparo manual+temporizador)
 
     def _posicionar_notif_saas(self):
         card = getattr(self, "_notif_saas_widget", None)
@@ -2597,7 +3073,9 @@ class MenuPrincipal(QWidget):
                     logger.debug(f"Pre-carga de {mod} omitida: {e}")
 
         try:
-            threading.Thread(target=_worker, daemon=True, name="preloader").start()
+            hilo = threading.Thread(target=_worker, daemon=True, name="preloader")
+            self._hilo_precarga = hilo
+            hilo.start()
         except Exception as e:
             logger.debug(f"No se pudo iniciar la pre-carga de módulos: {e}")
 

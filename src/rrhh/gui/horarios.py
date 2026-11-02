@@ -215,6 +215,8 @@ class _TurnoCelda(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._warn_btn: "QToolButton | None" = None
+        self._warn_msg: "str | None" = None
         lay = QHBoxLayout(self)
         lay.setContentsMargins(2, 1, 2, 1)
         lay.setSpacing(2)
@@ -289,42 +291,77 @@ class _TurnoCelda(QWidget):
         self.cb_h.blockSignals(False)
         self.cb_m.blockSignals(False)
 
+    # ── aviso de descanso mínimo (Fase E, punto 4) ───────────────────────────
+    def set_warning(self, mensaje: "str | None"):
+        """Muestra (mensaje no vacío) u oculta (None) un icono "!" rojo en la esquina de la
+        celda — clicable, abre `assets.estilo_global.mostrar_mensaje` con el motivo exacto."""
+        self._warn_msg = mensaje
+        if mensaje:
+            if self._warn_btn is None:
+                btn = QToolButton(self)
+                btn.setText("!")
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setFixedSize(14, 14)
+                btn.setStyleSheet(
+                    "QToolButton{background:#EF4444;color:#FFFFFF;border:none;"
+                    "border-radius:7px;font-family:'Segoe UI';font-weight:bold;font-size:10px;}"
+                    "QToolButton:hover{background:#FF6B6B;}"
+                )
+                btn.clicked.connect(self._mostrar_warning)
+                self._warn_btn = btn
+            self._warn_btn.move(max(0, self.width() - 16), 2)
+            self._warn_btn.show()
+            self._warn_btn.raise_()
+        elif self._warn_btn is not None:
+            self._warn_btn.hide()
 
-class _EmpNameEdit(QWidget):
-    """Employee name cell widget.
+    def _mostrar_warning(self):
+        from assets.estilo_global import mostrar_mensaje
+        mostrar_mensaje(self, tr("rrhh.descanso_warn_title", default="Aviso de descanso"),
+                        self._warn_msg or "", "warning")
 
-    Outer QWidget handles all mouse events; inner QLineEdit has
-    WA_TransparentForMouseEvents=True, which prevents WA_UnderMouse from
-    ever being set on it. This stops QLineEdit:hover from the global
-    stylesheet from activating — no matter the specificity battle.
-    """
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._warn_btn is not None and self._warn_btn.isVisible():
+            self._warn_btn.move(max(0, self.width() - 16), 2)
 
-    textChanged = pyqtSignal(str)
+
+class _EmpSelectCell(QWidget):
+    """Employee SELECTOR cell (RRHH Fase E — sustituye al antiguo campo de texto libre, del que
+    conserva el botón de color por empleado sin cambios). `QComboBox` poblado por la tabla
+    contenedora (`_HorarioTable.refrescar_opciones_dropdowns`) con los empleados del centro que
+    aún no estén elegidos en OTRA fila de la MISMA tabla (exclusión mutua)."""
+
+    idChanged = pyqtSignal(object)   # id_empleado (int) o None
+    textChanged = pyqtSignal(str)    # compat: nombre visible de la selección actual
+
+    PLACEHOLDER = "— Selecciona empleado —"
 
     def __init__(self, row_bg: str, parent=None):
         super().__init__(parent)
         self._row_bg = row_bg
         self.setObjectName("empNameOuter")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setCursor(Qt.CursorShape.IBeamCursor)
 
         # Color propio del empleado (None = sin color; se pinta el fondo de esta celda). El gestor de
         # unicidad (la tabla) inyecta `solicitar_color` para validar que cada color sea único.
         self._color: "str | None" = None
         self.solicitar_color = None
+        self._current_id = None
+        self._current_label = ""
+        self._warn_btn: "QToolButton | None" = None
+        self._warn_msg: "str | None" = None
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        self._edit = QLineEdit(self)
-        self._edit.setObjectName("empNameInner")
-        # Mouse events pass through to the outer QWidget; WA_UnderMouse is
-        # therefore never set on the inner QLineEdit → QLineEdit:hover cannot fire.
-        self._edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._edit.textChanged.connect(self.textChanged)
-        self._edit.installEventFilter(self)
-        lay.addWidget(self._edit, 1)
+        self._combo = _HorarioComboBox(self)
+        self._combo.setObjectName("empSelectCombo")
+        self._combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._combo.installEventFilter(self)
+        self._combo.currentIndexChanged.connect(self._on_index_changed)
+        lay.addWidget(self._combo, 1)
 
         # Botón PINCEL (solo emoji, sin texto): abre el selector de color estándar de la app para asignar
         # un color propio al empleado. Va a la derecha; la columna EMPLEADO se ensancha (_W_EMP) para que
@@ -344,7 +381,7 @@ class _EmpNameEdit(QWidget):
         lay.addWidget(self._btn_color, 0, Qt.AlignmentFlag.AlignVCenter)
         lay.addSpacing(4)
 
-        self.setFocusProxy(self._edit)
+        self.setFocusProxy(self._combo)
         self._aplicar_color_texto(self._row_bg)
         self._set_style(focused=False)
 
@@ -364,12 +401,12 @@ class _EmpNameEdit(QWidget):
             fg = "#0D1117" if lum > 140 else "#D0DCE8"
         except Exception:
             fg = "#D0DCE8"
-        self._edit.setStyleSheet(
-            "QLineEdit#empNameInner {"
+        self._combo.setStyleSheet(
+            "QComboBox#empSelectCombo {"
             f" background: transparent; border: none; color: {fg};"
             " font-family: 'Segoe UI'; font-size: 12px; padding: 0 8px;"
             "}"
-            "QLineEdit#empNameInner:focus { background: transparent; border: none; }"
+            "QComboBox#empSelectCombo::drop-down { border: none; width: 16px; }"
         )
 
     # ── Color propio del empleado ─────────────────────────────────────────────
@@ -403,7 +440,7 @@ class _EmpNameEdit(QWidget):
         )
 
     def eventFilter(self, obj, event):
-        if obj is self._edit:
+        if obj is self._combo:
             t = event.type()
             if t == QEvent.Type.FocusIn:
                 self._set_style(focused=True)
@@ -411,22 +448,83 @@ class _EmpNameEdit(QWidget):
                 self._set_style(focused=False)
         return super().eventFilter(obj, event)
 
-    def mousePressEvent(self, event):
-        self._edit.setFocus(Qt.FocusReason.MouseFocusReason)
-        pos = self._edit.mapFrom(self, event.position().toPoint())
-        self._edit.setCursorPosition(self._edit.cursorPositionAt(pos))
-        super().mousePressEvent(event)
+    # ── selección / exclusión mutua (gestionada por la tabla contenedora) ─────
 
-    # ── QLineEdit API proxy ───────────────────────────────────────────────────
+    def cargar_opciones(self, opciones: list):
+        """`opciones`: `[(id_empleado, label), ...]` YA filtradas por
+        `_HorarioTable.refrescar_opciones_dropdowns` (incluye siempre la selección ACTUAL de esta
+        fila, aunque esté "tomada" en otra, para no perder el dato al repintar)."""
+        self._combo.blockSignals(True)
+        self._combo.clear()
+        self._combo.addItem(self.PLACEHOLDER, None)
+        sel_idx = 0
+        for i, (eid, label) in enumerate(opciones, start=1):
+            self._combo.addItem(label or "", eid)
+            if eid is not None and eid == self._current_id:
+                sel_idx = i
+        self._combo.setCurrentIndex(sel_idx)
+        self._current_label = self._combo.itemText(sel_idx) if sel_idx > 0 else ""
+        self._combo.blockSignals(False)
+
+    def _on_index_changed(self, idx):
+        self._current_id = self._combo.currentData()
+        self._current_label = self._combo.currentText() if idx > 0 else ""
+        self.idChanged.emit(self._current_id)
+        self.textChanged.emit(self._current_label)
+
+    def get_id(self):
+        return self._current_id
+
+    def set_id(self, id_empleado):
+        """Fija el id seleccionado SIN repoblar el combo — usar antes de
+        `cargar_opciones`/`refrescar_opciones_dropdowns` (p. ej. al restaurar desde disco)."""
+        self._current_id = id_empleado
+
+    # ── compat con el antiguo `_EmpNameEdit` (AUSENCIA, impresión, guardado) ──
 
     def text(self) -> str:
-        return self._edit.text()
+        return self._current_label
 
     def setText(self, t: str):
-        self._edit.setText(t)
+        # Compat: si se invoca con un id_empleado numérico, se interpreta como tal; con texto
+        # libre no hay forma de mapear a un id real (ver `horarios_vinculo_empleado.py`), se
+        # ignora — el llamador debe usar `set_id` para datos ya normalizados.
+        pass
 
     def setPlaceholderText(self, t: str):
-        self._edit.setPlaceholderText(t)
+        pass  # compat no-op: el combo ya tiene su propio placeholder fijo (PLACEHOLDER)
+
+    def setEnabled(self, enabled: bool):
+        super().setEnabled(enabled)
+        self._combo.setEnabled(enabled)
+        self._btn_color.setEnabled(enabled)
+
+    # ── aviso de descanso semanal (Fase E, punto 4) ───────────────────────────
+    def set_warning(self, mensaje: "str | None"):
+        self._warn_msg = mensaje
+        if mensaje:
+            if self._warn_btn is None:
+                btn = QToolButton(self)
+                btn.setText("!")
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setFixedSize(14, 14)
+                btn.setStyleSheet(
+                    "QToolButton{background:#EF4444;color:#FFFFFF;border:none;"
+                    "border-radius:7px;font-family:'Segoe UI';font-weight:bold;font-size:10px;}"
+                    "QToolButton:hover{background:#FF6B6B;}"
+                )
+                btn.clicked.connect(self._mostrar_warning)
+                self._warn_btn = btn
+            self._warn_btn.move(2, 2)
+            self._warn_btn.show()
+            self._warn_btn.raise_()
+        elif self._warn_btn is not None:
+            self._warn_btn.hide()
+
+    def _mostrar_warning(self):
+        from assets.estilo_global import mostrar_mensaje
+        mostrar_mensaje(self, tr("rrhh.descanso_warn_title", default="Aviso de descanso"),
+                        self._warn_msg or "", "warning")
 
 
 class _HorarioLoadingWidget(QWidget):
@@ -875,9 +973,17 @@ class _HorarioTable(QWidget):
     build_complete = pyqtSignal()
 
     # Fixed column widths
-    # EMPLEADO se ensancha (145→184) para alojar el botón del pincel (color por empleado) a la derecha
-    # SIN recortar el espacio del nombre (queda ≈154 px de texto, igual o más que los 145 previos).
-    _W_EMP  = 184   # EMPLEADO column (nombre + botón de color)
+    # EMPLEADO se ensancha (145→184→360→270): a 184px el combo (`_EmpSelectCell`) solo tenía ≈124px
+    # reales para el texto tras restar el botón pincel (24px) + su espaciado (4px) + el padding
+    # interno del combo (16px) + la flecha del drop-down (16px) — insuficiente incluso para el
+    # propio placeholder ("— Selecciona empleado —", ≈276px a 12px). 360px dejaba ≈300px de texto
+    # (suficiente incluso para "Nombre Apellido1 Apellido2"), pero resultó demasiado ancho a ojo del
+    # usuario, que pidió reducirlo un 25% (360×0.75=270) de forma explícita. A 270px quedan ≈210px
+    # reales de texto: el placeholder y nombres cortos (1-2 palabras) siguen sin recortarse, pero un
+    # nombre real de "Nombre Apellido1 Apellido2" (frecuente en España) SÍ hace elipsis — riesgo
+    # conocido y aceptado a petición explícita del usuario; comportamiento normal de QComboBox
+    # (tooltip/hover no muestran el texto completo salvo que se añada explícitamente).
+    _W_EMP  = 270   # EMPLEADO column (nombre + botón de color)
     _W_TOT  = 145   # TOTAL SEMANA column
     _ROW_H0 = 32    # day header row
     _ROW_H1 = 30    # sub-header row
@@ -889,8 +995,11 @@ class _HorarioTable(QWidget):
         self._n_emp = max(1, n_emp)
         self._names: list[str] = [""] * self._n_emp
         self._colors: list[str] = [""] * self._n_emp   # color propio por empleado ("" = sin color)
+        self._emp_ids: list = [None] * self._n_emp     # id_empleado real por fila (Fase E)
+        self._empleados_cache: "list | None" = None    # [(id, "Nombre Apellidos"), ...] del centro
+        self._solo_lectura = False                     # OPERARIO: rejilla no editable (Fase E)
         self._cells: list = []        # [emp][day] = (ini_w, fin_w)
-        self._name_edits: list[QLineEdit] = []
+        self._name_edits: list = []   # instancias de `_EmpSelectCell` (una por fila)
         self._absences: dict = {}     # {(emp_idx, day_idx): {"text": str, "color": str}}
         self._tbl: QTableWidget | None = None
         self._lay = QVBoxLayout(self)
@@ -1023,14 +1132,15 @@ class _HorarioTable(QWidget):
         row = 2 + e
         row_bg = "#0D1117" if e % 2 == 0 else "#0A0F14"
 
-        name_w = _EmpNameEdit(row_bg)
-        name_w.setPlaceholderText(tr("cfg.emp_placeholder", default="Empleado..."))
-        if e < len(self._names):
-            name_w.setText(self._names[e])
+        name_w = _EmpSelectCell(row_bg)
+        if e < len(self._emp_ids):
+            name_w.set_id(self._emp_ids[e])
         name_w.solicitar_color = self._solicitar_color_para
         if e < len(self._colors) and self._colors[e]:
             name_w.setColor(self._colors[e])
         name_w.textChanged.connect(lambda t, idx=e: self._on_name_changed(idx, t))
+        name_w.idChanged.connect(lambda eid, idx=e: self._on_emp_id_changed(idx, eid))
+        name_w.setEnabled(not self._solo_lectura)
         tbl.setCellWidget(row, 0, name_w)
         self._name_edits.append(name_w)
 
@@ -1057,6 +1167,8 @@ class _HorarioTable(QWidget):
             fin_w.changed.connect(lambda _=None, ei=e, di=d: self._recalc(ei, di))
             for cb in (ini_w.cb_h, ini_w.cb_m, fin_w.cb_h, fin_w.cb_m):
                 cb.setStyleSheet(_TURNO_CB_SS)
+            ini_w.setEnabled(not self._solo_lectura)
+            fin_w.setEnabled(not self._solo_lectura)
             day_cells.append((ini_w, fin_w))
 
         it_sem = QTableWidgetItem("0h 00min")
@@ -1075,6 +1187,7 @@ class _HorarioTable(QWidget):
         if tbl is not self._tbl:   # stale
             return
         self._apply_all_absences()
+        self.refrescar_opciones_dropdowns()
         _filt = getattr(self, "_build_filt", None)
         _app  = getattr(self, "_build_app",  None)
         if _filt is not None and _app is not None:
@@ -1097,7 +1210,7 @@ class _HorarioTable(QWidget):
         if idx < len(self._names):
             self._names[idx] = text
 
-    def _solicitar_color_para(self, cell: "_EmpNameEdit"):
+    def _solicitar_color_para(self, cell: "_EmpSelectCell"):
         """Abre el selector de color estándar para `cell` y aplica el color SOLO si es único (cada
         empleado un color distinto). Punto único que conoce todos los colores en uso."""
         from src.gui.color_picker import seleccionar_color
@@ -1112,6 +1225,129 @@ class _HorarioTable(QWidget):
             return
         cell.setColor(hexcol)
 
+    # ── desplegable de empleados: exclusión mutua (Fase E, punto 1) ───────────
+
+    def _empleados_disponibles(self) -> list:
+        """`[(id_empleado, "Nombre Apellidos"), ...]` del centro actual (empresa activa vía
+        `db.empresa.empresa_actual_id`, resuelta dentro de `listar_empleados`), cacheado por
+        instancia de tabla. Sin filtrar por `estado`: un empleado ya de baja debe poder seguir
+        apareciendo en una fila que YA lo tuviera asignado (mismo criterio que
+        `horarios_vinculo_empleado._mapa_empleados`)."""
+        if self._empleados_cache is None:
+            try:
+                from src.rrhh.db.empleados import listar_empleados
+                empleados = listar_empleados() or []
+            except Exception:
+                empleados = []
+            opciones = []
+            for e in empleados:
+                eid = e.get("id")
+                if not eid:
+                    continue
+                nombre = (e.get("nombre") or "").strip()
+                apellidos = (e.get("apellidos") or "").strip()
+                label = f"{nombre} {apellidos}".strip() if apellidos else nombre
+                opciones.append((eid, label or f"Empleado {eid}"))
+            self._empleados_cache = opciones
+        return self._empleados_cache
+
+    def refrescar_opciones_dropdowns(self):
+        """Recalcula, para CADA fila, la lista de empleados que puede ofrecer su desplegable:
+        todos los del centro MENOS los ya elegidos en OTRA fila de esta misma tabla (exclusión
+        mutua) — la propia selección de la fila siempre se incluye, para no perderla al repintar.
+        Se invoca cada vez que cambia la selección de cualquier fila."""
+        if not self._name_edits:
+            return
+        todos = self._empleados_disponibles()
+        ocupados = {cell.get_id() for cell in self._name_edits if cell.get_id() is not None}
+        for cell in self._name_edits:
+            propio = cell.get_id()
+            disponibles = [(eid, label) for eid, label in todos
+                           if eid not in ocupados or eid == propio]
+            cell.cargar_opciones(disponibles)
+
+    def _on_emp_id_changed(self, idx: int, id_empleado):
+        if idx < len(self._emp_ids):
+            self._emp_ids[idx] = id_empleado
+        self.refrescar_opciones_dropdowns()
+
+    def get_id_label_pairs(self) -> list:
+        """`[(id_empleado, label), ...]` de las filas con un empleado real asignado — usado por el
+        botón "Bolsa de horas" para ofrecer el selector de empleado (Fase E, punto 3)."""
+        return [(cell.get_id(), cell.text()) for cell in self._name_edits if cell.get_id()]
+
+    # ── solo lectura por rol (Fase E, punto 2) ────────────────────────────────
+
+    def set_solo_lectura(self, solo_lectura: bool):
+        """OPERARIO: ninguna celda de esta tabla es editable (ni el desplegable de empleado ni los
+        turnos). Se puede llamar ANTES de que la tabla termine de construirse (`_finalize_build`
+        vuelve a aplicar el estado guardado sobre las filas ya creadas)."""
+        self._solo_lectura = solo_lectura
+        self._aplicar_solo_lectura()
+
+    def _aplicar_solo_lectura(self):
+        editable = not self._solo_lectura
+        for cell in self._name_edits:
+            cell.setEnabled(editable)
+        for row in self._cells:
+            for ini_w, fin_w in row:
+                ini_w.setEnabled(editable)
+                fin_w.setEnabled(editable)
+
+    # ── avisos de descanso mínimo (Fase E, punto 4) ───────────────────────────
+
+    def aplicar_avisos_descanso(self) -> dict:
+        """Recalcula, para cada fila con empleado, las violaciones de descanso mínimo (diario 12h
+        / semanal 1,5 días) a partir de los propios datos de inicio/fin ya guardados en la
+        rejilla (`src.rrhh.descansos.verificar_descansos_semana`, función pura) y refresca los
+        iconos "!" de aviso. Se invoca al GUARDAR la rejilla (`horarios_gui.py`). Devuelve
+        `{emp_idx: [violaciones]}` (uso interno/tests)."""
+        from src.rrhh.descansos import verificar_descansos_semana
+        resumen: dict = {}
+        for e in range(len(self._cells)):
+            turnos = []
+            for d in range(7):
+                if (e, d) in self._absences:
+                    turnos.append(None)
+                    continue
+                ini_w, fin_w = self._cells[e][d]
+                ini_s, fin_s = ini_w.get_state(), fin_w.get_state()
+                if ini_s.get("modo") == "normal" and fin_s.get("modo") == "normal":
+                    ini_min = ini_s["h"] * 60 + ini_s["m"]
+                    fin_min = fin_s["h"] * 60 + fin_s["m"]
+                    # `_TurnoCelda.get_state()` no distingue "celda nunca tocada" de "00:00" real
+                    # (el combo de horas no tiene opción en blanco) — una duración de 0 minutos
+                    # (ini==fin, típicamente 00:00-00:00 en una fila recién creada) se interpreta
+                    # como "sin turno ese día", no como un turno real de duración cero; evita avisos
+                    # de descanso falsos sobre filas todavía sin rellenar.
+                    turnos.append({"ini_min": ini_min, "fin_min": fin_min}
+                                  if fin_min > ini_min else None)
+                else:
+                    turnos.append(None)
+
+            # limpia avisos previos de la fila antes de recalcular
+            for d in range(7):
+                if (e, d) in self._absences:
+                    continue
+                ini_w, fin_w = self._cells[e][d]
+                ini_w.set_warning(None)
+                fin_w.set_warning(None)
+            if e < len(self._name_edits):
+                self._name_edits[e].set_warning(None)
+
+            violaciones = verificar_descansos_semana(turnos)
+            for v in violaciones:
+                if v["tipo"] == "diario":
+                    da, db = v["dia_a"], v["dia_b"]
+                    if (e, da) not in self._absences:
+                        self._cells[e][da][1].set_warning(v["mensaje"])
+                    if (e, db) not in self._absences:
+                        self._cells[e][db][0].set_warning(v["mensaje"])
+                elif v["tipo"] == "semanal" and e < len(self._name_edits):
+                    self._name_edits[e].set_warning(v["mensaje"])
+            resumen[e] = violaciones
+        return resumen
+
     # ── row management ───────────────────────────────────────────────────────
 
     def add_row(self):
@@ -1121,11 +1357,13 @@ class _HorarioTable(QWidget):
             self._n_emp += 1
             self._names = [""] * self._n_emp
             self._colors = [""] * self._n_emp
+            self._emp_ids = [None] * self._n_emp
             return
 
         e = self._n_emp
         self._names = [ed.text() for ed in self._name_edits] + [""]
         self._colors = [(ed.color() or "") for ed in self._name_edits] + [""]
+        self._emp_ids = [ed.get_id() for ed in self._name_edits] + [None]
         self._n_emp += 1
 
         from assets import estilo_global as _eg
@@ -1143,10 +1381,11 @@ class _HorarioTable(QWidget):
 
         row_bg = "#0D1117" if e % 2 == 0 else "#0A0F14"
 
-        name_w = _EmpNameEdit(row_bg)
-        name_w.setPlaceholderText(tr("cfg.emp_placeholder", default="Empleado..."))
+        name_w = _EmpSelectCell(row_bg)
         name_w.solicitar_color = self._solicitar_color_para
         name_w.textChanged.connect(lambda t, idx=e: self._on_name_changed(idx, t))
+        name_w.idChanged.connect(lambda eid, idx=e: self._on_emp_id_changed(idx, eid))
+        name_w.setEnabled(not self._solo_lectura)
         tbl.setCellWidget(insert_pos, 0, name_w)
         self._name_edits.append(name_w)
 
@@ -1173,6 +1412,8 @@ class _HorarioTable(QWidget):
             fin_w.changed.connect(lambda _=None, ei=e, di=d: self._recalc(ei, di))
             for cb in (ini_w.cb_h, ini_w.cb_m, fin_w.cb_h, fin_w.cb_m):
                 cb.setStyleSheet(_TURNO_CB_SS)
+            ini_w.setEnabled(not self._solo_lectura)
+            fin_w.setEnabled(not self._solo_lectura)
             day_cells.append((ini_w, fin_w))
 
         it_sem = QTableWidgetItem("0h 00min")
@@ -1192,6 +1433,7 @@ class _HorarioTable(QWidget):
 
         if _app and _filt:
             _app.installEventFilter(_filt)
+        self.refrescar_opciones_dropdowns()
 
     # ── recalc ───────────────────────────────────────────────────────────────
 
@@ -1305,6 +1547,7 @@ class _HorarioTable(QWidget):
 
     def get_state(self) -> dict:
         names = [e.text() for e in self._name_edits]
+        ids = [e.get_id() for e in self._name_edits]
         colors = [(e.color() or "") for e in self._name_edits]
         schedule: dict = {}
         for e_idx in range(len(self._cells)):
@@ -1320,15 +1563,21 @@ class _HorarioTable(QWidget):
                     }
             schedule[str(e_idx)] = day_data
         absences = {f"{k[0]},{k[1]}": v for k, v in self._absences.items()}
-        return {"names": names, "colors": colors, "schedule": schedule, "absences": absences}
+        # "ids" (Fase E) es la fuente de verdad de "qué empleado real es esta fila"; "names" se
+        # conserva como texto de respaldo (visualización / migración desde datos antiguos), ver
+        # `rrhh/horarios_vinculo_empleado.py`.
+        return {"names": names, "ids": ids, "colors": colors, "schedule": schedule, "absences": absences}
 
     def set_state(self, data: dict):
         names = data.get("names", [])
+        ids = data.get("ids", [])
         colors = data.get("colors", [])
-        n_new = max(self._n_emp, len(names))
+        n_new = max(self._n_emp, len(names), len(ids))
         names_padded = list(names) + [""] * (n_new - len(names))
+        ids_padded = list(ids) + [None] * (n_new - len(ids))
         colors_padded = list(colors) + [""] * (n_new - len(colors))
         self._colors = colors_padded
+        self._emp_ids = ids_padded
         schedule = data.get("schedule", {})
         absences_raw = data.get("absences", {})
         self._absences = {
@@ -1348,9 +1597,10 @@ class _HorarioTable(QWidget):
             # Same employee count — refresh names, colors, restore schedule, apply absences.
             self._names = names_padded
             for i, edit in enumerate(self._name_edits):
-                if i < len(names_padded):
-                    edit.setText(names_padded[i])
+                if i < len(ids_padded):
+                    edit.set_id(ids_padded[i])
                 edit.setColor(colors_padded[i] if i < len(colors_padded) else None)
+            self.refrescar_opciones_dropdowns()
             self._restore_schedule(schedule)
             self._apply_all_absences()
 
@@ -1374,8 +1624,13 @@ class _HorarioSemana(QFrame):
 
     deleted = pyqtSignal(object)
 
-    def __init__(self, n_emp: int = 1, parent=None):
+    def __init__(self, n_emp: int = 1, parent=None, usuario: dict = None):
         super().__init__(parent)
+        # RRHH Fase E: rol del usuario en sesión (dict de `sesion_global.usuario_actual`) — decide
+        # el modo solo lectura de OPERARIO y qué puede ver/hacer el botón "Bolsa de horas".
+        self._usuario = usuario or {}
+        self._perfil = str(self._usuario.get("perfil") or "").upper()
+        self._es_operario = self._perfil == "OPERARIO"
         self.setObjectName("horarioSemana")
         self.setStyleSheet(f"""
             QFrame#horarioSemana {{
@@ -1432,19 +1687,38 @@ class _HorarioSemana(QFrame):
         btn_ausencia.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_ausencia.setStyleSheet("""
             QPushButton {
-                background: white; border: 1px solid #cccccc;
-                border-radius: 8px; color: black;
+                background: #11181D; border: 1px solid white;
+                border-radius: 8px; color: white;
                 font-family: 'Segoe UI'; font-weight: bold; font-size: 13px;
                 padding: 0 14px;
             }
-            QPushButton:hover { background: #f0f0f0; }
+            QPushButton:hover { background: white; color: #0E1117; }
         """)
         btn_ausencia.clicked.connect(self._show_ausencia)
         self._move_icon = _MoveIcon(self._start_drag)
+
+        # "Bolsa de horas" (RRHH Fase E, punto 3): visible para TODOS los roles, pero con reglas
+        # distintas — ver `_on_bolsa_horas`. Es el ÚNICO botón que OPERARIO ve en toda la ventana.
+        btn_bolsa = QPushButton(tr("rrhh.bolsa_horas_btn", default="BOLSA DE HORAS"))
+        btn_bolsa.setFixedHeight(36)
+        btn_bolsa.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_bolsa.setStyleSheet(f"""
+            QPushButton {{
+                background: #11181D; border: 1px solid {_CIAN};
+                border-radius: 8px; color: {_CIAN};
+                font-family: 'Segoe UI'; font-weight: bold; font-size: 13px;
+                padding: 0 16px;
+            }}
+            QPushButton:hover {{ background: {_CIAN}; color: #0E1117; }}
+        """)
+        btn_bolsa.clicked.connect(self._on_bolsa_horas)
+        self._btn_bolsa = btn_bolsa
+
         title_row.addWidget(self._title_edit, 1)
         title_row.addWidget(btn_print)
         title_row.addWidget(btn_del)
         title_row.addWidget(btn_ausencia)
+        title_row.addWidget(btn_bolsa)
         title_row.addWidget(self._move_icon)
         outer.addLayout(title_row)
         self._hscroll = QScrollArea()
@@ -1471,12 +1745,90 @@ class _HorarioSemana(QFrame):
         btn_add.clicked.connect(self._add_row)
         outer.addWidget(btn_add)
 
+        # RRHH Fase E, punto 2: OPERARIO ve la rejilla en modo SOLO LECTURA, sin ningún botón de
+        # edición — el ÚNICO botón visible para él es "Bolsa de horas" (y solo si tiene
+        # `horas_diarias` ya definidas, ver `_operario_tiene_bolsa_definida`).
+        if self._es_operario:
+            btn_print.setVisible(False)
+            btn_del.setVisible(False)
+            btn_ausencia.setVisible(False)
+            btn_add.setVisible(False)
+            self._move_icon.setVisible(False)
+            self._title_edit.setReadOnly(True)
+            self._grid.set_solo_lectura(True)
+            btn_bolsa.setVisible(self._operario_tiene_bolsa_definida())
+        else:
+            btn_bolsa.setVisible(True)
+
     def _sync_scroll_height(self):
         self._hscroll.setFixedHeight(self._grid.height() + 14)
 
     def _add_row(self):
         self._grid.add_row()
         self._hscroll.setFixedHeight(self._grid.height() + 14)
+
+    # ── "Bolsa de horas" (RRHH Fase E, punto 3) ───────────────────────────────
+
+    def _resolver_id_empleado_propio(self) -> "int | None":
+        """`id_empleado` de la cuenta de usuario en sesión (vínculo `rrhh_empleados.id_usuario`) —
+        usado por OPERARIO, que solo puede consultar su PROPIA bolsa de horas."""
+        id_usuario = self._usuario.get("id")
+        if not id_usuario:
+            return None
+        try:
+            from src.rrhh.db.empleados import obtener_por_usuario
+            emp = obtener_por_usuario(id_usuario)
+            return (emp or {}).get("id")
+        except Exception:
+            return None
+
+    def _operario_tiene_bolsa_definida(self) -> bool:
+        id_emp = self._resolver_id_empleado_propio()
+        if not id_emp:
+            return False
+        try:
+            from src.rrhh.bolsa_horas import obtener_bolsa_horas
+            bolsa = obtener_bolsa_horas(id_emp)
+            return bool(bolsa) and bolsa.get("horas_diarias") is not None
+        except Exception:
+            return False
+
+    def _on_bolsa_horas(self):
+        from src.rrhh.gui.bolsa_horas_dialog import abrir_bolsa_horas, elegir_empleado_dialog
+
+        if self._es_operario:
+            id_emp = self._resolver_id_empleado_propio()
+            if not id_emp:
+                mostrar_mensaje(
+                    self, tr("rrhh.bolsa_titulo_corto", default="Bolsa de horas"),
+                    tr("rrhh.bolsa_sin_ficha", default="No se pudo identificar tu ficha de empleado."),
+                    "warning")
+                return
+            nombre = self._usuario.get("nombre") or self._usuario.get("usuario") or ""
+            abrir_bolsa_horas(self, id_emp, nombre, puede_definir=False)
+            return
+
+        # ADMINISTRADOR/SUPERADMIN: eligen entre los empleados presentes en ESTA tabla.
+        pares = self._grid.get_id_label_pairs()
+        if not pares:
+            mostrar_mensaje(
+                self, tr("rrhh.bolsa_titulo_corto", default="Bolsa de horas"),
+                tr("rrhh.bolsa_sin_empleados", default="No hay empleados en esta tabla para consultar."),
+                "warning")
+            return
+        if len(pares) == 1:
+            id_emp, nombre = pares[0]
+        else:
+            id_emp = elegir_empleado_dialog(self, pares)
+            if id_emp is None:
+                return
+            nombre = next((lbl for eid, lbl in pares if eid == id_emp), "")
+        abrir_bolsa_horas(self, id_emp, nombre, puede_definir=True)
+
+    # ── avisos de descanso mínimo (Fase E, punto 4) ───────────────────────────
+
+    def aplicar_avisos_descanso(self) -> dict:
+        return self._grid.aplicar_avisos_descanso()
 
     def _confirm_delete(self):
         dlg = QDialog(self)
@@ -1645,7 +1997,14 @@ class _HorarioContainer(QWidget):
         ghost.setWindowOpacity(0.90)
         ghost.show()
         self._drag_ghost = ghost
-        self.grabMouse(Qt.CursorShape.SizeAllCursor)
+        # Sin argumento de forma: `grabMouse(QCursor)` fuerza el cursor NATIVO del sistema durante
+        # el grab (bypassa setCursor()/CursorChange), perdiendo el cursor de 4 flechas personalizado
+        # de assets/cursores justo al empezar a arrastrar. Se fija el cursor en ESTE widget (el que
+        # recibe el grab, no el icono de arrastre que lo disparó) para que el remapeo global de
+        # `utils.cursores` lo sustituya por el PNG propio, y `grabMouse()` a secas lo conserva
+        # durante todo el arrastre en vez de forzar el de sistema.
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.grabMouse()
 
     def mouseMoveEvent(self, ev):
         if self._drag_semana is None:
@@ -1747,6 +2106,7 @@ class _HorarioContainer(QWidget):
         if self._drag_ghost:
             self._drag_ghost.close()
             self._drag_ghost = None
+        self.unsetCursor()  # revierte el cursor de 4 flechas fijado en begin_drag al soltar
 
 
 # ── GESTIÓN CAJA — Dialog helpers ─────────────────────────────────────────────

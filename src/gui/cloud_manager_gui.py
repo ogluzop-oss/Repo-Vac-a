@@ -11,8 +11,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QTableWidgetItem, QVBoxLayout,
                              QWidget)
 
-from src.gui.catalogo_gestion import (_BG, _BG2, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo,
-                                      _inp, _tabla)
+from src.gui.catalogo_gestion import (_BG, _BG2, _CIAN, _DIM, _TEXT, _btn, _btn_cargando, _btn_x,
+                                      _combo, _inp, _tabla)
 from src.services import cloud_manager as cm
 
 logger = logging.getLogger("cloud.gui")
@@ -63,7 +63,7 @@ class CloudManagerWindow(QWidget):
         alta.addWidget(QLabel("Plan:")); alta.addWidget(self.cmb_plan)
         alta.addWidget(_btn("Crear empresa", self._crear, primary=True))
         alta.addStretch()
-        alta.addWidget(_btn("↻ Refrescar", self._recargar))
+        alta.addWidget(_btn_cargando("↻ Refrescar", self._recargar))
         root.addLayout(alta)
 
         self.tabla = _tabla(["ID Empresa", "Nombre", "Estado operativo"])

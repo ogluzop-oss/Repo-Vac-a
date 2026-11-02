@@ -13,24 +13,28 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QEvent, QObject, QRect, QStringListModel, Qt, QTimer
-from PyQt6.QtGui import QBitmap, QPainter, QRegion
-from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QCompleter,
+from PyQt6.QtCore import QEvent, QObject, QRect, Qt, QTimer
+from PyQt6.QtGui import QBitmap, QIntValidator, QPainter, QRegion
+from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                              QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                             QPlainTextEdit, QPushButton, QSpinBox, QStackedWidget,
+                             QPlainTextEdit, QPushButton, QStackedWidget,
                              QTableWidget, QTableWidgetItem, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
+from src.db import articulos as art_db
 from src.db import catalogo as cat
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.utils.i18n import tr
 
 try:
-    from assets.estilo_global import (estilizar_completer, instalar_corner_cover,
+    from assets.estilo_global import (_blindar_tamano_fijo, aplicar_estilo_widget,
+                                      instalar_corner_cover,
                                       mostrar_confirmacion, mostrar_mensaje)
 except Exception:  # pragma: no cover
     mostrar_mensaje = mostrar_confirmacion = None
-    estilizar_completer = None
     instalar_corner_cover = None
+    aplicar_estilo_widget = None
+    _blindar_tamano_fijo = None
 
 logger = logging.getLogger("gui.catalogo")
 
@@ -42,6 +46,7 @@ _BORDE = "#30363D"
 _TEXT = "#E6EDF3"
 _DIM = "#8B949E"
 _ROJO = "#F85149"
+_VERDE = "#22C55E"
 _FONT = "Segoe UI"
 
 
@@ -66,13 +71,35 @@ def _inp(ph="", w=None) -> QLineEdit:
     return e
 
 
-def _btn(txt, slot=None, primary=False, danger=False) -> QPushButton:
+def _btn(txt, slot=None, primary=False, danger=False, success=False) -> QPushButton:
     b = QPushButton(txt); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFixedHeight(34)
+    # `success` (verde #22C55E, mismo tono que "GUARDAR HORARIOS" en horarios_gui.py) sigue el
+    # mismo criterio que `primary`/`danger`: mismo diseño (relleno oscuro, contorno+texto del
+    # color, hover invierte a relleno del color), solo cambia el color semántico (acciones de
+    # aprobación explícitas, p. ej. "Aprobar" en GestionLaboralDialog).
     c, bg, bd = ((_ROJO, _BG2, _ROJO) if danger else
+                 (_VERDE, _BG2, _VERDE) if success else
                  (_CIAN, _BG2, _CIAN) if primary else (_DIM, _BG2, _BORDE))
-    b.setStyleSheet(f"QPushButton{{background:{bg};color:{c};border:2px solid {bd};border-radius:8px;"
-                    f"font-weight:900;font-size:12px;padding:0 14px;font-family:'{_FONT}';}}"
-                    f"QPushButton:hover{{background:{c};color:{_BG};border-color:{c};}}")
+    # Botones "solo icono" (un único glifo sin texto, p. ej. "🗑"/"✕"/"＋" — usados en tarjetas Kanban y
+    # cabeceras de diálogo): sin ancho fijo, el auto-cálculo de Qt para UN SOLO glifo puede dejarlo
+    # apretado contra el padding horizontal y recortarlo — mismo bug ya visto y corregido en el botón
+    # de escaneo remoto (`remote_scan.py`). Los botones CON texto (con espacio) no se tocan.
+    solo_icono = bool(txt) and " " not in txt.strip() and len(txt.strip()) <= 2
+    if solo_icono:
+        # 34x34 -> 44x44: 34x34 recortaba visualmente el glifo emoji (p. ej. 🔍) contra el padding 0 +
+        # borde 2px — mismo bug ya visto y corregido en `components/remote_scan.py` (ahí a 46x46).
+        b.setFixedSize(44, 44)
+    b.setStyleSheet(
+        f"QPushButton{{background:{bg};color:{c};border:2px solid {bd};border-radius:8px;"
+        f"font-weight:900;font-size:{'16px' if solo_icono else '12px'};"
+        f"padding:{'0' if solo_icono else '0 14px'};font-family:'{_FONT}';}}"
+        f"QPushButton:hover{{background:{c};color:{_BG};border-color:{c};}}"
+        # `setEnabled(False)` no tenía NINGÚN efecto visual antes de esto: el QSS explícito de arriba
+        # sustituye por completo la paleta "disabled" nativa de Qt, así que un botón deshabilitado se
+        # veía exactamente igual que uno activo (mismo color/contorno). Se apaga explícitamente aquí,
+        # de forma uniforme para toda la app (p. ej. "Importar" en el modal de extracto bancario, que
+        # debe verse apagado hasta que haya fichero elegido).
+        f"QPushButton:disabled{{background:{_BG2};color:{_DIM};border-color:{_BORDE};}}")
     if slot:
         b.clicked.connect(slot)
     return b
@@ -98,21 +125,44 @@ def _btn_cargando(txt, slot=None, primary=True, danger=False, cargando="⏳  Act
 
 
 def _btn_x(slot=None) -> QPushButton:
-    """Botón rojo 'X' para cerrar/volver (mismo estilo que la X de 'Devolución de ticket')."""
-    b = QPushButton("✕"); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFixedSize(50, 44)
-    b.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
-                    f"border-radius:9px;font-weight:900;font-size:18px;}}"
+    """Botón rojo 'X' para cerrar/volver: sin contorno ni fondo en reposo (solo el símbolo);
+    al pasar el ratón, hover swap con fondo circular — mismo criterio en TODA la app."""
+    b = QPushButton("✕"); b.setCursor(Qt.CursorShape.PointingHandCursor); b.setFixedSize(36, 36)
+    b.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:none;"
+                    f"border-radius:18px;padding:0;font-weight:900;font-size:18px;}}"
                     f"QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
+    b.setProperty("sin_glow", True)
+    if _blindar_tamano_fijo is not None:
+        _blindar_tamano_fijo(b, 36, 36)
     if slot:
         b.clicked.connect(slot)
     return b
+
+
+def centrar_en_pantalla(widget):
+    """Centra `widget` (típicamente un QDialog ya construido) sobre el área REAL disponible de la
+    pantalla primaria (descontando la barra de tareas) — no sobre el centro de su padre, que en
+    diálogos frameless+translúcidos puede dejarlo asomando fuera de la pantalla si es más alto de lo
+    esperado o el padre no ocupa toda la pantalla (bug real confirmado, p. ej. en "Nuevo activo" de
+    GMAO, con 8 campos). Se llama vía `QTimer.singleShot(0, ...)` para que el tamaño natural del
+    widget (`adjustSize`) ya esté resuelto en el momento de calcular la posición."""
+    try:
+        from PyQt6.QtWidgets import QApplication
+        pantalla = QApplication.primaryScreen().availableGeometry()
+        widget.adjustSize()
+        x = pantalla.x() + max(0, (pantalla.width() - widget.width()) // 2)
+        y = pantalla.y() + max(0, (pantalla.height() - widget.height()) // 2)
+        widget.move(x, y)
+    except Exception:
+        pass
 
 
 def _dialogo_frameless(dialog, titulo="", ancho=None):
     """Convierte un QDialog en 'frameless' (sin la barra de título nativa de Windows) con esquinas
     redondeadas y fondo translúcido, de modo que el contenido no sobresalga por fuera del contorno.
     Devuelve el QVBoxLayout del CUERPO (dentro del marco redondeado) donde añadir el contenido; si se
-    pasa `titulo`, incluye una cabecera con el título + botón rojo ✕ para cerrar."""
+    pasa `titulo`, incluye una cabecera con el título + botón rojo ✕ para cerrar. Se centra SIEMPRE
+    sobre la pantalla real (ver `centrar_en_pantalla`), nunca sobre el centro de su padre."""
     dialog.setModal(True)
     dialog.setWindowFlag(Qt.WindowType.FramelessWindowHint)
     dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -126,16 +176,47 @@ def _dialogo_frameless(dialog, titulo="", ancho=None):
     if titulo:
         hdr = QHBoxLayout()
         t = QLabel(titulo)
-        t.setStyleSheet(f"color:{_CIAN};background:transparent;font-weight:900;font-size:15px;")
+        t.setStyleSheet(
+            f"color:{_CIAN};background:transparent;font-family:'{_FONT}';font-weight:900;font-size:15px;")
         hdr.addWidget(t); hdr.addStretch()
         hdr.addWidget(_btn_x(dialog.reject))
         v.addLayout(hdr)
+    QTimer.singleShot(0, lambda: centrar_en_pantalla(dialog))
     return v
 
 
+class _InfoDialog(QDialog):
+    """Aviso frameless compartido (sustituye a QMessageBox.information/.warning/.critical): sobre una
+    ventana anfitriona frameless (todas las ventanas completas de la app), un QMessageBox nativo puede
+    quedar sin handle nativo correcto y no llegar a mostrarse — mismo criterio ya aplicado en
+    `almacenes_gui.py`/`seguridad_gui.py`, ahora centralizado aquí para que cualquier pantalla lo
+    reutilice en vez de duplicar la misma clase."""
+
+    def __init__(self, titulo, mensaje, parent=None):
+        super().__init__(parent)
+        v = _dialogo_frameless(self, titulo, ancho=380)
+        lbl = QLabel(mensaje)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(f"color:{_DIM};font-size:13px;")
+        v.addWidget(lbl)
+        fila = QHBoxLayout()
+        fila.addStretch()
+        fila.addWidget(_btn("Aceptar", self.accept, primary=True))
+        v.addLayout(fila)
+
+
+def _info(parent, titulo, mensaje):
+    _InfoDialog(titulo, mensaje, parent).exec()
+
+
 def _btn_salir_sidebar(slot=None) -> QPushButton:
-    """Botón 'SALIR AL MENÚ' rojo para el FONDO de los sidebars (estilo unificado en toda la app)."""
-    b = QPushButton(tr("cat.salir", default="SALIR AL MENÚ"))
+    """Botón 'SALIR' rojo para el FONDO de los sidebars (estilo unificado en toda la app).
+
+    `.upper()` es OBLIGATORIO aquí: `i18n._frase()` sentence-casea automáticamente CUALQUIER
+    texto que pase por `tr()` (p. ej. "SALIR" -> "Salir") salvo que sea una sigla conocida — bug
+    real detectado en auditoría (el botón llevaba meses renderizando "Salir", no "SALIR", en
+    todos los módulos que usan este helper)."""
+    b = QPushButton(tr("cat.salir", default="SALIR").upper())
     b.setObjectName("btn_sidebar_exit"); b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setFixedHeight(55)   # misma altura que el resto de botones de sidebar
     b.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:none;"
@@ -154,21 +235,37 @@ def _lbl(txt, dim=True, size=12, bold=True):
     return l
 
 
-def _combo(opciones, actual=None) -> QComboBox:
-    cb = QComboBox(); cb.setFixedHeight(34)
+def _combo(opciones, actual=None, cls=QComboBox) -> QComboBox:
+    cb = cls(); cb.setFixedHeight(34)
+    # Solo el aspecto CERRADO del combo aquí. El popup nativo de Qt (QComboBoxPrivateContainer,
+    # abierto con la flecha) recorta mal sus esquinas derechas y a veces esconde su propia scrollbar
+    # en esta app incluso con el filtro global de estilos aplicado (bug reproducido y confirmado
+    # pixel a pixel) — así que NO se intenta maquillar aquí con un `QComboBox QAbstractItemView{...}`
+    # propio (solo duplicaba el contorno). Los desplegables que necesitan una lista larga y fiable
+    # usan `_combo_buscable` en su lugar, que sustituye ese popup nativo por el de un QCompleter
+    # (`estilizar_completer`, con máscara redondeada real — el mismo mecanismo ya usado en las
+    # barras de búsqueda de artículos de toda la app).
     cb.setStyleSheet(
-        f"QComboBox{{combobox-popup:0;background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+        f"QComboBox{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
         f"border-radius:8px;padding:0 10px;font-size:12px;font-family:'{_FONT}';}}"
         f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
-        f"QComboBox::drop-down{{border:none;width:22px;}}"
-        f"QComboBox QAbstractItemView{{background:#0D1117;color:{_TEXT};border:2px solid {_CIAN};"
-        f"border-radius:8px;selection-background-color:{_CIAN};selection-color:#0D1117;}}")
+        f"QComboBox::drop-down{{border:none;width:22px;}}")
     for etq, val in opciones:
         cb.addItem(etq, val)
     if actual is not None:
         i = cb.findData(actual)
         if i >= 0:
             cb.setCurrentIndex(i)
+    if aplicar_estilo_widget is not None:
+        try:
+            aplicar_estilo_widget(cb)
+        except Exception:
+            pass
+    # El ensanchado del popup para que no trunque/elida el texto de las opciones más largas
+    # vive ahora en `estilo_global._apply_combo_extras` (llamada arriba vía `aplicar_estilo_widget`)
+    # — reutiliza la MISMA `.view()` que ya obtiene esa función en vez de acceder a ella otra vez
+    # aquí por separado (dos accesos independientes a `.view()` sobre el mismo combo, confirmado
+    # como parte del disparador de un crash nativo intermitente).
     return cb
 
 
@@ -252,6 +349,214 @@ def _wrap_tabla(t):
     return t
 
 
+_MOTIVO_IA_MSG = {
+    "sin_api_key": "El asistente IA no está configurado todavía en este equipo.",
+    "sin_contexto": "Escribe antes un título de producto para poder generar texto.",
+    "limite_ia": "Se alcanzó el límite de uso de IA de hoy para tu empresa.",
+    "respuesta_vacia": "El asistente no devolvió texto; prueba de nuevo.",
+    "error_inesperado": "No se pudo conectar con el asistente IA ahora mismo.",
+}
+
+
+class _AsistenteIADialog(QDialog):
+    """Popover ligero de generación de texto con IA para un campo de la ficha de producto
+    (e-commerce Fase 1) — reutiliza `services.catalogo.ia_contenido.generar_texto` (que a su vez
+    reutiliza el cliente/modelo de SOMA y el medidor de uso compartido, nunca un motor propio).
+    NO bloquea el guardado de la ficha: es una ventana aparte, opcional, de un clic
+    ("Aplicar sugerencia") — si la IA degrada, se explica el motivo, nunca se inventa texto."""
+
+    def __init__(self, campo, nombre_producto, atributos=None, parent=None):
+        super().__init__(parent)
+        self._campo = campo
+        self._nombre_producto = nombre_producto
+        self._atributos = atributos or {}
+        self.texto_generado = None
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(420, 320)
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame(); cuerpo.setObjectName("ia")
+        cuerpo.setStyleSheet(f"QFrame#ia{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
+        outer.addWidget(cuerpo)
+        v = QVBoxLayout(cuerpo); v.setContentsMargins(18, 16, 18, 16); v.setSpacing(8)
+        v.addWidget(_lbl("✨  " + tr("cat.ia_generar_t", default="Generar con IA"), dim=False, size=14))
+        v.addWidget(_lbl(tr("cat.ia_tono", default="Tono"), size=11))
+        self.cmb_tono = _combo([(tr("cat.ia_tono_comercial", default="Comercial"), "comercial"),
+                                (tr("cat.ia_tono_elegante", default="Elegante"), "elegante"),
+                                (tr("cat.ia_tono_tecnico", default="Técnico"), "tecnico")])
+        v.addWidget(self.cmb_tono)
+        self.txt_preview = QPlainTextEdit(); self.txt_preview.setReadOnly(True)
+        self.txt_preview.setFixedHeight(120)
+        self.txt_preview.setPlaceholderText(tr("cat.ia_placeholder", default="La sugerencia aparecerá aquí…"))
+        self.txt_preview.setStyleSheet(
+            f"QPlainTextEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:6px;font-size:12px;font-family:'{_FONT}';}}")
+        v.addWidget(self.txt_preview, 1)
+        self.lbl_estado = _lbl("", size=10); self.lbl_estado.setWordWrap(True)
+        self.lbl_estado.setStyleSheet(f"color:{_ROJO};font-size:10px;")
+        v.addWidget(self.lbl_estado)
+        fila = QHBoxLayout(); fila.addStretch()
+        fila.addWidget(_btn(tr("cat.ia_generar", default="Generar"), self._generar, primary=True))
+        self.btn_aplicar = _btn(tr("cat.ia_aplicar", default="Aplicar sugerencia"), self._aplicar,
+                                success=True)
+        self.btn_aplicar.setEnabled(False)
+        fila.addWidget(self.btn_aplicar)
+        fila.addWidget(_btn(tr("cat.cerrar", default="Cerrar"), self.reject))
+        v.addLayout(fila)
+
+    def _generar(self):
+        from src.db.empresa import empresa_actual_id
+        from src.db.usuario import sesion_global
+        from src.services.catalogo import ia_contenido
+        usuario = sesion_global.usuario_actual or {}
+        r = ia_contenido.generar_texto(self._campo, self._nombre_producto, self._atributos,
+                                       self.cmb_tono.currentData(), usuario=usuario,
+                                       id_empresa=empresa_actual_id())
+        if r.get("ok"):
+            self.txt_preview.setPlainText(r["texto"])
+            self.btn_aplicar.setEnabled(True)
+            self.lbl_estado.setText("")
+        else:
+            self.txt_preview.setPlainText("")
+            self.btn_aplicar.setEnabled(False)
+            self.lbl_estado.setText(_MOTIVO_IA_MSG.get(
+                r.get("motivo"), tr("cat.ia_error_generico", default="No se pudo generar el texto ahora mismo.")))
+
+    def _aplicar(self):
+        self.texto_generado = self.txt_preview.toPlainText()
+        self.accept()
+
+
+def _abrir_asistente_ia(parent, campo, nombre_producto, atributos=None):
+    """Abre `_AsistenteIADialog` y devuelve el texto aplicado, o None si se canceló."""
+    dlg = _AsistenteIADialog(campo, nombre_producto, atributos, parent)
+    return dlg.texto_generado if dlg.exec() == QDialog.DialogCode.Accepted else None
+
+
+class _MatrizVariantesDialog(QDialog):
+    """Generador de combinaciones de variantes (p. ej. 3 Tallas × 2 Colores = 6 filas) — "sin
+    abrir modales pesados" (encargo e-commerce Fase 1): UNA tabla editable con el resultado, un
+    único botón final que llama a `cat.crear_variantes_bulk` (atómico, reutilizado, no
+    reimplementado aquí)."""
+
+    def __init__(self, id_producto, codigo_base, parent=None):
+        super().__init__(parent)
+        self._pid = id_producto
+        self._cod_base = codigo_base
+        self._filas_ejes = []
+        self._combinaciones_actuales = []
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(640, 560)
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        cuerpo = QFrame(); cuerpo.setObjectName("mv")
+        cuerpo.setStyleSheet(f"QFrame#mv{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
+        outer.addWidget(cuerpo)
+        v = QVBoxLayout(cuerpo); v.setContentsMargins(18, 16, 18, 16); v.setSpacing(8)
+        v.addWidget(_lbl(tr("cat.var_matriz_t", default="Generar combinaciones de variantes"),
+                        dim=False, size=14))
+        v.addWidget(_lbl(tr("cat.var_matriz_ayuda",
+                            default="Define cada eje (p. ej. Talla) y sus valores separados por comas."),
+                        size=10))
+
+        self.lay_ejes = QVBoxLayout(); self.lay_ejes.setSpacing(4)
+        v.addLayout(self.lay_ejes)
+        self._add_eje(tr("cat.var_matriz_eje_ej1", default="Talla"),
+                     tr("cat.var_matriz_val_ej1", default="S, M, L"))
+        self._add_eje(tr("cat.var_matriz_eje_ej2", default="Color"),
+                     tr("cat.var_matriz_val_ej2", default="Rojo, Azul"))
+
+        fila_btns = QHBoxLayout()
+        fila_btns.addWidget(_btn(tr("cat.var_matriz_add_eje", default="+ Añadir eje"), self._add_eje_vacio))
+        fila_btns.addWidget(_btn(tr("cat.var_matriz_generar", default="Generar matriz"),
+                                 self._generar, primary=True))
+        fila_btns.addStretch()
+        v.addLayout(fila_btns)
+
+        self.tbl_preview = _tabla(["Atributos", "SKU", tr("cat.precio_dif", default="Precio dif.")])
+        self.tbl_preview.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tbl_preview.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
+                                         | QAbstractItemView.EditTrigger.EditKeyPressed)
+        v.addWidget(_wrap_tabla(self.tbl_preview), 1)
+
+        self.lbl_estado = _lbl("", size=10); self.lbl_estado.setWordWrap(True)
+        v.addWidget(self.lbl_estado)
+        filaf = QHBoxLayout(); filaf.addStretch()
+        self.btn_crear = _btn(tr("cat.var_matriz_crear", default="Crear variantes"),
+                              self._crear, primary=True)
+        self.btn_crear.setEnabled(False)
+        filaf.addWidget(self.btn_crear)
+        filaf.addWidget(_btn(tr("cat.cerrar", default="Cerrar"), self.reject))
+        v.addLayout(filaf)
+
+    def _add_eje(self, nombre="", valores=""):
+        fila = QHBoxLayout()
+        inp_n = _inp(tr("cat.var_matriz_eje", default="Eje (ej. Talla)"), 140); inp_n.setText(nombre)
+        inp_v = _inp(tr("cat.var_matriz_valores", default="Valores separados por comas"))
+        inp_v.setText(valores)
+        fila.addWidget(inp_n); fila.addWidget(inp_v, 1)
+        self.lay_ejes.addLayout(fila)
+        self._filas_ejes.append((inp_n, inp_v))
+
+    def _add_eje_vacio(self):
+        self._add_eje("", "")
+
+    def _generar(self):
+        import itertools
+        ejes = []
+        for inp_n, inp_v in self._filas_ejes:
+            nombre = inp_n.text().strip()
+            valores = [v.strip() for v in inp_v.text().split(",") if v.strip()]
+            if nombre and valores:
+                ejes.append((nombre, valores))
+        if not ejes:
+            self.lbl_estado.setText(tr("cat.var_matriz_sin_ejes",
+                                       default="Define al menos un eje con valores."))
+            self.btn_crear.setEnabled(False)
+            return
+        nombres_ejes = [n for n, _ in ejes]
+        combinaciones = list(itertools.product(*[vals for _, vals in ejes]))
+        self.tbl_preview.setRowCount(0)
+        self._combinaciones_actuales = []
+        for idx, combo in enumerate(combinaciones):
+            atributos = dict(zip(nombres_ejes, combo))
+            sku = f"{self._cod_base}-" + "-".join(combo).upper().replace(" ", "")
+            self._combinaciones_actuales.append({
+                "atributos": atributos, "sku": sku, "nombre": " / ".join(combo),
+                "precio_dif": 0.0, "orden": idx})
+            r = self.tbl_preview.rowCount(); self.tbl_preview.insertRow(r)
+            it_attr = QTableWidgetItem(", ".join(f"{k}: {v}" for k, v in atributos.items()))
+            it_attr.setFlags(it_attr.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.tbl_preview.setItem(r, 0, it_attr)
+            self.tbl_preview.setItem(r, 1, QTableWidgetItem(sku))
+            self.tbl_preview.setItem(r, 2, QTableWidgetItem("0.00"))
+        self.lbl_estado.setText(tr(
+            "cat.var_matriz_generadas",
+            default="{n} combinaciones generadas — revisa SKU y precio antes de crear.",
+            n=len(combinaciones)))
+        self.btn_crear.setEnabled(bool(combinaciones))
+
+    def _crear(self):
+        # Vuelca a `_combinaciones_actuales` los valores de la tabla (posiblemente editados a
+        # mano: SKU/precio) justo antes de confirmar.
+        for r, combo in enumerate(self._combinaciones_actuales):
+            it_sku = self.tbl_preview.item(r, 1)
+            combo["sku"] = (it_sku.text().strip() if it_sku else "") or combo["sku"]
+            it_pd = self.tbl_preview.item(r, 2)
+            try:
+                combo["precio_dif"] = float((it_pd.text() if it_pd else "0").replace(",", ".") or 0)
+            except ValueError:
+                combo["precio_dif"] = 0.0
+        res = cat.crear_variantes_bulk(self._pid, self._combinaciones_actuales)
+        if res.get("ok"):
+            self.accept()
+        else:
+            self.lbl_estado.setText(tr("cat.var_matriz_error",
+                                       default="No se pudieron crear las variantes."))
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Editor de ficha de producto (overlay + galería/atributos/variantes/etiquetas)
 # ════════════════════════════════════════════════════════════════════════════
@@ -263,7 +568,7 @@ class _ProductoEditor(QDialog):
         self.setModal(True)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(720, 640)
+        self.setFixedSize(760, 720)
         # Garantiza overlay (crea si no existe) y carga la ficha.
         cat.upsert_producto(codigo_articulo)
         self._prod = cat.obtener_producto(codigo_articulo=codigo_articulo)
@@ -287,8 +592,11 @@ class _ProductoEditor(QDialog):
         hdr.addWidget(_lbl(f"📦  {self._nombre or self._cod}  ·  {self._cod}", dim=False, size=15))
         hdr.addStretch()
         bx = QPushButton("✕"); bx.setFixedSize(34, 34); bx.setCursor(Qt.CursorShape.PointingHandCursor)
-        bx.setStyleSheet(f"QPushButton{{background:{_BG2};color:{_DIM};border:1px solid {_BORDE};"
-                         f"border-radius:8px;font-weight:900;}}QPushButton:hover{{color:{_ROJO};border-color:{_ROJO};}}")
+        bx.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:none;"
+                         f"border-radius:17px;padding:0;font-weight:900;}}QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
+        bx.setProperty("sin_glow", True)
+        if _blindar_tamano_fijo is not None:
+            _blindar_tamano_fijo(bx, 34, 34)
         bx.clicked.connect(self.reject); hdr.addWidget(bx)
         v.addLayout(hdr)
 
@@ -311,13 +619,71 @@ class _ProductoEditor(QDialog):
         fila.addWidget(_btn(tr("cat.guardar", default="GUARDAR FICHA"), self._guardar, primary=True))
         v.addLayout(fila)
 
+    def _fila_con_ia(self, ly, widget, campo, *, texto_simple=False):
+        """Añade `widget` a `ly` con un botón "✨" a la derecha que abre `_AsistenteIADialog` para
+        `campo` y, al aplicar, rellena `widget` (QLineEdit si `texto_simple`, QPlainTextEdit si
+        no) con el texto generado — reutilizado por título/descripción/SEO, un solo camino."""
+        fila = QHBoxLayout(); fila.setSpacing(6)
+        fila.addWidget(widget, 1)
+        btn_ia = _btn("✨", None)
+        btn_ia.setToolTip(tr("cat.ia_tooltip", default="Generar con IA"))
+
+        def _abrir():
+            nombre = self.inp_titulo.text().strip() or self._nombre or self._cod
+            atributos = {a["nombre"]: a["valor"] for a in cat.listar_atributos_producto(self._pid)}
+            texto = _abrir_asistente_ia(self, campo, nombre, atributos)
+            if texto is not None:
+                widget.setText(texto) if texto_simple else widget.setPlainText(texto)
+
+        btn_ia.clicked.connect(_abrir)
+        fila.addWidget(btn_ia)
+        ly.addLayout(fila)
+
+    def _actualizar_preview_oferta(self):
+        if not self.ck_oferta.isChecked():
+            self.lbl_preview_precio.setText("")
+            return
+        try:
+            base = float(self._prod.get("precio") or 0)
+            oferta = float(self.inp_precio_oferta.text().replace(",", ".") or 0)
+        except ValueError:
+            self.lbl_preview_precio.setText("")
+            return
+        self.lbl_preview_precio.setText(
+            f"<span style='color:{_DIM};text-decoration:line-through;'>{base:.2f} €</span>"
+            f"&nbsp;&nbsp;<span style='color:{_ROJO};font-weight:900;'>{oferta:.2f} €</span>")
+
     def _tab_ficha(self):
         w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(7); ly.setContentsMargins(12, 12, 12, 12)
         p = self._prod
-        ly.addWidget(_lbl(tr("cat.titulo_web", default="Título web")))
-        self.inp_titulo = _inp(); self.inp_titulo.setText(p.get("titulo_web") or ""); ly.addWidget(self.inp_titulo)
+        filat = QHBoxLayout(); filat.setSpacing(10)
+        colt = QVBoxLayout(); colt.addWidget(_lbl(tr("cat.titulo_web", default="Título web")))
+        self.inp_titulo = _inp(); self.inp_titulo.setText(p.get("titulo_web") or ""); colt.addWidget(self.inp_titulo)
+        filat.addLayout(colt, 1)
+        cols = QVBoxLayout(); cols.addWidget(_lbl(tr("cat.slug", default="URL amigable (slug)")))
+        self.inp_slug = _inp(); self.inp_slug.setText(p.get("slug") or ""); cols.addWidget(self.inp_slug)
+        filat.addLayout(cols, 1)
+        ly.addLayout(filat)
         ly.addWidget(_lbl(tr("cat.desc_web", default="Descripción web")))
-        self.inp_desc = self._txtarea(p.get("descripcion_web") or ""); ly.addWidget(self.inp_desc)
+        self.inp_desc = self._txtarea(p.get("descripcion_web") or "")
+        self._fila_con_ia(ly, self.inp_desc, "descripcion")
+
+        # "Precio de comparación" del encargo e-commerce: reutiliza `articulos.promo_activa`/
+        # `precio_promo` (YA existían, ya los leía `services.catalogo.service._precio_efectivo` —
+        # aquí se exponen para poder ESCRIBIRLOS, sin añadir ninguna columna nueva).
+        ly.addWidget(_lbl(tr("cat.oferta_t", default="Precio de oferta (comparación)")))
+        filo = QHBoxLayout(); filo.setSpacing(8)
+        self.ck_oferta = _chk(tr("cat.oferta_activa", default="En oferta"), p.get("promo_activa"))
+        self.inp_precio_oferta = _inp(tr("cat.oferta_ph", default="Precio de oferta"), 140)
+        if p.get("precio_promo"):
+            self.inp_precio_oferta.setText(f"{float(p['precio_promo']):.2f}")
+        self.lbl_preview_precio = QLabel(""); self.lbl_preview_precio.setStyleSheet("font-size:13px;")
+        self.ck_oferta.toggled.connect(self._actualizar_preview_oferta)
+        self.inp_precio_oferta.textChanged.connect(self._actualizar_preview_oferta)
+        filo.addWidget(self.ck_oferta); filo.addWidget(self.inp_precio_oferta); filo.addWidget(self.lbl_preview_precio, 1)
+        ly.addLayout(filo)
+        self._actualizar_preview_oferta()
+
         fila = QHBoxLayout()
         colc = QVBoxLayout(); colc.addWidget(_lbl(tr("cat.categoria", default="Categoría")))
         cats = [("—", None)] + _cats_planas()
@@ -326,9 +692,13 @@ class _ProductoEditor(QDialog):
         marcas = [("—", None)] + [(m["nombre"], m["id"]) for m in cat.listar_marcas()]
         self.cmb_marca = _combo(marcas, p.get("id_marca")); colm.addWidget(self.cmb_marca); fila.addLayout(colm)
         colo = QVBoxLayout(); colo.addWidget(_lbl(tr("cat.orden", default="Orden")))
-        self.sp_orden = QSpinBox(); self.sp_orden.setRange(0, 99999); self.sp_orden.setValue(int(p.get("orden") or 0))
+        # QLineEdit + validador en vez de QSpinBox: la app oculta sus flechas arriba/abajo vía QSS y
+        # eso rompía su foco/clic en varios diálogos (confirmado por el usuario) — mismo criterio ya
+        # aplicado en `sat_dashboard._FormDialog`.
+        self.sp_orden = QLineEdit(str(int(p.get("orden") or 0)))
+        self.sp_orden.setValidator(QIntValidator(0, 99999, self.sp_orden))
         self.sp_orden.setFixedHeight(34)
-        self.sp_orden.setStyleSheet(f"QSpinBox{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+        self.sp_orden.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
                                     f"border-radius:8px;padding:0 8px;font-size:12px;}}")
         colo.addWidget(self.sp_orden); fila.addLayout(colo)
         ly.addLayout(fila)
@@ -340,9 +710,11 @@ class _ProductoEditor(QDialog):
             filc.addWidget(c)
         filc.addStretch(); ly.addLayout(filc)
         ly.addWidget(_lbl(tr("cat.seo_title", default="SEO · título")))
-        self.inp_seo_t = _inp(); self.inp_seo_t.setText(p.get("seo_title") or ""); ly.addWidget(self.inp_seo_t)
+        self.inp_seo_t = _inp(); self.inp_seo_t.setText(p.get("seo_title") or "")
+        self._fila_con_ia(ly, self.inp_seo_t, "seo_title", texto_simple=True)
         ly.addWidget(_lbl(tr("cat.seo_desc", default="SEO · descripción")))
-        self.inp_seo_d = _inp(); self.inp_seo_d.setText(p.get("seo_descripcion") or ""); ly.addWidget(self.inp_seo_d)
+        self.inp_seo_d = _inp(); self.inp_seo_d.setText(p.get("seo_descripcion") or "")
+        self._fila_con_ia(ly, self.inp_seo_d, "seo_descripcion", texto_simple=True)
         ly.addStretch()
         return w
 
@@ -425,10 +797,17 @@ class _ProductoEditor(QDialog):
         self.inp_var_sku = _inp(tr("cat.var_sku", default="SKU"), 140)
         fila.addWidget(self.inp_var_n); fila.addWidget(self.inp_var_sku)
         fila.addWidget(_btn(tr("cat.add", default="Añadir"), self._add_var, primary=True))
+        fila.addWidget(_btn(tr("cat.var_matriz", default="Generar combinaciones"),
+                            self._abrir_matriz_variantes))
         ly.addLayout(fila)
-        self.tbl_var = _tabla([tr("cat.variante", default="Variante"), "SKU", ""])
+        cols = [tr("cat.variante", default="Variante"), tr("cat.atributos", default="Atributos"),
+                "SKU", tr("cat.precio_dif", default="Precio dif."), tr("cat.stock", default="Stock"),
+                tr("cat.visible", default="Visible"), ""]
+        self.tbl_var = _tabla(cols)
         self.tbl_var.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tbl_var.setColumnWidth(1, 160); self.tbl_var.setColumnWidth(2, 60)
+        self.tbl_var.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        for c, wdt in ((2, 120), (3, 90), (4, 70), (5, 60), (6, 50)):
+            self.tbl_var.setColumnWidth(c, wdt)
         ly.addWidget(_wrap_tabla(self.tbl_var), 1)
         self._recargar_var()
         return w
@@ -437,10 +816,40 @@ class _ProductoEditor(QDialog):
         self.tbl_var.setRowCount(0)
         for vr in cat.listar_variantes(self._pid):
             r = self.tbl_var.rowCount(); self.tbl_var.insertRow(r)
+            vid = vr["id"]
             self.tbl_var.setItem(r, 0, QTableWidgetItem(vr.get("nombre") or ""))
-            self.tbl_var.setItem(r, 1, QTableWidgetItem(vr.get("sku") or ""))
-            bd = _btn("🗑", lambda _c, i=vr["id"]: (cat.eliminar_variante(i), self._recargar_var()), danger=True)
-            self.tbl_var.setCellWidget(r, 2, bd)
+            attrs_txt = ", ".join(f"{k}: {v}" for k, v in (vr.get("atributos") or {}).items())
+            self.tbl_var.setItem(r, 1, QTableWidgetItem(attrs_txt))
+            self.tbl_var.setItem(r, 2, QTableWidgetItem(vr.get("sku") or ""))
+
+            inp_pd = QLineEdit(f"{float(vr.get('precio_dif') or 0):.2f}")
+            inp_pd.setStyleSheet(f"QLineEdit{{background:{_BG2};color:{_TEXT};border:1px solid {_BORDE};"
+                                 "border-radius:6px;padding:2px 4px;font-size:11px;}")
+            inp_pd.editingFinished.connect(
+                lambda i=vid, w_=inp_pd: self._guardar_precio_dif_variante(i, w_))
+            self.tbl_var.setCellWidget(r, 3, inp_pd)
+
+            stock = vr.get("stock")
+            txt_stock = f"{stock:g}" if stock is not None else "—"
+            it_stock = QTableWidgetItem(txt_stock)
+            it_stock.setFlags(it_stock.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.tbl_var.setItem(r, 4, it_stock)
+
+            ck_vis = QCheckBox(); ck_vis.setChecked(bool(vr.get("visible", 1)))
+            ck_vis.toggled.connect(lambda chk, i=vid: cat.actualizar_variante(i, visible=1 if chk else 0))
+            cont = QWidget(); hl = QHBoxLayout(cont); hl.setContentsMargins(0, 0, 0, 0)
+            hl.addWidget(ck_vis); hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tbl_var.setCellWidget(r, 5, cont)
+
+            bd = _btn("🗑", lambda _c, i=vid: (cat.eliminar_variante(i), self._recargar_var()), danger=True)
+            self.tbl_var.setCellWidget(r, 6, bd)
+
+    def _guardar_precio_dif_variante(self, id_variante, widget):
+        try:
+            valor = float(widget.text().replace(",", ".") or 0)
+        except ValueError:
+            valor = 0.0
+        cat.actualizar_variante(id_variante, precio_dif=valor)
 
     def _add_var(self):
         n = self.inp_var_n.text().strip()
@@ -449,7 +858,16 @@ class _ProductoEditor(QDialog):
         cat.crear_variante(self._pid, sku=self.inp_var_sku.text().strip() or None, nombre=n)
         self.inp_var_n.clear(); self.inp_var_sku.clear(); self._recargar_var()
 
+    def _abrir_matriz_variantes(self):
+        dlg = _MatrizVariantesDialog(self._pid, self._cod, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._recargar_var()
+
     def _guardar(self):
+        try:
+            orden = int(self.sp_orden.text() or 0)
+        except ValueError:
+            orden = 0
         cat.upsert_producto(
             self._cod, titulo_web=self.inp_titulo.text().strip(),
             descripcion_web=self.inp_desc.toPlainText().strip(),
@@ -457,8 +875,18 @@ class _ProductoEditor(QDialog):
             destacado=1 if self.ck_dest.isChecked() else 0,
             recomendado=1 if self.ck_reco.isChecked() else 0,
             visible_web=1 if self.ck_vis.isChecked() else 0,
-            orden=self.sp_orden.value(), seo_title=self.inp_seo_t.text().strip(),
-            seo_descripcion=self.inp_seo_d.text().strip())
+            orden=orden, seo_title=self.inp_seo_t.text().strip(),
+            seo_descripcion=self.inp_seo_d.text().strip(),
+            slug=self.inp_slug.text().strip())
+        # "Precio de comparación": escribe sobre `articulos.promo_activa`/`precio_promo` (overlay
+        # de catálogo YA leía estas columnas, ahora también las escribe — ver `_tab_ficha`).
+        try:
+            precio_oferta = float(self.inp_precio_oferta.text().replace(",", ".") or 0)
+        except ValueError:
+            precio_oferta = 0.0
+        art_db.actualizar_articulo(
+            self._cod, promo_activa=1 if self.ck_oferta.isChecked() else 0,
+            precio_promo=precio_oferta)
         self.accept()
 
     def _eliminar(self):
@@ -488,6 +916,7 @@ class CatalogoWindow(QWidget):
 
     _SECCIONES = [("productos", "📦", "Productos"), ("categorias", "🗂", "Categorías"),
                   ("marcas", "🏷", "Marcas"), ("etiquetas", "🔖", "Tags Artículos"),
+                  ("descuentos", "🎟", "Descuentos"), ("envios", "🚚", "Envíos"),
                   ("web", "🌐", "Web propia")]
 
     def __init__(self, callback_vuelta=None, usuario=None, main=None, parent=None, **_kw):
@@ -522,6 +951,8 @@ class CatalogoWindow(QWidget):
         self.stack.addWidget(self._panel_categorias())
         self.stack.addWidget(self._panel_marcas())
         self.stack.addWidget(self._panel_etiquetas())
+        self.stack.addWidget(self._panel_descuentos())
+        self.stack.addWidget(self._panel_envios())
         self.stack.addWidget(self._panel_web())
         rcol.addWidget(self.stack, 1)
         root.addWidget(right, 1)
@@ -545,10 +976,10 @@ class CatalogoWindow(QWidget):
                           f"letter-spacing:2px;background:transparent;border:none;padding:0 0 24px 28px;")
         lay.addWidget(cab)
         for i, (sid, icono, defecto) in enumerate(self._SECCIONES):
-            b = QPushButton(f"   {tr('cat.sec_' + sid, default=defecto)}")   # sin icono
-            # Mismo estilo global que las sidebars que NO brillan (contab./rrhh) + 2pt.
+            b = QPushButton(f"   {tr('cat.sec_' + sid, default=defecto).upper()}")   # sin icono — sidebar: mayúsculas
+            # Mismo tamaño de texto (12px, base) que el resto de sidebars de la app — consistencia
+            # exigida explícitamente; la variante +2pt (`lg="true"`) se retira aquí.
             b.setObjectName("btn_sidebar")   # estilo global (acento, hover swap, sin brillo)
-            b.setProperty("lg", "true")      # +2pt (14px) vía QSS global, sin romper hover
             b.setCursor(Qt.CursorShape.PointingHandCursor); b.setCheckable(True); b.setFixedHeight(55)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.clicked.connect(lambda _c, idx=i: self._seleccionar(idx))
@@ -577,25 +1008,21 @@ class CatalogoWindow(QWidget):
     def _panel_productos(self):
         w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10); ly.setContentsMargins(0, 0, 0, 0)
         fila = QHBoxLayout()
-        self.inp_busca_prod = _inp(tr("cat.buscar_prod", default="Buscar artículo por nombre o código…"))
+        self.inp_busca_prod = _inp(tr("cat.buscar_prod", default="🔍 Buscar artículo por nombre o código…"))
         self.inp_busca_prod.returnPressed.connect(self._recargar_productos)
-        # Sugerencias de artículos al escribir (igual que el resto de buscadores).
-        self._prod_completer_model = QStringListModel()
-        _comp = QCompleter(self._prod_completer_model, self.inp_busca_prod)
-        _comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        _comp.setFilterMode(Qt.MatchFlag.MatchContains)
-        self.inp_busca_prod.setCompleter(_comp)
-        if estilizar_completer:
-            estilizar_completer(_comp)
-        try:
-            from src.db.conexion import _get_todos_articulos_para_completer
-            self._prod_completer_model.setStringList(
-                [f"{c} – {n}" for c, n in _get_todos_articulos_para_completer()])
-        except Exception:
-            pass
+        # Sugerencias de artículos: helper compartido, ver gui/components/completer_articulos.py
+        instalar_sugerencias_articulo(self.inp_busca_prod)
         fila.addWidget(self.inp_busca_prod, 1)
-        fila.addWidget(_btn(tr("cat.buscar", default="BUSCAR"), self._recargar_productos, primary=True))
+        fila.addWidget(_btn(tr("cat.buscar", default="🔍"), self._recargar_productos, primary=True))
         fila.addWidget(_btn(tr("cat.editar_ficha", default="EDITAR FICHA"), self._editar_producto, primary=True))
+
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=lambda v: (self.inp_busca_prod.setText(v), self._recargar_productos()),
+            contexto="catalogo.buscar_producto")
+        fila.addWidget(btn_escaneo_movil)
+
         ly.addLayout(fila)
         self.tbl_prod = _tabla([tr("cat.col_codigo", default="Código"), tr("cat.col_articulo", default="Artículo"),
                                 tr("cat.col_encat", default="En catálogo"), tr("cat.col_dest", default="Dest."),
@@ -646,7 +1073,7 @@ class CatalogoWindow(QWidget):
         fila.addWidget(self.inp_cat, 1)
         fila.addWidget(_btn(tr("cat.crear_raiz", default="CREAR RAÍZ"), lambda: self._crear_categoria(False), primary=True))
         fila.addWidget(_btn(tr("cat.crear_sub", default="CREAR SUBCATEGORÍA"), lambda: self._crear_categoria(True), primary=True))
-        fila.addWidget(_btn(tr("cat.renombrar", default="RENOMBRAR"), self._renombrar_categoria))
+        fila.addWidget(_btn(tr("cat.renombrar", default="RENOMBRAR"), self._renombrar_categoria, primary=True))
         fila.addWidget(_btn(tr("cat.eliminar", default="ELIMINAR"), self._eliminar_categoria, danger=True))
         ly.addLayout(fila)
         self.tree_cat = QTreeWidget(); self.tree_cat.setHeaderHidden(True)
@@ -655,6 +1082,13 @@ class CatalogoWindow(QWidget):
             f"font-family:'{_FONT}';font-size:13px;padding:6px;}}"
             f"QTreeWidget::item{{height:30px;}}"
             f"QTreeWidget::item:selected{{background:#00FFC622;color:white;}}")
+        # `::item:selected` es un rectángulo recto sin margen/radio propio: en el primer/último nodo
+        # sobresale por encima del borde redondeado (14px) del propio árbol — mismo mecanismo que la
+        # lista de empleados de "Acceso al TPV" (`tpv.py::_LoginTPVDialog`). `_RoundTableCorners` (más
+        # arriba en este mismo módulo) no sirve aquí: usa `.horizontalHeader()`, que QTreeWidget no
+        # tiene (solo `.header()`), así que reutilizamos el helper genérico compartido.
+        if instalar_corner_cover is not None:
+            instalar_corner_cover(self.tree_cat, radius=14, bg=_BG2, border=_CIAN)
         ly.addWidget(self.tree_cat, 1)
         return w
 
@@ -709,7 +1143,7 @@ class CatalogoWindow(QWidget):
         self.inp_marca = _inp(tr("cat.marca_nombre", default="Nombre de marca"))
         fila.addWidget(self.inp_marca, 1)
         fila.addWidget(_btn(tr("cat.crear", default="CREAR"), self._crear_marca, primary=True))
-        fila.addWidget(_btn(tr("cat.renombrar", default="RENOMBRAR"), self._renombrar_marca))
+        fila.addWidget(_btn(tr("cat.renombrar", default="RENOMBRAR"), self._renombrar_marca, primary=True))
         fila.addWidget(_btn(tr("cat.eliminar", default="ELIMINAR"), self._eliminar_marca, danger=True))
         ly.addLayout(fila)
         self.tbl_marca = _tabla([tr("cat.col_marca", default="Marca")])
@@ -777,6 +1211,270 @@ class CatalogoWindow(QWidget):
                           tr("cat.conf_del_etq", default="¿Eliminar la etiqueta?")):
                 cat.eliminar_etiqueta(self._etqs[r]["id"]); self._recargar_etiquetas()
 
+    # ── Panel Descuentos (Fase 2 e-commerce) ─────────────────────────────────
+    # Gestión de cupones (`db.fidelizacion` — motor YA existente y YA conectado al checkout de
+    # Canal Web vía `comercio_digital.comercial.cotizar`/`checkout.confirmar`; esta pestaña es la
+    # PRIMERA pantalla que lo administra, no un motor nuevo). "Carrito completo" del encargo: un
+    # cupón no está atado a ningún producto/categoría (a diferencia de `db.promociones`, que SÍ
+    # es por línea — motor distinto, ya usado por TPV, no se toca aquí).
+    _TIPOS_CUPON_UI = [("% de descuento", "descuento_pct"), ("Importe fijo", "importe_fijo"),
+                       ("Envío gratis", "envio_gratis")]
+
+    def _panel_descuentos(self):
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10); ly.setContentsMargins(0, 0, 0, 0)
+        ly.addWidget(_lbl(tr("cat.desc_nuevo_t", default="Nuevo cupón de descuento"), dim=False, size=14))
+
+        fila1 = QHBoxLayout()
+        colc = QVBoxLayout(); colc.addWidget(_lbl(tr("cat.desc_codigo", default="Código")))
+        self.inp_cup_cod = _inp(tr("cat.desc_codigo_ph", default="VERANO15"))
+        colc.addWidget(self.inp_cup_cod); fila1.addLayout(colc, 1)
+        colt = QVBoxLayout(); colt.addWidget(_lbl(tr("cat.desc_tipo", default="Tipo")))
+        self.cmb_cup_tipo = _combo(self._TIPOS_CUPON_UI)
+        colt.addWidget(self.cmb_cup_tipo); fila1.addLayout(colt, 1)
+        colv = QVBoxLayout(); colv.addWidget(_lbl(tr("cat.desc_valor", default="Valor")))
+        self.inp_cup_valor = _inp("0", 100)
+        colv.addWidget(self.inp_cup_valor); fila1.addLayout(colv)
+        ly.addLayout(fila1)
+
+        fila2 = QHBoxLayout()
+        for attr, etiqueta, ph in (
+                ("inp_cup_inicio", "cat.desc_inicio", "Desde (AAAA-MM-DD, opcional)"),
+                ("inp_cup_fin", "cat.desc_fin", "Hasta (AAAA-MM-DD, opcional)"),
+                ("inp_cup_uso_max", "cat.desc_uso_max", "Usos totales"),
+                ("inp_cup_min", "cat.desc_min", "Pedido mínimo € (opcional)")):
+            col = QVBoxLayout(); col.addWidget(_lbl(tr(etiqueta, default=ph.split(" (")[0])))
+            inp = _inp(tr(etiqueta + "_ph", default=ph))
+            setattr(self, attr, inp)
+            col.addWidget(inp); fila2.addLayout(col)
+        self.inp_cup_uso_max.setText("1")
+        ly.addLayout(fila2)
+
+        for inp in (self.inp_cup_cod, self.inp_cup_valor, self.inp_cup_inicio, self.inp_cup_fin,
+                   self.inp_cup_uso_max, self.inp_cup_min):
+            inp.textChanged.connect(self._actualizar_resumen_cupon)
+        self.cmb_cup_tipo.currentIndexChanged.connect(self._actualizar_resumen_cupon)
+
+        self.lbl_resumen_cupon = QLabel("")
+        self.lbl_resumen_cupon.setWordWrap(True)
+        self.lbl_resumen_cupon.setStyleSheet(
+            f"color:{_CIAN};font-family:'{_FONT}';font-size:13px;font-weight:700;"
+            f"background:{_BG2};border:1px solid {_BORDE};border-radius:8px;padding:8px 10px;")
+        ly.addWidget(self.lbl_resumen_cupon)
+        self._actualizar_resumen_cupon()
+
+        filab = QHBoxLayout(); filab.addStretch()
+        filab.addWidget(_btn(tr("cat.desc_crear", default="CREAR CUPÓN"), self._crear_cupon, primary=True))
+        ly.addLayout(filab)
+
+        cols = [tr("cat.desc_codigo", default="Código"), tr("cat.desc_tipo", default="Tipo"),
+                tr("cat.desc_valor", default="Valor"), tr("cat.desc_usos", default="Usos"),
+                tr("cat.desc_vigencia", default="Vigencia"), tr("cat.desc_estado", default="Estado"), ""]
+        self.tbl_cup = _tabla(cols)
+        self.tbl_cup.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        ly.addWidget(_wrap_tabla(self.tbl_cup), 1)
+        return w
+
+    def _resumen_cupon_texto(self, tipo, valor, fecha_inicio, fecha_fin, uso_maximo, importe_minimo):
+        """Traduce la configuración actual del formulario a lenguaje natural (petición explícita
+        del anexo UX: "15% de descuento en la colección Verano para compras superiores a 50€") —
+        se recalcula en vivo con cada cambio, sin esperar a crear el cupón."""
+        if tipo == "envio_gratis":
+            frase = tr("cat.resumen_envio_gratis", default="Envío gratis")
+        elif tipo == "importe_fijo":
+            frase = tr("cat.resumen_importe_fijo", default="{v} € de descuento", v=f"{valor:.2f}")
+        else:
+            frase = tr("cat.resumen_pct", default="{v}% de descuento", v=f"{valor:g}")
+        frase += " " + tr("cat.resumen_carrito", default="en todo el pedido")
+        if importe_minimo:
+            frase += " " + tr("cat.resumen_minimo", default="para compras superiores a {m} €",
+                              m=f"{importe_minimo:.2f}")
+        if fecha_inicio or fecha_fin:
+            if fecha_inicio and fecha_fin:
+                frase += " " + tr("cat.resumen_rango", default="(válido del {a} al {b})",
+                                  a=fecha_inicio, b=fecha_fin)
+            elif fecha_inicio:
+                frase += " " + tr("cat.resumen_desde", default="(válido desde el {a})", a=fecha_inicio)
+            else:
+                frase += " " + tr("cat.resumen_hasta", default="(válido hasta el {b})", b=fecha_fin)
+        if uso_maximo and uso_maximo > 1:
+            frase += " — " + tr("cat.resumen_usos", default="máximo {n} usos", n=uso_maximo)
+        elif uso_maximo == 1:
+            frase += " — " + tr("cat.resumen_un_uso", default="un solo uso")
+        return frase[0].upper() + frase[1:] + "."
+
+    def _actualizar_resumen_cupon(self):
+        try:
+            valor = float((self.inp_cup_valor.text() or "0").replace(",", "."))
+        except ValueError:
+            valor = 0.0
+        try:
+            uso_maximo = int(self.inp_cup_uso_max.text() or 1)
+        except ValueError:
+            uso_maximo = 1
+        try:
+            importe_minimo = float((self.inp_cup_min.text() or "").replace(",", ".")) \
+                if self.inp_cup_min.text().strip() else None
+        except ValueError:
+            importe_minimo = None
+        self.lbl_resumen_cupon.setText(self._resumen_cupon_texto(
+            self.cmb_cup_tipo.currentData(), valor, self.inp_cup_inicio.text().strip(),
+            self.inp_cup_fin.text().strip(), uso_maximo, importe_minimo))
+
+    def _crear_cupon(self):
+        from src.db import fidelizacion as fid
+        codigo = self.inp_cup_cod.text().strip().upper()
+        if not codigo:
+            _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
+                  tr("cat.desc_sin_codigo", default="Indica un código de cupón."), "warning")
+            return
+        try:
+            valor = float((self.inp_cup_valor.text() or "0").replace(",", "."))
+        except ValueError:
+            valor = 0.0
+        try:
+            uso_maximo = int(self.inp_cup_uso_max.text() or 1)
+        except ValueError:
+            uso_maximo = 1
+        importe_minimo = None
+        if self.inp_cup_min.text().strip():
+            try:
+                importe_minimo = float(self.inp_cup_min.text().replace(",", "."))
+            except ValueError:
+                pass
+        id_cupon = fid.emitir_cupon(
+            codigo, tipo=self.cmb_cup_tipo.currentData(), valor=valor,
+            fecha_inicio=self.inp_cup_inicio.text().strip() or None,
+            fecha_caducidad=self.inp_cup_fin.text().strip() or None,
+            uso_maximo=uso_maximo, importe_minimo=importe_minimo)
+        if id_cupon:
+            self.inp_cup_cod.clear(); self.inp_cup_valor.clear()
+            self.inp_cup_inicio.clear(); self.inp_cup_fin.clear()
+            self.inp_cup_uso_max.setText("1"); self.inp_cup_min.clear()
+            self._recargar_descuentos()
+        else:
+            _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
+                  tr("cat.desc_error_crear",
+                     default="No se pudo crear el cupón (¿código ya existente?)."), "warning")
+
+    def _recargar_descuentos(self):
+        from src.db import fidelizacion as fid
+        self._cupones = fid.listar_cupones()
+        self.tbl_cup.setRowCount(0)
+        etiquetas_tipo = dict(self._TIPOS_CUPON_UI)
+        etiquetas_tipo = {v: k for k, v in etiquetas_tipo.items()}
+        for c in self._cupones:
+            r = self.tbl_cup.rowCount(); self.tbl_cup.insertRow(r)
+            self.tbl_cup.setItem(r, 0, QTableWidgetItem(c.get("codigo") or ""))
+            self.tbl_cup.setItem(r, 1, QTableWidgetItem(etiquetas_tipo.get(c.get("tipo"), c.get("tipo") or "")))
+            valor_txt = "—" if c.get("tipo") == "envio_gratis" else f"{float(c.get('valor') or 0):g}"
+            self.tbl_cup.setItem(r, 2, QTableWidgetItem(valor_txt))
+            usos_txt = f"{int(c.get('usos_actuales') or 0)}/{int(c.get('uso_maximo') or 1)}"
+            self.tbl_cup.setItem(r, 3, QTableWidgetItem(usos_txt))
+            vig = " → ".join(filter(None, [str(c.get("fecha_inicio") or ""),
+                                           str(c.get("fecha_caducidad") or "")])) or "—"
+            self.tbl_cup.setItem(r, 4, QTableWidgetItem(vig))
+            self.tbl_cup.setItem(r, 5, QTableWidgetItem((c.get("estado") or "").upper()))
+            if c.get("estado") == "activo":
+                bd = _btn(tr("cat.desc_desactivar", default="Desactivar"),
+                         lambda _c, i=c["id"]: (fid.desactivar_cupon(i), self._recargar_descuentos()),
+                         danger=True)
+                self.tbl_cup.setCellWidget(r, 6, bd)
+
+    # ── Panel Envíos (Fase 3 e-commerce) ─────────────────────────────────────
+    # Zonas de envío (`comercio_digital.envios.zonas` — motor YA existente, conectado a
+    # `comercial.cotizar`; esta pestaña es la PRIMERA pantalla que lo administra, igual criterio
+    # que Descuentos). Una zona sin países = "resto del mundo" (fallback, como mucho una por
+    # empresa — se valida al calcular, no aquí).
+    def _panel_envios(self):
+        w = QWidget(); ly = QVBoxLayout(w); ly.setSpacing(10); ly.setContentsMargins(0, 0, 0, 0)
+        ly.addWidget(_lbl(tr("cat.env_nueva_t", default="Nueva zona de envío"), dim=False, size=14))
+
+        fila1 = QHBoxLayout()
+        coln = QVBoxLayout(); coln.addWidget(_lbl(tr("cat.env_nombre", default="Nombre")))
+        self.inp_env_nombre = _inp(tr("cat.env_nombre_ph", default="España peninsular"))
+        coln.addWidget(self.inp_env_nombre); fila1.addLayout(coln, 1)
+        colp = QVBoxLayout(); colp.addWidget(_lbl(tr("cat.env_paises", default="Países (ISO, coma)")))
+        self.inp_env_paises = _inp(tr("cat.env_paises_ph", default="ES,PT (vacío = resto del mundo)"))
+        colp.addWidget(self.inp_env_paises); fila1.addLayout(colp, 1)
+        ly.addLayout(fila1)
+
+        fila2 = QHBoxLayout()
+        for attr, etiqueta, ph in (
+                ("inp_env_base", "cat.env_base", "Tarifa base € (0 = sin coste fijo)"),
+                ("inp_env_kg", "cat.env_kg", "€/kg (0 = sin coste por peso)"),
+                ("inp_env_umbral", "cat.env_umbral", "Gratis desde € (opcional)")):
+            col = QVBoxLayout(); col.addWidget(_lbl(tr(etiqueta, default=ph.split(" (")[0])))
+            inp = _inp(tr(etiqueta + "_ph", default=ph))
+            setattr(self, attr, inp)
+            col.addWidget(inp); fila2.addLayout(col)
+        self.inp_env_base.setText("0"); self.inp_env_kg.setText("0")
+        ly.addLayout(fila2)
+
+        filab = QHBoxLayout(); filab.addStretch()
+        filab.addWidget(_btn(tr("cat.env_crear", default="CREAR ZONA"), self._crear_zona_envio, primary=True))
+        ly.addLayout(filab)
+
+        cols = [tr("cat.env_nombre", default="Nombre"), tr("cat.env_paises", default="Países"),
+                tr("cat.env_base", default="Base €"), tr("cat.env_kg", default="€/kg"),
+                tr("cat.env_umbral", default="Gratis desde"), tr("cat.desc_estado", default="Estado"), ""]
+        self.tbl_env = _tabla(cols)
+        self.tbl_env.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        ly.addWidget(_wrap_tabla(self.tbl_env), 1)
+        return w
+
+    def _crear_zona_envio(self):
+        from src.services.comercio_digital.envios import zonas as _zonas
+        nombre = self.inp_env_nombre.text().strip()
+        if not nombre:
+            _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
+                  tr("cat.env_sin_nombre", default="Indica un nombre para la zona."), "warning")
+            return
+        try:
+            tarifa_base = float((self.inp_env_base.text() or "0").replace(",", "."))
+        except ValueError:
+            tarifa_base = 0.0
+        try:
+            tarifa_kg = float((self.inp_env_kg.text() or "0").replace(",", "."))
+        except ValueError:
+            tarifa_kg = 0.0
+        umbral = None
+        if self.inp_env_umbral.text().strip():
+            try:
+                umbral = float(self.inp_env_umbral.text().replace(",", "."))
+            except ValueError:
+                pass
+        id_zona = _zonas.crear_zona(
+            nombre, paises=self.inp_env_paises.text().strip() or None, tarifa_base=tarifa_base,
+            tarifa_por_kg=tarifa_kg, envio_gratis_desde=umbral)
+        if id_zona:
+            self.inp_env_nombre.clear(); self.inp_env_paises.clear()
+            self.inp_env_base.setText("0"); self.inp_env_kg.setText("0"); self.inp_env_umbral.clear()
+            self._recargar_envios()
+        else:
+            _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
+                  tr("cat.env_error_crear", default="No se pudo crear la zona de envío."), "warning")
+
+    def _recargar_envios(self):
+        from src.services.comercio_digital.envios import zonas as _zonas
+        self._zonas_envio = _zonas.listar_zonas()
+        self.tbl_env.setRowCount(0)
+        for z in self._zonas_envio:
+            r = self.tbl_env.rowCount(); self.tbl_env.insertRow(r)
+            self.tbl_env.setItem(r, 0, QTableWidgetItem(z.get("nombre") or ""))
+            self.tbl_env.setItem(r, 1, QTableWidgetItem(z.get("paises") or
+                                                        tr("cat.env_resto_mundo", default="Resto del mundo")))
+            self.tbl_env.setItem(r, 2, QTableWidgetItem(f"{float(z.get('tarifa_base') or 0):.2f}"))
+            self.tbl_env.setItem(r, 3, QTableWidgetItem(f"{float(z.get('tarifa_por_kg') or 0):.2f}"))
+            umbral = z.get("envio_gratis_desde")
+            self.tbl_env.setItem(r, 4, QTableWidgetItem(f"{float(umbral):.2f}" if umbral is not None else "—"))
+            activa = int(z.get("activa", 1) or 0)
+            self.tbl_env.setItem(r, 5, QTableWidgetItem(
+                tr("cat.env_activa", default="ACTIVA") if activa else tr("cat.env_inactiva", default="INACTIVA")))
+            bd = _btn(tr("cat.env_eliminar", default="Eliminar"),
+                     lambda _c, i=z["id"]: (_zonas.eliminar_zona(i), self._recargar_envios()),
+                     danger=True)
+            self.tbl_env.setCellWidget(r, 6, bd)
+
     # ── Panel Web propia (Escenario B) ───────────────────────────────────────
     def _panel_web(self):
         # Rearquitectura Comercio Digital · Fase 2: la configuración de la WEB PROPIA (marca/logo/color/
@@ -795,48 +1493,26 @@ class CatalogoWindow(QWidget):
         info.setWordWrap(True)
         ly.addWidget(info)
         fb = QHBoxLayout()
+        # ÚNICO botón (automatización UX): `abrir_canal_web` ya decide por sí mismo si hay que
+        # mostrar la pregunta inicial o saltar directo a la gestión del canal cuando YA existe
+        # (`canal_web.existe`) — un segundo botón "ADMINISTRAR CANAL WEB" sería un acceso
+        # redundante que hace exactamente lo mismo, solo que sin pasar por esa decisión.
         fb.addWidget(_btn(tr("cat.web_open_canal", default="ABRIR CANAL WEB"),
                           self._abrir_canal_web, primary=True))
-        # Administración del canal YA creado/vinculado (marca/dominio/publicación/sincronización). Es un
-        # flujo DISTINTO al de creación/vinculación: se abre en su propia ventana, no dentro de la pregunta.
-        fb.addWidget(_btn(tr("cat.web_admin_canal", default="ADMINISTRAR CANAL WEB"),
-                          self._administrar_canal_web))
         fb.addStretch()
         ly.addLayout(fb); ly.addStretch()
         return w
 
     def _abrir_canal_web(self):
-        """Redirección a Canal Web: al ENTRAR se muestra ÚNICAMENTE la pregunta inicial (WEB-12: ¿la empresa
-        ya tiene web? Sí/No). Reutiliza el punto único `canal_web_gui.abrir_canal_web` (no abre la
-        configuración directamente, para no saltarse la pregunta)."""
+        """Punto único de acceso a Canal Web: `abrir_canal_web` decide internamente si mostrar la
+        pregunta inicial (WEB-12, canal sin configurar) o saltar directo a la gestión (canal YA
+        existente — flujo directo, automatización UX)."""
         try:
             from src.gui.canal_web_gui import abrir_canal_web
             self._canal_web_win = abrir_canal_web(parent=self, usuario=getattr(self, "usuario", None))
         except Exception as e:
             _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
                    tr("cat.web_open_err", default="No se pudo abrir Canal Web: {e}", e=e), "warning")
-
-    def _administrar_canal_web(self):
-        """Administración del canal YA creado/vinculado, en su propia ventana (flujo distinto al de creación/
-        vinculación). Se construye SIEMPRE de nuevo, cargando el estado del canal ACTUAL (empresa/tienda del
-        contexto): nunca muestra configuraciones antiguas de otros canales."""
-        try:
-            from src.gui.canal_web_config import CanalWebConfigDialog
-            CanalWebConfigDialog(parent=self).exec()
-        except Exception as e:
-            _aviso(self, tr("cat.titulo", default="CATÁLOGO"),
-                   tr("cat.web_admin_err", default="No se pudo abrir la administración del canal: {e}", e=e),
-                   "warning")
-
-    def _recargar_web(self):
-        # @deprecated (Fase 2): la pestaña Web es ahora solo un punto de redirección; no hay campos que
-        # recargar. Se conserva el método (lo invoca `_recargar_todo`) como no-op por compatibilidad.
-        return
-
-    def _guardar_web(self):
-        # @deprecated (Fase 2): la edición de la web se realiza ÚNICAMENTE en Canal Web
-        # (canal_web.guardar_presencia). Método conservado como no-op por compatibilidad.
-        return
 
     # ── Carga / navegación ───────────────────────────────────────────────────
     def _recargar_todo(self):
@@ -847,7 +1523,8 @@ class CatalogoWindow(QWidget):
         except Exception:
             pass
         self._recargar_productos(); self._recargar_categorias()
-        self._recargar_marcas(); self._recargar_etiquetas(); self._recargar_web()
+        self._recargar_marcas(); self._recargar_etiquetas()
+        self._recargar_descuentos(); self._recargar_envios()
 
     def _volver_menu(self):
         if callable(self._volver):

@@ -8,7 +8,7 @@ observabilidad), sin motores paralelos, y la integración en el Service Registry
 
 import pytest
 
-from src import platform as plat
+from src import plataforma as plat
 
 
 @pytest.fixture(autouse=True)

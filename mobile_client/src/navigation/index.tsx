@@ -9,22 +9,27 @@ import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import LoginScreen from '@/screens/LoginScreen';
 import DashboardScreen from '@/screens/DashboardScreen';
 import ScannerScreen from '@/screens/ScannerScreen';
-import DirectorioScreen from '@/screens/DirectorioScreen';
-import ComunicacionesScreen from '@/screens/ComunicacionesScreen';
-import ClientesScreen from '@/screens/ClientesScreen';
-import ProveedoresScreen from '@/screens/ProveedoresScreen';
-import PedidosScreen from '@/screens/PedidosScreen';
 import StockScreen from '@/screens/StockScreen';
-import NotificacionesScreen from '@/screens/NotificacionesScreen';
-import AgendaScreen from '@/screens/AgendaScreen';
-import TareasScreen from '@/screens/TareasScreen';
-import IncidenciasScreen from '@/screens/IncidenciasScreen';
-import WorkflowScreen from '@/screens/WorkflowScreen';
-import DocumentosScreen from '@/screens/DocumentosScreen';
-import TimelineScreen from '@/screens/TimelineScreen';
+import CorreoScreen from '@/screens/CorreoScreen';
+import MermasScreen from '@/screens/MermasScreen';
+import UbicacionScreen from '@/screens/UbicacionScreen';
+import EtiquetasScreen from '@/screens/EtiquetasScreen';
+import LogisticaScreen from '@/screens/LogisticaScreen';
+import LogisticaPickingScreen from '@/screens/LogisticaPickingScreen';
+import DistribucionPickingScreen from '@/screens/DistribucionPickingScreen';
+import GMAOScreen from '@/screens/GMAOScreen';
+import CalidadScreen from '@/screens/CalidadScreen';
+import SATScreen from '@/screens/SATScreen';
+import TransporteScreen from '@/screens/TransporteScreen';
+import ObradorScreen from '@/screens/ObradorScreen';
+import MRPScreen from '@/screens/MRPScreen';
+import GastosViajeScreen from '@/screens/GastosViajeScreen';
+import InfoArticuloScreen from '@/screens/InfoArticuloScreen';
+import EscaneoRemotoFulfillScreen from '@/screens/EscaneoRemotoFulfillScreen';
 import ProximamenteScreen from '@/screens/ProximamenteScreen';
 import {useAuth} from '@/store/AuthContext';
 import {colors} from '@/theme/colors';
+import {navigationRef} from './navigationRef';
 import type {AppStackParamList} from './types';
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -46,24 +51,28 @@ export default function RootNavigator() {
   }
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
       {status === 'signedIn' ? (
         <Stack.Navigator screenOptions={{headerShown: false}}>
           <Stack.Screen name="Dashboard" component={DashboardScreen} />
           <Stack.Screen name="Scanner" component={ScannerScreen} />
-          <Stack.Screen name="Directorio" component={DirectorioScreen} />
-          <Stack.Screen name="Comunicaciones" component={ComunicacionesScreen} />
-          <Stack.Screen name="Clientes" component={ClientesScreen} />
-          <Stack.Screen name="Proveedores" component={ProveedoresScreen} />
-          <Stack.Screen name="Pedidos" component={PedidosScreen} />
           <Stack.Screen name="Stock" component={StockScreen} />
-          <Stack.Screen name="Notificaciones" component={NotificacionesScreen} />
-          <Stack.Screen name="Agenda" component={AgendaScreen} />
-          <Stack.Screen name="Tareas" component={TareasScreen} />
-          <Stack.Screen name="Incidencias" component={IncidenciasScreen} />
-          <Stack.Screen name="Workflow" component={WorkflowScreen} />
-          <Stack.Screen name="Documentos" component={DocumentosScreen} />
-          <Stack.Screen name="Timeline" component={TimelineScreen} />
+          <Stack.Screen name="Correo" component={CorreoScreen} />
+          <Stack.Screen name="Mermas" component={MermasScreen} />
+          <Stack.Screen name="Ubicacion" component={UbicacionScreen} />
+          <Stack.Screen name="Etiquetas" component={EtiquetasScreen} />
+          <Stack.Screen name="Logistica" component={LogisticaScreen} />
+          <Stack.Screen name="LogisticaPicking" component={LogisticaPickingScreen} />
+          <Stack.Screen name="Distribucion" component={DistribucionPickingScreen} />
+          <Stack.Screen name="GMAO" component={GMAOScreen} />
+          <Stack.Screen name="Calidad" component={CalidadScreen} />
+          <Stack.Screen name="SAT" component={SATScreen} />
+          <Stack.Screen name="Transporte" component={TransporteScreen} />
+          <Stack.Screen name="Obrador" component={ObradorScreen} />
+          <Stack.Screen name="MRP" component={MRPScreen} />
+          <Stack.Screen name="GastosViaje" component={GastosViajeScreen} />
+          <Stack.Screen name="InfoArticulo" component={InfoArticuloScreen} />
+          <Stack.Screen name="EscaneoRemotoFulfill" component={EscaneoRemotoFulfillScreen} />
           <Stack.Screen name="Proximamente" component={ProximamenteScreen} />
         </Stack.Navigator>
       ) : (

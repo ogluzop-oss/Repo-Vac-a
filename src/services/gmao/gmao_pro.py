@@ -97,6 +97,35 @@ def registrar_lectura(id_medidor, valor, *, fecha=None, operario=None, id_empres
         return {"ok": False, "motivo": str(e)}
 
 
+def listar_medidores(id_empresa=None, *, id_activo=None) -> list:
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            q = "SELECT * FROM gmao_medidores WHERE id_empresa<=>%s AND activo=1"; p = [emp]
+            if id_activo is not None:
+                q += " AND id_activo=%s"; p.append(id_activo)
+            q += " ORDER BY id DESC"
+            cur.execute(q, p)
+            return _filas(cur)
+    except Exception as e:
+        logger.error("listar_medidores: %s", e)
+        return []
+
+
+def listar_lecturas(id_medidor, id_empresa=None) -> list:
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT * FROM gmao_lecturas WHERE id_empresa<=>%s AND id_medidor=%s "
+                        "ORDER BY fecha DESC, id DESC", (emp, id_medidor))
+            return _filas(cur)
+    except Exception as e:
+        logger.error("listar_lecturas: %s", e)
+        return []
+
+
 # ── Rondas / checklists de inspección ────────────────────────────────────────
 def crear_checklist(codigo, nombre, items, *, id_empresa=None) -> int | None:
     """`items`: [{texto, tipo}] (tipo: ok_ko / valor / texto)."""
@@ -154,3 +183,32 @@ def ejecutar_ronda(id_checklist, *, id_activo=None, resultados=None, operario=No
     except Exception as e:
         logger.error("ejecutar_ronda: %s", e)
         return {"ok": False, "motivo": str(e)}
+
+
+def listar_checklists(id_empresa=None) -> list:
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            cur.execute("SELECT * FROM gmao_checklists WHERE id_empresa<=>%s AND activo=1 "
+                        "ORDER BY nombre", (emp,))
+            return _filas(cur)
+    except Exception as e:
+        logger.error("listar_checklists: %s", e)
+        return []
+
+
+def listar_rondas(id_empresa=None, *, id_checklist=None) -> list:
+    emp = _emp(id_empresa)
+    try:
+        from src.db.conexion import obtener_conexion
+        with obtener_conexion() as c, c.cursor() as cur:
+            q = "SELECT * FROM gmao_ronda_ejecuciones WHERE id_empresa<=>%s"; p = [emp]
+            if id_checklist is not None:
+                q += " AND id_checklist=%s"; p.append(id_checklist)
+            q += " ORDER BY fecha DESC, id DESC"
+            cur.execute(q, p)
+            return _filas(cur)
+    except Exception as e:
+        logger.error("listar_rondas: %s", e)
+        return []

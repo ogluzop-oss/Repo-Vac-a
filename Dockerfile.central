@@ -1,0 +1,36 @@
+# Smart Manager AI — imagen del SERVIDOR CENTRAL de licencias (Fase 2/5, ver plan
+# `hazy-riding-aurora`). Imagen SEPARADA de `Dockerfile` (backend local): propio despliegue, propia
+# base de datos, nunca junto a la de un cliente. Sin worker gevent/SSE — este servidor no tiene
+# endpoints de streaming, un worker síncrono normal basta (menos superficie, menos dependencias).
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    SMART_MANAGER_HEADLESS=1 \
+    GUNICORN_BIND=0.0.0.0:8091 \
+    GUNICORN_WORKER_CLASS=sync
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libffi-dev && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt* ./
+RUN pip install --no-cache-dir flask gunicorn pymysql cryptography python-dotenv requests stripe \
+    && (pip install --no-cache-dir -r requirements.txt || true)
+
+COPY wsgi_central.py gunicorn.conf.py ./
+COPY src/ ./src/
+
+# Sin `assets/` ni `documentos/`: el servidor central no genera PDFs/etiquetas ni sirve estáticos de
+# la app de escritorio — solo API + el panel HTML del fundador (server-rendered, sin build propio).
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8091
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=5 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8091/salud').status==200 else 1)" || exit 1
+
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "wsgi_central:app"]

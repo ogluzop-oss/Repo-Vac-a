@@ -143,3 +143,34 @@ def resumen(id_empresa=None) -> dict:
     return {"facturacion_total": facturacion(id_empresa=id_empresa),
             "recurrente": recurrente_mrr_arr(id_empresa),
             "impagos": impagos(id_empresa)}
+
+
+def registrar_en_bi(*, id_empresa=None) -> dict:
+    """Best-effort: publica los KPIs de facturación en el data warehouse BI si está disponible —
+    mismo patrón que `crm/mrp/sat/gmao/calidad.analitica.registrar_en_bi`. Aplana el resumen anidado
+    (facturacion_total/recurrente/impagos) en claves planas antes de persistir."""
+    eid = _emp(id_empresa)
+    r = resumen(id_empresa=eid)
+    plano = {
+        "facturacion_total": r["facturacion_total"].get("facturacion", 0),
+        "documentos": r["facturacion_total"].get("documentos", 0),
+        "ticket_medio": r["facturacion_total"].get("ticket_medio", 0),
+        "mrr": r["recurrente"].get("mrr", 0),
+        "arr": r["recurrente"].get("arr", 0),
+        "impagadas": r["impagos"].get("impagadas", 0),
+        "pendiente_cobro": r["impagos"].get("pendiente_cobro", 0),
+        "morosidad_pct": r["impagos"].get("morosidad_pct", 0),
+    }
+    try:
+        import datetime as _dt
+
+        from src.services.bi import kpis as bi_kpis
+        if hasattr(bi_kpis, "guardar_valor"):
+            hoy = _dt.date.today().isoformat()
+            for nombre, valor in plano.items():
+                if isinstance(valor, (int, float)):
+                    bi_kpis.guardar_valor(f"facturacion_{nombre}", valor, periodo="dia", fecha=hoy,
+                                          id_empresa=eid)
+    except Exception as e:
+        logger.debug("registrar_en_bi: %s", e)
+    return plano

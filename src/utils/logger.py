@@ -151,7 +151,16 @@ def instalar_captura_global():
             QtMsgType.QtFatalMsg: logging.CRITICAL,
         }
 
+        # Ruido conocido e inofensivo del propio backend FFmpeg de Qt Multimedia (desconexión de
+        # señales de SUS PROPIAS clases internas al destruir un QMediaPlayer/QVideoSink — no es
+        # código de la app el que conecta/desconecta ahí, nada que la app pueda arreglar ni que
+        # indique un fallo real). Bug real reportado: "sigue apareciendo mucho texto" en la
+        # terminal — se filtra aquí en vez de en origen (es interno a Qt, no hay gancho propio).
+        _RUIDO_QT_IGNORADO = ("wildcard call disconnects from destroyed signal of QFFmpeg::",)
+
         def _qt_handler(mode, ctx, message):
+            if any(r in message for r in _RUIDO_QT_IGNORADO):
+                return
             qlog.log(_niveles.get(mode, logging.INFO), "%s", message)
 
         qInstallMessageHandler(_qt_handler)

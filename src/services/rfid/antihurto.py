@@ -10,6 +10,11 @@ del guardia (que recibe el push). Degradable: reutiliza `services.mobile.push` (
 Notificaciones/CCP) — sin canal paralelo. Si no hay backend de push activo, el aviso queda registrado en
 notificaciones para que la app lo sincronice.
 
+El PUSH MÓVIL está disponible para TODAS las empresas clientes, sea cual sea su plan SaaS — un único
+proyecto Firebase GLOBAL (propiedad del vendedor de Smart Manager, `services/mobile/fcm_config`) sirve a
+todas ellas; "es un módulo más" del producto, no una integración que cada empresa configure con su propio
+proyecto ni una capacidad restringida por plan.
+
 La detección física (antena EAS/portal RFID) llama a `alarma_salida_no_pagada(...)`; este módulo resuelve
 el artículo, evita falsas alarmas (un artículo PAGADO nunca dispara la alarma, sin ventana temporal) y avisa
 a los guardias registrados. El TPV marca el tag como pagado en caja con `marcar_pagado(epc=...)`.
@@ -51,7 +56,8 @@ def registrar_guardia(id_usuario, token_push=None, *, plataforma="android", id_e
     if token_push:
         try:
             from src.services.mobile import push
-            push.registrar_dispositivo(id_usuario, token_push, plataforma=plataforma)
+            push.registrar_dispositivo(id_usuario, token_push, plataforma=plataforma,
+                                        id_empresa=_emp(id_empresa))
         except Exception:
             pass
     return True

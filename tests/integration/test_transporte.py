@@ -39,6 +39,7 @@ def _limpia(db, emp):
             cur.execute("DELETE FROM transporte_paradas WHERE id_empresa=%s", (emp,))
             cur.execute("DELETE FROM transporte_rutas WHERE id_empresa=%s", (emp,))
             cur.execute("DELETE FROM transporte_vehiculos WHERE id_empresa=%s", (emp,))
+            cur.execute("DELETE FROM activos WHERE id_empresa=%s AND tipo='vehiculo'", (emp,))
             for cod in ("TRV-A", "TRV-B"):
                 cur.execute("DELETE FROM articulos WHERE codigo=%s AND id_empresa=%s", (cod, emp))
                 cur.execute("DELETE FROM movimientos_stock WHERE codigo_articulo=%s", (cod,))
@@ -54,6 +55,45 @@ def test_crear_y_listar_vehiculo(db, emp):
     assert vid
     vehis = T.listar_vehiculos(id_empresa=emp)
     assert any(v["id"] == vid and v["matricula"] == "1234-ABC" for v in vehis)
+
+
+def test_vehiculo_queda_cableado_como_activo_gmao(db, emp):
+    """Reparto ↔ Mantenimiento: dar de alta un vehículo lo registra como ACTIVO GMAO tipo
+    'vehiculo' (estado 'operativo' por defecto), visible en el listado de Mantenimiento."""
+    from src.services.gmao import activos as A
+    vid = T.crear_vehiculo("9999-XYZ", descripcion="Camión", id_empresa=emp)
+    vehi = next(v for v in T.listar_vehiculos(id_empresa=emp) if v["id"] == vid)
+    assert vehi["id_activo"]
+    activo = A.buscar_por_codigo("9999-XYZ", id_empresa=emp)
+    assert activo is not None
+    assert activo["id"] == vehi["id_activo"]
+    assert activo["tipo"] == "vehiculo"
+    assert activo["estado"] == "operativo"
+    assert any(a["id"] == activo["id"] for a in A.listar(id_empresa=emp))
+
+
+def test_listar_vehiculos_repara_enlace_gmao_huerfano(db, emp):
+    """Un vehículo que por el motivo que sea se quedara SIN activo enlazado (`id_activo` NULL —
+    p. ej. creado antes de este cableado, o un fallo puntual de GMAO en su momento) se repara solo
+    al listar, sin intervención manual: Reparto y Mantenimiento quedan SIEMPRE cableados."""
+    from src.services.gmao import activos as A
+    with db.obtener_conexion() as c, c.cursor() as cur:
+        cur.execute("INSERT INTO transporte_vehiculos (id_empresa, matricula, descripcion, id_activo) "
+                    "VALUES (%s,%s,%s,NULL)", (emp, "7777-HUE", "Furgón huérfano"))
+        c.commit()
+    assert A.buscar_por_codigo("7777-HUE", id_empresa=emp) is None   # aún sin activo
+
+    vehis = T.listar_vehiculos(id_empresa=emp)
+    vehi = next(v for v in vehis if v["matricula"] == "7777-HUE")
+    assert vehi["id_activo"]   # reparado en esta misma lectura
+
+    activo = A.buscar_por_codigo("7777-HUE", id_empresa=emp)
+    assert activo is not None and activo["id"] == vehi["id_activo"] and activo["tipo"] == "vehiculo"
+    # Persistido de verdad (no solo en memoria): una segunda lectura ve el mismo id_activo.
+    with db.obtener_conexion() as c, c.cursor() as cur:
+        cur.execute("SELECT id_activo FROM transporte_vehiculos WHERE matricula=%s AND id_empresa=%s",
+                    ("7777-HUE", emp))
+        assert cur.fetchone()[0] == vehi["id_activo"]
 
 
 # ── Rutas + entrega (descuenta stock por el motor oficial) ────────────────────

@@ -1,11 +1,20 @@
 """
-Capa de datos: CENTROS DE TRABAJO de la empresa (multi-tenant).
+Capa de datos: CENTROS DE EMPRESA (antes "Centros de trabajo") — multi-tenant.
 
-Tabla independiente `centros_trabajo` relacionada con `empresas` por `id_empresa`
-(y opcionalmente con una tienda por `id_tienda`, sin asumir relación 1:1). Un
-centro puede ser una tienda, una oficina, un almacén, una sede logística, etc.
-Forma parte de la fuente única de datos corporativos; los documentos lo consumen
-vía `empresa.datos_corporativos()` ([[project_multitenant]]).
+Tabla `centros_trabajo`, relacionada con `empresas` por `id_empresa` (y opcionalmente con una tienda
+por `id_tienda` / un almacén por `id_almacen`, sin asumir relación 1:1 en ningún caso). Es la ÚNICA
+tabla de centros físicos de la empresa (tienda/almacén/fábrica/oficina/otro — ver `tipo_centro`).
+Forma parte de la fuente única de datos corporativos; los documentos lo consumen vía
+`empresa.datos_corporativos()` ([[project_multitenant]]).
+
+Unificación (migración 0257): esta tabla absorbe lo que hasta hoy vivía en `centros_perfil`
+(retirada) — `tipo_centro`, `id_almacen` y `creado_por_id` (base del aislamiento entre superadmins
+en "Cambiar de Centro"/"Vincular a centro", ver `gui/selector_tienda.py`/`gui/gestion_usuarios.py`).
+También hereda el geocode-on-save: `crear_centro`/`actualizar_centro` geocodifican `codigo_postal`
+(precisión de provincia, `services/geo/cp_espana.py`) y, si el centro tiene `id_almacen`, propagan el
+resultado a `almacen.latitud/longitud` para que `services/tpv/online_orders_service.py::
+buscar_almacenes_con_stock` siga ordenando por proximidad sin cambios. `centros_trabajo` NO guarda
+latitud/longitud propias — la única propagación real es hacia el almacén enlazado.
 """
 
 import logging
@@ -17,12 +26,34 @@ from src.db.empresa import empresa_actual_id
 logger = logging.getLogger("centros_db")
 
 _PERMITIDOS = (
-    "id_tienda", "nombre_centro", "direccion", "codigo_postal", "municipio",
-    "provincia", "comunidad_autonoma", "pais", "telefono", "email",
+    "tipo_centro", "id_tienda", "id_almacen", "nombre_centro", "direccion", "codigo_postal",
+    "municipio", "provincia", "comunidad_autonoma", "pais", "telefono", "email",
     "codigo_cuenta_cotizacion", "codigo_centro_trabajo", "actividad_economica",
     "cod_pais", "cod_municipio", "cod_actividad",
-    "es_principal", "estado",
+    "es_principal", "estado", "creado_por_id",
 )
+
+
+def _geocodificar_y_propagar(id_empresa, codigo_postal, id_almacen) -> None:
+    """Geocodifica `codigo_postal` (precisión de PROVINCIA, ver `services/geo/cp_espana.py`) y, si
+    el centro tiene `id_almacen`, replica el resultado en `almacen.latitud/longitud` para que
+    `buscar_almacenes_con_stock` siga ordenando por proximidad sin cambios. `centros_trabajo` no
+    tiene columnas propias de latitud/longitud — no hay nada más que guardar aquí. No hace nada si
+    falta `codigo_postal` o `id_almacen`, o si el CP no es válido/conocido (nunca inventa una
+    coordenada, mismo criterio que `cp_espana.geocodificar_cp`)."""
+    if not (codigo_postal and id_almacen):
+        return
+    try:
+        from src.services.geo.cp_espana import geocodificar_cp
+        coords = geocodificar_cp(codigo_postal)
+        if not coords:
+            return
+        lat, lon = coords
+        from src.db import stock_almacen as SA
+        SA.actualizar_geolocalizacion(id_almacen, lat, lon, id_empresa=id_empresa)
+    except Exception as e:
+        logger.warning("No se pudo geocodificar/propagar centro (CP=%s, almacen=%s): %s",
+                        codigo_postal, id_almacen, e)
 
 
 def _siguiente_codigo(cur, id_empresa) -> str:
@@ -42,16 +73,24 @@ def _siguiente_codigo(cur, id_empresa) -> str:
     return f"CDT-{ultimo + 1:03d}"
 
 
-def listar_centros(id_empresa=None, solo_activos=True) -> list[dict]:
+def listar_centros(id_empresa=None, solo_activos=True, creado_por_id=None) -> list[dict]:
+    """Centros de la empresa. Si `creado_por_id` se indica, SOLO los creados por ese usuario
+    (aislamiento entre superadmins — mismo criterio que la antigua `centros_perfil.
+    listar_centros_perfil`, ver "Cambiar de Centro"/"Vincular a centro", que por defecto siempre
+    pasan el superadmin actual salvo desbloqueo explícito por PIN)."""
     id_empresa = id_empresa or empresa_actual_id()
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
             sql = "SELECT * FROM centros_trabajo WHERE id_empresa=%s"
+            params = [id_empresa]
             if solo_activos:
                 sql += " AND estado='activo'"
+            if creado_por_id is not None:
+                sql += " AND creado_por_id=%s"
+                params.append(creado_por_id)
             sql += " ORDER BY es_principal DESC, fecha_alta ASC"
-            cur.execute(sql, (id_empresa,))
+            cur.execute(sql, params)
             return _filas_a_dicts(cur, cur.fetchall())
     except Exception as e:
         logger.error("Error listar_centros: %s", e)
@@ -97,6 +136,9 @@ def crear_centro(id_empresa=None, **campos) -> str | None:
     datos = {k: v for k, v in campos.items() if k in _PERMITIDOS}
     es_principal = 1 if datos.get("es_principal") else 0
     datos.pop("es_principal", None)
+    # Geocodifica codigo_postal (si viene) y, si hay id_almacen, propaga a almacen.latitud/longitud
+    # — se hace ANTES del INSERT (no altera `datos`: centros_trabajo no guarda lat/lon propias).
+    _geocodificar_y_propagar(id_empresa, datos.get("codigo_postal"), datos.get("id_almacen"))
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -121,6 +163,15 @@ def crear_centro(id_empresa=None, **campos) -> str | None:
                 f"INSERT INTO centros_trabajo ({', '.join(cols)}) VALUES ({ph})", vals
             )
             conn.commit()
+        # Delegación de tareas repetitivas a SOMA (observacional, bulletproof): si el SUPERADMIN
+        # tiene activa la automatización "autorrelleno de centro", esto la dispara.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("CENTRO_CREADO", id_empresa=id_empresa, origen="centros",
+                         ref_entidad="centro", ref_id=nuevo_id,
+                         payload={"codigo_centro": codigo})
+        except Exception:
+            pass
         return nuevo_id
     except Exception as e:
         logger.error("Error crear_centro: %s", e)
@@ -131,6 +182,18 @@ def actualizar_centro(id_centro, **campos) -> bool:
     datos = {k: v for k, v in campos.items() if k in _PERMITIDOS and k != "es_principal"}
     if not datos:
         return False
+    # Regeocodifica y propaga a almacen.latitud/longitud si cambia el codigo_postal o si se enlaza/
+    # cambia el id_almacen (mismo criterio que la antigua centros_perfil.actualizar_centro_perfil,
+    # ampliado: también dispara al enlazar un almacén nuevo a un centro cuyo CP no cambia).
+    if "codigo_postal" in datos or "id_almacen" in datos:
+        try:
+            actual = obtener_centro(id_centro) or {}
+            id_empresa = actual.get("id_empresa") or empresa_actual_id()
+            id_almacen = datos.get("id_almacen", actual.get("id_almacen"))
+            codigo_postal = datos.get("codigo_postal", actual.get("codigo_postal"))
+            _geocodificar_y_propagar(id_empresa, codigo_postal, id_almacen)
+        except Exception as e:
+            logger.warning("No se pudo regeocodificar centro %s: %s", id_centro, e)
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:

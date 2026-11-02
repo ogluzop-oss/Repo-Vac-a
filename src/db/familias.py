@@ -186,6 +186,92 @@ def articulos_filtrados(query="", id_familia=None, id_empresa=None, limite=200):
         return []
 
 
+GENEROS_ARTICULO = ("HOMBRE", "MUJER", "NINO", "NINA", "UNISEX")
+
+
+def tallas_disponibles(id_empresa=None) -> list:
+    """Tallas distintas ya usadas en `producto_variantes` de la empresa (para rellenar el combo
+    del popup "Filtros" — Retail/Textil/Supermarket)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT talla FROM producto_variantes WHERE id_empresa=%s "
+                       "AND talla IS NOT NULL AND talla<>'' ORDER BY talla", (id_empresa,))
+            return [r[0] for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("tallas_disponibles: %s", e)
+        return []
+
+
+def colores_disponibles(id_empresa=None) -> list:
+    """Colores distintos ya usados en `producto_variantes` de la empresa."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT color FROM producto_variantes WHERE id_empresa=%s "
+                       "AND color IS NOT NULL AND color<>'' ORDER BY color", (id_empresa,))
+            return [r[0] for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("colores_disponibles: %s", e)
+        return []
+
+
+def set_genero_articulo(codigo, genero, id_empresa=None) -> bool:
+    """Asigna el género/segmento (`GENEROS_ARTICULO`, o None para quitarlo) a un artículo."""
+    id_empresa = _empresa(id_empresa)
+    genero = (genero or "").strip().upper() or None
+    if genero and genero not in GENEROS_ARTICULO:
+        return False
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE articulos SET genero=%s WHERE codigo=%s AND id_empresa=%s",
+                       (genero, codigo, id_empresa))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error("set_genero_articulo: %s", e)
+        return False
+
+
+def buscar_articulos_con_filtros(query="", *, talla=None, color=None, precio_min=None,
+                                 precio_max=None, genero=None, id_empresa=None,
+                                 limite=200) -> list:
+    """Filtro avanzado de artículos (popup "Filtros": talla/color/precio/género — Retail/Textil/
+    Supermarket, ver `gui/components/completer_articulos.py`). Distinto de `articulos_filtrados`
+    (texto+familia, usado por pantallas de lista ya existentes con un contrato de tuplas que no
+    conviene tocar): esta función devuelve dicts y añade talla/color (JOIN con `producto_variantes`
+    — cada variante talla×color es su propio SKU en `articulos`, enlazado por `codigo_variante`) y
+    género (columna `articulos.genero`, migración 0315)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        like = f"%{(query or '').strip()}%"
+        cond = ["a.id_empresa=%s", "(a.codigo LIKE %s OR a.nombre LIKE %s)"]
+        params = [id_empresa, like, like]
+        join = ""
+        if talla or color:
+            join = (" JOIN producto_variantes v ON v.codigo_variante=a.codigo "
+                    "AND v.id_empresa=a.id_empresa")
+            if talla:
+                cond.append("v.talla=%s"); params.append(str(talla))
+            if color:
+                cond.append("v.color=%s"); params.append(str(color))
+        if precio_min is not None:
+            cond.append("a.precio>=%s"); params.append(float(precio_min))
+        if precio_max is not None:
+            cond.append("a.precio<=%s"); params.append(float(precio_max))
+        if genero:
+            cond.append("a.genero=%s"); params.append(genero)
+        params.append(int(limite))
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT a.codigo, a.nombre, a.precio, a.genero FROM articulos a{join} WHERE "
+                + " AND ".join(cond) + " ORDER BY a.nombre ASC LIMIT %s", tuple(params))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("buscar_articulos_con_filtros: %s", e)
+        return []
+
+
 def listar_articulos_con_familia(id_empresa=None, limite=2000):
     """Todos los artículos de la empresa con su familia asignada (para gestión de familias en el TPV).
     Devuelve dicts {codigo, nombre, precio, id_familia, familia}. `familia` es None si no tiene."""

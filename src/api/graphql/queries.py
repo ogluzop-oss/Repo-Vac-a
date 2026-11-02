@@ -72,6 +72,9 @@ def _q_timeline(ctx, com_id=None, **_):
 
 
 # ── Plugins / Marketplace ──────────────────────────────────────────────────────
+# @deprecated: la App Store se retiró del menú de escritorio (decisión de producto informada, ver
+# `gui/marketplace_gui.py`); sin consumidores conocidos (mobile no las llama, grep confirmado). Se
+# conservan por ser endpoints ya vivos, no se cablean a nada nuevo.
 def _q_plugins(ctx, **_):
     try:
         from src import sdk

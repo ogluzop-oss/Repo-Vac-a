@@ -21,7 +21,7 @@ def vista_global() -> dict:
     monit = monitorizacion.global_()
     plataforma = {}
     try:
-        from src import platform as plat
+        from src import plataforma as plat
         if not plat.registry.nombres():
             plat.bootstrap()
         plataforma = {"servicios": plat.registry.nombres(),

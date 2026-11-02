@@ -45,6 +45,14 @@ def _marcar_pago(id_empresa, ref, estado):
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("UPDATE pagos_saas SET estado=%s WHERE id_empresa=%s AND ref_externa=%s",
                         (estado, id_empresa, ref))
+            if estado == "pagado":
+                # Cierra también la factura asociada — necesario para los cobros que llegaron a
+                # "procesando" (SEPA vía Stripe): `_facturar_y_cobrar` la dejó "emitida" a propósito,
+                # sin dar el pago por bueno hasta esta confirmación real.
+                cur.execute(
+                    "UPDATE facturas_saas fs JOIN pagos_saas p ON p.id_factura=fs.id "
+                    "SET fs.estado='pagada' WHERE p.id_empresa=%s AND p.ref_externa=%s",
+                    (id_empresa, ref))
             conn.commit()
     except Exception as e:
         logger.debug("_marcar_pago: %s", e)

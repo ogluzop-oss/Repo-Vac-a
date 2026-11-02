@@ -74,10 +74,14 @@ def test_cierre_ejercicio_desde_gui(db, fab):
 
 
 def test_menu_incluye_contabilidad(db):
+    # "contabilidad" está restringido a SUPERADMIN (ver `DEFAULT_ADMINISTRADOR` en
+    # `services/seguridad/modulos_menu.py`, que documenta "contabilidad" como SUPERADMIN-only)
+    # desde el endurecimiento de permisos de ADMINISTRADOR — mismo criterio y mismo patrón de
+    # test ya usado en `test_compras_gui.py::test_menu_principal_incluye_compras_solo_superadmin`.
     from src.db.usuario import sesion_global
     from src.gui import menu_principal as M
     prev = sesion_global.usuario_actual
-    sesion_global.usuario_actual = {"perfil": "ADMINISTRADOR", "nombre": "ADMIN"}
+    sesion_global.usuario_actual = {"perfil": "SUPERADMIN", "nombre": "ADMIN"}
     try:
         menu = M.MenuPrincipal()
         assert "contabilidad" in menu._cards

@@ -227,8 +227,18 @@ class AmazonAdapter(_AmazonPreparado):
                        "precio": _num(li.get("ItemPrice"))} for li in self._order_items(aoid, id_empresa)]
             if not lineas:
                 continue
+            # Dirección de envío (SP-API Orders: `ShippingAddress` ya viene en el propio pedido,
+            # sin llamada extra) — alimenta el enrutamiento por cercanía al cliente
+            # (`buscar_almacenes_con_stock`/`cp_cliente`); degrada a None si no viene (nunca
+            # inventa un CP).
+            sa = o.get("ShippingAddress") or {}
+            cp = sa.get("PostalCode")
+            direccion_envio = ", ".join(str(x) for x in (
+                sa.get("AddressLine1"), sa.get("AddressLine2"), sa.get("City"),
+                sa.get("StateOrRegion"), cp, sa.get("CountryCode")) if x)
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="amazon", referencia_externa=ref)
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="amazon", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido amazon %s: %s", ref, e)

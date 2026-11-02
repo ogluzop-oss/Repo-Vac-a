@@ -14,7 +14,7 @@ db/stock + db/kardex (N7); multi-tenant estricto por id_empresa.
 """
 
 from src.services.importacion.modelo import (  # noqa: F401
-    CLIENTES, ENTIDADES, PRODUCTOS, PROVEEDORES, SALDOS, TESORERIA, VENTAS_HIST,
+    CLIENTES, ENTIDADES, PLAN_CONTABLE, PRODUCTOS, PROVEEDORES, SALDOS, TESORERIA, VENTAS_HIST,
 )
 from src.services.importacion.lectores import FORMATOS, detectar_formato, leer  # noqa: F401
 from src.services.importacion.mapeo import sugerir_mapeo  # noqa: F401
@@ -25,11 +25,16 @@ from src.services.importacion.mapeo_ia import sugerir_mapeo_ia, disponible as ia
 from src.services.importacion.motor import (  # noqa: F401
     analizar, simular, ejecutar, analizar_filas, simular_filas, ejecutar_filas,
     importar_desde_bd, importar_desde_odbc, importar_desde_api, trabajos_recientes, importar_documentos,
+    stage, validate, simulate, commit, actualizar_fila_staging, errores_trabajo,
+    guardar_plantilla_mapeo, listar_plantillas_mapeo, obtener_plantilla_mapeo,
 )
 
-__all__ = ["PRODUCTOS", "CLIENTES", "PROVEEDORES", "VENTAS_HIST", "SALDOS", "TESORERIA", "ENTIDADES",
+__all__ = ["PRODUCTOS", "CLIENTES", "PROVEEDORES", "VENTAS_HIST", "SALDOS", "TESORERIA", "PLAN_CONTABLE",
+           "ENTIDADES",
            "FORMATOS", "detectar_formato", "leer", "sugerir_mapeo", "sugerir_mapeo_ia", "ia_disponible",
            "analizar", "simular", "ejecutar", "analizar_filas", "simular_filas", "ejecutar_filas",
            "leer_bmecat", "leer_edifact_pricat", "leer_sql_dump", "tablas_dump", "leer_consulta",
            "leer_odbc", "leer_api", "importar_desde_bd", "importar_desde_odbc", "importar_desde_api",
-           "trabajos_recientes", "importar_documentos"]
+           "trabajos_recientes", "importar_documentos",
+           "stage", "validate", "simulate", "commit", "actualizar_fila_staging", "errores_trabajo",
+           "guardar_plantilla_mapeo", "listar_plantillas_mapeo", "obtener_plantilla_mapeo"]

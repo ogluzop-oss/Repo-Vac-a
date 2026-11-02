@@ -1,26 +1,42 @@
 """
 Taxonomía de familias de productos a granel (báscula del TPV) — fuente ÚNICA de verdad.
 
-Clasifica todo producto de la báscula en una de las familias canónicas. Dos familias tienen
-subfamilias (apartados) obligatorias:
+Clasifica todo producto de la báscula en una de las familias canónicas. Las subfamilias (apartados)
+de cada familia viven en BD (`familias_granel_subfamilias`, vía
+`services.tpv.familias_granel_subfamilias`, migración 0308) — el superadministrador puede crear
+apartados nuevos en CUALQUIER familia desde la ventana de alta de un producto, no solo en las que
+ya traían apartados de fábrica (Panes, Bollería, Carnicería, Pescadería). Las listas embebidas en
+`_FAMILIAS` de abajo son solo un colchón para cuando la BD no está disponible (p. ej. tests sin
+conexión) — la fuente real es siempre la tabla.
 
-  * PANES     → Barras de pan · Hogazas · Panecillos
-  * BOLLERÍA  → Bollería dulce · Bollería salada
-
-El resto de familias no tienen subfamilia. Reutilizado por el servicio (`bulk_products_service`),
-la báscula (`_BasculaDialog`) y la gestión de precios (`_GestionGranelDialog`/`_EditarGranelDialog`).
-Migrar/añadir familias aquí NO requiere tocar la GUI (la interfaz se genera a partir de esta tabla).
+Reutilizado por el servicio (`bulk_products_service`), la báscula (`_BasculaDialog`) y la gestión
+de precios (`_GestionGranelDialog`/`_EditarGranelDialog`). Migrar/añadir familias aquí NO requiere
+tocar la GUI (la interfaz se genera a partir de esta tabla).
 """
 
 from __future__ import annotations
 
-# (codigo canónico, etiqueta, emoji, [subfamilias]) — el orden define el orden de las pestañas.
+# (codigo canónico, etiqueta, emoji, [subfamilias de fábrica]) — el orden define el orden de las
+# pestañas. Las subfamilias de aquí son solo el COLCHÓN sin BD (ver docstring); en caliente,
+# `subfamilias()` siempre consulta `familias_granel_subfamilias` primero.
 _FAMILIAS: list[tuple[str, str, str, list[tuple[str, str]]]] = [
     ("DULCES",      "Dulces",      "🍬", []),
     ("FRUTA",       "Fruta",       "🍎", []),
     ("VERDURA",     "Verdura",     "🥕", []),
-    ("CARNICERIA",  "Carnicería",  "🥩", []),
-    ("PESCADERIA",  "Pescadería",  "🐟", []),
+    ("CARNICERIA",  "Carnicería",  "🥩", [
+        ("TERNERA",  "Ternera / Vacuno"),
+        ("AVES",     "Aves"),
+        ("CORDERO",  "Cordero / Cabrito"),
+        ("CONEJO",   "Conejo"),
+        ("CERDO",    "Cerdo"),
+    ]),
+    ("PESCADERIA",  "Pescadería",  "🐟", [
+        ("PESCADO_BLANCO", "Pescado blanco"),
+        ("PESCADO_ROJO",   "Pescado azul"),
+        ("CRUSTACEOS",     "Crustáceos"),
+        ("CEFALOPODOS",    "Cefalópodos"),
+        ("MOLUSCOS",       "Moluscos"),
+    ]),
     ("PANES",       "Panes",       "🥖", [
         ("BARRAS",     "Barras de pan"),
         ("HOGAZAS",    "Hogazas"),
@@ -82,7 +98,7 @@ def familias(incluir_otros: bool = False) -> list[dict]:
     base = list(_FAMILIAS) + ([_OTROS] if incluir_otros else [])
     return [{"codigo": c, "etiqueta": et, "emoji": e,
              "por_unidad": c in _POR_UNIDAD,
-             "subfamilias": [{"codigo": sc, "etiqueta": set_} for sc, set_ in subs]}
+             "subfamilias": subfamilias(c)}
             for c, et, e, subs in base]
 
 
@@ -91,7 +107,16 @@ def codigos(incluir_otros: bool = False) -> list[str]:
 
 
 def subfamilias(familia: str) -> list[dict]:
-    """Subfamilias (apartados) de una familia; [] si no tiene."""
+    """Subfamilias (apartados) de una familia; [] si no tiene. Fuente real: BD
+    (`familias_granel_subfamilias`, el superadmin puede crear apartados nuevos desde la GUI); si la
+    BD no está disponible, cae en la lista de fábrica de `_FAMILIAS` como colchón."""
+    try:
+        from src.services.tpv import familias_granel_subfamilias as _FS
+        db = _FS.listar(familia)
+        if db:
+            return db
+    except Exception:
+        pass
     f = _BY_CODE.get((familia or "").upper())
     if not f:
         return []

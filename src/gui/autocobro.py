@@ -14,6 +14,7 @@ Características:
   * Báscula simulada por defecto (scale_service); driver listo para hardware.
 """
 from __future__ import annotations
+from assets.estilo_global import _blindar_tamano_fijo
 from src.utils import divisas
 from src.utils.i18n import tr
 
@@ -24,6 +25,7 @@ import time
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -162,7 +164,7 @@ class AutocobroWindow(QWidget):
         v.addWidget(_lbl(tr("autocobro.asist_title", default="🔧  ASISTENCIA DE PERSONAL"),
                          bold=True, size=20, color=_CIAN))
         v.addWidget(_lbl(tr("autocobro.asist_auth", default="Autorizado por: {n}", n=nombre),
-                         size=12, color=_TEXT2))
+                         bold=True, size=12, color=_TEXT2))
         v.addSpacing(6)
 
         def _accion(txt, color, slot):
@@ -265,7 +267,7 @@ class AutocobroWindow(QWidget):
         cl.setContentsMargins(40, 0, 40, 0)
         cl.addWidget(_lbl("🛒  AUTOCOBRO", bold=True, size=30, color=_CIAN))
         cl.addStretch()
-        self.lbl_reloj = _lbl("", size=14, color=_TEXT2)
+        self.lbl_reloj = _lbl("", bold=True, size=14, color=_TEXT2)
         cl.addWidget(self.lbl_reloj)
         root.addWidget(cab)
 
@@ -353,7 +355,7 @@ class AutocobroWindow(QWidget):
         der.setSpacing(14)
 
         card_total = QFrame()
-        card_total.setStyleSheet(f"QFrame{{background:{_BG2};border:2px solid {_VERDE};border-radius:18px;}}")
+        card_total.setStyleSheet(f"QFrame{{background:transparent;border:none;}}")
         ct = QVBoxLayout(card_total)
         ct.setContentsMargins(24, 18, 24, 18)
         ct.addWidget(_lbl("TOTAL A PAGAR", bold=True, size=18, color=_TEXT2))
@@ -387,14 +389,14 @@ class AutocobroWindow(QWidget):
 
         der.addStretch()
 
-        self.btn_pagar = QPushButton(tr("autocobro.pagar", default="PAGAR"))
+        self.btn_pagar = QPushButton(tr("autocobro.pagar", default="Pagar"))
         self.btn_pagar.setFixedHeight(92)
         self.btn_pagar.setEnabled(False)
         self.btn_pagar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_pagar.setStyleSheet(
-            f"QPushButton{{background:{_VERDE};color:#0D1117;border:none;border-radius:18px;"
+            f"QPushButton{{background:{_BG2};color:{_VERDE};border:2px solid {_VERDE};border-radius:18px;"
             f"font-family:'{_FONT}';font-weight:900;font-size:32px;}}"
-            f"QPushButton:hover{{background:#FFF;}}"
+            f"QPushButton:hover{{background:{_VERDE};color:#0D1117;}}"
             f"QPushButton:disabled{{background:#1C2128;color:#484F58;}}"
         )
         self.btn_pagar.clicked.connect(self._pagar)
@@ -419,6 +421,7 @@ class AutocobroWindow(QWidget):
             f"border-radius:14px;font-family:'{_FONT}';font-weight:900;font-size:18px;}}"
             f"QPushButton:hover{{background:{_ROJO};color:#FFF;}}"
         )
+        btn_cancelar.setProperty("sin_glow", True)
         btn_cancelar.clicked.connect(self._cancelar)
         der.addWidget(btn_cancelar)
 
@@ -429,13 +432,13 @@ class AutocobroWindow(QWidget):
     def _build_plataforma(self, titulo: str, sub: str) -> QFrame:
         card = QFrame()
         card.setStyleSheet(
-            f"QFrame{{background:{_BG2};border:2px solid {_BORDE};border-radius:14px;}}"
+            f"QFrame{{background:transparent;border:none;}}"
         )
         v = QVBoxLayout(card)
         v.setContentsMargins(14, 10, 14, 10)
         v.setSpacing(2)
-        v.addWidget(_lbl(titulo, bold=True, size=13, color=_CIAN))
-        v.addWidget(_lbl(sub, size=10, color=_TEXT2))
+        v.addWidget(_lbl(titulo, bold=True, size=14, color=_CIAN))
+        v.addWidget(_lbl(sub, bold=True, size=12, color=_TEXT2))
         return card
 
     # ── Lógica de escaneo ────────────────────────────────────────────────────
@@ -444,6 +447,13 @@ class AutocobroWindow(QWidget):
         codigo = self.inp_scan.text().strip()
         self.inp_scan.clear()
         if not codigo:
+            return
+        # Un vale descuento de devolución se escanea por el MISMO campo que los artículos (no hay
+        # un botón/lector separado en autocobro) — se distingue por su prefijo fijo (`VALE-...`,
+        # ver `services.tpv.vales_devolucion._generar_codigo`) antes de intentar resolverlo como
+        # artículo, para no mostrar nunca "Producto no reconocido" al canjear un vale válido.
+        if codigo.upper().startswith("VALE-"):
+            self._canjear_vale_autocobro(codigo)
             return
         articulo = obtener_articulo(codigo)
         if not articulo:
@@ -474,15 +484,61 @@ class AutocobroWindow(QWidget):
         self._refrescar()
         self._verificar_bagging("Coloca el producto en la zona escaneada.")
 
+    def _canjear_vale_autocobro(self, codigo: str):
+        """Canjea un vale descuento de devolución (mismo motor que el TPV del cajero,
+        `services.tpv.vales_devolucion`): se aplica como línea de descuento sobre el total actual
+        del carrito. Si el vale tenía más saldo del necesario, se desactiva y se imprime
+        automáticamente uno nuevo con el restante — mismo comportamiento que en el TPV."""
+        if not self._lineas:
+            self._aviso("Añade artículos antes de canjear un vale.")
+            return
+        total_actual = self._total()
+        if total_actual <= 0:
+            self._aviso("El total actual ya es cero; no hay nada que descontar.")
+            return
+        from src.services.tpv import vales_devolucion as V
+        id_tienda = None
+        try:
+            from src.db.empresa import tienda_actual_id
+            id_tienda = tienda_actual_id()
+        except Exception:
+            pass
+        res = V.canjear_vale(codigo, total_actual, id_tienda_canje=id_tienda)
+        if not res["ok"]:
+            self._aviso(res["motivo"])
+            return
+        self._lineas.append({
+            "codigo": f"VALE_DEVOLUCION-{codigo}",
+            "nombre": f"Vale descuento  ({codigo})", "cantidad": 1,
+            "precio": -res["aplicado"], "descuento_pct": 0.0, "subtotal": -res["aplicado"],
+        })
+        aviso = f"Se han descontado {divisas.formatear(res['aplicado'])} del total."
+        if res["vale_nuevo"]:
+            try:
+                from src.gui.tpv import _imprimir_ticket_vale
+                _imprimir_ticket_vale(res["vale_nuevo"], "AUTOCOBRO", self._id_caja)
+            except Exception as e:
+                logger.error("imprimir vale nuevo (autocobro): %s", e)
+            aviso += (f"\n\nEl vale tenía más saldo del necesario: se ha impreso un nuevo vale por "
+                     f"el importe restante ({divisas.formatear(res['vale_nuevo']['importe'])}).")
+        self._refrescar()
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("Vale aplicado")
+        box.setText(aviso)
+        box.exec()
+        self.inp_scan.setFocus()
+
     # ── Compra a granel (báscula) ────────────────────────────────────────────
     def _abrir_granel(self):
         """Abre la báscula de granel del TPV (9 familias) SIN gestión ni edición de precios; la línea
         pesada/por unidades se añade a la compra del cliente."""
         try:
             from src.gui.tpv import _BasculaDialog
+            from src.gui.transiciones import abrir_dialogo_deslizante
             dlg = _BasculaDialog(caja_id=self._id_caja, cajero="AUTOCOBRO", parent=self,
                                  mostrar_gestion=False)
-            if dlg.exec() == QDialog.DialogCode.Accepted:
+            if abrir_dialogo_deslizante(dlg, self) == QDialog.DialogCode.Accepted:
                 linea = dlg.get_linea()
                 if linea:
                     self._add_linea_granel(linea)
@@ -653,7 +709,8 @@ class AutocobroWindow(QWidget):
                 items, fecha=fecha.strftime("%Y-%m-%d %H:%M:%S"), forma_pago=forma_pago,
                 empleado_id="AUTOCOBRO", numero_caja=99, total=total,
                 cliente=(self._cliente or None),   # compra asociada a la cuenta del cliente (si la hay)
-                id_empresa=empresa_actual_id(), id_tienda=tienda_actual_id())
+                id_empresa=empresa_actual_id(), id_tienda=tienda_actual_id(),
+                origen_flujo="autocobro")
             if not venta_id:
                 raise RuntimeError("registro de venta no devolvió id")
         except Exception as e:
@@ -763,6 +820,7 @@ class _AsociarClienteDialog(QDialog):
             self.resize(min(720, int(g.width() * 0.6)), min(680, int(g.height() * 0.8)))
         except Exception:
             self.resize(680, 640)
+        self._centrar_en_pantalla()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         body = QFrame()
@@ -780,9 +838,11 @@ class _AsociarClienteDialog(QDialog):
         bx = QPushButton("✕")
         bx.setFixedSize(44, 44)
         bx.setCursor(Qt.CursorShape.PointingHandCursor)
-        bx.setStyleSheet(f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
-                         f"border-radius:10px;font-weight:900;font-size:18px;}}"
-                         f"QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
+        bx.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{_ROJO};border:none;border-radius:22px;padding:0;font-weight:900;font-size:18px;}}"
+            f"QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
+        bx.setProperty("sin_glow", True)
+        _blindar_tamano_fijo(bx, 44, 44)
         bx.clicked.connect(self.reject)
         cab.addWidget(bx)
         v.addLayout(cab)
@@ -800,7 +860,7 @@ class _AsociarClienteDialog(QDialog):
         self.inp_scan_cli.returnPressed.connect(self._resolver_scan)
         v.addWidget(self.inp_scan_cli)
 
-        v.addWidget(_lbl(tr("autocobro.asociar_o", default="—  o  —"), size=13, color=_TEXT2))
+        v.addWidget(_lbl(tr("autocobro.asociar_o", default="—  o  —"), bold=True, size=13, color=_TEXT2))
 
         # Opción 2: buscar por teléfono o email.
         v.addWidget(_lbl(tr("autocobro.asociar_buscar", default="Busca tu perfil por teléfono o email"),
@@ -808,14 +868,14 @@ class _AsociarClienteDialog(QDialog):
         fila = QHBoxLayout()
         self.inp_busca = QLineEdit()
         self.inp_busca.setPlaceholderText(tr("autocobro.asociar_buscar_ph",
-                                             default="Teléfono o correo electrónico…"))
+                                             default="🔍 Teléfono o correo electrónico…"))
         self.inp_busca.setFixedHeight(54)
         self.inp_busca.setStyleSheet(
             f"QLineEdit{{background:{_BG2};color:{_TEXT};border:3px solid {_BORDE};border-radius:14px;"
             f"padding:0 18px;font-size:20px;font-family:'{_FONT}';}}QLineEdit:focus{{border-color:{_CIAN};}}")
         self.inp_busca.returnPressed.connect(self._buscar)
         fila.addWidget(self.inp_busca, 1)
-        b_busca = QPushButton("🔎  " + tr("autocobro.asociar_buscar_btn", default="BUSCAR"))
+        b_busca = QPushButton(tr("autocobro.asociar_buscar_btn", default="🔍"))
         b_busca.setFixedHeight(54)
         b_busca.setCursor(Qt.CursorShape.PointingHandCursor)
         b_busca.setStyleSheet(
@@ -854,21 +914,53 @@ class _AsociarClienteDialog(QDialog):
                 f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
                 f"border-radius:14px;font-family:'{_FONT}';font-weight:900;font-size:16px;padding:0 18px;}}"
                 f"QPushButton:hover{{background:{_ROJO};color:#FFF;}}")
+            b_quitar.setProperty("sin_glow", True)
             b_quitar.clicked.connect(self._quitar)
             pie.addWidget(b_quitar)
         pie.addStretch()
         b_cancel = QPushButton(tr("autocobro.asociar_cancelar", default="CANCELAR"))
         b_cancel.setFixedHeight(52)
         b_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Mismo diseño que "CANCELAR COMPRA" (contorno + texto rojo, relleno rojo al pasar el ratón)
+        # — antes tenía el resplandor cian por defecto del filtro global (`sin_glow` no marcado).
         b_cancel.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{_TEXT2};border:2px solid {_BORDE};"
+            f"QPushButton{{background:transparent;color:{_ROJO};border:2px solid {_ROJO};"
             f"border-radius:14px;font-family:'{_FONT}';font-weight:900;font-size:16px;padding:0 22px;}}"
-            f"QPushButton:hover{{border-color:{_TEXT};color:{_TEXT};}}")
+            f"QPushButton:hover{{background:{_ROJO};color:#FFF;}}")
+        b_cancel.setProperty("sin_glow", True)
         b_cancel.clicked.connect(self.reject)
         pie.addWidget(b_cancel)
         v.addLayout(pie)
 
         QTimer.singleShot(0, self.inp_scan_cli.setFocus)
+
+    def _centrar_en_pantalla(self):
+        """Centra el diálogo en la pantalla física. Sin esto, un QDialog FRAMELESS no se centra solo
+        sobre su padre (a diferencia de un QDialog nativo): quedaba pegado a una esquina y se veía
+        cortado por debajo de la pantalla.
+
+        CONFIRMADO con log real (dos intentos anteriores, basados en `self.parent().geometry()` y en
+        `primaryScreen().geometry()` respectivamente, fallaron igual): el tamaño real de ESTE diálogo
+        cambia varias veces durante su propio arranque (720×582 → 160×160 → 432×520, tres valores
+        DISTINTOS vistos en el mismo ciclo de apertura) — un reposicionamiento puntual (en `__init__`,
+        en `showEvent`, o incluso ambos con un `QTimer.singleShot`) siempre puede acabar centrando
+        contra un tamaño que todavía no es el definitivo. La única vía fiable es reaccionar a CADA
+        cambio de tamaño con `resizeEvent`, sin importar cuántas veces ocurra ni cuándo se asiente."""
+        try:
+            geo = QApplication.primaryScreen().geometry()
+            x = geo.x() + (geo.width() - self.width()) // 2
+            y = geo.y() + (geo.height() - self.height()) // 2
+            self.move(x, y)
+        except Exception as e:
+            logger.error("AsociarCliente centrar_en_pantalla error: %s", e)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._centrar_en_pantalla()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._centrar_en_pantalla()
 
     def _resolver_scan(self):
         cod = self.inp_scan_cli.text().strip()

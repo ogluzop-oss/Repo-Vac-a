@@ -17,9 +17,13 @@ from src.rrhh.db import empleados as E
 
 @pytest.fixture(autouse=True)
 def _sin_modales(monkeypatch):
-    for m in ("warning", "information", "critical"):
-        monkeypatch.setattr(f"src.gui.rrhh_gestion.QMessageBox.{m}",
-                            lambda *a, **k: None, raising=False)
+    # `rrhh_gestion.py` no usa `QMessageBox` nativo (ver comentario junto a `_info_msg` en ese
+    # módulo) — sustituido por `assets.estilo_global.mostrar_mensaje` (diálogo propio, evita
+    # problemas de handle sobre la ventana anfitriona FRAMELESS). Se neutraliza ahí para no
+    # abrir un modal `.exec()` real en un run headless (mismo patrón ya usado en
+    # test_contab_gui.py / test_migracion_gui.py / test_recetas_gui.py / test_variantes_gui.py).
+    import assets.estilo_global as EG
+    monkeypatch.setattr(EG, "mostrar_mensaje", lambda *a, **k: None)
 
 
 def _app():
@@ -153,10 +157,16 @@ def test_flujo_completo_gui(db, fab):
 
 # ── Menú: tarjeta + routing ────────────────────────────────────────────────────
 def test_menu_incluye_rrhh(db):
+    # RRHH está restringido a SUPERADMIN "a petición explícita" (ver comentario en
+    # `menu_principal.py` junto a la tarjeta RRHH, y `DEFAULT_ADMINISTRADOR` en
+    # `services/seguridad/modulos_menu.py`, que documenta "rrhh" como SUPERADMIN-only) desde
+    # el endurecimiento de permisos de ADMINISTRADOR (deja de tener acceso por defecto a RRHH).
+    # Este test verificaba antes con perfil ADMINISTRADOR; se actualiza a SUPERADMIN para seguir
+    # probando lo mismo (tarjeta + routing) sin reñir con el nuevo comportamiento intencional.
     from src.db.usuario import sesion_global
     from src.gui import menu_principal as M
     prev = sesion_global.usuario_actual
-    sesion_global.usuario_actual = {"perfil": "ADMINISTRADOR", "nombre": "ADMIN"}
+    sesion_global.usuario_actual = {"perfil": "SUPERADMIN", "nombre": "ADMIN"}
     try:
         menu = M.MenuPrincipal()
         assert "rrhh" in menu._cards

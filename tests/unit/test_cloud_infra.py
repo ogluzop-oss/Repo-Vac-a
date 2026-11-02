@@ -25,6 +25,10 @@ _AISLAMIENTO_REVISADO = {
     "com_encuesta_preguntas", "com_encuesta_resp_items", "com_encuesta_respuestas",
     "crm_campania_destinatarios", "crm_ruta_paradas", "rrhh_formacion_asistentes", "tpv_extras_precios",
     "recetas_lineas", "obrador_partes_lineas",
+    # Redes Sociales Corporativas (migr. 0325): métricas por publicación, hija por FK de
+    # redes_sociales_publicaciones (que SÍ tiene id_empresa) — mismo razonamiento que
+    # recetas_lineas/obrador_partes_lineas.
+    "redes_sociales_metricas",
     # plataforma global (no son datos de un tenant)
     "cloud_feature_flags", "saas_regiones", "ioc_grupos_empresariales",
     # (Las tablas de la Lonja B2B se retiraron en la refactorización del módulo Proveedores.)
@@ -51,6 +55,49 @@ _AISLAMIENTO_REVISADO = {
     "b2b_pedido_mensajes", "b2b_pedido_lecturas",  # FK/clave id_tx -> transaccion_comercial.id_tx
     # hija de b2b_catalogo (plataforma global, ver arriba) — mismo razonamiento.
     "b2b_catalogo_escalones",           # FK id_articulo -> b2b_catalogo.id
+    # Chat de soporte del storefront (Fase 6 e-commerce, services/comercio_digital/canal_web/
+    # soporte_chat.py): MISMO razonamiento que `b2b_carrito_lineas` de arriba — se aísla por
+    # `token` (uuid4 hex, 32 caracteres, aleatorio e imposible de adivinar entre visitantes de
+    # otra empresa), no por columna `id_empresa` directa. El token se emite en `cd_chat_visitantes`
+    # (que SÍ tiene `id_empresa`) y todo punto de entrada público (`enviar_mensaje`/
+    # `obtener_hilo`) valida ahí el origen del token ANTES de leer/escribir en esta tabla.
+    "cd_chat_mensajes",
+    # Actividad de carrito B2B (migr. 0280, services/compras/b2b_carrito_abandono.py): MISMO
+    # razonamiento que `b2b_carrito_lineas` de arriba — 1 fila por `token_sesion` opaco, sin
+    # columna `id_empresa` propia a propósito (la "actividad" es del carrito, no de una línea).
+    "b2b_carrito_actividad",
+    # Bundles de producto del PROVEEDOR (migr. 0281, services/compras/b2b_bundles.py): hija de
+    # `suministradores` (plataforma global, ver arriba) vía `id_suministrador` — mismo
+    # razonamiento que `b2b_catalogo`/`b2b_catalogo_escalones`.
+    "b2b_promo_bundles",
+    # Ledger de movimientos de consignación B2B (migr. 0269, services/compras/b2b_consignacion.py):
+    # hija por FK de `b2b_consignacion_saldo`/`transaccion_comercial` (vía `id_tx`, ambas con
+    # id_empresa) y de `suministradores` (vía `id_suministrador`, plataforma global).
+    "b2b_consignacion_movimientos",
+    # Pujas de proveedor en una licitación RFQ (migr. 0260, services/compras/b2b_rfq.py): hija por
+    # FK física (`fk_ro_rfq`) de `rfq` (que SÍ tiene id_empresa).
+    "rfq_ofertas",
+    # Hijos/ascendientes del Modelo 145 AEAT de un empleado (migr. 0264, rrhh fiscal): hijas por FK
+    # física de `rrhh_datos_fiscales` (que SÍ tiene id_empresa).
+    "rrhh_datos_fiscales_hijos", "rrhh_datos_fiscales_ascendientes",
+    # Detalle fila a fila del motor de migración/importación por etapas (migr. 0272): hijas de
+    # `migracion_lotes_staging`/`import_trabajos` (ambas con id_empresa) vía `id_lote_staging`/
+    # `id_trabajo` (enlace débil sin FK física, mismo criterio sin-ORM que el resto del esquema).
+    "migracion_filas_staging", "import_trabajos_errores",
+    # Destinatarios Para/CC/Cco de circulares/encuestas (migr. 0286, comunicacion_interna): hija
+    # polimórfica por `(tipo_entidad, id_entidad)` de `com_circulares`/`com_encuestas` (ambas con
+    # id_empresa) y por `usuario_id` del usuario destinatario — mismo patrón que `com_adjuntos`/
+    # `com_encuesta_respuestas` ya revisados arriba.
+    "com_destinatarios",
+    # Configuración GLOBAL de un proveedor de infraestructura, propiedad del VENDEDOR de Smart
+    # Manager (no de cada empresa cliente), una sola fila (id fijo=1): push FCM (migr. 0251,
+    # "el proyecto Firebase es propiedad del VENDEDOR... se reutiliza para todas las empresas") y
+    # tarifa de reventa de voz/ElevenLabs (migr. 0285, editable solo desde el Panel del Fundador).
+    "fcm_config", "voice_billing_config",
+    # Tablas del SERVIDOR CENTRAL de licencias/panel del fundador (migr. 0234/0235): solo tienen
+    # sentido en la BD central (`src/backend_central/`), nunca en la BD local de un cliente — no
+    # son datos de NINGÚN tenant local, son metadatos de la gestión comercial de licencias.
+    "codigos_activacion", "instalaciones_centrales", "panel_fundador_admin", "panel_fundador_sesiones",
 }
 
 

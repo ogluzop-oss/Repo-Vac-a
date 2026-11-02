@@ -6,7 +6,8 @@ Integra auditoría. No duplica lógica: se apoya en clientes y actividades ya ex
 """
 
 import logging
-import math
+
+from src.services.geo.distancia import haversine_km
 
 logger = logging.getLogger("crm.rutas")
 
@@ -78,14 +79,8 @@ def añadir_parada(id_ruta, id_cliente, *, orden=None, notas=None) -> int | None
         return None
 
 
-def _distancia(a, b) -> float:
-    """Distancia aproximada (haversine, km) entre dos (lat,lng)."""
-    if None in a or None in b:
-        return float("inf")
-    R = 6371.0
-    la1, lo1, la2, lo2 = map(math.radians, [float(a[0]), float(a[1]), float(b[0]), float(b[1])])
-    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
-    return 2 * R * math.asin(math.sqrt(h))
+# Reutiliza el haversine único (`services/geo/distancia.py`) — antes duplicado aquí.
+_distancia = haversine_km
 
 
 def optimizar(id_ruta, *, origen=None, id_empresa=None) -> dict:

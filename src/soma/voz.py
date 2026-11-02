@@ -8,8 +8,59 @@ En esta fase NO hay voz interactiva (eso es de una fase posterior): aquí solo s
 """
 
 import logging
+import re
 
 logger = logging.getLogger("soma.voz")
+
+# ── Limpieza de Markdown para TTS ───────────────────────────────────────────────
+# Las respuestas de SOMA (motor LLM) pueden venir en Markdown (negrita, listas,
+# títulos, enlaces, código). El panel de texto lo renderiza (`conversacion.py`,
+# QLabel en MarkdownText), pero la voz NO debe "leer" los símbolos literalmente
+# (asterisco asterisco, guion, etc.). Estas expresiones son deliberadamente
+# conservadoras: solo tocan sintaxis Markdown real, nunca guiones de palabras
+# compuestas (bien-conocido), guiones bajos dentro de identificadores
+# (variable_nombre) ni asteriscos sueltos de una multiplicación (2 * 3).
+_RE_CODE_FENCE = re.compile(r"```[a-zA-Z0-9_+-]*\n?(.*?)```", re.DOTALL)
+_RE_INLINE_CODE = re.compile(r"`([^`\n]+)`")
+_RE_LINK = re.compile(r"\[([^\]\n]+)\]\(([^)\n]+)\)")
+_RE_HEADER = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+", re.MULTILINE)
+_RE_BLOCKQUOTE = re.compile(r"^[ \t]*>[ \t]?", re.MULTILINE)
+_RE_HR = re.compile(r"^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$", re.MULTILINE)
+_RE_LIST_BULLET = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+", re.MULTILINE)
+_RE_BOLD_STAR = re.compile(r"\*\*(\S(?:[^\n]*?\S)?)\*\*")
+_RE_BOLD_UNDER = re.compile(r"__(\S(?:[^\n]*?\S)?)__")
+_RE_ITALIC_STAR = re.compile(r"(?<!\*)\*(?!\*)(\S(?:[^*\n]*?\S)?)\*(?!\*)")
+_RE_ITALIC_UNDER = re.compile(r"(?<!\w)_(?!_)(\S(?:[^_\n]*?\S)?)_(?!_)(?!\w)")
+
+
+def strip_markdown_para_voz(texto: str) -> str:
+    """Convierte texto en Markdown a texto plano apto para TTS: quita **negrita**,
+    _cursiva_, encabezados `#`, código ```bloques```/`inline`, enlaces
+    `[texto](url)` (se queda solo con el texto) y viñetas de lista (`- `/`* `/`1. `),
+    sustituyendo los saltos de línea restantes por una pausa hablada (". ").
+    No toca puntuación normal del texto (guiones de palabras compuestas, guiones
+    bajos de identificadores, asteriscos de una multiplicación). Solo afecta al
+    audio: la copia visual del mensaje en el panel de chat no pasa por aquí."""
+    if not texto:
+        return texto
+    t = texto
+    t = _RE_CODE_FENCE.sub(lambda m: m.group(1), t)
+    t = _RE_INLINE_CODE.sub(lambda m: m.group(1), t)
+    t = _RE_LINK.sub(lambda m: m.group(1), t)
+    t = _RE_HEADER.sub("", t)
+    t = _RE_BLOCKQUOTE.sub("", t)
+    t = _RE_HR.sub("", t)
+    t = _RE_LIST_BULLET.sub("", t)
+    t = _RE_BOLD_STAR.sub(lambda m: m.group(1), t)
+    t = _RE_BOLD_UNDER.sub(lambda m: m.group(1), t)
+    t = _RE_ITALIC_STAR.sub(lambda m: m.group(1), t)
+    t = _RE_ITALIC_UNDER.sub(lambda m: m.group(1), t)
+    t = re.sub(r"[ \t]*\n[ \t]*", ". ", t)
+    t = re.sub(r"\.(?:\s*\.)+", ".", t)
+    t = re.sub(r"([,:;!?])\.", r"\1", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r"^[ \t.]+", "", t)
+    return t.strip()
 
 
 class AdaptadorVoz:
@@ -84,7 +135,7 @@ class AdaptadorVoz:
                 al_terminar()
             return
         try:
-            tts.decir(texto)
+            tts.decir(strip_markdown_para_voz(texto))
         except Exception as e:
             logger.debug("hablar: %s", e)
             if callable(al_terminar):

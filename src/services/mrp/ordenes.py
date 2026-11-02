@@ -90,7 +90,7 @@ def cambiar_estado(oid, nuevo, *, id_empresa=None) -> dict:
         raise ValueError(f"estado invalido: {nuevo}")
     actual = _estado(oid)
     if actual is None:
-        return {"ok": False, "error": "OF inexistente"}
+        return {"ok": False, "error": "OP inexistente"}
     if nuevo != actual and nuevo not in _TRANS.get(actual, set()):
         return {"ok": False, "error": f"transicion {actual}->{nuevo} no permitida"}
     sets = "estado=%s"
@@ -139,11 +139,11 @@ def consumir_materiales(oid, *, id_empresa=None, usuario=None) -> dict:
         comp, cant = f["componente"], float(f["cantidad_plan"])
         res = lotes.consumir_fefo(comp, cant, tipo="SALIDA_PRODUCCION", id_empresa=eid,
                                   id_documento=f"OF:{oid}", usuario=usuario, id_almacen=id_almacen,
-                                  observaciones=f"Consumo OF {oid}", idempotente=True)
+                                  observaciones=f"Consumo OP {oid}", idempotente=True)
         consumido = res.get("consumido", 0)
         if not consumido:        # articulo sin gestion por lotes -> movimiento directo de kardex
             kardex.registrar_movimiento(comp, "SALIDA_PRODUCCION", int(cant), id_documento=f"OF:{oid}",
-                                        usuario=usuario, observaciones=f"Consumo OF {oid}",
+                                        usuario=usuario, observaciones=f"Consumo OP {oid}",
                                         id_empresa=eid, id_almacen_origen=id_almacen, idempotente=True)
             consumido = cant
         if res.get("faltante"):
@@ -163,8 +163,44 @@ def consumir_materiales(oid, *, id_empresa=None, usuario=None) -> dict:
     return {"ok": True, "consumidos": consumidos, "faltantes": faltantes}
 
 
-def registrar_produccion(oid, cantidad, *, lote=None, id_empresa=None, usuario=None) -> dict:
-    """Da de alta producto terminado en el KARDEX (ENTRADA_PRODUCCION + lote de OF)."""
+def listar_consumos(oid, *, id_empresa=None) -> list:
+    """Checklist de solo lectura de los materiales previstos/consumidos de una OF — para el móvil."""
+    eid = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM of_consumos WHERE id_of=%s AND id_empresa=%s ORDER BY id",
+                        (oid, eid))
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_consumos: %s", e)
+        return []
+
+
+def listar_producciones(oid, *, id_empresa=None) -> list:
+    """Historial de solo lectura de los lotes ya producidos de una OF — para el móvil."""
+    eid = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM of_produccion WHERE id_of=%s AND id_empresa=%s ORDER BY fecha DESC",
+                        (oid, eid))
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_producciones: %s", e)
+        return []
+
+
+def registrar_produccion(oid, cantidad, *, lote=None, id_empresa=None, usuario=None,
+                         id_centro_destino=None) -> dict:
+    """Da de alta producto terminado en el KARDEX (ENTRADA_PRODUCCION + lote de OF).
+
+    `id_centro_destino` (migr. 0321, petición explícita — flujo Producción -> Logística
+    automático): si se indica (CUALQUIER centro registrado de la empresa, elegido con el buscador de
+    `gui.components.completer_centros`), tras registrar la producción se genera AUTOMÁTICAMENTE el
+    documento logístico de "mercancía disponible para expedición" (`db.logistica.
+    registrar_documento_produccion`, evitando duplicidad de entradas manuales) y se evalúa el
+    cross-docking a una ruta de reparto ya abierta hacia ese centro
+    (`services.logistica.cross_docking_rutas.evaluar_cross_docking_automatico`). Best-effort: un
+    fallo aquí nunca deshace ni bloquea el alta de producción ya confirmada."""
     eid = _emp(id_empresa)
     from src.db import kardex, lotes
     try:
@@ -173,7 +209,7 @@ def registrar_produccion(oid, cantidad, *, lote=None, id_empresa=None, usuario=N
                         (oid,))
             r = cur.fetchone()
         if not r:
-            return {"ok": False, "error": "OF inexistente"}
+            return {"ok": False, "error": "OP inexistente"}
         r = list(r.values()) if isinstance(r, dict) else r
         articulo, id_almacen = r[0], r[1]
         lote = lote or f"OF{oid:06d}"
@@ -181,19 +217,50 @@ def registrar_produccion(oid, cantidad, *, lote=None, id_empresa=None, usuario=N
                                       id_documento=f"OF:{oid}", usuario=usuario, id_almacen=id_almacen)
         if not lid:        # articulo sin lotes -> movimiento directo de kardex
             kardex.registrar_movimiento(articulo, "ENTRADA_PRODUCCION", int(cantidad), id_documento=f"OF:{oid}",
-                                        usuario=usuario, observaciones=f"Produccion OF {oid}",
+                                        usuario=usuario, observaciones=f"Produccion OP {oid}",
                                         id_empresa=eid, id_almacen_destino=id_almacen)
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO of_produccion (id_empresa, id_of, cantidad, lote) VALUES (%s,%s,%s,%s)",
                         (eid, oid, cantidad, lote))
+            id_produccion = cur.lastrowid
             cur.execute("UPDATE ordenes_fabricacion SET cantidad_producida=cantidad_producida+%s, "
                         "lote_destino=%s WHERE id=%s", (cantidad, lote, oid))
+            if id_centro_destino:
+                cur.execute("UPDATE ordenes_fabricacion SET id_centro_destino=%s WHERE id=%s",
+                            (id_centro_destino, oid))
             conn.commit()
         log_auditoria("mrp", "FAB_OF_PRODUCCION", "of_produccion", f"of={oid} {articulo} +{cantidad}")
-        return {"ok": True, "articulo": articulo, "cantidad": cantidad, "lote": lote}
+        resultado = {"ok": True, "id_produccion": id_produccion, "articulo": articulo, "cantidad": cantidad,
+                    "lote": lote}
+        if id_centro_destino:
+            resultado["logistica"] = _generar_entrada_logistica_produccion(
+                oid, articulo, cantidad, id_almacen, id_centro_destino, id_empresa=eid, usuario=usuario)
+        return resultado
     except Exception as e:
         logger.error("registrar_produccion: %s", e)
         return {"ok": False, "error": str(e)}
+
+
+def _generar_entrada_logistica_produccion(oid, articulo, cantidad, id_almacen, id_centro_destino, *,
+                                          id_empresa, usuario) -> dict:
+    """Genera el documento logístico de producción + evalúa el cross-dock a ruta — aislado en su
+    propia función (best-effort, nunca propaga una excepción hacia `registrar_produccion`: el alta de
+    producción ya quedó confirmada en el KARDEX antes de llegar aquí)."""
+    try:
+        from src.db import centros, logistica
+        nombre_destino = (centros.obtener_centro(id_centro_destino) or {}).get("nombre_centro") or id_centro_destino
+        r = logistica.registrar_documento_produccion(
+            oid, origen=f"PRODUCCION OF-{oid}", destino=nombre_destino, usuario=usuario,
+            lineas=[{"codigo": articulo, "nombre": articulo, "cantidad": cantidad}],
+            id_centro_destino=id_centro_destino, id_almacen_origen=id_almacen, id_empresa=id_empresa)
+        if r.get("ok") and not r.get("ya_existia"):
+            from src.services.logistica import cross_docking_rutas as XD
+            r["cross_docking"] = XD.evaluar_cross_docking_automatico(
+                r["id_documento"], id_empresa=id_empresa, usuario=usuario)
+        return r
+    except Exception as e:
+        logger.warning("_generar_entrada_logistica_produccion(OF=%s): %s", oid, e)
+        return {"ok": False, "error": "error_interno"}
 
 
 def finalizar(oid, *, id_empresa=None, usuario=None, registrar_costes=True) -> dict:
@@ -248,7 +315,7 @@ def _evento_workflow(oid, estado):
     try:
         from src.services import notificaciones
         if estado in ("liberada", "finalizada"):
-            notificaciones.emitir("fabricacion", f"OF {oid} {estado}", "", modulo="mrp",
+            notificaciones.emitir("fabricacion", f"OP {oid} {estado}", "", modulo="mrp",
                                   roles=["ADMINISTRADOR"])
     except Exception:
         pass
@@ -257,6 +324,6 @@ def _evento_workflow(oid, estado):
 def _alerta_rotura(oid, faltantes, eid):
     try:
         from src.services.observabilidad import alertas_tecnicas
-        alertas_tecnicas.emitir("rotura_materiales", f"OF {oid}: {faltantes}", severidad="alta", id_empresa=eid)
+        alertas_tecnicas.emitir("rotura_materiales", f"OP {oid}: {faltantes}", severidad="alta", id_empresa=eid)
     except Exception:
         pass

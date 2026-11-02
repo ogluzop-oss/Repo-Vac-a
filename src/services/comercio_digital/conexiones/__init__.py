@@ -34,7 +34,7 @@ def _cifrar(valor):
     if valor is None:
         return None
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         sm = cap.secret_manager()
         if sm is not None and hasattr(sm, "cifrar"):
             return sm.cifrar(valor if isinstance(valor, str) else json.dumps(valor))
@@ -47,7 +47,7 @@ def _descifrar(token):
     if not token:
         return None
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         sm = cap.secret_manager()
         if sm is not None and hasattr(sm, "descifrar"):
             claro = sm.descifrar(token)
@@ -64,7 +64,7 @@ def _secreto_por_ref(ref):
     if not ref:
         return None
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         sm = cap.secret_manager()
         if sm is not None and hasattr(sm, "obtener_secreto"):
             return sm.obtener_secreto(ref)
@@ -75,7 +75,7 @@ def _secreto_por_ref(ref):
 
 def _evento(tipo, id_empresa, canal, nombre):
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         bus = cap.eventbus()
         if bus is not None and hasattr(bus, "publish"):
             bus.publish(tipo, id_empresa=id_empresa, origen="comercio_digital.conexiones",

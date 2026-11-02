@@ -82,6 +82,11 @@ class SomaConversationPanel(QFrame):
     # ── Render de mensajes ────────────────────────────────────────────────────
     def _burbuja(self, texto, *, de_soma):
         b = QLabel(texto); b.setWordWrap(True)
+        if de_soma:
+            # Las respuestas de SOMA pueden venir en Markdown (negrita/listas/títulos) desde el
+            # motor LLM: se interpretan como Markdown. Los mensajes del propio usuario se dejan
+            # en texto plano (no deben interpretarse símbolos que el usuario haya escrito).
+            b.setTextFormat(Qt.TextFormat.MarkdownText)
         color = T.INFO if de_soma else T.TEXT
         fondo = T.BG if de_soma else T.SIDEBAR
         b.setStyleSheet(f"QLabel{{background:{fondo}; color:{color}; border:1px solid {T.BORDE};"

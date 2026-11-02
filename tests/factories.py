@@ -113,7 +113,7 @@ class Fabrica:
         return eid
 
     def usuario(self, nombre=None, password="Contrasena_Larga_123", perfil="OPERARIO",
-                id_empresa=None, tienda_id=None, hash_legado=False, email=None):
+                id_empresa=None, centro_codigo=None, hash_legado=False, email=None):
         """Crea un usuario. Si `hash_legado=True`, guarda el password con SHA-256
         antiguo (para probar la migración); si no, con Argon2id."""
         import hashlib
@@ -127,11 +127,11 @@ class Fabrica:
             cur.execute("SHOW COLUMNS FROM usuarios")
             cols = [c[0] if not isinstance(c, dict) else c["Field"] for c in cur.fetchall()]
             if "id_empresa" in cols:
-                cur.execute("INSERT INTO usuarios (nombre, password, perfil, tienda_id, id_empresa) "
-                            "VALUES (%s,%s,%s,%s,%s)", (nombre, ph, perfil, tienda_id, eid))
+                cur.execute("INSERT INTO usuarios (nombre, password, perfil, centro_codigo, id_empresa) "
+                            "VALUES (%s,%s,%s,%s,%s)", (nombre, ph, perfil, centro_codigo, eid))
             else:
-                cur.execute("INSERT INTO usuarios (nombre, password, perfil, tienda_id) "
-                            "VALUES (%s,%s,%s,%s)", (nombre, ph, perfil, tienda_id))
+                cur.execute("INSERT INTO usuarios (nombre, password, perfil, centro_codigo) "
+                            "VALUES (%s,%s,%s,%s)", (nombre, ph, perfil, centro_codigo))
             uid = cur.lastrowid
             if email and "email" in cols:
                 cur.execute("UPDATE usuarios SET email=%s WHERE id=%s", (email, uid))

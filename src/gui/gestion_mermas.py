@@ -1,16 +1,15 @@
+import logging
 import os
 from datetime import datetime
 
 import pandas as pd
-from PyQt6.QtCore import QStringListModel, Qt
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
-    QCompleter,
     QDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -22,12 +21,18 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.gui.transiciones import StackedActual
+
 from assets.estilo_global import (
     construir_tabla_estilizada,
-    estilizar_completer,
+    mostrar_confirmacion,
     mostrar_mensaje,
 )
 from src.db.conexion import _ajustar_stock_articulo_por_tipo, obtener_articulo
+from src.gui.components.completer_articulos import (
+    instalar_sugerencias_articulo,
+    refrescar_sugerencias_articulo,
+)
 from src.db.mermas import (
     eliminar_merma,
     marcar_mermas_exportadas,
@@ -38,6 +43,8 @@ from src.db.mermas import (
 )
 from src.utils import i18n
 from src.utils.i18n import tr
+
+logger = logging.getLogger("gui.gestion_mermas")
 
 # Valores lógicos del origen de stock (NO se traducen; son claves internas).
 _TIPO_LINEAL = "STOCK LINEAL"
@@ -164,8 +171,14 @@ class _StockSourceDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         container = QFrame()
+        # ID en el selector (no el tipo "QFrame" a secas): un selector de TIPO cascada a cualquier
+        # descendiente de la MISMA clase — y `QLabel` es subclase de `QFrame` en Qt — así que
+        # "QFrame { border: ... }" pintaba el mismo contorno alrededor del título y del mensaje
+        # (ambos QLabel) además del contenedor. Con ID, la regla solo afecta a este QFrame concreto.
+        container.setObjectName("stock_source_dialog_container")
         container.setStyleSheet(
-            f"QFrame {{ background-color: #0D1117; border: 2px solid {color}; border-radius: 20px; }}"
+            f"QFrame#stock_source_dialog_container {{ background-color: #0D1117; "
+            f"border: 2px solid {color}; border-radius: 20px; }}"
         )
         layout.addWidget(container)
 
@@ -214,6 +227,40 @@ class _StockSourceDialog(QDialog):
         self.accept()
 
 
+class _CantidadDialog(QDialog):
+    """Diálogo neón (frameless, sin barra de título nativa) para pedir una nueva cantidad —
+    sustituye a `QInputDialog.getInt`, que es un diálogo NATIVO de Windows: se ve con la barra de
+    título del sistema y sus botones OK/Cancel no heredan bien el estilo oscuro de la app (texto
+    invisible sobre fondo claro), rompiendo la coherencia visual con el resto de ventanas."""
+
+    def __init__(self, parent, titulo, mensaje, valor_inicial, minimo=1, maximo=9999):
+        super().__init__(parent)
+        from src.gui.catalogo_gestion import _btn, _dialogo_frameless
+
+        body = _dialogo_frameless(self, titulo, ancho=320)
+
+        lbl = QLabel(mensaje)
+        lbl.setStyleSheet("color: white; font-size: 13px; font-weight: 700; background: transparent;")
+        lbl.setWordWrap(True)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        body.addWidget(lbl)
+
+        self.spin = QSpinBox()
+        self.spin.setRange(minimo, maximo)
+        self.spin.setValue(valor_inicial)
+        self.spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.spin.setStyleSheet(_NEON_INPUT_SS)
+        body.addWidget(self.spin)
+
+        fila = QHBoxLayout()
+        fila.addWidget(_btn(tr("merma.cancel", default="CANCELAR"), self.reject))
+        fila.addWidget(_btn(tr("merma.accept", default="ACEPTAR"), self.accept, primary=True))
+        body.addLayout(fila)
+
+    def valor(self) -> int:
+        return self.spin.value()
+
+
 # ---------------------------------------------------------------------------
 # PÁGINAS
 # ---------------------------------------------------------------------------
@@ -226,6 +273,7 @@ class _RegistrarMermaPage(QWidget):
         self.articulo_actual = None
         self.tipo_stock_seleccionado = None
         self.cantidad_a_mermar = 0
+        self._id_documento_foto = None
 
         # Permitir que el widget capture eventos de ratón para quitar el foco
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
@@ -240,15 +288,20 @@ class _RegistrarMermaPage(QWidget):
 
         # Icono de papelera centrado
         self.lbl_papelera = QLabel("🗑️")
+        # 72px (antes 140px): un emoji de color a 140px puede pedir mucha más altura real de la
+        # reportada aquí — las fuentes de emoji de Windows (Segoe UI Emoji) devuelven métricas de
+        # ascenso/descenso desproporcionadas a tamaños grandes, inflando el sizeHint del QLabel muy
+        # por encima de lo que se ve en un entorno de pruebas sin esa fuente instalada.
         self.lbl_papelera.setStyleSheet(
-            "font-size: 140px; margin-bottom: 20px; background: transparent; border: none;"
+            "font-size: 72px; margin-bottom: 20px; background: transparent; border: none;"
         )
+        self.lbl_papelera.setFixedHeight(100)
         self.lbl_papelera.setAlignment(Qt.AlignmentFlag.AlignCenter)
         search_ly.addWidget(self.lbl_papelera)
 
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText(
-            tr("merma.search_ph", default="INTRODUCE NOMBRE O CÓDIGO DEL ARTÍCULO...")
+            tr("merma.search_ph", default="🔍 INTRODUCE NOMBRE O CÓDIGO DEL ARTÍCULO...")
         )
         # Fuente 1pt más pequeña (15px) para que quepa el placeholder completo.
         self.search_bar.setStyleSheet(_NEON_INPUT_SS + "QLineEdit{font-size:15px;}")
@@ -257,24 +310,36 @@ class _RegistrarMermaPage(QWidget):
         self.search_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.search_bar.returnPressed.connect(self._buscar)
 
-        self._completer_model = QStringListModel()
-        completer = QCompleter(self._completer_model, self.search_bar)
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        self.search_bar.setCompleter(completer)
-        estilizar_completer(completer)
+        # Sugerencias de artículos: helper compartido, ver gui/components/completer_articulos.py
+        # (antes usaba `_get_todos_articulos_para_completer`, que no filtraba por empresa — este
+        # helper reutiliza `listar_codigo_nombre`, que sí aísla por tenant).
+        self.completer = instalar_sugerencias_articulo(self.search_bar)
         self.search_bar.textChanged.connect(self._on_search_text_changed)
 
         search_ly.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Botón BUSCAR justo debajo de la barra de búsqueda.
-        self._btn_buscar = QPushButton(tr("merma.search_btn", default="BUSCAR"))
+        self._btn_buscar = QPushButton(tr("merma.search_btn", default="🔍"))
         self._btn_buscar.setStyleSheet(_BTN_CIAN_SS)
         self._btn_buscar.setFixedSize(200, 50)
         self._btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_buscar.clicked.connect(self._buscar)
+
+        # Escaneo remoto (piloto): delega el escaneo del código de artículo al móvil del propio
+        # usuario en vez de depender de la webcam del PC. No toca la lógica de búsqueda existente —
+        # solo rellena la barra y dispara `_buscar()` con el valor que envíe el móvil.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        self._btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=self._on_escaneo_movil, contexto="mermas.buscar_articulo")
+
+        botones_ly = QHBoxLayout()
+        botones_ly.addStretch()
+        botones_ly.addWidget(self._btn_buscar)
+        botones_ly.addSpacing(10)
+        botones_ly.addWidget(self._btn_escaneo_movil)
+        botones_ly.addStretch()
         search_ly.addSpacing(12)
-        search_ly.addWidget(self._btn_buscar, alignment=Qt.AlignmentFlag.AlignCenter)
+        search_ly.addLayout(botones_ly)
 
         layout.addWidget(self.search_container)
 
@@ -354,6 +419,20 @@ class _RegistrarMermaPage(QWidget):
         self.combo_motivo.setStyleSheet(_NEON_INPUT_SS)
         phase2_ly.addWidget(self.combo_motivo)
 
+        # Foto de evidencia (Rediseño móvil · Grupo B → ahora también desde escritorio, Fase F): OBLIGATORIA
+        # para registrar la merma, igual que ya lo es desde el propio móvil. Se pide al móvil del usuario
+        # (nunca a la webcam del PC) vía el mismo mecanismo de escaneo remoto, en modo foto.
+        self._lbl_foto_estado = QLabel(
+            tr("merma.photo_pending", default="📸 Foto de evidencia: pendiente"))
+        self._lbl_foto_estado.setStyleSheet("color: #F5A623; font-weight: 900; font-size: 12px;")
+        self._lbl_foto_estado.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        phase2_ly.addWidget(self._lbl_foto_estado)
+
+        from src.gui.components.remote_scan import agregar_boton_foto_movil
+        self._btn_foto_movil = agregar_boton_foto_movil(
+            self, on_result=self._on_foto_movil, contexto="mermas.foto_evidencia")
+        phase2_ly.addWidget(self._btn_foto_movil, alignment=Qt.AlignmentFlag.AlignCenter)
+
         self.btn_save = QPushButton(tr("merma.save", default="REGISTRAR MERMA"))
         self.btn_save.setStyleSheet(_BTN_CIAN_SS)
         self.btn_save.setMinimumWidth(200); self.btn_save.setMaximumWidth(340)  # responsive (P2)
@@ -385,7 +464,6 @@ class _RegistrarMermaPage(QWidget):
         self.btn_almacen.clicked.connect(
             lambda: self._seleccionar_origen(_TIPO_ALMACEN)
         )
-        self._cargar_completer()
 
     @staticmethod
     def _motivos_traducidos():
@@ -400,9 +478,9 @@ class _RegistrarMermaPage(QWidget):
 
     def _retraducir(self):
         self.search_bar.setPlaceholderText(
-            tr("merma.search_ph", default="INTRODUCE NOMBRE O CÓDIGO DEL ARTÍCULO...")
+            tr("merma.search_ph", default="🔍 INTRODUCE NOMBRE O CÓDIGO DEL ARTÍCULO...")
         )
-        self._btn_buscar.setText(tr("merma.search_btn", default="BUSCAR"))
+        self._btn_buscar.setText(tr("merma.search_btn", default="🔍"))
         self._lbl_qty.setText(tr("merma.qty_label", default="CANTIDAD A MERMAR:"))
         self._lbl_source.setText(tr("merma.source_q", default="¿DE DÓNDE DESCONTAR EL STOCK?"))
         self.btn_lineal.setText(tr("merma.stock_shelf", default="STOCK LINEAL"))
@@ -416,17 +494,23 @@ class _RegistrarMermaPage(QWidget):
         self.btn_save.setText(tr("merma.save", default="REGISTRAR MERMA"))
         self.btn_back_phase2.setText(tr("merma.back", default="VOLVER"))
 
-    def _cargar_completer(self):
-        # Assuming _get_todos_articulos_para_completer is available in src.db.conexion
-        from src.db.conexion import _get_todos_articulos_para_completer
-
-        articulos = _get_todos_articulos_para_completer()
-        etiquetas = [f"{a[0]} – {a[1]}" for a in articulos]
-        self._completer_model.setStringList(etiquetas)
-
     def _on_search_text_changed(self, text):
         if not text.strip():
             self._reset_flow()
+
+    def _on_foto_movil(self, id_documento):
+        """Callback del botón "📸 Foto desde el móvil": guarda el id del documento ya subido por el
+        móvil (la foto en sí vive en el registro documental, referenciada temporalmente a la propia
+        solicitud) — se re-referencia a la merma real en `_registrar_final`, una vez existe su id."""
+        self._id_documento_foto = id_documento
+        self._lbl_foto_estado.setText(tr("merma.photo_ready", default="📸 Foto de evidencia: recibida ✓"))
+        self._lbl_foto_estado.setStyleSheet("color: #2FBF71; font-weight: 900; font-size: 12px;")
+
+    def _on_escaneo_movil(self, valor):
+        """Callback del botón "📱 Escanear con el móvil": el móvil ya devuelve el código tal cual
+        (sin el formato "CÓDIGO – NOMBRE" del completer), así que `_buscar()` lo usa directamente."""
+        self.search_bar.setText(valor)
+        self._buscar()
 
     def _buscar(self):  # Renamed from _buscar_articulo for clarity
         q = self.search_bar.text().strip()
@@ -494,9 +578,33 @@ class _RegistrarMermaPage(QWidget):
             )
             return
 
+        if not self._id_documento_foto:
+            mostrar_mensaje(
+                self,
+                tr("merma.error_title", default="Error"),
+                tr("merma.photo_required",
+                   default="Haz una foto de evidencia desde el móvil antes de registrar la merma."),
+                nivel="warning",
+            )
+            return
+
         # A2.3: registro de merma + descuento de stock ATÓMICOS (una transacción).
         _col_merma = "Stock_tienda" if tipo == _TIPO_LINEAL else "Stock_total"
-        if registrar_merma(codigo, cant, self.combo_motivo.currentText(), columna_stock=_col_merma):
+        id_merma = registrar_merma(codigo, cant, self.combo_motivo.currentText(), columna_stock=_col_merma)
+        if id_merma:
+            # Re-referencia la foto (subida por el móvil con una referencia temporal atada a la propia
+            # solicitud de escaneo remoto) a la merma real ya registrada — mismo criterio de "idempotente
+            # por ruta" que usa el resto del proyecto para adjuntar evidencias.
+            try:
+                from src.db.documentos import obtener_documento, registrar_documento
+                doc = obtener_documento(self._id_documento_foto)
+                if doc and doc.get("ruta"):
+                    registrar_documento(
+                        doc["ruta"], tipo="merma", nombre=doc.get("nombre"),
+                        referencia=f"MERMA:{id_merma}", id_empresa=doc.get("id_empresa"),
+                        id_usuario=doc.get("id_usuario"))
+            except Exception as e:
+                logger.error("re-referenciar foto de merma %s: %s", id_merma, e)
             mostrar_mensaje(
                 self,
                 tr("merma.success_title", default="Éxito"),
@@ -516,6 +624,9 @@ class _RegistrarMermaPage(QWidget):
         self.articulo_actual = None
         self.tipo_stock_seleccionado = None
         self.cantidad_a_mermar = 0
+        self._id_documento_foto = None
+        self._lbl_foto_estado.setText(tr("merma.photo_pending", default="📸 Foto de evidencia: pendiente"))
+        self._lbl_foto_estado.setStyleSheet("color: #F5A623; font-weight: 900; font-size: 12px;")
         self.flow_stacked_widget.setVisible(False)
         self.search_container.setVisible(True)
         self.search_bar.clear()
@@ -529,7 +640,7 @@ class _RegistrarMermaPage(QWidget):
 
     def cargar_datos(self):
         """Refresca el autocompletado al entrar en la pestaña."""
-        self._cargar_completer()
+        refrescar_sugerencias_articulo(self.completer)
 
 
 class _ModificarEliminarMermaPage(QWidget):
@@ -578,7 +689,7 @@ class _ModificarEliminarMermaPage(QWidget):
         self.tabla.horizontalHeader().setSectionResizeMode(
             4, QHeaderView.ResizeMode.Fixed
         )
-        self.tabla.setColumnWidth(4, 260)
+        self.tabla.setColumnWidth(4, 340)
         layout.addWidget(self.container_tabla)
 
     @staticmethod
@@ -604,11 +715,17 @@ class _ModificarEliminarMermaPage(QWidget):
         for i, m in enumerate(mermas):
             self.tabla.insertRow(i)
             self.tabla.setRowHeight(i, 66)   # altura suficiente para los botones de acciones
-            id_m, cod, cant, mot, fecha = m
+            id_m, cod, cant, mot, fecha, origen = m
 
             for j, val in enumerate([cod, cant, mot, str(fecha)[:16]]):
                 item = QTableWidgetItem(str(val))
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                if j == 0:
+                    # Origen de stock elegido al REGISTRAR esta merma ("STOCK LINEAL"/"STOCK
+                    # ALMACÉN"), guardado en la celda de CÓDIGO (sin columna visible propia) para que
+                    # modificar/eliminar lo reutilicen sin volver a preguntar. `None` en mermas
+                    # antiguas anteriores a esta migración, o registradas sin descuento de stock.
+                    item.setData(Qt.ItemDataRole.UserRole, origen)
                 self.tabla.setItem(i, j, item)
 
             btn_box = QWidget()
@@ -641,12 +758,42 @@ class _ModificarEliminarMermaPage(QWidget):
 
             btn_lyt.addWidget(btn_edit)
             btn_lyt.addWidget(btn_del)
+
+            # Foto de evidencia (Rediseño móvil · Grupo B): solo la capturan desde el móvil — aquí
+            # solo se consulta, de solo lectura, igual que el resto de módulos de este proyecto.
+            from src.db.documentos import obtener_por_referencia
+            doc_foto = obtener_por_referencia(f"MERMA:{id_m}")
+            btn_foto = QPushButton(tr("merma.photo_btn", default="📷 FOTO"))
+            btn_foto.setFont(_font_acc)
+            btn_foto.setStyleSheet(
+                "QPushButton { background-color: #0E1117; color: %s; font-family: 'Segoe UI'; "
+                "font-weight: bold; font-size: 13px; border-radius: 8px; padding: 6px 12px; "
+                "border: 2px solid %s; }"
+                "QPushButton:disabled { color: #4B5563; border: 2px solid #30363D; }"
+                "QPushButton:hover:!disabled { background-color: %s; color: #0E1117; }"
+                % (_CIAN, _CIAN, _CIAN)
+            )
+            btn_foto.setMinimumHeight(42)
+            btn_foto.setEnabled(bool(doc_foto and doc_foto.get("ruta")))
+            if doc_foto and doc_foto.get("ruta"):
+                btn_foto.clicked.connect(lambda _, ruta=doc_foto["ruta"]: self._ver_foto(ruta))
+            btn_lyt.addWidget(btn_foto)
+
             self.tabla.setCellWidget(i, 4, btn_box)
+
+    def _ver_foto(self, ruta):
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(ruta))
 
     def _modificar(self, id_merma, row):
         codigo = self.tabla.item(row, 0).text()
         cant_antigua = int(self.tabla.item(row, 1).text())
-        nueva_cant, ok = QInputDialog.getInt(
+        # Origen de stock elegido al REGISTRAR esta merma (ver `cargar_datos`) — se reutiliza para
+        # ajustar el stock sin volver a preguntar; el empleado rara vez recuerda de dónde descontó
+        # una merma que ahora está corrigiendo. `None` solo en mermas anteriores a esta migración.
+        origen = self.tabla.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        dlg_cant = _CantidadDialog(
             self,
             tr("merma.edit_title", default="Modificar Merma"),
             tr("merma.new_qty_prompt", default="Nueva cantidad para {codigo}:", codigo=codigo),
@@ -654,23 +801,33 @@ class _ModificarEliminarMermaPage(QWidget):
             1,
             9999,
         )
-        if not ok or nueva_cant == cant_antigua:
+        if dlg_cant.exec() != QDialog.DialogCode.Accepted:
+            return
+        nueva_cant = dlg_cant.valor()
+        if nueva_cant == cant_antigua:
             return
 
         art = obtener_articulo(codigo)
         diff = nueva_cant - cant_antigua
 
-        if diff > 0:
+        tipo = origen
+        if tipo is None:
+            # Registro anterior a esta migración: no se guardó su origen, no hay forma fiable de
+            # automatizarlo — se sigue preguntando, igual que antes.
             dlg = _StockSourceDialog(
                 self,
-                tr("merma.increase_title", default="Aumentar Merma"),
-                tr("merma.increase_msg",
-                   default="Va a añadir {diff} uds. ¿De dónde descontar el stock?", diff=diff),
+                tr("merma.increase_title", default="Aumentar Merma") if diff > 0
+                else tr("merma.reduce_title", default="Reducir Merma"),
+                tr("merma.source_unknown_msg",
+                   default="Este registro es anterior y no guarda su origen de stock. "
+                           "¿De dónde descontar/sumar?"),
                 _CIAN,
             )
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
             tipo = dlg.resultado
+
+        if diff > 0:
             if diff > int(
                 art.get("Stock_tienda" if tipo == _TIPO_LINEAL else "Stock_total", 0)
             ):
@@ -683,16 +840,7 @@ class _ModificarEliminarMermaPage(QWidget):
                 return
             adj = -diff
         else:
-            dlg = _StockSourceDialog(
-                self,
-                tr("merma.reduce_title", default="Reducir Merma"),
-                tr("merma.reduce_msg",
-                   default="Va a reducir la merma. ¿A dónde sumar el stock devuelto?"),
-                _CIAN,
-            )
-            if dlg.exec() != QDialog.DialogCode.Accepted:
-                return
-            tipo, adj = dlg.resultado, abs(diff)
+            adj = abs(diff)
 
         if modificar_merma(id_merma, nueva_cant):
             _ajustar_stock_articulo_por_tipo(codigo, adj, tipo)
@@ -707,16 +855,38 @@ class _ModificarEliminarMermaPage(QWidget):
     def _eliminar(self, id_merma, row):
         codigo = self.tabla.item(row, 0).text()
         cantidad = int(self.tabla.item(row, 1).text())
-        dlg = _StockSourceDialog(
-            self,
-            tr("merma.delete_title", default="Eliminar Registro"),
-            tr("merma.delete_q", default="¿A dónde desea devolver el stock total?"),
-            "#F85149",
-        )
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
+        # Origen elegido al REGISTRAR esta merma (ver `cargar_datos`) — el stock se repone ahí
+        # automáticamente, sin volver a preguntar (el empleado ya lo indicó una vez).
+        origen = self.tabla.item(row, 0).data(Qt.ItemDataRole.UserRole)
+
+        if origen:
+            tipo = origen
+            confirmado = mostrar_confirmacion(
+                self,
+                tr("merma.delete_title", default="Eliminar Registro"),
+                tr("merma.delete_confirm",
+                   default="¿Seguro que quieres eliminar este registro de merma?\n"
+                           "Se repondrán {cant} uds. en {origen}.",
+                   cant=cantidad, origen=_tipo_stock_label(origen)),
+            )
+            if not confirmado:
+                return
+        else:
+            # Registro anterior a esta migración: no se guardó su origen, no hay forma fiable de
+            # automatizarlo — se sigue preguntando, igual que antes.
+            dlg = _StockSourceDialog(
+                self,
+                tr("merma.delete_title", default="Eliminar Registro"),
+                tr("merma.delete_q", default="Este registro es anterior y no guarda su origen de "
+                                              "stock. ¿A dónde desea devolverlo?"),
+                _CIAN,
+            )
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            tipo = dlg.resultado
+
         if eliminar_merma(id_merma):
-            _ajustar_stock_articulo_por_tipo(codigo, cantidad, dlg.resultado)
+            _ajustar_stock_articulo_por_tipo(codigo, cantidad, tipo)
             mostrar_mensaje(
                 self,
                 tr("merma.success_title", default="Éxito"),
@@ -913,7 +1083,42 @@ class _ExportarExcelPage(QWidget):
                 self._doc_win = CentroDocumentalWindow(
                     usuario=getattr(self._host, "usuario_actual", None),
                     categoria_inicial="exportacion")
+                # Ventana hija abierta fuera de manejar_apertura: sin este flag se ve con la
+                # barra de título nativa de Windows (inconsistente con el resto de módulos,
+                # todos frameless). Replica el mismo tratamiento + animación de deslizamiento.
+                try:
+                    self._doc_win.setWindowFlags(
+                        self._doc_win.windowFlags() | Qt.WindowType.FramelessWindowHint)
+                except Exception:
+                    pass
+                snap = None
+                try:
+                    from src.gui.transiciones import capturar_pantalla
+                    snap = capturar_pantalla(self._host or self)
+                except Exception:
+                    pass
+                try:
+                    from PyQt6.QtWidgets import QApplication
+                    self._doc_win.setWindowOpacity(0.0)
+                    scr = self._doc_win.screen() or QApplication.primaryScreen()
+                    if scr is not None:
+                        self._doc_win.setGeometry(scr.availableGeometry())
+                except Exception:
+                    pass
                 self._doc_win.showMaximized()
+                try:
+                    from PyQt6.QtWidgets import QApplication
+                    QApplication.processEvents()
+                except Exception:
+                    pass
+                try:
+                    from src.gui.transiciones import deslizar_entrada_modulo
+                    deslizar_entrada_modulo(snap, self._doc_win, revelar=self._doc_win)
+                except Exception:
+                    try:
+                        self._doc_win.setWindowOpacity(1.0)
+                    except Exception:
+                        pass
         except Exception as e:
             mostrar_mensaje(self, tr("merma.error_title", default="Error"),
                             tr("merma.nav_err", default="No se pudo abrir Documentos: {e}", e=e),
@@ -927,20 +1132,51 @@ class GestionMermasWindow(QWidget):
         self.callback_vuelta = callback_vuelta
         self.usuario_actual = usuario
         self.main = kwargs.get("main")   # menú principal (para navegar a Documentos)
+        if isinstance(usuario, dict):
+            self.perfil = usuario.get("perfil", "OPERARIO")
+        else:
+            self.perfil = getattr(usuario, "perfil", "OPERARIO")
         self.setWindowTitle(tr("merma.window_title", default="SMART MANAGER - GESTIÓN DE MERMAS"))
         self.resize(1100, 750)
+        # Techo explícito de tamaño mínimo: la ventana se abre frameless + maximizada al área
+        # disponible de pantalla (menu_principal.manejar_apertura). Sin este límite, Qt calcula el
+        # mínimo a partir del árbol de layouts (incluye el emoji de 140px de _RegistrarMermaPage,
+        # que con métricas de fuente reales/DPI de Windows puede pedir mucha más altura que en un
+        # entorno de pruebas) y, si supera la altura útil real de la pantalla (p. ej. 1366x768 con
+        # barra de tareas ≈728px), Windows fuerza la ventana más baja que ese mínimo — Qt no lo
+        # gestiona con elegancia: el contenido inferior de la sidebar ("SALIR AL MENÚ") queda fuera
+        # del área visible/clicable, y el layout general puede desincronizarse (botones que no
+        # responden aunque se vean). Fijar un mínimo bajo, cómodo para cualquier portátil, evita el
+        # conflicto de raíz en vez de perseguir la causa exacta en cada resolución/DPI.
+        self.setMinimumSize(900, 560)
         self.setStyleSheet(f"background-color: {_FONDO};")
 
         self.setup_ui()
         i18n.conectar_retraduccion(self, self._retraducir)
 
         # P3 (UX-TPV-01): sidebar colapsable con persistencia por usuario.
+        toggle_btn = None
         try:
             from src.gui.sidebar_colapsable import instalar_sidebar_colapsable
             if getattr(self, "sidebar", None) is not None:
-                instalar_sidebar_colapsable(self, self.sidebar, usuario=self.usuario_actual, clave="mermas")
+                toggle_btn = instalar_sidebar_colapsable(
+                    self, self.sidebar, usuario=self.usuario_actual, clave="mermas")
         except Exception:
             pass
+
+        # Restricciones por perfil: OPERARIO solo ve "Registrar merma" — "Modificar/Eliminar" y
+        # "Exportar mermas" quedan para ADMINISTRADOR/SUPERADMIN (mismo criterio ya aplicado en
+        # `mostrar_stock.py`). Se aplica DESPUÉS de `instalar_sidebar_colapsable` porque este, al
+        # restaurar el estado expandido/colapsado, vuelve a mostrar todos los botones de la
+        # sidebar — y se reconecta al toggle porque cada colapsar/expandir repite ese "mostrar
+        # todos".
+        if self.perfil == "OPERARIO":
+            def _ocultar_restringidas():
+                for i in (1, 2):
+                    self.nav_btns[i].setVisible(False)
+            _ocultar_restringidas()
+            if toggle_btn:
+                toggle_btn.clicked.connect(_ocultar_restringidas)
 
     def setup_ui(self):
         root = QHBoxLayout(self)
@@ -957,7 +1193,7 @@ class GestionMermasWindow(QWidget):
         side_ly = QVBoxLayout(sidebar)
         side_ly.setContentsMargins(0, 40, 0, 20)
 
-        lbl_m = QLabel(tr("merma.smart_losses", default="SMART LOSSES"))
+        lbl_m = QLabel(tr("merma.smart_losses", default="SMART LOSSES").upper())
         lbl_m.setStyleSheet(  # Sidebar title
             "color: white; font-size: 16px; font-weight: 900; margin-left: 30px; margin-bottom: 35px; letter-spacing: 2px;"
         )
@@ -967,13 +1203,13 @@ class GestionMermasWindow(QWidget):
         _tab_def = ["REGISTRAR MERMA", "MODIFICAR / ELIMINAR", "EXPORTAR MERMAS"]
         self.nav_btns = []
         for idx, key in enumerate(self._tab_keys):
-            btn = _SidebarBtn(tr(key, default=_tab_def[idx]))
+            btn = _SidebarBtn(tr(key, default=_tab_def[idx]).upper())
             btn.clicked.connect(lambda _, i=idx: self._ir_a(i))
             side_ly.addWidget(btn)
             self.nav_btns.append(btn)
 
         side_ly.addStretch()
-        self._btn_exit = btn_exit = _SidebarBtn(tr("merma.exit", default="SALIR AL MENÚ"))
+        self._btn_exit = btn_exit = _SidebarBtn(tr("merma.exit", default="SALIR AL MENÚ").upper())
         btn_exit.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -997,7 +1233,11 @@ class GestionMermasWindow(QWidget):
         root.addWidget(sidebar)
 
         # --- CONTENIDO ---
-        self.vistas = QStackedWidget()
+        # StackedActual (no QStackedWidget "a pelo"): sin esto el ancho mínimo de la ventana
+        # reflejaba el máximo de las 3 páginas aunque solo una esté visible, forzando una ventana
+        # más ancha que la pantalla real y provocando el fallo nativo de Windows al no poder
+        # concederle esa geometría (mismo bug ya resuelto en Contabilidad/RRHH/Cámaras).
+        self.vistas = StackedActual()
         self._page_registrar = _RegistrarMermaPage(self)
         self._page_modificar_eliminar = _ModificarEliminarMermaPage(self)
         self._page_exportar = _ExportarExcelPage(self)
@@ -1011,8 +1251,8 @@ class GestionMermasWindow(QWidget):
         self.setWindowTitle(tr("merma.window_title", default="SMART MANAGER - GESTIÓN DE MERMAS"))
         _tab_def = ["REGISTRAR MERMA", "MODIFICAR / ELIMINAR", "EXPORTAR MERMAS"]
         for i, btn in enumerate(self.nav_btns):
-            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
-        self._btn_exit.setText(tr("merma.exit", default="SALIR AL MENÚ"))
+            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]).upper())
+        self._btn_exit.setText(tr("merma.exit", default="SALIR").upper())
         for page in (self._page_registrar, self._page_modificar_eliminar, self._page_exportar):
             if hasattr(page, "_retraducir"):
                 page._retraducir()

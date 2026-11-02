@@ -117,6 +117,37 @@ def perdidas_ganancias(id_empresa=None, anio=None, desde=None, hasta=None) -> di
     return {"ingresos": ingresos, "gastos": gastos, "resultado": round(ingresos - gastos, 2)}
 
 
+def rango_trimestre(ejercicio, periodo) -> tuple:
+    """(desde, hasta) ISO de un trimestre/mes/ejercicio AISLADO, reutilizando la resolución
+    de periodo YA REAL de AEAT (`aeat.modelo_303._rango`, mismo criterio que 303/111) — no
+    se duplica ni se reinventa el cálculo de rango."""
+    from src.services.aeat.modelo_303 import _rango as _r
+    return _r(ejercicio, periodo)
+
+
+def rango_acumulado_trimestre(ejercicio, periodo) -> tuple:
+    """(desde, hasta) ACUMULADO desde el 1 de enero del ejercicio hasta el FIN del
+    trimestre/mes indicado — a diferencia de `rango_trimestre` (el periodo aislado), este
+    acumulado es el que necesita el Modelo 130 (pago fraccionado IRPF), que es CUMULATIVO
+    dentro del ejercicio (a diferencia del 303, que liquida solo el trimestre en curso)."""
+    _, hasta = rango_trimestre(ejercicio, periodo)
+    return f"{int(ejercicio)}-01-01", hasta
+
+
+def perdidas_ganancias_periodo(ejercicio, periodo, id_empresa=None, acumulado=True) -> dict:
+    """PyG de un trimestre/mes concreto (`acumulado=False`, el periodo aislado) o ACUMULADA
+    desde el inicio del ejercicio hasta el fin del periodo (`acumulado=True`, por defecto —
+    caso de uso: Modelo 130). Wrapper fino sobre `perdidas_ganancias()`, que YA soporta
+    rangos arbitrarios vía desde/hasta; se parametriza el rango, no se duplica la
+    agregación contable."""
+    desde, hasta = (rango_acumulado_trimestre(ejercicio, periodo) if acumulado
+                    else rango_trimestre(ejercicio, periodo))
+    r = perdidas_ganancias(id_empresa, desde=desde, hasta=hasta)
+    r.update({"desde": desde, "hasta": hasta, "ejercicio": int(ejercicio), "periodo": periodo,
+             "acumulado": bool(acumulado)})
+    return r
+
+
 def balance_situacion(id_empresa=None, anio=None, desde=None, hasta=None) -> dict:
     """Balance de situación abreviado: Activo = Pasivo + Patrimonio neto (incl. resultado)."""
     id_empresa = _empresa(id_empresa)

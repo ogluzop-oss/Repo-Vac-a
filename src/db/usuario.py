@@ -88,6 +88,14 @@ def _registrar_fallo(uid, intentos_actuales):
             else:
                 cur.execute("UPDATE usuarios SET intentos_fallidos=%s WHERE id=%s", (n, uid))
             conn.commit()
+        if mins:
+            # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+            try:
+                from src.services import eventos as _EV
+                _EV.publicar("USUARIO_BLOQUEADO", origen="seguridad", ref_entidad="usuario",
+                             ref_id=uid, payload={"intentos_fallidos": n, "bloqueo_minutos": mins})
+            except Exception:
+                pass
     except Exception as e:
         logger.debug("registrar_fallo(%s): %s", uid, e)
 
@@ -132,7 +140,7 @@ def validar_login(perfil_ui, password):
                 columnas = _columnas_usuarios(cur)
                 col_usuario = "nombre" if "nombre" in columnas else "usuario"
                 tiene_emp = "id_empresa" in columnas
-                cols = ["id", col_usuario, "perfil", "tienda_id", "password",
+                cols = ["id", col_usuario, "perfil", "centro_codigo", "password",
                         "intentos_fallidos", "bloqueado_hasta"]
                 if tiene_emp:
                     cols.append("id_empresa")
@@ -144,7 +152,7 @@ def validar_login(perfil_ui, password):
             if d:
                 logger.info(f"Acceso concedido para perfil: {valor_busqueda}")
                 return {"id": d["id"], "nombre": d[col_usuario], "perfil": d["perfil"],
-                        "tienda_id": d["tienda_id"],
+                        "centro_codigo": d["centro_codigo"],
                         "id_empresa": d.get("id_empresa") if tiene_emp else None}
             if bloqueado:
                 logger.warning(f"Acceso bloqueado temporalmente para perfil: {valor_busqueda}")
@@ -158,25 +166,41 @@ def validar_login(perfil_ui, password):
 
 def validar_login_empleado(nombre: str, password: str) -> dict | None:
     """Valida credenciales por nombre individual de empleado (para TPV). Soporte
-    dual Argon2id/SHA-256 con rehash en el primer acierto."""
+    dual Argon2id/SHA-256 con rehash en el primer acierto.
+
+    Aislamiento por tenant: si la tabla tiene `id_empresa`, la búsqueda se restringe a la
+    empresa ACTIVA (`empresa_actual_id()`) — antes buscaba por nombre en TODA la tabla sin
+    filtrar empresa, permitiendo que un empleado de otra compañía con el mismo nombre
+    autenticara (y quedara atribuido) en el TPV de una empresa distinta."""
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
                 columnas = _columnas_usuarios(cur)
                 col_name = "nombre" if "nombre" in columnas else "usuario"
                 tiene_emp = "id_empresa" in columnas
-                cols = ["id", col_name, "perfil", "tienda_id", "password",
+                cols = ["id", col_name, "perfil", "centro_codigo", "password",
                         "intentos_fallidos", "bloqueado_hasta"]
                 if tiene_emp:
                     cols.append("id_empresa")
+                condicion = f"UPPER({col_name}) = UPPER(%s)"
+                params = [nombre.strip()]
+                if tiene_emp:
+                    try:
+                        from src.db.empresa import empresa_actual_id
+                        _id_emp = empresa_actual_id()
+                    except Exception:
+                        _id_emp = None
+                    if _id_emp is not None:
+                        condicion += " AND id_empresa = %s"
+                        params.append(_id_emp)
                 cur.execute(
-                    f"SELECT {', '.join(cols)} FROM usuarios WHERE UPPER({col_name}) = UPPER(%s)",
-                    (nombre.strip(),))
+                    f"SELECT {', '.join(cols)} FROM usuarios WHERE {condicion}",
+                    tuple(params))
                 filas = cur.fetchall()
             d, _bloq = _autenticar(cols, filas, password)
             if d:
                 return {"id": d["id"], "nombre": d[col_name], "perfil": d["perfil"],
-                        "tienda_id": d["tienda_id"],
+                        "centro_codigo": d["centro_codigo"],
                         "id_empresa": d.get("id_empresa") if tiene_emp else None}
     except Exception as e:
         logger.error(f"Error en validación TPV por nombre: {e}")
@@ -196,7 +220,7 @@ def validar_login_usuario(identificador: str, password: str, id_empresa=None) ->
                 col_name = "nombre" if "nombre" in columnas else "usuario"
                 tiene_emp = "id_empresa" in columnas
                 tiene_email = "email" in columnas
-                cols = ["id", col_name, "perfil", "tienda_id", "password",
+                cols = ["id", col_name, "perfil", "centro_codigo", "password",
                         "intentos_fallidos", "bloqueado_hasta"]
                 if tiene_emp:
                     cols.append("id_empresa")
@@ -216,7 +240,7 @@ def validar_login_usuario(identificador: str, password: str, id_empresa=None) ->
             if d:
                 _audit_seguridad("LOGIN", d["id"], f"identidad={ident}")
                 return {"id": d["id"], "nombre": d[col_name], "perfil": d["perfil"],
-                        "tienda_id": d["tienda_id"],
+                        "centro_codigo": d["centro_codigo"],
                         "id_empresa": d.get("id_empresa") if tiene_emp else None,
                         "email": d.get("email") if tiene_email else None}
             _audit_seguridad("LOGIN_FALLIDO", None, f"identidad={ident}")
@@ -234,6 +258,20 @@ def _audit_seguridad(accion, id_usuario, detalles):
         pass
 
 
+def puede_iniciar_sesion(id_usuario: int, perfil: str) -> bool:
+    """Sesión única de escritorio (salvo SUPERADMIN): rechaza un nuevo login si el
+    usuario ya tiene una sesión viva en otro equipo. SUPERADMIN queda exento a
+    propósito, para poder conectarse a varias tiendas a la vez de forma remota."""
+    if str(perfil or "").upper() == "SUPERADMIN":
+        return True
+    try:
+        from src.db import sesiones_desktop
+        return not sesiones_desktop.hay_sesion_activa_otro_equipo(id_usuario)
+    except Exception as e:
+        logger.error("puede_iniciar_sesion(%s): %s", id_usuario, e)
+        return True
+
+
 class SesionUsuario:
     """Clase Singleton para gestionar la sesión activa del usuario."""
 
@@ -244,6 +282,13 @@ class SesionUsuario:
             cls._instancia = super(SesionUsuario, cls).__new__(cls)
             cls._instancia.usuario_actual = None
             cls._instancia.hora_inicio = None
+            cls._instancia.id_sesion_desktop = None
+            # "Centro en foco" (Sistema de Centros, Parte E): puramente INFORMATIVO, para
+            # pantallas de administración/identidad — NUNCA toca el TenantContext operativo real
+            # (empresa/tienda de `db/empresa.py`). Se fija al elegir, en "Cambiar de Centro"
+            # (`gui/selector_tienda.py`), un centro que NO es de tipo 'tienda' (esos sí cambian el
+            # TenantContext real, como siempre). No persiste entre sesiones.
+            cls._instancia.centro_en_foco = None
         return cls._instancia
 
     def iniciar_sesion(self, datos_usuario: dict):
@@ -253,15 +298,23 @@ class SesionUsuario:
         self.usuario_actual = datos_usuario
         self.hora_inicio = datetime.now()
         try:
+            from src.db import sesiones_desktop
+            self.id_sesion_desktop = sesiones_desktop.registrar_sesion(
+                datos_usuario.get("id"), self.obtener_nombre(), datos_usuario.get("perfil"),
+            )
+        except Exception as e:
+            logger.debug("No se pudo registrar la sesión de escritorio: %s", e)
+            self.id_sesion_desktop = None
+        try:
             from src.db.empresa import (
                 EMPRESA_DEFAULT_ID, set_empresa_actual, set_tienda_actual,
             )
             set_empresa_actual(datos_usuario.get("id_empresa") or EMPRESA_DEFAULT_ID)
-            set_tienda_actual(datos_usuario.get("tienda_id"))
+            set_tienda_actual(datos_usuario.get("centro_codigo"))
             # Stock de trabajo = el de la tienda del usuario (aislamiento 3b.1-2c).
             try:
                 from src.db import stock as _stock
-                _stock.cargar_stock(datos_usuario.get("tienda_id"))
+                _stock.cargar_stock(datos_usuario.get("centro_codigo"))
             except Exception:
                 pass
         except Exception as e:
@@ -280,8 +333,15 @@ class SesionUsuario:
             _stock.flush_stock()
         except Exception:
             pass
+        try:
+            from src.db import sesiones_desktop
+            sesiones_desktop.cerrar_sesion(self.id_sesion_desktop)
+        except Exception:
+            pass
         self.usuario_actual = None
         self.hora_inicio = None
+        self.id_sesion_desktop = None
+        self.centro_en_foco = None
         try:
             from src.db.empresa import (
                 EMPRESA_DEFAULT_ID, set_empresa_actual, set_tienda_actual,
@@ -291,6 +351,14 @@ class SesionUsuario:
         except Exception:
             pass
         logger.info(f"Sesión destruida para: {nombre}")
+
+    def set_centro_en_foco(self, centro: dict | None):
+        """Fija el "centro en foco" (informativo, ver comentario en `__new__`) — usado por
+        "Cambiar de Centro" al elegir un centro no-operativo (almacén/fábrica/oficina/otro)."""
+        self.centro_en_foco = centro
+
+    def centro_en_foco_actual(self) -> dict | None:
+        return getattr(self, "centro_en_foco", None)
 
     def obtener_nombre(self):
         """Devuelve el nombre legible del usuario actual."""
@@ -344,7 +412,10 @@ def obtener_usuario(id_usuario):
             columnas = _columnas_usuarios(cur)
             col_name = "nombre" if "nombre" in columnas else "usuario"
             tiene_emp = "id_empresa" in columnas
-            cols = ["id", col_name, "perfil", "tienda_id"] + (["id_empresa"] if tiene_emp else [])
+            tiene_centro = "id_centro_trabajo" in columnas
+            tiene_email = "email" in columnas
+            cols = (["id", col_name, "perfil", "centro_codigo"] + (["id_empresa"] if tiene_emp else [])
+                    + (["id_centro_trabajo"] if tiene_centro else []) + (["email"] if tiene_email else []))
             cond = " AND COALESCE(activo,1)=1" if "activo" in columnas else ""
             cur.execute(f"SELECT {', '.join(cols)} FROM usuarios WHERE id=%s{cond}", (id_usuario,))
             fila = cur.fetchone()
@@ -352,8 +423,10 @@ def obtener_usuario(id_usuario):
                 return None
             d = dict(zip(cols, fila))
             return {"id": d["id"], "nombre": d[col_name], "perfil": d["perfil"],
-                    "tienda_id": d["tienda_id"],
-                    "id_empresa": d.get("id_empresa") if tiene_emp else None}
+                    "centro_codigo": d["centro_codigo"],
+                    "id_empresa": d.get("id_empresa") if tiene_emp else None,
+                    "id_centro_trabajo": d.get("id_centro_trabajo") if tiene_centro else None,
+                    "email": d.get("email") if tiene_email else None}
     except Exception as e:
         logger.error("obtener_usuario(%s): %s", id_usuario, e)
         return None
@@ -370,10 +443,10 @@ def listar_usuarios():
                 ]
                 col_name = "nombre" if "nombre" in columnas else "usuario"
 
-                cur.execute(f"SELECT id, {col_name}, perfil, tienda_id FROM usuarios")
+                cur.execute(f"SELECT id, {col_name}, perfil, centro_codigo FROM usuarios")
                 filas = cur.fetchall()
                 return [
-                    {"id": f[0], "nombre": f[1], "perfil": f[2], "tienda_id": f[3]}
+                    {"id": f[0], "nombre": f[1], "perfil": f[2], "centro_codigo": f[3]}
                     for f in filas
                 ]
     except Exception as e:
@@ -381,11 +454,17 @@ def listar_usuarios():
         return []
 
 
-def listar_usuarios_empresa(id_empresa=None):
+def listar_usuarios_empresa(id_empresa=None, centro_codigo=None):
     """Lista los perfiles/empleados de UNA empresa, con AISLAMIENTO ESTRICTO por `id_empresa`
     (privacidad entre empresas: NUNCA devuelve empleados de otra). Si la tabla no tiene columna
     id_empresa (instalación mono-empresa), devuelve todos — al haber una sola empresa no hay cruce
     posible. Solo activos si existe la columna `activo`. Usado por el selector de perfil del login.
+
+    `centro_codigo` (Fase Productividad): si se indica, filtra solo los empleados vinculados a ESE
+    centro (`usuarios.centro_codigo`) — el desplegable de empleado de Productividad necesita el id
+    REAL de `usuarios` (el mismo que puebla `ventas.id_usuario`/`fichajes.usuario_id`), por eso
+    reutiliza esta función en vez de `rrhh.db.empleados.listar_empleados` (esa lista empleados de
+    RRHH, con su propio id, un espacio de identidad DISTINTO al de login/TPV/fichajes).
 
     Devuelve [{id, nombre, perfil, id_empresa}] ordenado por nombre."""
     try:
@@ -400,12 +479,15 @@ def listar_usuarios_empresa(id_empresa=None):
             col_name = "nombre" if "nombre" in columnas else "usuario"
             tiene_emp = "id_empresa" in columnas
             tiene_act = "activo" in columnas
+            tiene_centro = "centro_codigo" in columnas
             cols = ["id", col_name, "perfil"] + (["id_empresa"] if tiene_emp else [])
             cond, params = [], []
             if tiene_emp and id_empresa:
                 cond.append("id_empresa = %s"); params.append(id_empresa)
             if tiene_act:
                 cond.append("activo = 1")
+            if centro_codigo is not None and tiene_centro:
+                cond.append("centro_codigo = %s"); params.append(centro_codigo)
             where = (" WHERE " + " AND ".join(cond)) if cond else ""
             cur.execute(
                 f"SELECT {', '.join(cols)} FROM usuarios{where} ORDER BY {col_name} ASC",
@@ -426,14 +508,27 @@ def listar_usuarios_empresa(id_empresa=None):
 # BLOQUE CREACIÓN Y MODIFICACIÓN DE USUARIOS
 # ============================================================
 
-def crear_perfil(nombre, password, perfil_tipo="OPERARIO", tienda_id=None):
+def crear_perfil(nombre, password, perfil_tipo="OPERARIO", centro_codigo=None, email=None):
     try:
         if not sesion_global.es_admin():
-            return False
+            # Excepción de ARRANQUE (alta del primer perfil de una instalación nueva, ver
+            # `gui/primer_superadmin_wizard.py`): por definición no puede existir todavía una
+            # sesión de administrador que la autorice. Solo se permite si la tabla `usuarios`
+            # está realmente vacía — dejar de aplicar en cuanto exista el primer perfil.
+            try:
+                with obtener_conexion() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT COUNT(*) FROM usuarios")
+                        row = cur.fetchone()
+                        total = row[0] if not isinstance(row, dict) else row.get("COUNT(*)", 0)
+                if int(total or 0) > 0:
+                    return False
+            except Exception:
+                return False
         from src.seguridad import politica
-        ok_pol, motivo = politica.validar(password)
+        ok_pol, motivo = politica.validar_pin(password)
         if not ok_pol:
-            logger.warning("Contraseña rechazada por política: %s", motivo)
+            logger.warning("PIN rechazado por política: %s", motivo)
             return False
         password_segura = encriptar_password(password)
         with obtener_conexion() as conn:
@@ -445,13 +540,26 @@ def crear_perfil(nombre, password, perfil_tipo="OPERARIO", tienda_id=None):
                 ]
                 col_name = "nombre" if "nombre" in columnas else "usuario"
 
-                sql = f"INSERT INTO usuarios ({col_name}, password, perfil, tienda_id) VALUES (%s, %s, %s, %s)"
-                cur.execute(
-                    sql,
-                    (nombre.strip().upper(), password_segura, perfil_tipo, tienda_id),
-                )
+                cols = [col_name, "password", "perfil", "centro_codigo"]
+                vals = [nombre.strip().upper(), password_segura, perfil_tipo, centro_codigo]
+                email_limpio = (email or "").strip() or None
+                if email_limpio and "email" in columnas:
+                    cols.append("email")
+                    vals.append(email_limpio)
+                marcadores = ", ".join(["%s"] * len(cols))
+                sql = f"INSERT INTO usuarios ({', '.join(cols)}) VALUES ({marcadores})"
+                cur.execute(sql, tuple(vals))
+                nuevo_id = cur.lastrowid
             conn.commit()
-            return True
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("USUARIO_CREADO", origen="seguridad", ref_entidad="usuario",
+                         ref_id=nuevo_id, payload={"nombre": nombre.strip().upper(),
+                                                   "perfil": perfil_tipo})
+        except Exception:
+            pass
+        return True
     except Exception as e:
         logger.error(f"Error al crear perfil: {e}")
         return False
@@ -460,9 +568,9 @@ def crear_perfil(nombre, password, perfil_tipo="OPERARIO", tienda_id=None):
 def cambiar_password_usuario(id_usuario: int, nueva_password: str) -> bool:
     try:
         from src.seguridad import politica
-        ok_pol, motivo = politica.validar(nueva_password)
+        ok_pol, motivo = politica.validar_pin(nueva_password)
         if not ok_pol:
-            logger.warning("Contraseña rechazada por política: %s", motivo)
+            logger.warning("PIN rechazado por política: %s", motivo)
             return False
         password_hash = encriptar_password(nueva_password)
         with obtener_conexion() as conn:
@@ -476,7 +584,12 @@ def cambiar_password_usuario(id_usuario: int, nueva_password: str) -> bool:
         return False
 
 
-def actualizar_usuario(id_usuario, nombre, perfil, tienda_id):
+def actualizar_usuario(id_usuario, nombre, perfil, centro_codigo, email=None):
+    """`email` es OPCIONAL y, a diferencia de `nombre`/`perfil`/`centro_codigo` (que esta función
+    siempre reescribe juntos, ver `gui/gestion_usuarios.py::ejecutar_editar_perfil`/
+    `ejecutar_vincular_centro`), un `email=None` significa "no tocar" (no clobberea el email ya
+    guardado en los llamadores existentes que no lo pasan); pasa una cadena (incluida "") para
+    fijarlo/borrarlo explícitamente."""
     try:
         with obtener_conexion() as conn:
             with conn.cursor() as cur:
@@ -487,13 +600,47 @@ def actualizar_usuario(id_usuario, nombre, perfil, tienda_id):
                 ]
                 col_name = "nombre" if "nombre" in columnas else "usuario"
 
-                sql = f"UPDATE usuarios SET {col_name}=%s, perfil=%s, tienda_id=%s WHERE id=%s"
-                cur.execute(sql, (nombre, perfil, tienda_id, id_usuario))
+                sets = [f"{col_name}=%s", "perfil=%s", "centro_codigo=%s"]
+                vals = [nombre, perfil, centro_codigo]
+                if email is not None and "email" in columnas:
+                    sets.append("email=%s")
+                    vals.append(email.strip() or None)
+                vals.append(id_usuario)
+                sql = f"UPDATE usuarios SET {', '.join(sets)} WHERE id=%s"
+                cur.execute(sql, tuple(vals))
             conn.commit()
             _audit_seguridad("CAMBIO_ROL", id_usuario, f"usuario={id_usuario} perfil={perfil}")
+            # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+            try:
+                from src.services import eventos as _EV
+                _EV.publicar("ROL_MODIFICADO", origen="seguridad", ref_entidad="usuario",
+                             ref_id=id_usuario, payload={"perfil": perfil})
+            except Exception:
+                pass
             return True
     except Exception as e:
         logger.error(f"Error al actualizar usuario: {e}")
+        return False
+
+
+def vincular_centro_trabajo(id_usuario, id_centro_trabajo) -> bool:
+    """Vincula un usuario a un centro (`centros_trabajo.id_centro`, CHAR(36) — "Centros de
+    empresa" unificados, migración 0257; antes `centros_perfil.id`, tabla retirada) — SOLO fija
+    `usuarios.id_centro_trabajo` (antes `id_centro_perfil`, INT: se retiró y sustituyó por esta
+    columna VARCHAR(36) porque el nuevo destino es un UUID, no un entero — ver migración 0257).
+    `centro_codigo` es un campo aparte (se sincroniza en el mismo flujo de llamada, ver
+    `gui/gestion_usuarios.py::ejecutar_vincular_centro`, que combina esto con `actualizar_usuario`
+    siguiendo el mismo patrón de re-lectura que `ejecutar_editar_perfil`, para no romper ningún
+    consumidor existente de `centro_codigo`: kárdex, logística, sesión)."""
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE usuarios SET id_centro_trabajo=%s WHERE id=%s",
+                            (id_centro_trabajo, id_usuario))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error al vincular centro_trabajo: {e}")
         return False
 
 
@@ -781,3 +928,28 @@ def horas_mes_por_empleado(anio=None, mes=None) -> list:
     except Exception as e:
         logger.error(f"Error horas_mes_por_empleado: {e}")
         return []
+
+
+def horas_trabajadas_rango(usuario_id, fecha_desde, fecha_hasta, id_empresa=None) -> float:
+    """Horas trabajadas por UN empleado entre dos fechas (inclusive), sumando fichajes cerrados +
+    la sesión abierta hasta ahora (mismo criterio que `horas_mes_por_empleado`/
+    `listar_fichajes_empleado`, pero por RANGO arbitrario — necesario para Productividad, cuyos
+    periodos (semanal/bimensual/bimestral/trimestral/semestral) no siempre coinciden con límites
+    de mes). Aislado por `id_empresa` explícito (no depende del contexto de tienda ambiente: el
+    dashboard de Productividad consulta centros que el superadministrador gestiona, no
+    necesariamente el centro conectado en este momento)."""
+    try:
+        from src.db.empresa import empresa_actual_id
+        emp = id_empresa if id_empresa is not None else empresa_actual_id()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT SUM(COALESCE(duracion_segundos, TIMESTAMPDIFF(SECOND, entrada, NOW()))) "
+                "FROM fichajes WHERE id_empresa=%s AND usuario_id=%s "
+                "AND DATE(entrada) BETWEEN %s AND %s",
+                (emp, usuario_id, fecha_desde, fecha_hasta))
+            r = cur.fetchone()
+            seg = r[0] if not isinstance(r, dict) else list(r.values())[0]
+            return round(int(seg or 0) / 3600.0, 2)
+    except Exception as e:
+        logger.error(f"Error horas_trabajadas_rango: {e}")
+        return 0.0

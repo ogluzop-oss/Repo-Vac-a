@@ -45,7 +45,7 @@ def registrar_conector(codigo, factory, *, categoria="externo", descripcion="") 
 def _registrar_en_plataforma(factory):
     """Publica el ServiceContract del adaptador en el Service Registry Enterprise (degradable)."""
     try:
-        from src.platform import registry
+        from src.plataforma import registry
         registry.registrar(factory().contrato())
     except Exception as e:
         logger.debug("registro en platform.registry: %s", e)

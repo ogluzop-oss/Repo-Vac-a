@@ -141,6 +141,23 @@ def aeat(id_empresa, desde, hasta) -> dict:
     return out
 
 
+def logistica(id_empresa, desde, hasta) -> dict:
+    """Cross-Docking (Landed Cost/Consignación/Cross-Docking, Fase A): conteo/volumen honesto desde
+    el kárdex (`movimientos_stock.tipo_movimiento='CROSS_DOCKING'`). No se calcula un "tiempo
+    ahorrado de manipulación": no existe baseline histórico de permanencia en almacén con el que
+    restar una cifra — inventarlo sería deshonesto (ver CLAUDE.md, sección Honestidad IA/ML)."""
+    out = {}
+    out["logistica.cross_docking_operaciones"] = round(_scalar(
+        "SELECT COUNT(*) FROM movimientos_stock WHERE id_empresa=%s "
+        "AND tipo_movimiento='CROSS_DOCKING' AND DATE(fecha_movimiento) BETWEEN %s AND %s",
+        (id_empresa, desde, hasta)), 0)
+    out["logistica.cross_docking_unidades"] = round(_scalar(
+        "SELECT COALESCE(SUM(cantidad),0) FROM movimientos_stock WHERE id_empresa=%s "
+        "AND tipo_movimiento='CROSS_DOCKING' AND DATE(fecha_movimiento) BETWEEN %s AND %s",
+        (id_empresa, desde, hasta)), 2)
+    return out
+
+
 def _tabla_existe(nombre):
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -179,4 +196,7 @@ DOMINIOS = {
         ("aeat.iva_repercutido", "IVA repercutido", "€", "mayor"),
         ("aeat.iva_soportado", "IVA soportado", "€", "mayor"),
         ("aeat.iva_neto", "IVA neto (303)", "€", "menor")]),
+    "logistica": (logistica, [
+        ("logistica.cross_docking_operaciones", "Operaciones Cross-Docking", "ud", "mayor"),
+        ("logistica.cross_docking_unidades", "Unidades cross-docked", "ud", "mayor")]),
 }

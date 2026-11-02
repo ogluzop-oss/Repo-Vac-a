@@ -50,14 +50,15 @@ def _sourcing(plan):
 
 
 def preparar(*, id_empresa=None, lineas, cliente=None, cupon=None, lista=None, moneda="EUR",
-             id_tienda=None, segmento=None, estrategia="equilibrado"):
-    """VISTA PREVIA (sin efectos): cotización comercial + disponibilidad/plan por línea. No reserva,
-    no crea Transacción. Es el resumen de convergencia que ve el cliente antes de confirmar."""
+             id_tienda=None, segmento=None, estrategia="equilibrado", pais_destino=None):
+    """VISTA PREVIA (sin efectos): cotización comercial (con envío por zona si se da
+    `pais_destino`, Fase 3) + disponibilidad/plan por línea. No reserva, no crea Transacción. Es
+    el resumen de convergencia que ve el cliente antes de confirmar."""
     emp = _emp(id_empresa)
     from src.services.comercio_digital import comercial, inventario
     coti = comercial.cotizar(lineas, cliente_id=(cliente or {}).get("id"), segmento=segmento,
                              id_tienda=id_tienda, cupon=cupon, lista=lista, moneda=moneda,
-                             id_empresa=emp)
+                             pais_destino=pais_destino, id_empresa=emp)
     resolver = _memo_resolver(inventario, estrategia, emp, id_tienda)   # C0.P2: caché por línea
     disponibilidad, disponible_todo = {}, True
     for l in coti["lineas"]:
@@ -70,23 +71,26 @@ def preparar(*, id_empresa=None, lineas, cliente=None, cupon=None, lista=None, m
 
 def confirmar(*, id_empresa=None, origen="web", cliente=None, lineas, cupon=None, lista=None,
               moneda="EUR", id_tienda=None, segmento=None, canal=None, estrategia="equilibrado",
-              tipo_reserva="hard", cumplimiento="DELIVERY", idempotencia_key=None, actor=None):
-    """CONFIRMA el checkout: cotiza → verifica disponibilidad y planifica cumplimiento → crea la
-    Transacción Comercial (CONFIRMADA) → reserva (ligada a la Transacción) → registra la decisión.
-    NO cobra ni mueve stock. Devuelve {ok, id_tx, total, reservas, cotizacion}.
+              tipo_reserva="hard", cumplimiento="DELIVERY", idempotencia_key=None, actor=None,
+              pais_destino=None):
+    """CONFIRMA el checkout: cotiza (con envío por zona si se da `pais_destino`, Fase 3) →
+    verifica disponibilidad y planifica cumplimiento → crea la Transacción Comercial (CONFIRMADA)
+    → reserva (ligada a la Transacción) → registra la decisión. NO cobra ni mueve stock. Devuelve
+    {ok, id_tx, total, reservas, cotizacion}.
 
     `cumplimiento` es una MODALIDAD de cumplimiento (mismo checkout, no uno paralelo): `DELIVERY`
     (entrega a domicilio, por defecto) o `PICKUP_STORE` (recogida en tienda, Click & Collect). En
     PICKUP_STORE la disponibilidad se limita ESTRICTAMENTE a la tienda seleccionada (nunca central,
-    global u otra tienda)."""
+    global u otra tienda) — y no tiene sentido cobrar envío (recogida presencial), así que
+    `pais_destino` normalmente se omite en ese caso (queda a criterio del llamador)."""
     emp = _emp(id_empresa)
     from src.services.comercio_digital import comercial, inventario, transacciones
     from src.services.comercio_digital.inventario import reservas
 
-    # 1) Cotización comercial (precios de lista + promociones + cupón).
+    # 1) Cotización comercial (precios de lista + promociones + cupón + envío).
     coti = comercial.cotizar(lineas, cliente_id=(cliente or {}).get("id"), segmento=segmento,
                              id_tienda=id_tienda, cupon=cupon, lista=lista, moneda=moneda,
-                             id_empresa=emp)
+                             pais_destino=pais_destino, id_empresa=emp)
 
     # 2) Availability + Fulfillment por línea (no se puede confirmar lo que no hay).
     resolver = _memo_resolver(inventario, estrategia, emp, id_tienda)   # C0.P2: caché por línea
@@ -122,6 +126,25 @@ def confirmar(*, id_empresa=None, origen="web", cliente=None, lineas, cupon=None
                   "cupon": coti["cupon"], "canal": canal or origen, "cumplimiento": cumplimiento})
     if not id_tx:
         return {"ok": False, "motivo": "no se pudo crear la transacción", "cotizacion": coti}
+
+    # 3-bis) Redención REAL del cupón (bug real cerrado en Fase 2 e-commerce: `comercial.
+    # redimir_cupon` llevaba desde su propio docstring diciendo "lo usará el checkout al
+    # confirmar" pero nada lo llamaba nunca — `cotizar()` solo lo VALIDABA, jamás se consumía su
+    # uso). `id_venta` se deja en None a propósito: `cupones.id_venta_uso` es BIGINT (pensado para
+    # el `id` numérico de la venta TPV/VTA heredada), y `id_tx` aquí es el UUID de la Transacción
+    # Comercial omnicanal (tipos distintos, dominios distintos) — forzarlo habría sido el típico
+    # error de tipo silencioso; el conteo real de usos (`usos_actuales`/`estado`) no depende de
+    # `id_venta_uso`, así que la redención sigue siendo completa sin él. Best-effort: si falla, NO
+    # se revierte el pedido ya confirmado (igual que el resto de efectos secundarios de este paso,
+    # p. ej. el log de decisión de más abajo).
+    if coti.get("cupon") and coti["cupon"].get("valido"):
+        try:
+            comercial.redimir_cupon(
+                coti["cupon"]["codigo"], id_cliente=(cliente or {}).get("id"),
+                importe_pedido=coti["subtotal"] - coti["descuento_promociones"], id_empresa=emp)
+        except Exception as e:
+            logger.warning("checkout: no se pudo redimir el cupón %s (id_tx=%s): %s",
+                           coti["cupon"].get("codigo"), id_tx, e)
 
     # 4) Reservas (única reducción del ATP), ligadas a la Transacción.
     reservas_creadas = []

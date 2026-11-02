@@ -51,11 +51,17 @@ def _hoy():
 
 # ── Pedidos de compra (E2.2) ─────────────────────────────────────────────────
 def crear_pedido(id_proveedor=None, lineas=None, observaciones=None, usuario=None,
-                 id_empresa=None, id_almacen=None, descuento=None) -> int | None:
+                 id_empresa=None, id_almacen=None, descuento=None,
+                 origen_flujo: str | None = None) -> int | None:
     """Crea un pedido en BORRADOR con sus líneas. `lineas`: [{codigo, descripcion,
     cantidad, precio_unitario}]. Calcula subtotales y total. CMP.2: dirige el pedido a
     `id_almacen` (destino) y aplica el `descuento` del proveedor (si no se indica, toma el
-    de su ficha). Un proveedor BLOQUEADO no puede generar pedidos (devuelve None)."""
+    de su ficha). Un proveedor BLOQUEADO no puede generar pedidos (devuelve None).
+
+    `origen_flujo` (opcional): distingue el CIRCUITO que originó el pedido (p.ej.
+    "reposicion" desde el auto-aprovisionamiento) para el evento de actividad. Si no se
+    indica, se mantiene el `origen="compras"` genérico (compatibilidad total con el resto
+    de llamadores: GUI manual, ecommerce, compras_pro)."""
     id_empresa = _empresa(id_empresa)
     lineas = lineas or []
     # CMP.2: validar proveedor no bloqueado + condiciones comerciales.
@@ -88,7 +94,12 @@ def crear_pedido(id_proveedor=None, lineas=None, observaciones=None, usuario=Non
         # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
         try:
             from src.services import eventos as _EV
-            _EV.publicar("PEDIDO_RECIBIDO", id_empresa=id_empresa, origen="compras",
+            # `origen="compras:<origen_flujo>"` cuando el llamador lo indica (p.ej. el
+            # auto-aprovisionamiento pasa "reposicion"): `crear_pedido` es compartida por la GUI
+            # manual, ecommerce y compras_pro, y por defecto (`origen_flujo=None`) se mantiene el
+            # `origen="compras"` genérico de siempre — cero cambio para esos llamadores.
+            _EV.publicar("PEDIDO_RECIBIDO", id_empresa=id_empresa,
+                         origen=(f"compras:{origen_flujo}" if origen_flujo else "compras"),
                          ref_entidad="compras_pedido", ref_id=pid,
                          payload={"id_proveedor": id_proveedor, "total": total})
         except Exception:
@@ -292,7 +303,8 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
                     stock_previo = (fila_prev[0] if fila_prev and not isinstance(fila_prev, dict)
                                     else (list(fila_prev.values())[0] if fila_prev else None))
                     if fila_prev is not None and precio > 0:
-                        _actualizar_costes(cur, codigo, int(stock_previo or 0), cant, precio)
+                        actualizar_costes_entrada(cur, codigo, int(stock_previo or 0), cant, precio,
+                                                  id_empresa=id_empresa)
                     cur.execute(
                         "INSERT INTO movimientos_stock (codigo_articulo, tipo_movimiento, "
                         "cantidad, id_documento, origen, usuario, observaciones, id_almacen_destino) "
@@ -323,7 +335,7 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
                     L.registrar_entrada(codigo, lote, cant, fecha_caducidad=caduc,
                                         id_empresa=id_empresa, id_almacen=destino,
                                         origen="compra", id_documento=f"PC{id_pedido}-R{rid}",
-                                        usuario=usuario)
+                                        usuario=usuario, id_recepcion_origen=rid)
         except Exception as e:
             logger.warning("recibir: sync multialmacén/lotes pedido %s: %s", id_pedido, e)
         return {"id_recepcion": rid, "estado_pedido": nuevo, "unidades": unidades,
@@ -333,12 +345,24 @@ def recibir(id_pedido, lineas_recibidas, usuario=None, observaciones=None,
         return None
 
 
-def _actualizar_costes(cur, codigo, stock_previo, cantidad, precio):
-    """Actualiza costes del artículo tras una entrada (E2.4): último/actual = precio
-    de compra; medio = media ponderada por existencias. Tolerante si faltan columnas
+def actualizar_costes_entrada(cur, codigo, stock_previo, cantidad, precio, *, id_empresa=None) -> None:
+    """Actualiza costes del artículo tras una entrada de stock (E2.4; expuesta como función
+    PÚBLICA reutilizable en Fase B — Landed Cost, antes privada como `_actualizar_costes`):
+    último/actual = precio de la entrada; medio = media ponderada por existencias
+    ((medio_old·stock_previo + precio·cantidad) / (stock_previo+cantidad)). Llamada por
+    `recibir()` (compra vía pedido, único call site histórico — ahora pasa `id_empresa`
+    explícitamente), por `services.compras.b2b_pedidos.recibir_mercancia()` (cierre del bug
+    histórico: la recepción B2B nunca actualizaba coste_medio/coste_actual) y por
+    `prorratear_costes_recepcion()` (recalculo con el coste LANDED). Filtra por `id_empresa`
+    (bug multiempresa cerrado: el UPDATE no distinguía artículos homónimos de otra empresa) —
+    IMPORTANTE: pásalo siempre que se conozca (como hacen los tres llamadores anteriores); sin
+    él cae al contexto/empresa por defecto vía `_empresa()`, que en un entorno multiempresa real
+    puede no ser la empresa del artículo que se está actualizando. Tolerante si faltan columnas
     (instalaciones antiguas sin migración 0011)."""
+    id_empresa = _empresa(id_empresa)
     try:
-        cur.execute("SELECT COALESCE(coste_medio,0) FROM articulos WHERE codigo=%s", (codigo,))
+        cur.execute("SELECT COALESCE(coste_medio,0) FROM articulos WHERE codigo=%s AND id_empresa=%s",
+                    (codigo, id_empresa))
         r = cur.fetchone()
         medio_old = float((r[0] if r and not isinstance(r, dict) else
                            (list(r.values())[0] if r else 0)) or 0)
@@ -346,7 +370,7 @@ def _actualizar_costes(cur, codigo, stock_previo, cantidad, precio):
         nuevo_total = prev + int(cantidad)
         medio = round(((medio_old * prev) + (precio * cantidad)) / nuevo_total, 2) if nuevo_total else precio
         cur.execute("UPDATE articulos SET ultimo_coste=%s, coste_actual=%s, coste_medio=%s "
-                    "WHERE codigo=%s", (precio, precio, medio, codigo))
+                    "WHERE codigo=%s AND id_empresa=%s", (precio, precio, medio, codigo, id_empresa))
     except Exception as e:
         logger.debug("No se pudieron actualizar costes (%s): %s", codigo, e)
 
@@ -408,6 +432,23 @@ def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
         ret_imp = round(base_f * ret_pct / 100, 2)
     else:
         ret_imp = 0.0
+    # FASE C (simetría compras↔ventas): mismo motor ÚNICO de exención/ISP que ya usa
+    # `facturas_cliente.crear_factura` (`utils/fiscalidad.calcular_fiscalidad`), aplicado aquí a
+    # proveedores intracomunitarios/extracomunitarios (`proveedores.perfil_fiscal`). NO-OP para
+    # proveedores domésticos (perfil general): `iva_f` no se toca, comportamiento IDÉNTICO al
+    # actual (total = base + iva − retención).
+    try:
+        from src.utils import fiscalidad as _FISC
+        from src.db import proveedores as _PROV
+        _perfil = _PROV.perfil_fiscal(id_proveedor) if id_proveedor else None
+    except Exception:
+        _FISC = None
+        _perfil = None
+    if _FISC is not None and _perfil and (_perfil.get("exento") or _perfil.get("isp")
+                                          or _perfil.get("intracomunitario")):
+        _fisc = _FISC.calcular_fiscalidad([{"subtotal": base_f, "iva": 0}],
+                                          perfil=_perfil, id_empresa=id_empresa)
+        iva_f = round(float(_fisc.get("cuota") or 0), 2)   # exención/ISP real → IVA repercutido 0
     total_f = round(base_f + iva_f - ret_imp, 2)
     es_negativo = tipo_documento in ("abono", "rectificativa")
     try:
@@ -445,6 +486,15 @@ def registrar_factura(id_proveedor=None, numero_factura=None, lineas=None,
                            retencion=signo * ret_imp)
         except Exception:
             pass
+        # Gobierno: lanza la cadena de aprobación por importe si aplica alguna regla sembrada
+        # (p.ej. APR_FACTURA_10000) — antes esta cadena no se disparaba nunca para facturas de
+        # proveedor, pese a existir. Best-effort: si Gobierno/Workflow no está disponible, no bloquea
+        # el alta de la factura (ya contabilizada arriba).
+        try:
+            from src.services.gobierno import aprobaciones
+            aprobaciones.iniciar_aprobacion("factura", fid, importe=total_f, id_empresa=id_empresa)
+        except Exception as e:
+            logger.debug("iniciar_aprobacion factura %s: %s", fid, e)
         return fid
     except Exception as e:
         logger.error("registrar_factura: %s", e)
@@ -519,9 +569,19 @@ def _rango(cur_sql, params, desde, hasta, campo):
         cur_sql.append(f"{campo}<=%s"); params.append(hasta)
 
 
+#: `compras_facturas.total` se guarda SIEMPRE en positivo (magnitud del documento), también para
+#: abono/rectificativa — el signo real solo se aplicaba hasta ahora al asiento contable
+#: (`encolar_compra`/`_asiento_compra`, ver `registrar_factura`). Los informes agregados de ESTA
+#: sección (gasto NETO por proveedor/periodo) necesitan el mismo signo que ya usa esa contabilización
+#: para no duplicar/invertir el efecto de un abono (p.ej. un rappel liquidado vía
+#: `b2b_rappels.liquidar_rappel` → `registrar_abono`): sin este signo, un abono SUMABA en vez de
+#: RESTAR el gasto agregado. `_SQL_TOTAL_NETO` centraliza la expresión para no repetirla/desincronizarla.
+_SQL_TOTAL_NETO = ("CASE WHEN tipo_documento IN ('abono','rectificativa') THEN -total ELSE total END")
+
+
 def compras_por_proveedor(desde=None, hasta=None, id_empresa=None) -> list:
-    """Gasto facturado por proveedor (facturas registradas). [{id_proveedor, proveedor,
-    facturas, total}]."""
+    """Gasto NETO facturado por proveedor (facturas registradas, abonos/rectificativas en
+    negativo — ver `_SQL_TOTAL_NETO`). [{id_proveedor, proveedor, facturas, total}]."""
     id_empresa = _empresa(id_empresa)
     filtros, params = ["f.id_empresa=%s"], [id_empresa]
     _rango(filtros, params, desde, hasta, "f.fecha_factura")
@@ -529,7 +589,7 @@ def compras_por_proveedor(desde=None, hasta=None, id_empresa=None) -> list:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT f.id_proveedor, COALESCE(p.razon_social,'(sin proveedor)') AS proveedor, "
-                "COUNT(*) AS facturas, COALESCE(SUM(f.total),0) AS total "
+                f"COUNT(*) AS facturas, COALESCE(SUM({_SQL_TOTAL_NETO}),0) AS total "
                 "FROM compras_facturas f LEFT JOIN proveedores p ON p.id_proveedor=f.id_proveedor "
                 "WHERE " + " AND ".join(filtros) + " GROUP BY f.id_proveedor, proveedor "
                 "ORDER BY total DESC", tuple(params))
@@ -540,7 +600,8 @@ def compras_por_proveedor(desde=None, hasta=None, id_empresa=None) -> list:
 
 
 def compras_por_periodo(desde=None, hasta=None, id_empresa=None) -> list:
-    """Gasto facturado agrupado por mes (AAAA-MM). [{periodo, facturas, total}]."""
+    """Gasto NETO facturado agrupado por mes (AAAA-MM), abonos/rectificativas en negativo (ver
+    `_SQL_TOTAL_NETO`). [{periodo, facturas, total}]."""
     id_empresa = _empresa(id_empresa)
     filtros, params = ["id_empresa=%s", "fecha_factura IS NOT NULL"], [id_empresa]
     _rango(filtros, params, desde, hasta, "fecha_factura")
@@ -548,7 +609,7 @@ def compras_por_periodo(desde=None, hasta=None, id_empresa=None) -> list:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT DATE_FORMAT(fecha_factura,'%%Y-%%m') AS periodo, COUNT(*) AS facturas, "
-                "COALESCE(SUM(total),0) AS total FROM compras_facturas WHERE "
+                f"COALESCE(SUM({_SQL_TOTAL_NETO}),0) AS total FROM compras_facturas WHERE "
                 + " AND ".join(filtros) + " GROUP BY periodo ORDER BY periodo", tuple(params))
             return _filas_a_dicts(cur, cur.fetchall())
     except Exception as e:
@@ -600,11 +661,12 @@ def historico_pedidos(id_empresa=None, id_proveedor=None, limite=500) -> list:
 
 
 def crear_pedido_desde_propuestas(propuesta_ids=None, id_proveedor=None, usuario=None,
-                                  id_empresa=None) -> int | None:
+                                  id_empresa=None, origen_flujo: str | None = None) -> int | None:
     """E2.7 — Convierte sugerencias de reabastecimiento (estado 'pendiente') en un
     pedido de compra BORRADOR. Reutiliza `reabastecimiento.listar_propuestas` y los
     costes del artículo como precio estimado; marca las propuestas como 'pedido'.
-    Si `propuesta_ids` es None, toma todas las pendientes."""
+    Si `propuesta_ids` es None, toma todas las pendientes. `origen_flujo` (opcional) se
+    reenvía a `crear_pedido` para distinguir el circuito en el evento de actividad."""
     try:
         from src.db import reabastecimiento as R
     except Exception as e:
@@ -623,7 +685,8 @@ def crear_pedido_desde_propuestas(propuesta_ids=None, id_proveedor=None, usuario
         lineas.append({"codigo": p["codigo"], "descripcion": p.get("nombre"),
                        "cantidad": int(p.get("cantidad") or 0), "precio_unitario": precio})
     pid = crear_pedido(id_proveedor=id_proveedor, lineas=lineas, usuario=usuario,
-                       observaciones="Generado desde reabastecimiento", id_empresa=id_empresa)
+                       observaciones="Generado desde reabastecimiento", id_empresa=id_empresa,
+                       origen_flujo=origen_flujo)
     if pid:
         for p in pendientes:
             R.cambiar_estado_propuesta(p["id"], "pedido")
@@ -705,10 +768,46 @@ def resolver_incidencia(id_incidencia, estado="resuelta", id_empresa=None) -> bo
 # ════════════════════════════════════════════════════════════════════════════
 # CMP.4 — DEVOLUCIONES A PROVEEDOR
 # ════════════════════════════════════════════════════════════════════════════
+def _ejecutar_salida_devolucion(did, lineas, id_almacen, id_empresa, usuario):
+    """Efecto de stock/kárdex de una devolución a proveedor (DEVOLUCION_PROVEEDOR): decrementa
+    `stock_almacen`, consume FEFO (lote indicado o FEFO) y anota en kárdex. Extraído de
+    `crear_devolucion` para que `aprobar_devolucion` pueda disparar EXACTAMENTE la misma lógica,
+    solo que diferida al momento de la aprobación en vez de a la creación (RMA de autoservicio
+    B2B — ver `services.compras.b2b_disputas.solicitar_devolucion_autoservicio`). `lineas` acepta
+    tanto los dicts de entrada ("codigo"/"codigo_articulo") como las filas ya leídas de
+    `compras_devoluciones_lineas` ("codigo_articulo")."""
+    from src.db import stock_almacen as SA2
+    from src.db import lotes as L
+    from src.db import kardex
+    for ln in lineas:
+        cod = ln.get("codigo") or ln.get("codigo_articulo")
+        cant = int(ln.get("cantidad") or 0)
+        if not cod or cant <= 0:
+            continue
+        SA2.decrementar_stock(cod, id_almacen, cant, id_empresa=id_empresa)
+        L.consumir_fefo(cod, cant, tipo="DEVOLUCION_PROVEEDOR", id_empresa=id_empresa,
+                        id_documento=f"DEVP{did}", usuario=usuario, id_almacen=id_almacen)
+        kardex.registrar_movimiento(cod, "DEVOLUCION_PROVEEDOR", cant, origen="ALMACEN",
+                                    destino="PROVEEDOR", id_documento=f"DEVP{did}",
+                                    usuario=usuario, id_empresa=id_empresa,
+                                    id_almacen_origen=id_almacen,
+                                    observaciones=f"Devolución a proveedor #{did}")
+
+
 def crear_devolucion(id_proveedor=None, lineas=None, motivo=None, id_almacen=None,
-                     id_pedido=None, usuario=None, id_empresa=None) -> int | None:
-    """Registra una devolución a proveedor y DESCUENTA stock del almacén (stock_almacen),
-    consumiendo lote (FEFO o lote indicado) y registrando DEVOLUCION_PROVEEDOR en el kárdex.
+                     id_pedido=None, usuario=None, id_empresa=None,
+                     estado_inicial="registrada", id_tx=None) -> int | None:
+    """Registra una devolución a proveedor. Por defecto (`estado_inicial="registrada"`, el
+    comportamiento HISTÓRICO sin cambios — back-office, `portal_empresa_gestion.py`) DESCUENTA stock
+    del almacén (stock_almacen) de inmediato, consumiendo lote (FEFO o lote indicado) y registrando
+    DEVOLUCION_PROVEEDOR en el kárdex.
+
+    `estado_inicial="pendiente_aprobacion"` (RMA de autoservicio B2B, iniciado por el comprador desde
+    `portal_empresa_b2b.py` para un pedido ENTREGADA): el efecto de stock se DIFIERE — no se aplica
+    aquí, solo cuando el proveedor apruebe expresamente (`aprobar_devolucion`). `id_tx` enlaza la
+    devolución con el pedido B2B (`transaccion_comercial.id_tx`) del que surge, para que la
+    aprobación pueda encontrar su escrow/reembolso.
+
     `lineas`: [{codigo, cantidad, lote?, precio_unitario?, motivo?}]. Devuelve id_devolucion."""
     id_empresa = _empresa(id_empresa)
     lineas = lineas or []
@@ -723,8 +822,10 @@ def crear_devolucion(id_proveedor=None, lineas=None, motivo=None, id_almacen=Non
         total = 0.0
         with transaccion() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO compras_devoluciones (id_empresa, id_proveedor, id_pedido, "
-                        "id_almacen, motivo, usuario) VALUES (%s,%s,%s,%s,%s,%s)",
-                        (id_empresa, id_proveedor, id_pedido, id_almacen, motivo, usuario))
+                        "id_almacen, motivo, usuario, estado, id_tx) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, id_proveedor, id_pedido, id_almacen, motivo, usuario,
+                         estado_inicial, id_tx))
             did = cur.lastrowid
             for ln in lineas:
                 cod = ln.get("codigo") or ln.get("codigo_articulo")
@@ -741,27 +842,77 @@ def crear_devolucion(id_proveedor=None, lineas=None, motivo=None, id_almacen=Non
                              ln.get("motivo")))
             cur.execute("UPDATE compras_devoluciones SET total=%s WHERE id_devolucion=%s",
                         (round(total, 2), did))
-        try:
-            from src.db import stock_almacen as SA2, lotes as L, kardex
-            for ln in lineas:
-                cod = ln.get("codigo") or ln.get("codigo_articulo")
-                cant = int(ln.get("cantidad") or 0)
-                if not cod or cant <= 0:
-                    continue
-                SA2.decrementar_stock(cod, id_almacen, cant, id_empresa=id_empresa)
-                L.consumir_fefo(cod, cant, tipo="DEVOLUCION_PROVEEDOR", id_empresa=id_empresa,
-                                id_documento=f"DEVP{did}", usuario=usuario, id_almacen=id_almacen)
-                kardex.registrar_movimiento(cod, "DEVOLUCION_PROVEEDOR", cant, origen="ALMACEN",
-                                            destino="PROVEEDOR", id_documento=f"DEVP{did}",
-                                            usuario=usuario, id_empresa=id_empresa,
-                                            id_almacen_origen=id_almacen,
-                                            observaciones=f"Devolución a proveedor #{did}")
-        except Exception as e:
-            logger.warning("crear_devolucion: salida stock/lotes #%s: %s", did, e)
+        if estado_inicial == "registrada":
+            try:
+                _ejecutar_salida_devolucion(did, lineas, id_almacen, id_empresa, usuario)
+            except Exception as e:
+                logger.warning("crear_devolucion: salida stock/lotes #%s: %s", did, e)
         return did
     except Exception as e:
         logger.error("crear_devolucion: %s", e)
         return None
+
+
+def aprobar_devolucion(id_devolucion, usuario=None, id_empresa=None) -> dict:
+    """Aprueba un RMA de autoservicio B2B (`estado='pendiente_aprobacion'`): dispara AHORA el mismo
+    efecto de stock/kárdex que `crear_devolucion` aplica de inmediato en el flujo de back-office —
+    aquí queda diferido hasta esta aprobación explícita del proveedor. Idempotente: si ya no está
+    pendiente, no repite el efecto de stock."""
+    id_empresa = _empresa(id_empresa)
+    dev = obtener_devolucion(id_devolucion, id_empresa=id_empresa)
+    if not dev:
+        return {"ok": False, "error": "devolucion_no_encontrada"}
+    if dev["estado"] != "pendiente_aprobacion":
+        return {"ok": False, "error": f"estado_invalido_para_aprobar ({dev['estado']})"}
+    try:
+        _ejecutar_salida_devolucion(id_devolucion, dev.get("lineas") or [], dev.get("id_almacen"),
+                                    id_empresa, usuario)
+    except Exception as e:
+        logger.error("aprobar_devolucion: salida stock/lotes #%s: %s", id_devolucion, e)
+        return {"ok": False, "error": str(e)}
+    try:
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE compras_devoluciones SET estado='aprobada' WHERE id_devolucion=%s "
+                        "AND id_empresa=%s AND estado='pendiente_aprobacion'",
+                        (id_devolucion, id_empresa))
+            if cur.rowcount <= 0:
+                raise RuntimeError("estado_cambio_concurrentemente")
+    except Exception as e:
+        logger.error("aprobar_devolucion: update estado #%s: %s", id_devolucion, e)
+        return {"ok": False, "error": str(e)}
+    return {"ok": True, "id_devolucion": id_devolucion}
+
+
+def rechazar_devolucion(id_devolucion, motivo=None, usuario=None, id_empresa=None) -> bool:
+    """Rechaza un RMA de autoservicio B2B pendiente de aprobación: SIN efecto de stock. La alegación
+    del proveedor (`motivo`) se guarda en `motivo_rechazo` (distinto del `motivo` original del
+    comprador)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE compras_devoluciones SET estado='rechazada', motivo_rechazo=%s "
+                "WHERE id_devolucion=%s AND id_empresa=%s AND estado='pendiente_aprobacion'",
+                ((motivo or "").strip()[:255] or None, id_devolucion, id_empresa))
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error("rechazar_devolucion #%s: %s", id_devolucion, e)
+        return False
+
+
+def listar_devoluciones_de_tx(id_tx, id_empresa=None) -> list:
+    """Devoluciones (RMA de autoservicio B2B) enlazadas a un pedido B2B concreto (`id_tx`) — usado
+    por el Portal Empresa para mostrar, en el detalle del pedido, el historial de RMA ya
+    solicitados sobre él."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM compras_devoluciones WHERE id_tx=%s AND id_empresa=%s "
+                        "ORDER BY fecha DESC", (id_tx, id_empresa))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_devoluciones_de_tx(%s): %s", id_tx, e)
+        return []
 
 
 def obtener_devolucion(id_devolucion, id_empresa=None) -> dict | None:
@@ -782,11 +933,13 @@ def obtener_devolucion(id_devolucion, id_empresa=None) -> dict | None:
         return None
 
 
-def listar_devoluciones(id_empresa=None, id_proveedor=None, limite=500) -> list:
+def listar_devoluciones(id_empresa=None, id_proveedor=None, estado=None, limite=500) -> list:
     id_empresa = _empresa(id_empresa)
     cond, params = ["id_empresa=%s"], [id_empresa]
     if id_proveedor:
         cond.append("id_proveedor=%s"); params.append(id_proveedor)
+    if estado:
+        cond.append("estado=%s"); params.append(estado)
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(f"SELECT * FROM compras_devoluciones WHERE {' AND '.join(cond)} "
@@ -839,57 +992,294 @@ def registrar_abono(id_proveedor=None, numero_factura=None, lineas=None, base=No
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# CMP.6 — COSTES REALES / AMPLIADOS
+# CMP.6 — COSTES REALES / AMPLIADOS (Landed Cost, Fase B)
 # ════════════════════════════════════════════════════════════════════════════
+_METODOS_PRORRATEO = ("valor", "cantidad", "peso")
+
+
 def registrar_coste_extra(tipo, importe, id_recepcion=None, id_pedido=None, descripcion=None,
-                          id_empresa=None) -> int | None:
-    """Registra un coste indirecto (transporte/aduanas/importación/seguro/manipulación/otros)."""
+                          id_empresa=None, metodo_prorrateo="cantidad", id_tx=None) -> int | None:
+    """Registra un coste indirecto (transporte/aduanas/importación/seguro/manipulación/otros)
+    sobre una recepción de compra (`id_recepcion`) o un pedido B2B ya recibido (`id_tx`, Fase B
+    Landed Cost — vía Smart Suppliers, que no tiene fila en `compras_recepciones`). Se exige
+    EXACTAMENTE uno de los dos (`id_pedido` sigue siendo un acompañante opcional e independiente,
+    igual que antes). `metodo_prorrateo` (valor|cantidad|peso) decide cómo
+    `prorratear_costes_recepcion()` reparte este componente entre las líneas recibidas; por
+    defecto 'cantidad' (reparto a partes iguales por unidad, comportamiento histórico)."""
+    if metodo_prorrateo not in _METODOS_PRORRATEO:
+        raise ValueError(f"metodo_prorrateo inválido: {metodo_prorrateo!r} (usa {_METODOS_PRORRATEO})")
+    if (id_recepcion is None) == (id_tx is None):
+        raise ValueError("registrar_coste_extra: indica EXACTAMENTE uno de id_recepcion o id_tx")
     id_empresa = _empresa(id_empresa)
     try:
         ensure_schema()
         with transaccion() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO compras_costes_extra (id_empresa, id_recepcion, id_pedido, "
-                        "tipo, importe, descripcion) VALUES (%s,%s,%s,%s,%s,%s)",
-                        (id_empresa, id_recepcion, id_pedido, tipo, round(float(importe or 0), 2),
-                         descripcion))
+                        "id_tx, tipo, importe, metodo_prorrateo, descripcion) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, id_recepcion, id_pedido, id_tx, tipo,
+                         round(float(importe or 0), 2), metodo_prorrateo, descripcion))
             return cur.lastrowid
     except Exception as e:
         logger.error("registrar_coste_extra: %s", e)
         return None
 
 
-def prorratear_costes_recepcion(id_recepcion, id_empresa=None) -> dict:
-    """Prorratea los costes extra no aplicados de una recepción sobre las unidades recibidas,
-    incrementando el coste medio/actual de cada artículo. Idempotente (marca prorrateado=1)."""
+def _recalcular_pmp_landed(cur, codigo, id_empresa, cantidad, precio_base, precio_landed):
+    """Recalcula `articulos.coste_medio`/`coste_actual` con el coste LANDED en vez del coste
+    base, SUPERSEDIENDO (no acumulando) la actualización PMP que ya hizo
+    `actualizar_costes_entrada()` con el coste base en el momento de la recepción (prerrequisito
+    Fase B). Sin este paso, el coste indirecto se contaría dos veces si el prorrateo se
+    reejecutase, o quedaría "sumado encima" de una media que ya incluía el coste base de estas
+    mismas unidades.
+
+    No se reimplementa la media ponderada aparte: se DESHACE algebraicamente la actualización
+    previa (con el precio base y la MISMA cantidad/stock_previo que usó la recepción, leyendo
+    `Stock_total` actual y restando `cantidad` para obtener ese `stock_previo`) escribiendo en
+    `articulos.coste_medio` el valor "de antes de esta recepción", y se vuelve a llamar a
+    `actualizar_costes_entrada()` — la única función pública — con el precio LANDED. El resultado
+    es matemáticamente idéntico a si la recepción hubiera conocido el coste landed desde el
+    principio, sin necesitar un ledger de costes por movimiento (que este módulo no tiene)."""
+    cantidad = int(cantidad or 0)
+    if cantidad <= 0:
+        return
+    cur.execute("SELECT COALESCE(Stock_total,0), COALESCE(coste_medio,0) FROM articulos "
+                "WHERE codigo=%s AND id_empresa=%s", (codigo, id_empresa))
+    r = cur.fetchone()
+    if not r:
+        return
+    if isinstance(r, dict):
+        stock_actual, medio_actual = r.get("Stock_total") or 0, r.get("coste_medio") or 0
+    else:
+        stock_actual, medio_actual = r[0] or 0, r[1] or 0
+    stock_actual = int(stock_actual)
+    medio_actual = float(medio_actual)
+    stock_previo = max(stock_actual - cantidad, 0)
+    if stock_previo > 0:
+        medio_antes = (medio_actual * stock_actual - float(precio_base) * cantidad) / stock_previo
+        cur.execute("UPDATE articulos SET coste_medio=%s WHERE codigo=%s AND id_empresa=%s",
+                    (round(medio_antes, 2), codigo, id_empresa))
+    actualizar_costes_entrada(cur, codigo, stock_previo, cantidad, float(precio_landed),
+                              id_empresa=id_empresa)
+
+
+def resumen_costes_landed(id_recepcion=None, id_tx=None, id_empresa=None) -> list:
+    """Desglose de coste landed por línea recibida, agregado de `compras_costes_extra_lineas`
+    entre TODOS los componentes ya prorrateados para esta recepción/tx — para la UI del portal
+    (Fase B). Devuelve [{codigo_articulo, cantidad, coste_base_unitario,
+    coste_unitario_indirecto, coste_unitario_landed, componentes:[{tipo, importe_asignado}]}]."""
+    id_empresa = _empresa(id_empresa)
+    if (id_recepcion is None) == (id_tx is None):
+        return []
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            if id_recepcion is not None:
+                cur.execute(
+                    "SELECT * FROM compras_costes_extra_lineas WHERE id_recepcion=%s "
+                    "AND id_empresa=%s ORDER BY id_recepcion_linea, id", (id_recepcion, id_empresa))
+            else:
+                cur.execute(
+                    "SELECT cel.* FROM compras_costes_extra_lineas cel "
+                    "JOIN compras_costes_extra cce ON cce.id = cel.id_coste_extra "
+                    "WHERE cce.id_tx=%s AND cel.id_empresa=%s ORDER BY cel.codigo_articulo, cel.id",
+                    (id_tx, id_empresa))
+            filas = _filas_a_dicts(cur, cur.fetchall())
+        agrupado = {}
+        for f in filas:
+            clave = f.get("id_recepcion_linea") or f["codigo_articulo"]
+            g = agrupado.setdefault(clave, {
+                "codigo_articulo": f["codigo_articulo"], "cantidad": f["cantidad"],
+                "coste_base_unitario": float(f["coste_base_unitario"]),
+                "coste_unitario_indirecto": 0.0, "componentes": []})
+            g["coste_unitario_indirecto"] += float(f["coste_unitario_indirecto"])
+            g["componentes"].append({"tipo": f["tipo_coste_extra"],
+                                     "importe_asignado": float(f["importe_asignado"])})
+        for g in agrupado.values():
+            g["coste_unitario_indirecto"] = round(g["coste_unitario_indirecto"], 4)
+            g["coste_unitario_landed"] = round(g["coste_base_unitario"] + g["coste_unitario_indirecto"], 4)
+        return list(agrupado.values())
+    except Exception as e:
+        logger.error("resumen_costes_landed: %s", e)
+        return []
+
+
+def prorratear_costes_recepcion(id_recepcion=None, id_tx=None, id_empresa=None, metodo=None) -> dict:
+    """Reparte los componentes de coste indirecto (`compras_costes_extra`) SIN prorratear de una
+    recepción de compra (`id_recepcion`) o de un pedido B2B ya recibido (`id_tx`) entre sus
+    líneas, según `metodo` (cantidad|valor|peso) — si no se indica, se toma de los propios
+    componentes pendientes (error claro si mezclan métodos distintos, para no elegir uno al
+    azar). Por CADA componente × línea inserta una fila en `compras_costes_extra_lineas`
+    (aditivo — nunca sobreescribe ni borra: reejecutar tras añadir un componente nuevo conserva
+    el histórico completo). Actualiza el snapshot de `lotes` (coste_unitario_base/indirecto/
+    landed, Fase A) para los lotes de esta recepción/tx y recalcula `articulos.coste_medio`/
+    `coste_actual` con el coste LANDED — reemplaza, no acumula, el `+=` destructivo de la versión
+    anterior de esta función (ver `_recalcular_pmp_landed`). Marca los componentes procesados
+    `prorrateado=1` (idempotente, sin cambios en ese mecanismo). Devuelve un resumen por
+    artículo."""
+    if (id_recepcion is None) == (id_tx is None):
+        return {"ok": False, "error": "indica_exactamente_uno_de_id_recepcion_o_id_tx"}
     id_empresa = _empresa(id_empresa)
     try:
         with transaccion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT COALESCE(SUM(importe),0) FROM compras_costes_extra "
-                        "WHERE id_recepcion=%s AND id_empresa=%s AND prorrateado=0",
-                        (id_recepcion, id_empresa))
-            r = cur.fetchone()
-            extra = float((r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0)
-            cur.execute("SELECT codigo_articulo, cantidad FROM compras_recepciones_lineas "
-                        "WHERE id_recepcion=%s", (id_recepcion,))
-            lineas = _filas_a_dicts(cur, cur.fetchall())
-            unidades = sum(int(l["cantidad"] or 0) for l in lineas)
-            if extra <= 0 or unidades <= 0:
-                return {"prorrateado": 0.0, "unidades": unidades}
-            coste_unit_extra = extra / unidades
+            # 1) Componentes de coste indirecto pendientes de prorratear.
+            if id_recepcion is not None:
+                cur.execute("SELECT id, tipo, importe, metodo_prorrateo FROM compras_costes_extra "
+                            "WHERE id_recepcion=%s AND id_empresa=%s AND prorrateado=0",
+                            (id_recepcion, id_empresa))
+            else:
+                cur.execute("SELECT id, tipo, importe, metodo_prorrateo FROM compras_costes_extra "
+                            "WHERE id_tx=%s AND id_empresa=%s AND prorrateado=0",
+                            (id_tx, id_empresa))
+            componentes = _filas_a_dicts(cur, cur.fetchall())
+            if not componentes:
+                return {"ok": True, "prorrateado": 0.0, "componentes": 0, "lineas": 0,
+                        "total_distribuido": 0.0, "por_articulo": {}}
+
+            # 2) Método de reparto: el explícito o, si no se indica, el de los componentes
+            # pendientes (deben coincidir — mezclarlos en el mismo prorrateo sería ambiguo).
+            if metodo is not None:
+                if metodo not in _METODOS_PRORRATEO:
+                    raise ValueError(f"metodo inválido: {metodo!r} (usa {_METODOS_PRORRATEO})")
+                metodo_resuelto = metodo
+            else:
+                metodos_comp = {c.get("metodo_prorrateo") or "cantidad" for c in componentes}
+                if len(metodos_comp) > 1:
+                    raise ValueError(
+                        "Los componentes de coste pendientes tienen metodo_prorrateo distintos "
+                        f"({sorted(metodos_comp)}) — indica `metodo=` explícitamente para desambiguar.")
+                metodo_resuelto = metodos_comp.pop()
+
+            # 3) Líneas recibidas: vía A (compras) o vía B2B (transaccion_lineas, Fase B punto 5).
+            if id_recepcion is not None:
+                cur.execute(
+                    "SELECT crl.id AS id_recepcion_linea, crl.codigo_articulo, crl.cantidad, "
+                    "COALESCE(cpl.precio_unitario,0) AS precio_unitario "
+                    "FROM compras_recepciones_lineas crl "
+                    "LEFT JOIN compras_pedidos_lineas cpl ON cpl.id = crl.id_linea_pedido "
+                    "WHERE crl.id_recepcion=%s", (id_recepcion,))
+                lineas = _filas_a_dicts(cur, cur.fetchall())
+                for l in lineas:
+                    l["id_recepcion"] = id_recepcion
+            else:
+                cur.execute(
+                    "SELECT codigo_articulo, cantidad, COALESCE(precio_unitario,0) AS precio_unitario "
+                    "FROM transaccion_lineas WHERE id_tx=%s", (id_tx,))
+                lineas = _filas_a_dicts(cur, cur.fetchall())
+                for l in lineas:
+                    l["id_recepcion_linea"] = None
+                    l["id_recepcion"] = None
+            lineas = [l for l in lineas if l.get("codigo_articulo") and int(l.get("cantidad") or 0) > 0]
+            if not lineas:
+                return {"ok": False, "error": "sin_lineas_recibidas"}
+
+            # 4) Peso de reparto por línea según el método.
+            codigos = {l["codigo_articulo"] for l in lineas}
+            pesos_articulo = {}
+            if metodo_resuelto == "peso" and codigos:
+                fmt = ",".join(["%s"] * len(codigos))
+                cur.execute(f"SELECT codigo, peso_unitario FROM articulos WHERE codigo IN ({fmt})",
+                            tuple(codigos))
+                for row in _filas_a_dicts(cur, cur.fetchall()):
+                    if row.get("peso_unitario") is not None:
+                        pesos_articulo[row["codigo"]] = float(row["peso_unitario"])
+            for l in lineas:
+                cant = int(l["cantidad"])
+                precio = float(l["precio_unitario"] or 0)
+                if metodo_resuelto == "valor":
+                    l["_peso"], l["_metodo_usado"] = cant * precio, "valor"
+                elif metodo_resuelto == "peso":
+                    pu = pesos_articulo.get(l["codigo_articulo"])
+                    if pu is not None:
+                        l["_peso"], l["_metodo_usado"] = cant * pu, "peso"
+                    else:   # fallback: artículo sin peso_unitario, esta línea reparte por cantidad.
+                        l["_peso"], l["_metodo_usado"] = float(cant), "cantidad"
+                else:
+                    l["_peso"], l["_metodo_usado"] = float(cant), "cantidad"
+            peso_total = sum(l["_peso"] for l in lineas)
+            if peso_total <= 0:
+                return {"ok": False, "error": "peso_total_reparto_cero"}
+
+            # Cantidad y coste base por artículo (independiente del nº de componentes).
+            cantidad_por_articulo, base_por_articulo = {}, {}
             for l in lineas:
                 cod = l["codigo_articulo"]
-                if not cod:
+                cant = int(l["cantidad"])
+                precio_base = float(l["precio_unitario"] or 0)
+                cantidad_por_articulo[cod] = cantidad_por_articulo.get(cod, 0) + cant
+                base_por_articulo[cod] = base_por_articulo.get(cod, 0.0) + cant * precio_base
+
+            # 5) Por cada componente × línea: importe_asignado (la última línea absorbe el
+            # redondeo para que la suma cuadre EXACTO con el importe del componente) + fila
+            # auditable en compras_costes_extra_lineas (aditivo).
+            indirecto_por_articulo = {}
+            total_distribuido = 0.0
+            componentes_aplicados = []
+            for comp in componentes:
+                importe_comp = round(float(comp["importe"] or 0), 2)
+                componentes_aplicados.append(comp["id"])
+                if importe_comp == 0:
                     continue
-                cur.execute("UPDATE articulos SET coste_actual=COALESCE(coste_actual,0)+%s, "
-                            "coste_medio=COALESCE(coste_medio,0)+%s WHERE codigo=%s AND id_empresa=%s",
-                            (round(coste_unit_extra, 4), round(coste_unit_extra, 4), cod, id_empresa))
-            cur.execute("UPDATE compras_costes_extra SET prorrateado=1 WHERE id_recepcion=%s "
-                        "AND id_empresa=%s AND prorrateado=0", (id_recepcion, id_empresa))
-            return {"prorrateado": round(extra, 2), "unidades": unidades,
-                    "coste_unitario_extra": round(coste_unit_extra, 4)}
+                acumulado = 0.0
+                asignados = []
+                for i, l in enumerate(lineas):
+                    if i == len(lineas) - 1:
+                        asignado = round(importe_comp - acumulado, 4)
+                    else:
+                        asignado = round(importe_comp * (l["_peso"] / peso_total), 4)
+                        acumulado += asignado
+                    asignados.append(asignado)
+                for l, asignado in zip(lineas, asignados):
+                    cant = int(l["cantidad"])
+                    precio_base = float(l["precio_unitario"] or 0)
+                    coste_indirecto_linea = round(asignado / cant, 4) if cant else 0.0
+                    coste_landed_linea = round(precio_base + coste_indirecto_linea, 4)
+                    cur.execute(
+                        "INSERT INTO compras_costes_extra_lineas (id_empresa, id_recepcion, "
+                        "id_recepcion_linea, codigo_articulo, cantidad, coste_base_unitario, "
+                        "id_coste_extra, tipo_coste_extra, importe_asignado, "
+                        "coste_unitario_indirecto, coste_unitario_landed, metodo_usado) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, l.get("id_recepcion"), l.get("id_recepcion_linea"),
+                         l["codigo_articulo"], cant, round(precio_base, 4), comp["id"], comp["tipo"],
+                         asignado, coste_indirecto_linea, coste_landed_linea, l["_metodo_usado"]))
+                    cod = l["codigo_articulo"]
+                    indirecto_por_articulo[cod] = indirecto_por_articulo.get(cod, 0.0) + asignado
+                    total_distribuido += asignado
+
+            # 6) Snapshot en `lotes` (por id_recepcion_origen/id_tx_origen) + recalculo LANDED
+            # (no acumulativo) de articulos.coste_medio/coste_actual.
+            resumen_articulos = {}
+            for cod, cantidad_art in cantidad_por_articulo.items():
+                indirecto_total = indirecto_por_articulo.get(cod, 0.0)
+                coste_indirecto_unit = round(indirecto_total / cantidad_art, 4) if cantidad_art else 0.0
+                coste_base_unit = round(base_por_articulo.get(cod, 0.0) / cantidad_art, 4) if cantidad_art else 0.0
+                coste_landed_unit = round(coste_base_unit + coste_indirecto_unit, 4)
+                cur.execute(
+                    "UPDATE lotes SET coste_unitario_base=%s, coste_unitario_indirecto=%s, "
+                    "coste_unitario_landed=%s WHERE codigo_articulo=%s AND id_empresa=%s "
+                    "AND (id_recepcion_origen=%s OR id_tx_origen=%s)",
+                    (coste_base_unit, coste_indirecto_unit, coste_landed_unit, cod, id_empresa,
+                     id_recepcion, id_tx))
+                if indirecto_total:   # nada que recalcular si este artículo no tuvo coste asignado
+                    _recalcular_pmp_landed(cur, cod, id_empresa, cantidad_art, coste_base_unit,
+                                           coste_landed_unit)
+                resumen_articulos[cod] = {
+                    "cantidad": cantidad_art, "coste_base": coste_base_unit,
+                    "coste_indirecto": coste_indirecto_unit, "coste_landed": coste_landed_unit}
+
+            # 7) Idempotencia: marca los componentes procesados (aunque su importe fuera 0).
+            if componentes_aplicados:
+                fmt = ",".join(["%s"] * len(componentes_aplicados))
+                cur.execute(f"UPDATE compras_costes_extra SET prorrateado=1 WHERE id IN ({fmt}) "
+                            f"AND id_empresa=%s", (*componentes_aplicados, id_empresa))
+
+            return {"ok": True, "metodo": metodo_resuelto, "componentes": len(componentes_aplicados),
+                    "lineas": len(lineas), "total_distribuido": round(total_distribuido, 2),
+                    "por_articulo": resumen_articulos}
     except Exception as e:
-        logger.error("prorratear_costes_recepcion: %s", e)
-        return {"prorrateado": 0.0, "unidades": 0}
+        logger.error("prorratear_costes_recepcion(id_recepcion=%s, id_tx=%s): %s",
+                     id_recepcion, id_tx, e)
+        return {"ok": False, "error": str(e)}
 
 
 def coste_por_almacen(codigo, id_almacen, id_empresa=None) -> dict:

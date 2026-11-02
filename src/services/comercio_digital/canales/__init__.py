@@ -63,7 +63,7 @@ def instalar_plugin(clave: str, *, id_empresa=None, usuario=None) -> dict:
     """Instala un plugin de canal desde el Marketplace EXISTENTE (capacidad). No crea sistema paralelo.
     Degradable: si el Marketplace no está disponible, informa sin fallar."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         mk = cap.marketplace()
         if mk is None or not hasattr(mk, "instalar"):
             return {"ok": False, "motivo": "marketplace no disponible"}
@@ -76,7 +76,7 @@ def instalar_plugin(clave: str, *, id_empresa=None, usuario=None) -> dict:
 def catalogo_plugins(id_empresa=None, *, categoria="canal") -> list:
     """Plugins de canal disponibles en el Marketplace existente (capacidad, degradable)."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         mk = cap.marketplace()
         if mk is None or not hasattr(mk, "catalogo"):
             return []

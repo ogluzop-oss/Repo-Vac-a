@@ -98,6 +98,9 @@ class SomaOverlay(QWidget):
         # sesión) el personaje NO debe aparecer BAJO NINGÚN CONCEPTO. main.py lo conmuta al iniciar/cerrar
         # sesión (set_sesion_activa). Se muestra únicamente si HAY sesión Y la app está en primer plano.
         self._sesion_activa = True
+        # Gate de TPV (petición explícita): el botón flotante de SOMA NUNCA debe mostrarse mientras
+        # el usuario está dentro de la pantalla del TPV — `gui/tpv.py` lo conmuta al abrir/cerrar.
+        self._tpv_abierto = False
         _qapp = QApplication.instance()
         if _qapp is not None:
             for _sig, _slot in (("applicationStateChanged", self._on_app_state),
@@ -156,11 +159,18 @@ class SomaOverlay(QWidget):
         self._sesion_activa = bool(activa)
         self._sincronizar_visibilidad()
 
+    def set_tpv_activo(self, activo):
+        """Conmuta el gate de TPV (petición explícita). `gui/tpv.py` llama a True al abrir la
+        pantalla del TPV y a False al salir — bajo ningún concepto debe verse el botón de SOMA
+        mientras se está cobrando."""
+        self._tpv_abierto = bool(activo)
+        self._sincronizar_visibilidad()
+
     def _sincronizar_visibilidad(self):
         """Punto ÚNICO de visibilidad de SOMA: se ve SOLO si hay sesión activa Y la app está en primer
-        plano. Cualquier camino de show()/raise_() debe pasar por aquí para que el personaje nunca
-        aparezca en el login ni sobre otros programas."""
-        if self._sesion_activa and self._app_activa:
+        plano Y no se está dentro del TPV. Cualquier camino de show()/raise_() debe pasar por aquí
+        para que el personaje nunca aparezca en el login, sobre otros programas, ni en el TPV."""
+        if self._sesion_activa and self._app_activa and not self._tpv_abierto:
             if not self.isVisible():
                 self.show()
             self._aplicar_layout()
@@ -189,6 +199,14 @@ class SomaOverlay(QWidget):
 
     # ── Contrato EspacioConversacional (lo llama el kernel) ───────────────────
     def mostrar(self, *, motivo=None):
+        """El kernel pide pasar a 'activo' (personaje + conversación) — p. ej. una intervención
+        proactiva al detectar un evento de negocio (como aplicar un descuento). Mismo gate que
+        `_sincronizar_visibilidad`/`proponer`: bajo ningún concepto durante el TPV (petición
+        explícita). `_ir_activo` también llama a `self.activateWindow()`, que en Windows puede forzar
+        a primer plano incluso una ventana oculta — de ahí que el gate se compruebe AQUÍ, antes de
+        llegar a tocar nada, y no solo en la visibilidad de reposo."""
+        if self._tpv_abierto or not self._sesion_activa or not self._app_activa:
+            return
         self._ir_activo(motivo)
 
     def ocultar(self):
@@ -225,10 +243,12 @@ class SomaOverlay(QWidget):
         if self._propuestas <= 0:
             self.reset_propuestas()
             return
-        # Asegura que SOMA esté visible en reposo (sin abrir la conversación), PERO solo si hay sesión y
-        # la app está en primer plano: una propuesta proactiva NUNCA debe hacer aparecer al personaje en
-        # el login ni sobre otro programa. Si no procede, se guarda el badge/pose y se mostrará al volver.
-        if not self.isVisible() and self._app_activa and self._sesion_activa:
+        # Asegura que SOMA esté visible en reposo (sin abrir la conversación), PERO solo si hay sesión,
+        # la app está en primer plano Y no se está dentro del TPV: una propuesta proactiva NUNCA debe
+        # hacer aparecer al personaje en el login, sobre otro programa, ni mientras se está cobrando.
+        # Si no procede, se guarda el badge/pose y se mostrará al volver (gate centralizado, ver
+        # `_sincronizar_visibilidad`).
+        if not self.isVisible() and self._app_activa and self._sesion_activa and not self._tpv_abierto:
             self.show()
         try:
             self._character.mostrar_pose("proponiendo")

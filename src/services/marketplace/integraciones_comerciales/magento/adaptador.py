@@ -205,8 +205,22 @@ class MagentoAdapter(_MagentoPreparado):
                        "precio": _num(li.get("price"))} for li in (o.get("items") or [])]
             if not lineas:
                 continue
+            # Dirección de envío (REST: `extension_attributes.shipping_assignments[0].shipping
+            # .address`, ya en el propio pedido) — degrada honestamente si la estructura difiere.
+            cp, direccion_envio = None, ""
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="magento", referencia_externa=ref)
+                asign = (o.get("extension_attributes") or {}).get("shipping_assignments") or [{}]
+                addr = ((asign[0].get("shipping") or {}).get("address")) or {}
+                cp = addr.get("postcode")
+                calle = addr.get("street") or []
+                calle = ", ".join(calle) if isinstance(calle, list) else calle
+                direccion_envio = ", ".join(str(x) for x in (
+                    calle, addr.get("city"), addr.get("region"), cp, addr.get("country_id")) if x)
+            except Exception as e:
+                logger.debug("direccion magento %s: %s", ref, e)
+            try:
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="magento", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido magento %s: %s", ref, e)

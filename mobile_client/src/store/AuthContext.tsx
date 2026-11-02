@@ -12,6 +12,17 @@ import React, {
 } from 'react';
 import * as auth from '@/api/auth';
 import {getAccessToken, loadTokens} from '@/api/tokenStore';
+import {rolDeToken} from '@/api/jwt';
+import {registrarTokenDispositivo} from '@/api/pushNotifications';
+import {pedirPermisoYObtenerToken} from '@/services/fcm';
+
+/** Pide el token push y lo registra en el backend. Best-effort: nunca bloquea ni rompe el login si
+ * Firebase no está disponible/enlazado o el usuario deniega el permiso. */
+function registrarPushTrasLogin() {
+  pedirPermisoYObtenerToken()
+    .then(token => (token ? registrarTokenDispositivo(token) : undefined))
+    .catch(() => {});
+}
 
 type Status = 'loading' | 'signedOut' | 'mfaRequired' | 'signedIn';
 
@@ -20,6 +31,8 @@ interface AuthState {
   usuario: string | null;
   empresa: number | string | null;
   mfaToken: string | null;
+  /** Rol del usuario (ADMINISTRADOR/SUPERADMIN/OPERARIO/...), leído del access token. */
+  rol: string | null;
 }
 
 interface AuthContextValue extends AuthState {
@@ -40,15 +53,18 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     usuario: null,
     empresa: null,
     mfaToken: null,
+    rol: null,
   });
 
   // Rehidratación: si hay un access token persistido, entramos directamente.
   useEffect(() => {
     (async () => {
       await loadTokens();
+      const token = getAccessToken();
       setState(s => ({
         ...s,
-        status: getAccessToken() ? 'signedIn' : 'signedOut',
+        status: token ? 'signedIn' : 'signedOut',
+        rol: token ? rolDeToken(token) : null,
       }));
     })();
   }, []);
@@ -62,7 +78,9 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
           usuario: res.data.usuario ?? usuario,
           empresa: res.data.empresa ?? null,
           mfaToken: null,
+          rol: rolDeToken(getAccessToken()),
         });
+        registrarPushTrasLogin();
       } else if (res.kind === 'mfa') {
         setState(s => ({
           ...s,
@@ -89,7 +107,9 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
           usuario: res.data.usuario ?? state.usuario,
           empresa: res.data.empresa ?? null,
           mfaToken: null,
+          rol: rolDeToken(getAccessToken()),
         });
+        registrarPushTrasLogin();
       }
       return res;
     },
@@ -98,7 +118,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
 
   const signOut = useCallback(async () => {
     await auth.logout();
-    setState({status: 'signedOut', usuario: null, empresa: null, mfaToken: null});
+    setState({status: 'signedOut', usuario: null, empresa: null, mfaToken: null, rol: null});
   }, []);
 
   const value = useMemo<AuthContextValue>(

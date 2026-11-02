@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from src.platform.versioning import Version
+from src.plataforma.versioning import Version
 from src.services.marketplace import catalogo, instalacion
 
 

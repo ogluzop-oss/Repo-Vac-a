@@ -73,12 +73,14 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'EMP-001', 'SMART MANAGER');
 -- 3. USUARIOS Y ACCESO
 -- ============================================================
 CREATE TABLE IF NOT EXISTS usuarios (
-    id        INT AUTO_INCREMENT PRIMARY KEY,
-    nombre    VARCHAR(120) NOT NULL UNIQUE,
-    password  VARCHAR(255) NOT NULL,
-    perfil    VARCHAR(50)  NOT NULL,
-    tienda_id VARCHAR(50)  NULL,
-    activo    TINYINT(1)   NOT NULL DEFAULT 1
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    nombre        VARCHAR(120) NOT NULL UNIQUE,
+    password      VARCHAR(255) NOT NULL,
+    perfil        VARCHAR(50)  NOT NULL,
+    -- Código de centro en texto libre (p.ej. "ALMC"/"TND-001") — distinto del id_tienda entero
+    -- (FK a tiendas.id) que usan otras tablas para aislar filas por tienda.
+    centro_codigo VARCHAR(50)  NULL,
+    activo        TINYINT(1)   NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================
@@ -263,6 +265,40 @@ CREATE TABLE IF NOT EXISTS recepciones_logisticas (
     KEY idx_rl_documento (id_documento),
     CONSTRAINT fk_rl_documento
         FOREIGN KEY (id_documento) REFERENCES documentos_logisticos(id_documento)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ============================================================
+-- 7a. LOGÍSTICA — Bultos (recepción desglosada por bulto dentro de un palé)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS documentos_logisticos_bultos (
+    id_bulto         VARCHAR(100) PRIMARY KEY,
+    id_documento     VARCHAR(50)  NOT NULL,
+    id_pale          VARCHAR(80)  NOT NULL,
+    id_visual        VARCHAR(30)  NOT NULL,
+    estado           VARCHAR(30)  NOT NULL DEFAULT 'PENDIENTE',
+    usuario_receptor VARCHAR(100),
+    fecha_recepcion  DATETIME NULL,
+    creado_en        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_dlb_documento (id_documento),
+    KEY idx_dlb_pale (id_pale),
+    CONSTRAINT fk_dlb_documento
+        FOREIGN KEY (id_documento) REFERENCES documentos_logisticos(id_documento)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS documentos_logisticos_bultos_lineas (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id_bulto          VARCHAR(100) NOT NULL,
+    codigo_articulo   VARCHAR(50)  NOT NULL,
+    nombre_articulo   VARCHAR(255) NOT NULL,
+    cantidad_enviada  INT NOT NULL DEFAULT 0,
+    cantidad_recibida INT NULL,
+    estado_linea      VARCHAR(30)  NOT NULL DEFAULT 'PENDIENTE',
+    KEY idx_dlbl_bulto (id_bulto),
+    KEY idx_dlbl_codigo (codigo_articulo),
+    CONSTRAINT fk_dlbl_bulto
+        FOREIGN KEY (id_bulto) REFERENCES documentos_logisticos_bultos(id_bulto)
         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -514,6 +550,24 @@ CREATE TABLE IF NOT EXISTS devolucion_items (
         REFERENCES devoluciones(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS vales_devolucion (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id_empresa        CHAR(36)      NOT NULL,
+    codigo            VARCHAR(40)   NOT NULL,
+    importe           DECIMAL(10,2) NOT NULL DEFAULT 0,
+    importe_original  DECIMAL(10,2) NOT NULL DEFAULT 0,
+    estado            VARCHAR(12)   NOT NULL DEFAULT 'activo',
+    id_devolucion     INT           DEFAULT NULL,
+    id_vale_origen    BIGINT        DEFAULT NULL,
+    id_venta_canje    INT           DEFAULT NULL,
+    id_tienda_emision INT           DEFAULT NULL,
+    id_tienda_canje   INT           DEFAULT NULL,
+    fecha_emision     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fecha_canje       DATETIME      DEFAULT NULL,
+    UNIQUE KEY uq_vale_devolucion (id_empresa, codigo),
+    KEY idx_vd_estado (id_empresa, estado)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Extend venta_items for bulk/weight sales (idempotent)
 ALTER TABLE venta_items
     ADD COLUMN IF NOT EXISTS peso_vendido DECIMAL(10,3) DEFAULT 0.000,
@@ -549,9 +603,9 @@ ON DUPLICATE KEY UPDATE nombre = VALUES(nombre);
 INSERT INTO tiendas (nombre) VALUES ('TIENDA 01'), ('TIENDA 02'), ('TIENDA 03')
 ON DUPLICATE KEY UPDATE nombre = VALUES(nombre);
 
-INSERT INTO usuarios (nombre, password, perfil, tienda_id)
+INSERT INTO usuarios (nombre, password, perfil, centro_codigo)
 VALUES ('ADMIN', '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9', 'ADMINISTRADOR', 'ALMC')
-ON DUPLICATE KEY UPDATE perfil = VALUES(perfil), tienda_id = VALUES(tienda_id);
+ON DUPLICATE KEY UPDATE perfil = VALUES(perfil), centro_codigo = VALUES(centro_codigo);
 
 -- Productos granel por defecto — familias canonicas, con subfamilia en Panes y Bolleria
 INSERT IGNORE INTO productos_granel (nombre, precio_kg, emoji, categoria, subfamilia) VALUES
@@ -570,14 +624,14 @@ INSERT IGNORE INTO productos_granel (nombre, precio_kg, emoji, categoria, subfam
     ('Pistacho',         18.99, '🥜', 'FRUTOS_SECOS', NULL),
     ('Gominola Surtida',  8.99, '🍬', 'DULCES', NULL),
     ('Chocolate Granel',  9.99, '🍫', 'DULCES', NULL),
-    ('Palomitas Caramel', 6.99, '🍿', 'DULCES', NULL),
+    ('Palomitas Caramelo', 6.99, '🍿', 'DULCES', NULL),
     ('Queso Manchego',   16.50, '🧀', 'LACTEOS', NULL),
-    ('Jamón Serrano',    22.90, '🥩', 'CARNICERIA', NULL),
-    -- Carnicería / Pescadería (a granel)
-    ('Filete de Ternera',14.90, '🥩', 'CARNICERIA', NULL),
-    ('Pechuga de Pollo',  6.90, '🍗', 'CARNICERIA', NULL),
-    ('Merluza Fresca',    9.90, '🐟', 'PESCADERIA', NULL),
-    ('Gambas',           15.90, '🦐', 'PESCADERIA', NULL),
+    ('Jamón Serrano',    22.90, '🥩', 'CARNICERIA', 'CERDO'),
+    -- Carnicería / Pescadería (a granel, subfamilias: ver services.tpv.familias_granel)
+    ('Filete de Ternera',14.90, '🥩', 'CARNICERIA', 'TERNERA'),
+    ('Pechuga de Pollo',  6.90, '🍗', 'CARNICERIA', 'AVES'),
+    ('Merluza Fresca',    9.90, '🐟', 'PESCADERIA', 'PESCADO_BLANCO'),
+    ('Gambas',           15.90, '🦐', 'PESCADERIA', 'CRUSTACEOS'),
     -- Panes (subfamilias: barras / hogazas / panecillos)
     ('Barra Rústica',     1.20, '🥖', 'PANES', 'BARRAS'),
     ('Baguette',          1.30, '🥖', 'PANES', 'BARRAS'),
@@ -587,7 +641,7 @@ INSERT IGNORE INTO productos_granel (nombre, precio_kg, emoji, categoria, subfam
     ('Croissant',         1.40, '🥐', 'BOLLERIA', 'DULCE'),
     ('Donut',             1.20, '🍩', 'BOLLERIA', 'DULCE'),
     ('Empanadilla',       1.60, '🥟', 'BOLLERIA', 'SALADA'),
-    ('Pizza Individual',  3.20, '🍕', 'BOLLERIA', 'SALADA');
+    ('Panini',            3.20, '🍕', 'BOLLERIA', 'SALADA');
 
 -- ============================================================
 -- MIGRACIONES — añade columnas faltantes en tablas pre-existentes

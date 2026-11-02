@@ -117,11 +117,14 @@ def registrar_en_bi(*, anio=None, id_empresa=None) -> dict:
     eid = _emp(id_empresa)
     k = calcular(anio=anio, id_empresa=eid)
     try:
+        import datetime as _dt
+
         from src.services.bi import kpis as bi_kpis
         if hasattr(bi_kpis, "guardar_valor"):
+            hoy = _dt.date.today().isoformat()
             for nombre, valor in k.items():
                 if isinstance(valor, (int, float)):
-                    bi_kpis.guardar_valor(f"fin_{nombre}", valor, id_empresa=eid)
+                    bi_kpis.guardar_valor(f"fin_{nombre}", valor, periodo="dia", fecha=hoy, id_empresa=eid)
     except Exception as e:
         logger.debug("registrar_en_bi: %s", e)
     return k

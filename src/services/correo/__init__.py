@@ -5,6 +5,7 @@ from src.services.correo.servicio import (
     estado_oauth,
     oauth_google_configurado,
     iniciar_oauth_google,
+    sincronizar_gmail_api,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "estado_oauth",
     "oauth_google_configurado",
     "iniciar_oauth_google",
+    "sincronizar_gmail_api",
 ]

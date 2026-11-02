@@ -154,8 +154,14 @@ class WebRestAdapter(AdaptadorConector):
                       for li in (o.get("lineas") or [])]
             if not lineas:
                 continue
+            # Dirección de envío: contrato PROPIO de este adaptador genérico (lo define Smart
+            # Manager, no una API de terceros) — `direccion_envio` como texto libre y
+            # `codigo_postal` explícito del cliente, si la web lo envía.
+            direccion_envio = o.get("direccion_envio") or ""
+            cp = cli.get("codigo_postal") or o.get("codigo_postal")
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="web_rest", referencia_externa=ref)
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="web_rest", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido web %s: %s", ref, e)

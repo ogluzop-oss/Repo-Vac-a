@@ -210,8 +210,22 @@ class EbayAdapter(_EbayPreparado):
                       for li in (o.get("lineItems") or [])]
             if not lineas:
                 continue
+            # Dirección de envío (Fulfillment API: `fulfillmentStartInstructions[0].shippingStep
+            # .shipTo.contactAddress`) — alimenta el enrutamiento por cercanía al cliente; degrada
+            # a None/"" sin lanzar si la forma real difiere (nunca inventa un CP).
+            cp, direccion_envio = None, ""
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="ebay", referencia_externa=ref)
+                fsi = (o.get("fulfillmentStartInstructions") or [{}])[0]
+                addr = ((fsi.get("shippingStep") or {}).get("shipTo") or {}).get("contactAddress") or {}
+                cp = addr.get("postalCode")
+                direccion_envio = ", ".join(str(x) for x in (
+                    addr.get("addressLine1"), addr.get("addressLine2"), addr.get("city"),
+                    addr.get("stateOrProvince"), cp, addr.get("countryCode")) if x)
+            except Exception as e:
+                logger.debug("direccion ebay %s: %s", ref, e)
+            try:
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="ebay", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido ebay %s: %s", ref, e)

@@ -171,14 +171,23 @@ def conceptos_para_datos(id_empleado, *, id_empresa=None) -> dict:
 
 
 def preparar_datos_nomina(id_empleado, datos, *, id_empresa=None) -> dict:
-    """Enriquece los `datos` de nómina con los conceptos recurrentes y la cuota de anticipo pendiente,
-    SIN recalcular nada (el motor existente hace el cálculo). Devuelve el dict listo para el motor."""
+    """Enriquece los `datos` de nómina con los conceptos recurrentes, la cuota de anticipo
+    pendiente y el reembolso de gastos de viaje APROBADOS (petición explícita — se inyecta en el
+    concepto `dietas` ya existente, nunca un concepto de pago paralelo), SIN recalcular nada (el
+    motor existente hace el cálculo). Devuelve el dict listo para el motor."""
     d = dict(datos or {})
     for clave, importe in conceptos_para_datos(id_empleado, id_empresa=id_empresa).items():
         d.setdefault(clave, importe)
     cuota = cuota_anticipo_pendiente(id_empleado, id_empresa=id_empresa)
     if cuota:
         d["anticipos"] = round(float(d.get("anticipos") or 0) + cuota, 2)
+    try:
+        from src.services.gastos_viaje import gastos as _GV
+        reembolso = _GV.total_pendiente_reembolso(id_empleado, id_empresa=id_empresa)
+        if reembolso:
+            d["dietas"] = round(float(d.get("dietas") or 0) + reembolso, 2)
+    except Exception as e:
+        logger.debug("gastos de viaje en preparar_datos_nomina: %s", e)
     return d
 
 

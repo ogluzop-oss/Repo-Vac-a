@@ -7,10 +7,12 @@ Distribución mayorista B2B (R8·it3, función BASE). La ventana SOLO orquesta `
 import logging
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (QComboBox, QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                             QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                             QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.gui._neon_ui import _RoundTableCorners, _ss_tabla_neon
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.gui.foundation import tokens as T
 from src.services import expediciones as _S
 
@@ -33,6 +35,24 @@ def _btn(txt, cb, *, primary=False, rojo=False, h=36):
                         f"font-weight:800;padding:6px 14px;}}QPushButton:hover{{background:{col};color:{T.BG};}}")
     if cb:
         b.clicked.connect(cb)
+    return b
+
+
+def _btn_cargando(txt, cb, *, primary=False, rojo=False, h=36, cargando="⏳  Actualizando…"):
+    """Como `_btn`, pero al pulsarse muestra un estado de carga y se deshabilita mientras `cb`
+    se ejecuta (petición: TODOS los botones «Actualizar» de la app con esta animación)."""
+    b = _btn(txt, None, primary=primary, rojo=rojo, h=h)
+
+    def _run():
+        orig = b.text()
+        b.setText(cargando); b.setEnabled(False)
+        try:
+            from PyQt6.QtWidgets import QApplication
+            QApplication.processEvents()
+            cb()
+        finally:
+            b.setText(orig); b.setEnabled(True)
+    b.clicked.connect(_run)
     return b
 
 
@@ -84,16 +104,19 @@ class DistribucionWindow(QWidget):
         tit.setStyleSheet(f"color:{T.INFO};font-size:20px;font-weight:900;")
         cab.addWidget(tit); cab.addStretch()
         if self._volver:
-            cab.addWidget(_btn("✕", self._volver, rojo=True))
+            from src.gui.catalogo_gestion import _btn_x
+            cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
         barra = QHBoxLayout()
-        barra.addWidget(_btn("＋  Nuevo pedido", self._nuevo, primary=True))
+        barra.addWidget(_btn("＋  Nuevo pedido", self._nuevo))
         barra.addWidget(_btn("📋  Preparar (picking)", self._preparar))
         barra.addWidget(_btn("🧭  Ver ruta", self._ver_ruta))
         barra.addWidget(_btn("🚚  Expedir", self._expedir))
+        barra.addWidget(_btn("🚛  Transportista", self._nuevo_transportista))
+        barra.addWidget(_btn("📍  Seguimiento", self._seguimiento))
         barra.addStretch()
-        barra.addWidget(_btn("🔄  Actualizar", self._cargar))
+        barra.addWidget(_btn_cargando("🔄  Actualizar", self._cargar))
         root.addLayout(barra)
 
         self._tbl = _tabla(["ID", "Cliente", "Fecha", "Estado"])
@@ -149,6 +172,12 @@ class DistribucionWindow(QWidget):
         if _ExpedirDialog(pid, self._emp(), self).exec() == QDialog.DialogCode.Accepted:
             self._cargar()
 
+    def _nuevo_transportista(self):
+        _TransportistaDialog(self._emp(), self).exec()
+
+    def _seguimiento(self):
+        _SeguimientoDialog(self._emp(), self).exec()
+
 
 class _NuevoPedidoDialog(QDialog):
     """Nuevo pedido mayorista: cliente (buscar/crear) + líneas (código + cantidad, precio mayorista)."""
@@ -180,7 +209,8 @@ class _NuevoPedidoDialog(QDialog):
         v = QVBoxLayout(card); v.setContentsMargins(22, 18, 22, 18); v.setSpacing(10)
         cab = QHBoxLayout(); tit = QLabel("＋  NUEVO PEDIDO MAYORISTA")
         tit.setStyleSheet(f"color:{T.INFO};font-size:16px;font-weight:900;")
-        cab.addWidget(tit); cab.addStretch(); cab.addWidget(_btn("✕", self.reject, rojo=True, h=30))
+        from src.gui.catalogo_gestion import _btn_x
+        cab.addWidget(tit); cab.addStretch(); cab.addWidget(_btn_x(self.reject))
         v.addLayout(cab)
 
         cf = QHBoxLayout()
@@ -189,26 +219,37 @@ class _NuevoPedidoDialog(QDialog):
         v.addLayout(cf)
 
         lf = QHBoxLayout()
-        self._cod = _inp("Código artículo"); self._cant = QSpinBox(); self._cant.setRange(1, 1000000)
+        # QLineEdit + validador en vez de QSpinBox: la app oculta sus flechas arriba/abajo vía QSS y
+        # eso rompía su foco/clic en varios diálogos (confirmado por el usuario) — mismo criterio ya
+        # aplicado en `sat_dashboard._FormDialog`.
+        self._cod = _inp("Código artículo"); self._cant = _inp("Cantidad")
+        instalar_sugerencias_articulo(self._cod)
+        self._cant.setValidator(QIntValidator(1, 1000000, self._cant)); self._cant.setText("1")
         self._cant.setFixedHeight(34)
         lf.addWidget(self._cod); lf.addWidget(self._cant); lf.addWidget(_btn("＋ Línea", self._add_linea))
         v.addLayout(lf)
         self._tbl = _tabla(["Artículo", "Cantidad", "Precio (mayorista)"])
         v.addWidget(self._tbl, 1)
 
-        acc = QHBoxLayout(); acc.addStretch(); acc.addWidget(_btn("Crear pedido", self._crear, primary=True))
+        acc = QHBoxLayout(); acc.addStretch(); acc.addWidget(_btn("Crear pedido", self._crear))
         v.addLayout(acc)
 
     def _add_linea(self):
         cod = self._cod.text().strip()
+        if "–" in cod:  # viene del autocompletado "CÓDIGO – NOMBRE"
+            cod = cod.split("–")[0].strip()
         if not cod:
             return _aviso(self, "Pedido", "Indica el código del artículo.", "warning")
+        try:
+            cant = int(self._cant.text() or 1)
+        except ValueError:
+            cant = 1
         precio = _S.precio_mayorista(cod, id_empresa=self._emp)
-        self._lineas.append({"codigo": cod, "cantidad": self._cant.value()})
+        self._lineas.append({"codigo": cod, "cantidad": cant})
         r = self._tbl.rowCount(); self._tbl.insertRow(r)
-        for c, val in enumerate((cod, self._cant.value(), f"{precio:.2f}" if precio is not None else "base")):
+        for c, val in enumerate((cod, cant, f"{precio:.2f}" if precio is not None else "base")):
             self._tbl.setItem(r, c, QTableWidgetItem(str(val)))
-        self._cod.clear(); self._cant.setValue(1)
+        self._cod.clear(); self._cant.setText("1")
 
     def _resolver_cliente(self):
         nombre = self._cli.text().strip()
@@ -220,7 +261,8 @@ class _NuevoPedidoDialog(QDialog):
             for c in existentes:
                 if str(c.get("nombre", "")).strip().lower() == nombre.lower():
                     return c.get("id")
-            return crear_cliente(nombre, nif=self._nif.text().strip() or None, id_empresa=self._emp)
+            return crear_cliente(nombre, nif=self._nif.text().strip() or None, id_empresa=self._emp,
+                                  origen_flujo="distribucion")
         except Exception as e:
             logger.error("_resolver_cliente: %s", e)
             return None
@@ -257,12 +299,14 @@ class _ExpedirDialog(QDialog):
         v = QVBoxLayout(card); v.setContentsMargins(22, 18, 22, 18); v.setSpacing(10)
         cab = QHBoxLayout(); tit = QLabel(f"🚚  EXPEDIR PEDIDO #{self._pid}")
         tit.setStyleSheet(f"color:{T.INFO};font-size:16px;font-weight:900;")
-        cab.addWidget(tit); cab.addStretch(); cab.addWidget(_btn("✕", self.reject, rojo=True, h=30))
+        from src.gui.catalogo_gestion import _btn_x
+        cab.addWidget(tit); cab.addStretch(); cab.addWidget(_btn_x(self.reject))
         v.addLayout(cab)
         v.addWidget(QLabel("Al expedir se descuenta el stock por el motor oficial y se registra la expedición."))
         self._transp = QComboBox(); self._transp.setFixedHeight(34)
         self._transp.setStyleSheet(f"QComboBox{{background:{T.BG};color:{T.TEXT};border:2px solid #30363D;"
-                                   f"border-radius:8px;padding:0 10px;}}")
+                                   f"border-radius:8px;padding:0 10px;}}"
+                                   f"QComboBox::drop-down{{border:none;width:22px;background:transparent;}}")
         self._transp.addItem("— Sin transportista —", None)
         for t in _S.listar_transportistas(id_empresa=self._emp):
             self._transp.addItem(t.get("nombre") or "—", t.get("id"))
@@ -295,7 +339,8 @@ class _RutaDialog(QDialog):
         v = QVBoxLayout(card); v.setContentsMargins(22, 18, 22, 18); v.setSpacing(10)
         cab = QHBoxLayout(); tit = QLabel(f"🧭  RUTA DE PICKING · #{id_picking}")
         tit.setStyleSheet(f"color:{T.INFO};font-size:16px;font-weight:900;")
-        cab.addWidget(tit); cab.addStretch(); cab.addWidget(_btn("✕", self.accept, rojo=True, h=30))
+        from src.gui.catalogo_gestion import _btn_x
+        cab.addWidget(tit); cab.addStretch(); cab.addWidget(_btn_x(self.accept))
         v.addLayout(cab)
         tbl = _tabla(["Orden", "Artículo", "Cantidad", "Ubicación"])
         for i, ln in enumerate(ordenadas or [], start=1):
@@ -304,3 +349,139 @@ class _RutaDialog(QDialog):
                                      ln.get("cantidad") or "—", ln.get("ubicacion") or "—")):
                 tbl.setItem(r, c, QTableWidgetItem(str(val)))
         v.addWidget(tbl, 1)
+
+
+class _TransportistaDialog(QDialog):
+    """Alta de transportista (reutiliza `expediciones.crear_transportista` — hueco detectado en la
+    auditoría: el combo de `_ExpedirDialog` solo permitía ELEGIR entre transportistas ya existentes)."""
+
+    def __init__(self, id_empresa, parent=None):
+        super().__init__(parent)
+        self._emp = id_empresa
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setModal(True); self.setMinimumWidth(420)
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
+        card = QFrame(); card.setObjectName("dlg_card")
+        card.setStyleSheet(f"QFrame#dlg_card{{background:{T.BG};border:2px solid {T.INFO};border-radius:16px;}}")
+        root.addWidget(card)
+        v = QVBoxLayout(card); v.setContentsMargins(22, 18, 22, 18); v.setSpacing(10)
+        cab = QHBoxLayout(); tit = QLabel("🚛  NUEVO TRANSPORTISTA")
+        tit.setStyleSheet(f"color:{T.INFO};font-size:16px;font-weight:900;")
+        from src.gui.catalogo_gestion import _btn_x
+        cab.addWidget(tit); cab.addStretch(); cab.addWidget(_btn_x(self.reject))
+        v.addLayout(cab)
+        self._nombre = _inp("Nombre *"); v.addWidget(self._nombre)
+        self._contacto = _inp("Contacto"); v.addWidget(self._contacto)
+        self._telefono = _inp("Teléfono"); v.addWidget(self._telefono)
+        acc = QHBoxLayout(); acc.addStretch(); acc.addWidget(_btn("Crear transportista", self._ok, primary=True))
+        v.addLayout(acc)
+
+    def _ok(self):
+        nombre = self._nombre.text().strip()
+        if not nombre:
+            return _aviso(self, "Transportista", "Indica el nombre.", "warning")
+        tid = _S.crear_transportista(nombre, contacto=self._contacto.text().strip() or None,
+                                     telefono=self._telefono.text().strip() or None, id_empresa=self._emp)
+        if tid:
+            _aviso(self, "Transportista", f"Transportista «{nombre}» creado.", "success")
+            self.accept()
+        else:
+            _aviso(self, "Transportista", "No se pudo crear el transportista.", "error")
+
+
+_ESTADOS_EXPEDICION = ("PREPARACION", "ENVIADA", "EN_TRANSITO", "ENTREGADA", "INCIDENCIA", "DEVUELTA")
+
+
+class _SeguimientoDialog(QDialog):
+    """Seguimiento post-expedición: listar expediciones, actualizar estado/tracking y registrar
+    incidencias (`services.expediciones.listar_expediciones/actualizar_seguimiento/
+    registrar_incidencia_expedicion` — sin ninguna superficie hasta esta auditoría)."""
+
+    def __init__(self, id_empresa, parent=None):
+        super().__init__(parent)
+        self._emp = id_empresa
+        self._filas = []
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setModal(True); self.setMinimumWidth(700)
+        self._build()
+        self._cargar()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        try:
+            w = self.parent().window() if self.parent() is not None else None
+            if w is not None:
+                self.setGeometry(w.geometry())
+        except Exception:
+            pass
+
+    def _build(self):
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
+        card = QFrame(); card.setObjectName("dlg_card")
+        card.setStyleSheet(f"QFrame#dlg_card{{background:{T.BG};border:2px solid {T.INFO};border-radius:16px;}}")
+        root.addWidget(card)
+        v = QVBoxLayout(card); v.setContentsMargins(22, 18, 22, 18); v.setSpacing(10)
+        cab = QHBoxLayout(); tit = QLabel("📍  SEGUIMIENTO DE EXPEDICIONES")
+        tit.setStyleSheet(f"color:{T.INFO};font-size:16px;font-weight:900;")
+        from src.gui.catalogo_gestion import _btn_x
+        cab.addWidget(tit); cab.addStretch(); cab.addWidget(_btn_x(self.accept))
+        v.addLayout(cab)
+        self._tbl = _tabla(["ID", "Referencia", "Estado", "Tracking", "Coste"])
+        self._tbl.cellClicked.connect(self._sel)
+        v.addWidget(self._tbl, 1)
+        f = QHBoxLayout()
+        self._estado = QComboBox(); self._estado.setFixedHeight(34)
+        self._estado.setStyleSheet(f"QComboBox{{background:{T.BG};color:{T.TEXT};border:2px solid #30363D;"
+                                   f"border-radius:8px;padding:0 10px;}}"
+                                   f"QComboBox::drop-down{{border:none;width:22px;background:transparent;}}")
+        for e in _ESTADOS_EXPEDICION:
+            self._estado.addItem(e, e)
+        self._tracking = _inp("Nº de tracking")
+        f.addWidget(self._estado); f.addWidget(self._tracking)
+        f.addWidget(_btn("Actualizar seguimiento", self._actualizar, primary=True))
+        v.addLayout(f)
+        f2 = QHBoxLayout()
+        self._incidencia = _inp("Descripción de la incidencia")
+        f2.addWidget(self._incidencia)
+        f2.addWidget(_btn("Registrar incidencia", self._incidencia_registrar, rojo=True))
+        v.addLayout(f2)
+
+    def _cargar(self):
+        self._filas = _S.listar_expediciones(id_empresa=self._emp)
+        self._tbl.setRowCount(0)
+        for e in self._filas:
+            r = self._tbl.rowCount(); self._tbl.insertRow(r)
+            for c, val in enumerate((e.get("id"), e.get("referencia") or "—", e.get("estado") or "—",
+                                     e.get("tracking") or "—", e.get("coste") or 0)):
+                self._tbl.setItem(r, c, QTableWidgetItem(str(val)))
+
+    def _sel(self, row, _c):
+        if 0 <= row < len(self._filas):
+            self._id_sel = self._filas[row]["id"]
+        else:
+            self._id_sel = None
+
+    def _actualizar(self):
+        if not getattr(self, "_id_sel", None):
+            return _aviso(self, "Seguimiento", "Selecciona una expedición.", "warning")
+        r = _S.actualizar_seguimiento(self._id_sel, estado=self._estado.currentData(),
+                                      tracking=self._tracking.text().strip() or None, id_empresa=self._emp)
+        if r.get("ok"):
+            _aviso(self, "Seguimiento", f"Expedición #{self._id_sel} actualizada.", "success")
+            self._cargar()
+        else:
+            _aviso(self, "Seguimiento", r.get("motivo") or "No se pudo actualizar.", "error")
+
+    def _incidencia_registrar(self):
+        if not getattr(self, "_id_sel", None):
+            return _aviso(self, "Seguimiento", "Selecciona una expedición.", "warning")
+        desc = self._incidencia.text().strip()
+        if not desc:
+            return _aviso(self, "Seguimiento", "Describe la incidencia.", "warning")
+        r = _S.registrar_incidencia_expedicion(self._id_sel, desc, id_empresa=self._emp)
+        if r.get("ok"):
+            _aviso(self, "Seguimiento", f"Incidencia registrada en la expedición #{self._id_sel}.", "success")
+            self._incidencia.clear()
+            self._cargar()
+        else:
+            _aviso(self, "Seguimiento", r.get("motivo") or "No se pudo registrar la incidencia.", "error")

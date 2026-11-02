@@ -174,3 +174,134 @@ def cerrar_ejercicio_formal(anio, usuario=None, id_empresa=None, abrir_siguiente
                 anio, id_empresa, bool(reg), bool(cie), bool(ape))
     return {"ok": bool(cerrado), "anio": anio, "destino": anio + 1,
             "regularizacion": reg, "cierre": cie, "apertura": ape}
+
+
+def reabrir_ejercicio_formal(anio, usuario=None, id_empresa=None) -> dict:
+    """Revierte un cierre formal: reabre el ejercicio y ANULA (mediante contraasiento — nunca
+    borra, mismo criterio de inmutabilidad/auditoría que el resto del módulo) la apertura del
+    ejercicio siguiente, el asiento de cierre y la regularización, en ese orden.
+
+    Devuelve {ok, anio, apertura_anulada, cierre_anulado, regularizacion_anulada, motivo?}.
+    Idempotente: si el ejercicio no está cerrado, no hace nada."""
+    id_empresa = _empresa(id_empresa)
+    anio = int(anio)
+    if not K.ejercicio_cerrado(anio, id_empresa):
+        return {"ok": False, "motivo": "no_cerrado", "anio": anio}
+
+    destino = anio + 1
+    # Guarda de integridad: si el ejercicio SIGUIENTE también está cerrado, sus saldos ya
+    # arrastraron la apertura que estamos a punto de anular — hay que reabrir en orden, del más
+    # reciente hacia atrás.
+    if K.ejercicio_cerrado(destino, id_empresa):
+        return {"ok": False, "motivo": "siguiente_cerrado", "anio": anio}
+
+    ape_doc = buscar_asiento(id_empresa, destino, "apertura")
+    cie_doc = buscar_asiento(id_empresa, anio, "cierre")
+    reg_doc = buscar_asiento(id_empresa, anio, "regularizacion")
+
+    # Reabrir PRIMERO: `asientos.anular()` exige que el ejercicio del asiento a anular NO esté
+    # cerrado (los de cierre/regularización pertenecen a `anio`, que seguía cerrado hasta ahora).
+    K.reabrir_ejercicio(anio, id_empresa)
+
+    from src.services.contabilidad.asientos import anular as _anular
+    # `fecha` EXPLÍCITA (no el "hoy" por defecto de `anular()`): el contraasiento debe fecharse
+    # DENTRO del propio ejercicio del asiento que revierte. Si se dejara el "hoy" por defecto,
+    # `crear_asiento` lo rechazaría en cuanto la fecha real del sistema cayera dentro de OTRO
+    # ejercicio ya cerrado (p. ej. el propio `anio` antes de esta reapertura) — no es un caso raro,
+    # es la situación normal cuando se reabre un ejercicio bastante después de haberlo cerrado.
+    ape_anulada = _anular(ape_doc["id"], fecha=f"{destino}-01-01", usuario=usuario,
+                         id_empresa=id_empresa) if ape_doc else None
+    cie_anulado = _anular(cie_doc["id"], fecha=f"{anio}-12-31", usuario=usuario,
+                         id_empresa=id_empresa) if cie_doc else None
+    reg_anulada = _anular(reg_doc["id"], fecha=f"{anio}-12-31", usuario=usuario,
+                         id_empresa=id_empresa) if reg_doc else None
+
+    logger.info("Reapertura ejercicio %s (empresa=%s): ape=%s cie=%s reg=%s",
+                anio, id_empresa, bool(ape_anulada), bool(cie_anulado), bool(reg_anulada))
+    return {"ok": True, "anio": anio, "apertura_anulada": ape_anulada,
+            "cierre_anulado": cie_anulado, "regularizacion_anulada": reg_anulada}
+
+
+# ── Validaciones previas al cierre formal ────────────────────────────────────
+def _asientos_descuadrados(id_empresa) -> list[dict]:
+    """`contab_asientos` (de ESTA empresa, cualquier ejercicio, no anulados) cuyo total_debe no
+    coincide con total_haber. En circuito normal esto NUNCA debería ocurrir — `asientos.
+    crear_asiento` rechaza (devuelve `None`) cualquier intento de crear un asiento descuadrado
+    antes de persistirlo — pero se valida igualmente aquí como red de seguridad defensiva ante
+    datos corruptos/importados/editados directamente en BD (mismo criterio que `cadena_auditoria_
+    valida`: comprobar, no asumir)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, numero, anio, fecha, concepto, total_debe, total_haber FROM "
+                "contab_asientos WHERE id_empresa=%s AND estado<>'anulado' "
+                "AND ABS(total_debe - total_haber) > %s ORDER BY anio, numero",
+                (id_empresa, _EPS))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("_asientos_descuadrados: %s", e)
+        return []
+
+
+def validar_cierre(anio, id_empresa=None) -> dict:
+    """Validaciones PRE-cierre del ejercicio `anio`: {"ok": bool, "bloqueantes": [...],
+    "avisos": [...]}. `ok=False` (con `bloqueantes` no vacío) debe impedir que la GUI/caller
+    invoque `cerrar_ejercicio_formal` — son fallos reales de corrección contable, no opiniones.
+    `avisos` es solo informativo (huecos ya conocidos/honestos de otros módulos, p.ej. `memoria_
+    anual`/`propuesta_resultado`) y NUNCA bloquea el cierre.
+
+    No introduce ningún cálculo nuevo más allá de la propia validación: reutiliza `cuentas.
+    ejercicio_cerrado`, `memoria_anual.generar_memoria`, `propuesta_resultado.
+    calcular_propuesta_aplicacion` y `estado_flujos.generar_estado_flujos` tal cual."""
+    id_empresa = _empresa(id_empresa)
+    anio = int(anio)
+    bloqueantes, avisos = [], []
+
+    # ── Bloqueantes ──────────────────────────────────────────────────────────
+    descuadrados = _asientos_descuadrados(id_empresa)
+    for a in descuadrados:
+        bloqueantes.append(
+            f"Asiento nº{a['numero']} del ejercicio {a['anio']} ({a.get('concepto') or 's/concepto'}, "
+            f"{a.get('fecha')}) está DESCUADRADO: debe={a['total_debe']} haber={a['total_haber']} "
+            "— no se puede cerrar el ejercicio con asientos que incumplen la partida doble.")
+
+    ej_anterior = K.obtener_ejercicio(anio - 1, id_empresa)
+    if ej_anterior and not K.ejercicio_cerrado(anio - 1, id_empresa):
+        bloqueantes.append(
+            f"El ejercicio anterior ({anio - 1}) existe pero NO está cerrado formalmente — "
+            f"los ejercicios deben cerrarse en orden (cerrar primero {anio - 1}).")
+
+    # ── Avisos (no bloquean) ─────────────────────────────────────────────────
+    try:
+        from src.services.contabilidad.memoria_anual import generar_memoria
+        memoria = generar_memoria(anio, id_empresa=id_empresa) or {}
+        avisos.extend(memoria.get("actividad_empresa", {}).get("avisos") or [])
+        if not (memoria.get("partes_vinculadas", {}).get("operaciones")):
+            avisos.append(
+                "No hay operaciones con partes vinculadas registradas en el ejercicio "
+                "(informativo: puede ser correcto si no ha habido ninguna).")
+    except Exception as e:
+        logger.warning("validar_cierre: memoria_anual no disponible: %s", e)
+
+    try:
+        from src.services.contabilidad.propuesta_resultado import calcular_propuesta_aplicacion
+        propuesta = calcular_propuesta_aplicacion(anio, id_empresa=id_empresa) or {}
+        avisos.extend(propuesta.get("avisos") or [])
+    except Exception as e:
+        logger.warning("validar_cierre: propuesta_resultado no disponible: %s", e)
+
+    try:
+        from src.services.contabilidad.estado_flujos import generar_estado_flujos
+        ef = generar_estado_flujos(anio, id_empresa=id_empresa) or {}
+        fin = ef.get("financiacion", {})
+        if not any(abs(float(fin.get(k) or 0)) > 0.01 for k in
+                  ("variacion_deuda_financiera", "variacion_capital_y_aportaciones",
+                   "dividendos_pagados")):
+            avisos.append(
+                "Sin movimientos en el flujo de financiación del ejercicio (informativo: puede "
+                "ser correcto si no ha habido altas/bajas de deuda ni aportaciones de capital).")
+    except Exception as e:
+        logger.warning("validar_cierre: estado_flujos no disponible: %s", e)
+
+    return {"ok": not bloqueantes, "anio": anio, "id_empresa": id_empresa,
+            "bloqueantes": bloqueantes, "avisos": avisos}

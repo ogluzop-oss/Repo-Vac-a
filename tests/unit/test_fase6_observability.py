@@ -8,7 +8,7 @@ alertas cloud y el Cloud Dashboard — todo reutilizando la Observabilidad Enter
 
 import pytest
 
-from src.platform import cloud
+from src.plataforma import cloud
 from src.services.observabilidad import cloud as obs
 
 

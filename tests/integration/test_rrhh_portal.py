@@ -136,14 +136,20 @@ def test_portal_gui_sin_vinculo_no_rompe(db, fab):
 
 
 # ── Menú ─────────────────────────────────────────────────────────────────────
-def test_menu_incluye_portal(db):
+def test_menu_retira_portal_pero_conserva_enrutado(db):
+    """El Portal del Empleado se retiró del menú principal a petición explícita (confirmada de
+    nuevo — ver comentario en `menu_principal.py` junto a la construcción del footer): deja de
+    tener tarjeta propia, pero `PortalEmpleadoWindow` sigue siendo una ventana real y su
+    enrutado (`v_id == "portal"`) se conserva por compatibilidad. El hueco de acceso que esto
+    dejaba para OPERARIO (sin vía de escritorio a sus nóminas) se resuelve con el módulo
+    "Nóminas" propio (ver test_rrhh_nominas_modulo.py), no reabriendo esta tarjeta."""
     from src.db.usuario import sesion_global
     from src.gui import menu_principal as M
     prev = sesion_global.usuario_actual
     sesion_global.usuario_actual = {"perfil": "OPERARIO", "nombre": "OP", "id": 1}
     try:
         menu = M.MenuPrincipal()
-        assert "portal" in menu._cards        # visible incluso para OPERARIO
+        assert "portal" not in menu._cards
         menu.close()
     finally:
         sesion_global.usuario_actual = prev

@@ -77,6 +77,51 @@ def test_grabacion_y_clip(limpio):
     assert f"{hoy}.mp4" in rutas
 
 
+def test_fuente_para_fallback_sin_perfiles(limpio):
+    """Cámara sin perfiles ONVIF (alta manual, o dada de alta antes de esta capacidad): main y sub
+    caen los dos a la URL legacy — cero regresión para el resto del sistema (grabación 24/7, PTZ)."""
+    from src.services import camaras
+    cid = camaras.crear_camara("Legacy", id_empresa=EMP, id_centro="1", tipo_centro="tienda",
+                               fuente="rtsp://u:p@1.2.3.4:554/stream")
+    cam = camaras.obtener_camara(cid, id_empresa=EMP)
+    assert camaras.fuente_para(cam, "main") == "rtsp://u:p@1.2.3.4:554/stream"
+    assert camaras.fuente_para(cam, "sub") == "rtsp://u:p@1.2.3.4:554/stream"
+
+
+def test_actualizar_perfiles_protege_credenciales(limpio):
+    """Mismo criterio que `test_credenciales_rtsp_no_en_claro` (hardening), aplicado a los perfiles
+    dual-stream: fuente_main/fuente_sub nunca quedan en claro en las columnas visibles."""
+    from src.services import camaras
+    cid = camaras.crear_camara("DualStream", id_empresa=EMP, id_centro="1", tipo_centro="tienda")
+    ok = camaras.actualizar_perfiles(
+        cid, fuente_main="rtsp://usuario:secreto@1.2.3.4:554/main",
+        fuente_sub="rtsp://usuario:secreto@1.2.3.4:554/sub", id_empresa=EMP)
+    assert ok
+    cam = camaras.obtener_camara(cid, id_empresa=EMP)
+    assert "secreto" not in (cam["fuente_main"] or "")
+    assert "secreto" not in (cam["fuente_sub"] or "")
+    assert cam["fuente_main_cifrada"] and cam["fuente_sub_cifrada"]
+    assert camaras.fuente_para(cam, "main") == "rtsp://usuario:secreto@1.2.3.4:554/main"
+    assert camaras.fuente_para(cam, "sub") == "rtsp://usuario:secreto@1.2.3.4:554/sub"
+    # Solo actualizar 'sub': 'main' conserva lo que ya tenía (actualización parcial).
+    assert camaras.actualizar_perfiles(cid, fuente_sub="rtsp://usuario:secreto@1.2.3.4:554/sub2",
+                                       id_empresa=EMP)
+    cam2 = camaras.obtener_camara(cid, id_empresa=EMP)
+    assert camaras.fuente_para(cam2, "main") == "rtsp://usuario:secreto@1.2.3.4:554/main"
+    assert camaras.fuente_para(cam2, "sub") == "rtsp://usuario:secreto@1.2.3.4:554/sub2"
+
+
+def test_crear_camara_onvif_degradable_sin_onvif(limpio):
+    """Sin ONVIF disponible/cámara alcanzable, `crear_camara_onvif` da de alta la cámara igual que el
+    flujo manual de siempre (URL de respaldo), sin perfiles inventados."""
+    from src.services import camaras
+    cid = camaras.crear_camara_onvif("SinONVIF", "10.255.255.1", "u", "p", id_empresa=EMP,
+                                     id_centro="1", tipo_centro="tienda")
+    assert cid
+    cam = camaras.obtener_camara(cid, id_empresa=EMP)
+    assert cam["fuente"] and cam["fuente_main"] is None and cam["fuente_sub"] is None
+
+
 def test_apifirst_camaras_sin_pyqt():
     import importlib
     import pkgutil

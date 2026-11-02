@@ -69,7 +69,7 @@ class ShopifyAdapter(_ShopifyPreparado):
 
     def _config(self, id_empresa=None):
         url = self._url or self._url_integracion(id_empresa) or os.getenv("SHOPIFY_URL")
-        token = S.access_token(self._credenciales_ref)
+        token = S.access_token(self._credenciales_ref, id_empresa=id_empresa)
         return url, token
 
     def disponible(self, id_empresa=None) -> bool:
@@ -217,8 +217,16 @@ class ShopifyAdapter(_ShopifyPreparado):
                        "precio": _num(li.get("price"))} for li in (o.get("line_items") or [])]
             if not lineas:
                 continue
+            # Dirección de envío (Admin REST: `shipping_address`, ya en el propio pedido) —
+            # alimenta el enrutamiento por cercanía al cliente.
+            sa = o.get("shipping_address") or {}
+            cp = sa.get("zip")
+            direccion_envio = ", ".join(str(x) for x in (
+                sa.get("address1"), sa.get("address2"), sa.get("city"),
+                sa.get("province"), cp, sa.get("country")) if x)
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="shopify", referencia_externa=ref)
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="shopify", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido shopify %s: %s", ref, e)

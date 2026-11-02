@@ -47,16 +47,41 @@ def _proteger_fuente(fuente):
 def fuente_efectiva(camara) -> str | None:
     """URL REAL de conexión de la cámara: descifra las credenciales si están protegidas. Uso interno del
     grabador; NUNCA se muestra ni se registra en logs."""
-    cif = (camara or {}).get("fuente_cifrada")
-    if cif:
-        try:
-            from src.services.seguridad import secret_manager
-            real = secret_manager.descifrar(cif)
-            if real:
-                return real
-        except Exception as e:
-            logger.debug("descifrar fuente cámara: %s", e)
-    return (camara or {}).get("fuente")
+    return _descifrar_campo(camara, "fuente_cifrada") or (camara or {}).get("fuente")
+
+
+def _descifrar_campo(camara, campo_cifrado) -> str | None:
+    cif = (camara or {}).get(campo_cifrado)
+    if not cif:
+        return None
+    try:
+        from src.services.seguridad import secret_manager
+        return secret_manager.descifrar(cif)
+    except Exception as e:
+        logger.debug("descifrar %s cámara: %s", campo_cifrado, e)
+        return None
+
+
+def fuente_para(camara, calidad="main") -> str | None:
+    """URL REAL de conexión para 'main' (alta resolución) o 'sub' (baja resolución), con fallback en
+    cascada: main → legacy 'fuente'; sub → main → legacy 'fuente'. Cámaras sin perfiles ONVIF (alta
+    manual, o dadas de alta antes de esta capacidad) siguen resolviendo TODO a la única URL que
+    tienen — cero regresión. Nunca se muestra ni se registra en logs (mismo criterio que
+    `fuente_efectiva`).
+
+    Cada nivel prueba PRIMERO el campo cifrado (URL con credenciales protegidas) y LUEGO el campo
+    visible en claro (`fuente_main`/`fuente_sub`, poblado igual por `actualizar_perfiles` cuando la
+    URL no llevaba credenciales que proteger — mismo criterio que `fuente_efectiva` ya aplica para
+    la legacy 'fuente'). Bug real corregido: antes solo se probaba el campo cifrado, así que un
+    perfil ONVIF SIN credenciales en la URL (el caso más común) nunca se usaba — caía siempre a la
+    URL legacy pese a tener un perfil mainstream/substream real guardado."""
+    camara = camara or {}
+    if calidad == "sub":
+        return (_descifrar_campo(camara, "fuente_sub_cifrada") or camara.get("fuente_sub")
+                or _descifrar_campo(camara, "fuente_main_cifrada") or camara.get("fuente_main")
+                or fuente_efectiva(camara))
+    return (_descifrar_campo(camara, "fuente_main_cifrada") or camara.get("fuente_main")
+            or fuente_efectiva(camara))
 
 
 def _emp(id_empresa=None):
@@ -135,6 +160,61 @@ def actualizar_fuente(id_camara, fuente, *, id_empresa=None) -> bool:
     except Exception as e:
         logger.error("actualizar_fuente(%s): %s", id_camara, e)
         return False
+
+
+def actualizar_perfiles(id_camara, *, fuente_main=None, fuente_sub=None, id_empresa=None) -> bool:
+    """Guarda los perfiles mainstream/substream extraídos por ONVIF, protegidos con el MISMO mecanismo
+    que ya protege 'fuente' (Fernet vía Secret Manager, jamás en claro). Cada perfil es opcional: solo
+    se actualiza el que venga informado (permite, p. ej., refrescar solo el substream). Exige
+    pertenencia a la empresa (aislamiento)."""
+    id_empresa = _emp(id_empresa)
+    sets, params = [], []
+    if fuente_main is not None:
+        visible, cifrada = _proteger_fuente(fuente_main)
+        sets += ["fuente_main=%s", "fuente_main_cifrada=%s"]
+        params += [visible, cifrada]
+    if fuente_sub is not None:
+        visible, cifrada = _proteger_fuente(fuente_sub)
+        sets += ["fuente_sub=%s", "fuente_sub_cifrada=%s"]
+        params += [visible, cifrada]
+    if not sets:
+        return False
+    sets.append("actualizado=NOW()")
+    params += [id_camara, id_empresa]
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(f"UPDATE camaras SET {', '.join(sets)} WHERE id=%s AND id_empresa=%s",
+                        tuple(params))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error("actualizar_perfiles(%s): %s", id_camara, e)
+        return False
+
+
+def crear_camara_onvif(nombre, host, usuario, contrasena, *, id_empresa=None, id_centro=None,
+                       tipo_centro="centro", puerto_onvif=80, puerto_rtsp=554) -> int | None:
+    """Alta asistida (wizard de descubrimiento / formulario manual con ONVIF): construye la URL RTSP
+    de respaldo con las credenciales maestras (compatibilidad total con el resto del sistema, que ya
+    sabe conectar a una única 'fuente'), y — si ONVIF responde — añade además los perfiles main/sub.
+    Degradable: si `extraer_perfiles` devuelve None (sin ONVIF, credenciales inválidas o cámara sin
+    servicio de medios), la cámara queda dada de alta igual que con el flujo manual de siempre, solo
+    con la URL de respaldo."""
+    from urllib.parse import quote
+    fuente = f"rtsp://{quote(usuario or '', safe='')}:{quote(contrasena or '', safe='')}@{host}:{int(puerto_rtsp)}/"
+    cid = crear_camara(nombre, id_empresa=id_empresa, id_centro=id_centro, tipo_centro=tipo_centro,
+                       fuente=fuente)
+    if not cid:
+        return None
+    try:
+        from src.services.camaras import descubrimiento
+        perfiles = descubrimiento.extraer_perfiles(host, usuario, contrasena, puerto_onvif=puerto_onvif)
+        if perfiles:
+            actualizar_perfiles(cid, fuente_main=perfiles.get("main"), fuente_sub=perfiles.get("sub"),
+                               id_empresa=id_empresa)
+    except Exception as e:
+        logger.debug("crear_camara_onvif(%s) perfiles: %s", nombre, e)
+    return cid
 
 
 def eliminar_camara(id_camara, *, id_empresa=None) -> bool:

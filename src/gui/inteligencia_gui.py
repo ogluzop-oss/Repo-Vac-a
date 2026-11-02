@@ -59,3 +59,21 @@ class InteligenciaWindow(QtEnterpriseWindow):
         self.registrar_pestana("Predicción", _prediccion, concepto="prediccion")
         self.registrar_pestana("Simulador", _simulador, concepto="simulador")
         self.registrar_pestana("BI Corporativo", _bi_corp, concepto="dashboard")
+
+    # Orden real de `registrar_pestana` arriba — usado solo para resolver Reglas de acceso · Pestañas.
+    _PESTANA_SLUGS = ["dashboard_ejecutivo", "centro_actividad", "gemelo_digital", "prediccion",
+                     "simulador", "bi_corporativo"]
+
+    def _montar_placeholders(self):
+        # No se toca `shell.py` (base COMPARTIDA por otras ventanas Enterprise): se deja que monte
+        # las pestañas como siempre y, ya montadas, se ocultan las que Reglas de acceso · Pestañas
+        # no conceda a este usuario — mismo criterio que Contabilidad/Tesorería/Clientes.
+        super()._montar_placeholders()
+        try:
+            from src.services.seguridad import pestanas_app
+            tiene_completo = pestanas_app.tiene_modulo_completo("bi", self.usuario, False)
+            for i, slug in enumerate(self._PESTANA_SLUGS):
+                if not pestanas_app.visible(f"bi.{slug}", self.usuario, tiene_completo):
+                    self.tabs.setTabVisible(i, False)
+        except Exception as e:
+            logger.debug("gating pestañas bi: %s", e)

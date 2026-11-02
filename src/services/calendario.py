@@ -110,6 +110,107 @@ def eventos_mes(anio, mes, *, usuario=None, id_empresa=None) -> list:
                          f"{anio}-{int(mes):02d}-{ult:02d} 23:59:59", usuario=usuario, id_empresa=id_empresa)
 
 
+# ============================================================
+# SINCRONIZACIÓN GOOGLE CALENDAR (solo LECTURA: Google → Smart Manager)
+# ============================================================
+def _fecha_google(valor: dict, *, es_fin=False) -> str | None:
+    """Convierte el objeto start/end de un evento de Google Calendar a 'YYYY-MM-DD HH:MM:SS'
+    (hora local, sin zona horaria — mismo formato que usa crear_evento). Soporta tanto eventos
+    con hora (`dateTime`, con offset de zona) como eventos de día completo (`date`)."""
+    if not valor:
+        return None
+    dt_str = valor.get("dateTime")
+    if dt_str:
+        try:
+            dt = _dt.datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                dt = dt.astimezone().replace(tzinfo=None)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+    fecha = valor.get("date")
+    if fecha:
+        return f"{fecha} {'23:59:59' if es_fin else '00:00:00'}"
+    return None
+
+
+def _upsert_google_evento(id_empresa, ref_id, titulo, inicio, fin, descripcion) -> bool:
+    """Upsert idempotente contra calendario_eventos, clave (id_empresa, ref_entidad=
+    'google_calendar', ref_id=<id de evento de Google>): si ya existe, actualiza título/fechas;
+    si no, la crea (creado_por=None para dejar claro que es importado, no creado por un humano
+    aquí). Devuelve True si se procesó sin error (creado o actualizado)."""
+    ref_id = str(ref_id)
+    try:
+        ensure_schema()
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM calendario_eventos WHERE id_empresa=%s AND ref_entidad=%s "
+                        "AND ref_id=%s", (id_empresa, "google_calendar", ref_id))
+            row = cur.fetchone()
+            if row:
+                eid = row[0] if not isinstance(row, dict) else list(row.values())[0]
+                cur.execute("UPDATE calendario_eventos SET titulo=%s, inicio=%s, fin=%s, "
+                            "descripcion=%s WHERE id=%s",
+                            (titulo, inicio, fin, descripcion, eid))
+            else:
+                cur.execute(
+                    "INSERT INTO calendario_eventos (id_empresa, titulo, tipo, inicio, fin, "
+                    "descripcion, creado_por, ref_entidad, ref_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (id_empresa, titulo, "evento", inicio, fin, descripcion, None,
+                     "google_calendar", ref_id))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error("_upsert_google_evento(%s): %s", ref_id, e)
+        return False
+
+
+def sincronizar_google(id_correo: str, *, id_empresa=None) -> tuple[int, str]:
+    """Trae los eventos de Google Calendar (API de SOLO LECTURA, scope calendar.readonly) del
+    buzón Google conectado `id_correo` y los sincroniza en calendario_eventos (upsert idempotente
+    por ref_entidad='google_calendar'/ref_id=<id del evento de Google>; reutiliza columnas ya
+    existentes, sin migración). Devuelve (nº de eventos sincronizados, mensaje para el usuario).
+
+    Honestidad: reutiliza `integraciones.calendario()` (ya auditado), que captura cualquier
+    excepción de Google y la devuelve como {"ok": False, "detalle": str(excepcion)} — si esa
+    excepción es un 403 por scope insuficiente (cuenta conectada con el scope antiguo, antes de
+    ampliar GOOGLE_SCOPES), se traduce a un mensaje honesto pidiendo reconectar, nunca un
+    traceback crudo."""
+    id_empresa = _emp(id_empresa)
+    try:
+        from src.services import integraciones
+        r = integraciones.calendario("listar", proveedor="google", cuenta=id_correo)
+    except Exception as e:
+        logger.error("sincronizar_google: %s", e)
+        return 0, f"No se pudo sincronizar con Google Calendar: {e}"
+    if not r.get("ok"):
+        detalle = r.get("detalle") or ""
+        try:
+            from src.services.correo.servicio import _mensaje_si_scope_insuficiente
+            msg_scope = _mensaje_si_scope_insuficiente(detalle)
+        except Exception:
+            msg_scope = None
+        if msg_scope:
+            logger.warning("sincronizar_google: scope insuficiente para %s", id_correo)
+            return 0, msg_scope
+        if r.get("estado") == "no_configurado":
+            return 0, "La cuenta de Google no está conectada. Conéctala en Correo → Buzones."
+        return 0, f"No se pudo sincronizar con Google Calendar: {detalle or r.get('estado')}"
+    n = 0
+    for ev in (r.get("eventos") or []):
+        gid = ev.get("id")
+        if not gid:
+            continue
+        inicio = _fecha_google(ev.get("start") or {})
+        if inicio is None:
+            continue
+        fin = _fecha_google(ev.get("end") or {}, es_fin=True) or inicio
+        titulo = ev.get("summary") or "(Sin título)"
+        if _upsert_google_evento(id_empresa, gid, titulo, inicio, fin, ev.get("description")):
+            n += 1
+    _audit("CALENDARIO_SYNC_GOOGLE", f"{id_correo}: {n} evento(s)")
+    return n, f"{n} evento(s) sincronizado(s) desde Google Calendar."
+
+
 def _audit(accion, detalle):
     try:
         from src.db.conexion import log_auditoria

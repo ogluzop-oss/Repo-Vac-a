@@ -40,7 +40,7 @@ class ChannelAdapter(ABC):
 
     # ── Contrato (lo ÚNICO que publica el adaptador; la plataforma lo registra) ──
     def contrato(self):
-        from src.platform.contracts import ServiceContract
+        from src.plataforma.contracts import ServiceContract
         return ServiceContract(
             nombre=f"cd_canal_{self.canal}", version=self.version,
             descripcion=f"Adaptador de canal {self.canal} (traducción pura, sin lógica de negocio)",

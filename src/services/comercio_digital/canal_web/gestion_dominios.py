@@ -37,7 +37,7 @@ def _puede(usuario, permiso, emp):
 
 def _evento(tipo, emp, payload=None):
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         eb = cap.eventbus()
         if eb is not None:
             eb.publish(tipo, id_empresa=emp, ref_entidad="canal_web", ref_id=emp, payload=payload or {})

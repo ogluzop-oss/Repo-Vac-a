@@ -18,7 +18,17 @@ logger = logging.getLogger("api_publica.developer")
 # Scopes disponibles para terceros (mínimo privilegio; alineados con la REST/GraphQL).
 SCOPES_DISPONIBLES = ("read:communications", "write:communications", "read:orders", "write:orders",
                       "read:customers", "read:suppliers", "read:stock", "read:invoices",
-                      "read:workflow", "write:workflow", "read:kpis")
+                      "read:workflow", "write:workflow", "read:kpis",
+                      # Servidor central de licencias (Fase 2, ver plan): cada instalación de
+                      # escritorio es una "app" M2M con este único scope, sin acceso a nada más.
+                      "licencia:verificar",
+                      # Conector MCP (Model Context Protocol) de SOMA (ver src/mcp_server/): un
+                      # cliente MCP (Claude/ChatGPT remote connector) registrado vía Dynamic Client
+                      # Registration (RFC 7591) es, a efectos de identidad de CLIENTE, una app más de
+                      # esta misma tabla — reutilizada, no duplicada. La AUTORIZACIÓN real de cada
+                      # llamada sigue viniendo del JWT humano emitido en el canje OAuth, no de este
+                      # scope (que solo marca "esta app es un conector MCP").
+                      "mcp")
 
 
 def _hash(secret) -> str:

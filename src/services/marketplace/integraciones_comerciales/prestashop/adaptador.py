@@ -214,8 +214,27 @@ class PrestaShopAdapter(_PrestaPreparado):
                 continue
             cliente = {"nombre": (o.get("customer_name") or f"Cliente {o.get('id_customer') or 'Web'}"),
                        "email": o.get("email"), "telefono": None}
+            # Dirección de envío: el webservice de PrestaShop NO la incluye en el propio pedido
+            # (solo `id_address_delivery`) — una consulta adicional al recurso `addresses`, mismo
+            # patrón ya usado en este adaptador (`_req` reutilizado, nunca rompe la importación si
+            # falla: degrada a sin preferencia de cercanía, como el resto de fallos aquí).
+            cp, direccion_envio = None, ""
+            id_addr = o.get("id_address_delivery")
+            if id_addr:
+                try:
+                    data = self._req("GET", f"addresses/{id_addr}", id_empresa, params={"display": "full"})
+                    addr = data.get("address", {}) if isinstance(data, dict) else {}
+                    if isinstance(addr, list):
+                        addr = addr[0] if addr else {}
+                    cp = addr.get("postcode")
+                    direccion_envio = ", ".join(str(x) for x in (
+                        addr.get("address1"), addr.get("address2"), addr.get("city"), cp,
+                        addr.get("country")) if x)
+                except Exception as e:
+                    logger.debug("direccion presta %s: %s", id_addr, e)
             try:
-                OS.crear_pedido_online(cliente, lineas, plataforma="prestashop", referencia_externa=ref)
+                OS.crear_pedido_canal_externo(cliente, lineas, plataforma="prestashop", referencia_externa=ref,
+                                              direccion_envio=direccion_envio, cp_cliente=cp)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido presta %s: %s", ref, e)

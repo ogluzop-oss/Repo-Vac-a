@@ -12,8 +12,8 @@ import os
 
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import (QGridLayout, QLabel, QLineEdit, QScrollArea, QToolButton,
-                             QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QLineEdit, QScrollArea,
+                             QToolButton, QVBoxLayout, QWidget)
 
 from src.utils.i18n import tr
 
@@ -87,6 +87,13 @@ class SelectorPerfilWindow(QWidget):
         root.setContentsMargins(40, 34, 40, 34)
         root.setSpacing(18)
 
+        # ── Barra superior: cerrar app (esquina superior derecha) ──
+        top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(0, 0, 0, 0)
+        top_bar.addStretch(1)
+        top_bar.addWidget(self._build_btn_cerrar_app())
+        root.addLayout(top_bar)
+
         # Logo corporativo (si existe) + título.
         try:
             from src.gui.login import _resolver_logo
@@ -110,8 +117,9 @@ class SelectorPerfilWindow(QWidget):
         root.addWidget(self._lbl_titulo)
 
         # Buscador por nombre.
+        fila_busq = QHBoxLayout(); fila_busq.setSpacing(8)
         self.buscador = QLineEdit()
-        self.buscador.setPlaceholderText(tr("selector.search_ph", default="Buscar empleado por nombre…"))
+        self.buscador.setPlaceholderText(tr("selector.search_ph", default="🔍 Buscar empleado por nombre…"))
         self.buscador.setFixedHeight(46)
         self.buscador.setFont(QFont("Segoe UI", 11))
         self.buscador.setStyleSheet(
@@ -119,7 +127,13 @@ class SelectorPerfilWindow(QWidget):
             f"border-radius:12px;padding:6px 16px;font-family:'Segoe UI';}}"
             f"QLineEdit:focus{{border:2px solid #00E6B2;background:#1A2230;}}")
         self.buscador.textChanged.connect(lambda _t: self._reflow())
-        root.addWidget(self.buscador)
+        self.buscador.returnPressed.connect(self._reflow)
+        fila_busq.addWidget(self.buscador, 1)
+        from src.gui.catalogo_gestion import _btn as _btn_lupa
+        btn_buscar = _btn_lupa("🔍", self._reflow, primary=True)
+        btn_buscar.setFixedHeight(46)
+        fila_busq.addWidget(btn_buscar)
+        root.addLayout(fila_busq)
 
         # Área con scroll (scrollbar del diseño global) + rejilla de botones.
         try:
@@ -146,6 +160,25 @@ class SelectorPerfilWindow(QWidget):
         self.lbl_vacio.setStyleSheet(f"color:{_DIM};font-size:14px;background:transparent;")
         self.lbl_vacio.setVisible(False)
         root.addWidget(self.lbl_vacio)
+
+    def _build_btn_cerrar_app(self):
+        """Botón «✕» (esquina superior derecha, mismo diseño que el resto de la app —
+        `catalogo_gestion._btn_x`) para cerrar Smart Manager por completo desde el selector de
+        perfil, con confirmación."""
+        from src.gui.catalogo_gestion import _btn_x
+        btn = _btn_x(self._confirmar_cerrar_app)
+        btn.setToolTip(tr("selector.cerrar_app", default="Cerrar Smart Manager"))
+        return btn
+
+    def _confirmar_cerrar_app(self):
+        from assets.estilo_global import mostrar_confirmacion
+        if mostrar_confirmacion(
+            self,
+            tr("selector.cerrar_app_titulo", default="Cerrar Smart Manager"),
+            tr("selector.cerrar_app_mensaje",
+               default="¿Seguro que quieres cerrar Smart Manager?"),
+        ):
+            self.window().close()
 
     def _crear_boton(self, nombre):
         b = _PerfilBoton(self._icono, self._icono_hover)
@@ -243,5 +276,5 @@ class SelectorPerfilWindow(QWidget):
 
     def _retraducir(self, *_):
         self._lbl_titulo.setText(tr("selector.title", default="SELECCIONA TU PERFIL"))
-        self.buscador.setPlaceholderText(tr("selector.search_ph", default="Buscar empleado por nombre…"))
+        self.buscador.setPlaceholderText(tr("selector.search_ph", default="🔍 Buscar empleado por nombre…"))
         self._reflow()

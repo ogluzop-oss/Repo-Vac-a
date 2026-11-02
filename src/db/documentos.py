@@ -18,7 +18,6 @@ API:
     contar_por_tipo()                      → contadores de la barra lateral
 """
 
-import hashlib
 import logging
 import os
 import uuid
@@ -39,17 +38,47 @@ TIPOS = {
     "factura":    "doc.tipo_factura",
     "factura_rect": "doc.tipo_factura_rect",
     "ticket":     "doc.tipo_ticket",
+    "caja_registradora": "doc.tipo_caja_registradora",
+    "caja_fuerte": "doc.tipo_caja_fuerte",
+    "cambio_cajero": "doc.tipo_cambio_cajero",
+    "transferencia_efectivo": "doc.tipo_transferencia_efectivo",
     "albaran":    "doc.tipo_albaran",
     "pedido":     "doc.tipo_pedido",
+    "presupuesto": "doc.tipo_presupuesto",
+    "cierre_ejercicio": "doc.tipo_cierre_ejercicio",
+    "informe_anual": "doc.tipo_informe_anual",
+    "cuentas_anuales": "doc.tipo_cuentas_anuales",
+    # NUEVO (unificación del cierre anual, ver `services/contabilidad/cierre_anual_pdf.py`): el
+    # único documento que genera `_cerrar()` desde ahora, fusionando lo que antes eran tres PDFs
+    # separados (cierre_ejercicio/informe_anual/cuentas_anuales). Esos tres tipos SIGUEN
+    # whitelisteados arriba para los documentos históricos ya generados (y "informe_anual" lo
+    # sigue creando bajo demanda el visor interactivo `gui/informe_anual_gui.py`) — no se tocan.
+    "cierre_anual_completo": "doc.tipo_cierre_anual_completo",
     "traspaso":   "doc.tipo_traspaso",
     "recepcion":  "doc.tipo_recepcion",
     "merma":      "doc.tipo_merma",
+    "mantenimiento": "doc.tipo_mantenimiento",
+    "inspeccion": "doc.tipo_inspeccion",
+    "intervencion": "doc.tipo_intervencion",
+    "reparto":    "doc.tipo_reparto",
+    "produccion": "doc.tipo_produccion",
     "informe":    "doc.tipo_informe",
     "exportacion": "doc.tipo_exportacion",
     "certificado": "doc.tipo_certificado",
     "rrhh":       "doc.tipo_rrhh",
+    "nomina":     "doc.tipo_nomina",
+    "finiquito":  "doc.tipo_finiquito",
+    "modelo145":  "doc.tipo_modelo145",
+    "certificado_empresa": "doc.tipo_certificado_empresa",
+    "certificado_laboral": "doc.tipo_certificado_laboral",
+    "carta_despido": "doc.tipo_carta_despido",
+    "periodo_prueba": "doc.tipo_periodo_prueba",
+    "etiqueta":   "doc.tipo_etiqueta",
+    "fiscal":     "doc.tipo_fiscal",
     "auditoria":  "doc.tipo_auditoria",
     "grabacion":  "doc.tipo_grabacion",
+    "devolucion": "doc.tipo_devolucion",
+    "incidencia": "doc.tipo_incidencia",
     "otros":      "doc.tipo_otros",
 }
 
@@ -63,7 +92,7 @@ _CARPETA_TIPO = {
     "certificados": "certificado", "rrhh": "rrhh", "nominas": "rrhh",
     "nóminas": "rrhh", "exportaciones": "exportacion", "excel": "exportacion",
     "grabaciones": "grabacion",
-    "etiquetas": "otros", "stocks": "informe", "qr ubicaciones": "otros",
+    "etiquetas": "etiqueta", "stocks": "informe", "qr ubicaciones": "otros",
     "historial": "otros",
 }
 
@@ -81,14 +110,11 @@ def _dir_documentos() -> str:
 
 
 def _hash_fichero(ruta: str) -> str | None:
-    try:
-        h = hashlib.sha256()
-        with open(ruta, "rb") as f:
-            for bloque in iter(lambda: f.read(65536), b""):
-                h.update(bloque)
-        return h.hexdigest()
-    except Exception:
-        return None
+    """SHA-256 del contenido EN CLARO (descifra primero si el fichero está cifrado en reposo —
+    "repositorio cifrado" de nóminas/certificados). Delegado a `utils.cripto` (chokepoint único,
+    compartido con `rrhh.firma_servicio._hash_fichero` — antes dos copias idénticas)."""
+    from src.utils import cripto
+    return cripto.hash_sha256_archivo(ruta)
 
 
 def _ctx():
@@ -174,8 +200,12 @@ def registrar_documento(ruta: str, tipo: str = "otros", nombre: str | None = Non
         # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
         try:
             from src.services import eventos as _EV
+            # `origen="documentos:<tipo>"` (no solo "documentos" fijo): `registrar_documento` es
+            # compartida por ~36 pantallas distintas, pero el `tipo` que cada una ya pasa
+            # (nomina/merma/etiqueta/factura/...) SI distingue de forma fiable el origen real, sin
+            # tener que tocar cada uno de los ~36 llamadores.
             _EV.publicar("DOCUMENTO_PUBLICADO", id_empresa=id_empresa, id_tienda=id_tienda,
-                         origen="documentos", ref_entidad="documento", ref_id=nuevo_id,
+                         origen=f"documentos:{tipo}", ref_entidad="documento", ref_id=nuevo_id,
                          payload={"tipo": tipo, "nombre": nombre, "referencia": referencia})
         except Exception:
             pass
@@ -188,10 +218,23 @@ def registrar_documento(ruta: str, tipo: str = "otros", nombre: str | None = Non
 def listar_documentos(tipo=None, id_empresa=None, id_tienda=None, fecha_desde=None,
                       fecha_hasta=None, usuario=None, cliente=None, trabajador=None,
                       referencia=None, texto=None, limite=2000) -> list[dict]:
-    """Lista documentos del registro aplicando filtros. Orden: más recientes primero."""
-    filtros, params = [], []
+    """Lista documentos del registro aplicando filtros. Orden: más recientes primero.
+
+    `tipo` acepta un valor único o una lista/tupla (categorías agrupadas, p. ej. "RRHH"
+    reúne nomina/finiquito/modelo145/certificado_empresa/...). Los documentos de tipo
+    'ticket' (tickets de compra del TPV) se EXCLUYEN siempre, se pida o no ese filtro:
+    tienen su propio buscador dedicado en el TPV ("Buscar/Reimprimir Ticket") y nunca
+    deben aparecer en el Centro Documental ni en ningún consumidor de este índice
+    (búsqueda global, IA/SOMA, deduplicación...)."""
+    filtros, params = ["tipo_documento<>%s"], ["ticket"]
     if tipo:
-        filtros.append("tipo_documento=%s"); params.append(tipo)
+        if isinstance(tipo, (list, tuple, set, frozenset)):
+            tipos = [t for t in tipo if t]
+            if tipos:
+                filtros.append(f"tipo_documento IN ({','.join(['%s'] * len(tipos))})")
+                params.extend(tipos)
+        else:
+            filtros.append("tipo_documento=%s"); params.append(tipo)
     if id_empresa:
         filtros.append("id_empresa=%s"); params.append(id_empresa)
     if id_tienda not in (None, ""):
@@ -232,6 +275,24 @@ def buscar_documentos(texto: str, id_empresa=None) -> list[dict]:
     return listar_documentos(texto=texto, id_empresa=id_empresa)
 
 
+def obtener_por_referencia(referencia: str, id_empresa=None) -> dict | None:
+    """El documento (más reciente) enlazado a una `referencia` exacta — p. ej. la foto de evidencia
+    de una merma, enlazada como `referencia=f"MERMA:{id_merma}"` (ver `api/routers/losses.py`)."""
+    try:
+        ensure_schema()
+        ctx_emp, _, _, _ = _ctx()
+        emp = id_empresa or ctx_emp
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM documentos_registro WHERE referencia=%s AND id_empresa=%s "
+                "ORDER BY fecha_generacion DESC LIMIT 1",
+                (referencia, emp))
+            return _fila_a_dict(cur, cur.fetchone())
+    except Exception as e:
+        logger.error("Error obtener_por_referencia(%s): %s", referencia, e)
+        return None
+
+
 def obtener_documento(id_documento: str) -> dict | None:
     try:
         ensure_schema()
@@ -265,11 +326,12 @@ def eliminar_documento(id_documento: str, borrar_fichero: bool = False) -> bool:
 
 
 def contar_por_tipo(id_empresa=None) -> dict:
-    """{tipo: nº documentos} para los contadores de la barra lateral."""
+    """{tipo: nº documentos} para los contadores de la barra lateral. 'ticket' se excluye
+    siempre (mismo criterio que `listar_documentos`): no tiene pestaña ni debe contar."""
     out = {t: 0 for t in TIPOS}
-    where, params = "", []
+    where, params = " WHERE tipo_documento<>%s", ["ticket"]
     if id_empresa:
-        where = " WHERE id_empresa=%s"; params.append(id_empresa)
+        where += " AND id_empresa=%s"; params.append(id_empresa)
     try:
         ensure_schema()
         with obtener_conexion() as conn, conn.cursor() as cur:

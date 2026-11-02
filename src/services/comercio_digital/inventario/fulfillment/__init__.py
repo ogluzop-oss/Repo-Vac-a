@@ -55,7 +55,7 @@ def _resolver_estrategia(estrategia, id_empresa, contexto):
     if contexto and contexto.get("estrategia"):
         return contexto["estrategia"]
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         rules = cap.rules()
         if rules is not None and hasattr(rules, "estrategia_sourcing"):
             e = rules.estrategia_sourcing(id_empresa=id_empresa)
@@ -72,7 +72,7 @@ def _reglas_aplicadas(estrategia, id_empresa, contexto):
     if contexto and contexto.get("prioridad"):
         aplicadas.append(f"prioridad:{contexto['prioridad']}")
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         rules = cap.rules()
         if rules is not None and hasattr(rules, "reglas_sourcing"):
             aplicadas += list(rules.reglas_sourcing(id_empresa=id_empresa) or [])

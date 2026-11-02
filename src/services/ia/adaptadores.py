@@ -103,8 +103,9 @@ def kpis(id_empresa=None, *, periodo="mes") -> dict:
 def articulos_bajo_umbral(id_empresa=None) -> list:
     """Articulos por debajo del umbral de reposicion con stock en almacen (misma condicion que
     el Informe de Reposicion)."""
+    emp = _emp(id_empresa)
     filas = _q("SELECT codigo, nombre, COALESCE(Stock_total,0) alm, COALESCE(Stock_tienda,0) tie, "
-               "COALESCE(Stock_esperado,0) esp FROM articulos", id_empresa=id_empresa)
+               "COALESCE(Stock_esperado,0) esp FROM articulos WHERE id_empresa=%s", (emp,), id_empresa=emp)
     out = []
     for f in filas:
         alm, tie, esp = int(f.get("alm") or 0), int(f.get("tie") or 0), int(f.get("esp") or 0)
@@ -117,8 +118,9 @@ def articulos_bajo_umbral(id_empresa=None) -> list:
 
 def articulos_exceso(id_empresa=None) -> list:
     """Articulos con exceso claro sobre el objetivo (riesgo de sobre-stock)."""
+    emp = _emp(id_empresa)
     filas = _q("SELECT codigo, nombre, COALESCE(Stock_tienda,0) tie, COALESCE(Stock_esperado,0) esp "
-               "FROM articulos", id_empresa=id_empresa)
+               "FROM articulos WHERE id_empresa=%s", (emp,), id_empresa=emp)
     out = []
     for f in filas:
         tie, esp = int(f.get("tie") or 0), int(f.get("esp") or 0)
@@ -143,11 +145,36 @@ def mermas_recientes(id_empresa=None, *, dias=30) -> list:
               (emp, int(dias)), id_empresa=emp)
 
 
+# ── CRM (Fase de cierre de brecha IA↔CRM) ─────────────────────────────────────
+def crm_resumen(id_empresa=None) -> dict:
+    """Resumen CRM real (leads/pipeline/conversión/forecast/churn), reutilizando
+    `services.crm.analitica.kpis` — no duplica el cálculo. Antes la IA solo veía actividad de
+    compra agregada desde `ventas`, nunca las tablas propias del CRM."""
+    try:
+        from src.services.crm import analitica as _crm
+        return _crm.kpis(id_empresa=_emp(id_empresa))
+    except Exception as e:
+        logger.debug("crm_resumen: %s", e)
+        return {}
+
+
 # ── Documentos / facturacion / RRHH / licencias (best-effort) ─────────────────
 def facturas_pendientes(id_empresa=None) -> list:
     emp = _emp(id_empresa)
     return _q("SELECT * FROM facturas_cliente WHERE id_empresa=%s "
               "AND estado IN ('pendiente','emitida','impagada') LIMIT 200", (emp,), id_empresa=emp)
+
+
+def facturacion_resumen(id_empresa=None) -> dict:
+    """Resumen de facturación (facturación del período, MRR/ARR, impagos/morosidad), reutilizando
+    `services.facturacion.analitica.resumen` — no duplica el cálculo. Más rico que
+    `facturas_pendientes` (que se mantiene tal cual para no romper a quien ya la usa)."""
+    try:
+        from src.services.facturacion import analitica as _fact
+        return _fact.resumen(id_empresa=_emp(id_empresa))
+    except Exception as e:
+        logger.debug("facturacion_resumen: %s", e)
+        return {}
 
 
 def contratos_por_vencer(id_empresa=None, *, dias=30) -> list:

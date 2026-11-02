@@ -22,6 +22,19 @@ from PyQt6.QtWidgets import (  # noqa: F401
 
 from src.utils.i18n import tr  # noqa: F401
 
+# Anexos/documentos complementarios del contrato (petición explícita): se renderizan DENTRO del
+# PDF del contrato (no como ficheros aparte) y, además, cada uno se da de alta como documento
+# FIRMABLE independiente en el expediente (`rrhh_documentos` + `firma_servicio`), para que el
+# empleado los acepte/firme uno a uno desde "Expediente y Firma Digital" — ver
+# `gui/gestion_usuarios.py::_generar_pdf` (recogida + alta de firmables) y
+# `rrhh/documents/render/render_contrato.py` (sección "ANEXOS Y DOCUMENTOS COMPLEMENTARIOS").
+# (etiqueta mostrada en el formulario/PDF, tipo_doc de `rrhh_documentos`)
+ANEXOS_CONTRATO_TIPOS = (
+    ("Anexo de condiciones específicas del contrato", "anexo_contrato"),
+    ("Política interna de seguridad de la información", "politica_seguridad"),
+    ("Recepción de equipos de prevención de riesgos laborales (PRL)", "recepcion_prl"),
+)
+
 
 class WizardFormsRRHHMixin:
     """Constructores de formularios RRHH (verbatim). Se mezcla en _WizardDocumentoFiscal."""
@@ -249,6 +262,16 @@ class WizardFormsRRHHMixin:
         for clause_txt in _clauses:
             cb_check = self._mk_check(clause_txt); cb_check.setChecked(True)
             il.addWidget(cb_check); self._checks_adicionales.append((clause_txt, cb_check))
+
+        il.addWidget(self._sep_lbl("ANEXOS Y DOCUMENTOS COMPLEMENTARIOS"))
+        il.addWidget(self._lbl_s(
+            "Se incluyen dentro del propio contrato generado y, además, quedan dados de alta como "
+            "documentos firmables independientes en el expediente del empleado (ver Firma Digital)."))
+        self._checks_anexos = []
+        for anexo_txt, _tipo_doc in ANEXOS_CONTRATO_TIPOS:
+            cb_anexo = self._mk_check(anexo_txt); cb_anexo.setChecked(True)
+            il.addWidget(cb_anexo); self._checks_anexos.append((anexo_txt, cb_anexo))
+
         self._p2_obs(il); il.addStretch()
         scroll.setWidget(inner); self._card_ly.addWidget(scroll, 1); self._p2_nav()
 

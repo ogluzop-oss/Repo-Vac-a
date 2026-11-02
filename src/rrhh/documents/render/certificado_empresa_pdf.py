@@ -84,4 +84,7 @@ def generar_certificado_empresa_pdf(datos: dict, ruta: str = None) -> str:
                                        str(datos.get("razon_social") or "—"))]),
     ]
     doc.build(story)
+    # "Repositorio cifrado" (petición explícita) — ver nomina_pdf.py para el detalle del criterio.
+    from src.utils import cripto
+    cripto.cifrar_archivo_en_disco(ruta)
     return ruta

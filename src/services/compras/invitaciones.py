@@ -74,13 +74,18 @@ def _enviar_email_invitacion(id_empresa, email, token, *, usuario=None):
         from src.services import ccp
         import os
         base = os.getenv("PORTAL_PROVEEDOR_URL", "http://localhost:8090/portal/proveedor")
-        enlace = f"{base}/onboarding/{token}"
+        # Apunta al login (con contexto de la invitación), no directo al alta: el enlace es
+        # PERMANENTE y siempre debe llevar al login, tanto la primera vez (donde el login ofrece
+        # el enlace a completar el alta) como en visitas posteriores (donde ya solo sirve para
+        # entrar con email+contraseña) — ver `resolver_token` y `portal_proveedor.pagina_acceso`.
+        enlace = f"{base}/acceso/{token}"
         r = ccp.enviar_comunicacion(
             id_empresa=id_empresa, destinatario=email,
             asunto="Invitación al Portal de Proveedores de Smart Manager",
             cuerpo=(f"Has sido invitado a darte de alta como proveedor.\n\n"
-                   f"Completa tu registro en: {enlace}\n\n"
-                   f"Este enlace caduca en {DIAS_VALIDEZ} días."),
+                   f"Accede aquí: {enlace}\n\n"
+                   f"Este enlace no caduca: puedes usarlo cuando quieras, tanto para completar tu "
+                   f"registro como, más adelante, para iniciar sesión."),
             contexto="compras.invitacion_proveedor", usuario=usuario)
         if not getattr(r, "ok", True):
             logger.warning("_enviar_email_invitacion(%s): no se pudo enviar (%s) — la invitación "
@@ -91,23 +96,19 @@ def _enviar_email_invitacion(id_empresa, email, token, *, usuario=None):
 
 
 def resolver_token(token: str) -> dict | None:
-    """Devuelve la invitación si el token es válido (pendiente, no caducado). None en caso contrario —
-    nunca distingue el motivo exacto en la respuesta pública (no dar pistas de enumeración)."""
+    """Devuelve la invitación si el token existe. El enlace es PERMANENTE y reutilizable: no caduca
+    (`expira` deja de comprobarse) y resuelve sin importar el `estado` (pendiente/usado/revocado) —
+    `estado`/`usado_en` (ver `marcar_usado`) quedan como registro histórico para el panel de la
+    empresa, nunca como motivo de rechazo aquí; el rechazo solo ocurre si el token no existe. None en
+    ese caso — nunca distingue el motivo exacto en la respuesta pública (no dar pistas de
+    enumeración)."""
     if not token:
         return None
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM invitaciones_proveedor WHERE token=%s", (token,))
             row = cur.fetchone()
-            inv = _fila(cur, row) if row else None
-        if not inv or inv.get("estado") != "pendiente":
-            return None
-        expira = inv.get("expira")
-        if expira and isinstance(expira, str):
-            expira = datetime.fromisoformat(expira[:19])
-        if expira and expira < datetime.now():
-            return None
-        return inv
+            return _fila(cur, row) if row else None
     except Exception as e:
         logger.error("resolver_token: %s", e)
         return None

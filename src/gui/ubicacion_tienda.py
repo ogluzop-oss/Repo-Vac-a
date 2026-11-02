@@ -6,7 +6,6 @@ import shutil
 import zlib
 from datetime import datetime
 
-import cv2
 import numpy as np
 import qrcode
 from PyQt6.QtCore import QDateTime, QEvent, QLineF, QPointF, Qt, QTimer
@@ -50,7 +49,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from pyzbar import pyzbar
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
@@ -61,10 +59,10 @@ from src.utils import i18n
 from src.utils.i18n import tr
 
 try:
-    from assets.estilo_global import aplicar_estilo_widget, construir_plantilla_camara
+    from assets.estilo_global import _blindar_tamano_fijo, aplicar_estilo_widget
 except Exception:
     aplicar_estilo_widget = None
-    construir_plantilla_camara = None
+    _blindar_tamano_fijo = None
 
 
 class _NeonZoomBtn(QPushButton):
@@ -127,12 +125,16 @@ class UbicacionTiendaWindow(QMainWindow):
         self._opciones_destino_busqueda = []
         self._articulo_busqueda_actual = {}
 
-        # Lector RFID (Zebra FX/RFD). DEGRADABLE: modo simulado si no hay hardware. Antes no se
-        # instanciaba nunca, así que escribir_tag se saltaba y el rastreo iba en simulación pura;
-        # ahora el gateway existe y enruta escritura de tag + lectura de RSSI (real o simulada).
+        # Lector RFID (Zebra FX/RFD). DEGRADABLE: lee la config real (IP/puerto/modo) de
+        # `db.rfid_hardware` para la empresa + centro ACTIVOS — antes `modo_simulado=True` estaba
+        # hardcodeado aquí sin ninguna forma de apuntar a hardware físico; ahora
+        # `services.rfid.hardware.resolver_gateway` decide, y cae a simulado automáticamente si no
+        # hay ninguna config guardada (nunca intenta una IP a ciegas).
         try:
-            from src.utils.rfid_gateway import LectorZebraGateway
-            self.lector_rfid = LectorZebraGateway(modo_simulado=True)
+            from src.db.empresa import empresa_actual_id
+            from src.db.tiendas import codigo_tienda_actual
+            from src.services.rfid.hardware import resolver_gateway
+            self.lector_rfid = resolver_gateway(empresa_actual_id(), codigo_tienda_actual())
         except Exception:
             self.lector_rfid = None
 
@@ -1048,6 +1050,11 @@ class UbicacionTiendaWindow(QMainWindow):
                 font-family: 'Segoe UI';
                 font-weight: 900;
             }
+            QComboBox::drop-down {
+                border: none;
+                width: 22px;
+                background: transparent;
+            }
             QComboBox QAbstractItemView {
                 background-color: #0D1117;
                 color: #E6EDF3;
@@ -1063,7 +1070,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         fila = QHBoxLayout()
         btn_cancelar = QPushButton(tr("ubic.cancel", default="CANCELAR"))
-        btn_confirmar = QPushButton(tr("ubic.continue", default="CONTINUAR"))
+        btn_confirmar = QPushButton(tr("ubic.continue", default="Continuar"))
         for boton, color in [(btn_cancelar, "#8B949E"), (btn_confirmar, "#00F5FF")]:
             boton.setCursor(Qt.CursorShape.PointingHandCursor)
             boton.setFont(self._crear_fuente_segoe(10))
@@ -1519,6 +1526,11 @@ class UbicacionTiendaWindow(QMainWindow):
                 color: white;
                 padding: 5px;
             }
+            QComboBox::drop-down {
+                border: none;
+                width: 22px;
+                background: transparent;
+            }
             QStatusBar {
                 background-color: #0D1117;
                 color: #00FFC6;
@@ -1552,11 +1564,12 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt_sidebar.addWidget(lbl_modulo)
 
         # Botones de navegación
-        self.btn_nav_lineal = QPushButton(tr("ubic.nav_lineal", default="ASIGNAR UBICACIÓN LINEAL"))
-        self.btn_nav_almacen = QPushButton(tr("ubic.nav_almacen", default="ASIGNAR UBICACIÓN ALMACÉN"))
-        self.btn_nav_busqueda = QPushButton(tr("ubic.nav_busqueda", default="BUSCAR PRODUCTO"))
-        self.btn_nav_gps = QPushButton(tr("ubic.nav_gps", default="GPS INTERNO"))
-        self.btn_nav_admin = QPushButton(tr("ubic.nav_admin", default="GESTIÓN ESTRUCTURA"))
+        self.btn_nav_lineal = QPushButton(tr("ubic.nav_lineal", default="ASIGNAR UBICACIÓN LINEAL").upper())
+        self.btn_nav_almacen = QPushButton(tr("ubic.nav_almacen", default="ASIGNAR UBICACIÓN ALMACÉN").upper())
+        self.btn_nav_busqueda = QPushButton(tr("ubic.nav_busqueda", default="BUSCAR PRODUCTO").upper())
+        self.btn_nav_gps = QPushButton(tr("ubic.nav_gps", default="GPS INTERNO").upper())
+        self.btn_nav_admin = QPushButton(tr("ubic.nav_admin", default="GESTIÓN ESTRUCTURA").upper())
+        self.btn_nav_rfid = QPushButton(tr("ubic.nav_rfid", default="RFID").upper())
 
         self.menu_botones = [
             self.btn_nav_lineal,
@@ -1564,6 +1577,7 @@ class UbicacionTiendaWindow(QMainWindow):
             self.btn_nav_busqueda,
             self.btn_nav_gps,
             self.btn_nav_admin,
+            self.btn_nav_rfid,
         ]
 
         for btn in self.menu_botones:
@@ -1582,11 +1596,27 @@ class UbicacionTiendaWindow(QMainWindow):
             if isinstance(self.usuario_actual, dict)
             else getattr(self.usuario_actual, "perfil", "OPERARIO")
         )
-        self.btn_nav_admin.setVisible(perfil in ["ADMINISTRADOR"])
+        # Normaliza usuario_actual (dict u objeto) a dict, para Seguridad · Reglas de acceso ·
+        # Pestañas (una regla ACL explícita puede conceder/denegar estas 2 secciones por usuario).
+        if isinstance(self.usuario_actual, dict):
+            _u_dict = dict(self.usuario_actual); _u_dict.setdefault("perfil", perfil)
+        else:
+            _u_dict = {"id": getattr(self.usuario_actual, "id", None), "perfil": perfil,
+                      "id_empresa": getattr(self.usuario_actual, "id_empresa", None)}
+        from src.services.seguridad import pestanas_app
+        self.btn_nav_admin.setVisible(pestanas_app.visible(
+            "ubicacion.gestion_estructura", _u_dict, perfil in ["ADMINISTRADOR"]))
+        self.btn_nav_gps.setVisible(pestanas_app.visible("ubicacion.gps_interno", _u_dict, True))
+        self.btn_nav_rfid.setVisible(pestanas_app.visible("ubicacion.rfid", _u_dict, True))
+        # OPERARIO: solo Buscar producto y GPS interno (iniciar rutas) — Asignar ubicación
+        # (lineal/almacén) y Gestión estructura son de gestión, ADMINISTRADOR/SUPERADMIN.
+        if perfil == "OPERARIO":
+            self.btn_nav_lineal.setVisible(False)
+            self.btn_nav_almacen.setVisible(False)
 
         lyt_sidebar.addStretch()
 
-        self.btn_volver = QPushButton(tr("ubic.exit", default="SALIR AL MENÚ"))
+        self.btn_volver = QPushButton(tr("ubic.exit", default="SALIR").upper())
         self.btn_volver.setObjectName("btn_sidebar_exit")
         self.btn_volver.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_volver.setFixedHeight(55)
@@ -1604,6 +1634,7 @@ class UbicacionTiendaWindow(QMainWindow):
         self.stack.addWidget(self.crear_vista_busqueda())  # Index 2
         self.stack.addWidget(self.crear_vista_gps())  # Index 3
         self.stack.addWidget(self.crear_vista_gestion_estructura())  # Index 4
+        self.stack.addWidget(self.crear_vista_rfid())  # Index 5
         # La vista inicial (índice 0) es LINEAL: fijar sus widgets como activos (ver _activar_assign_view).
         self._activar_assign_view("LINEAL")
 
@@ -1624,8 +1655,12 @@ class UbicacionTiendaWindow(QMainWindow):
         self._scroll_vistas.setWidget(self.stack)
         self.main_layout.addWidget(self._scroll_vistas)
 
-        # Estado inicial
-        self.btn_nav_lineal.setChecked(True)
+        # Estado inicial (OPERARIO no ve Lineal/Almacén → arranca en Buscar producto)
+        if perfil == "OPERARIO":
+            self.btn_nav_busqueda.setChecked(True)
+            self.stack.setCurrentIndex(2)
+        else:
+            self.btn_nav_lineal.setChecked(True)
         self._aplicar_fuente_segoe(container)
         self._actualizar_labels_planta()
         i18n.conectar_retraduccion(self, self._retraducir_ubic)
@@ -1639,7 +1674,7 @@ class UbicacionTiendaWindow(QMainWindow):
         self.btn_nav_busqueda.setText(tr("ubic.nav_busqueda", default="BUSCAR PRODUCTO"))
         self.btn_nav_gps.setText(tr("ubic.nav_gps", default="GPS INTERNO"))
         self.btn_nav_admin.setText(tr("ubic.nav_admin", default="GESTIÓN ESTRUCTURA"))
-        self.btn_volver.setText(tr("ubic.exit", default="SALIR AL MENÚ"))
+        self.btn_volver.setText(tr("ubic.exit", default="SALIR").upper())
 
         # --- Panel GPS ---
         if hasattr(self, "lbl_gps_title"):
@@ -1663,7 +1698,7 @@ class UbicacionTiendaWindow(QMainWindow):
         if hasattr(self, "btn_ver_qrs"):
             self.btn_ver_qrs.setText("📂 " + tr("ubic.btn_view_qr", default="VER\nCÓDIGOS QR"))
         if hasattr(self, "btn_guardar"):
-            self.btn_guardar.setText("✅ " + tr("ubic.save_finish", default="FINALIZAR Y GUARDAR"))
+            self.btn_guardar.setText("✅ " + tr("ubic.save_finish", default="Finalizar y guardar"))
 
         # Refrescar textos dinámicos (planta actual / estado de rastreo)
         try:
@@ -1887,10 +1922,10 @@ class UbicacionTiendaWindow(QMainWindow):
             if btn:
                 btn.setText("📏 " + tr("ubic.calib_scale", default="CALIBRAR ESCALA"))
                 btn.setStyleSheet(
-                    "QPushButton { background-color: #2EA043; color: white;"
-                    " font-weight: 900; border-radius: 8px; border: 1px solid #3FB950;"
+                    "QPushButton { background-color: #0E1117; color: #3FB950;"
+                    " font-weight: 900; border-radius: 8px; border: 2px solid #3FB950;"
                     " padding: 8px; font-family: 'Segoe UI'; font-size: 12px; }"
-                    " QPushButton:hover { background-color: #3FB950; }"
+                    " QPushButton:hover { background-color: #3FB950; color: #0E1117; }"
                 )
 
             if self.statusBar():
@@ -2529,6 +2564,17 @@ class UbicacionTiendaWindow(QMainWindow):
         header_lyt.addSpacing(10)
         header_lyt.addWidget(self.btn_cargar_plano_gps)
 
+        # OPERARIO: sin permisos de gestión del plano (solo lo usa para iniciar rutas) —
+        # Borrar/Cargar quedan para ADMINISTRADOR/SUPERADMIN.
+        _perfil_gps = (
+            self.usuario_actual.get("perfil", "OPERARIO")
+            if isinstance(self.usuario_actual, dict)
+            else getattr(self.usuario_actual, "perfil", "OPERARIO")
+        )
+        if _perfil_gps == "OPERARIO":
+            self.btn_borrar_plano_gps.setVisible(False)
+            self.btn_cargar_plano_gps.setVisible(False)
+
         layout.addWidget(header_container)
 
         # --- 3. CONTENEDOR CENTRAL (Flechas + Mapa) ---
@@ -2920,6 +2966,7 @@ class UbicacionTiendaWindow(QMainWindow):
             getattr(self, "btn_nav_busqueda", None): 2,
             getattr(self, "btn_nav_gps", None): 3,
             getattr(self, "btn_nav_admin", None): 4,
+            getattr(self, "btn_nav_rfid", None): 5,
         }
 
     # ============================================================
@@ -3077,6 +3124,7 @@ class UbicacionTiendaWindow(QMainWindow):
         combo.setStyleSheet(
             "QComboBox { background-color: #161B22; color: white; border: 1px solid #00FFC6; "
             "border-radius: 10px; padding: 6px 12px; font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; }"
+            "QComboBox::drop-down { border: none; width: 22px; background: transparent; }"
             "QComboBox QAbstractItemView { background-color: #0D1117; color: white; "
             "selection-background-color: #00FFC6; selection-color: #0D1117; }")
         for pas, est in registros:
@@ -3091,11 +3139,11 @@ class UbicacionTiendaWindow(QMainWindow):
                                  " border-radius: 10px; font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
                                  " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }")
         btn_cancel.clicked.connect(dlg.reject)
-        btn_ok = QPushButton(tr("ubic.continue", default="CONTINUAR"))
+        btn_ok = QPushButton(tr("ubic.continue", default="Continuar"))
         btn_ok.setFixedHeight(42); btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_ok.setStyleSheet("QPushButton { background-color: #1ED760; color: #0D1117; border: 2px solid #1ED760;"
+        btn_ok.setStyleSheet("QPushButton { background-color: #0D1117; color: #1ED760; border: 2px solid #1ED760;"
                              " border-radius: 10px; font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
-                             " QPushButton:hover { background-color: transparent; color: #1ED760; border: 2px solid #1ED760; }")
+                             " QPushButton:hover { background-color: #1ED760; color: #0D1117; border: 2px solid #1ED760; }")
         btn_ok.clicked.connect(dlg.accept)
         btn_h.addWidget(btn_cancel); btn_h.addWidget(btn_ok)
         fl.addLayout(btn_h)
@@ -3130,8 +3178,8 @@ class UbicacionTiendaWindow(QMainWindow):
                 border-radius: 8px; font-family: 'Segoe UI'; font-weight: 900; 
                 font-size: 11px; padding: 10px 20px; border: none; 
             }
-            QPushButton#btnOk { background-color: #238636; color: #0E1117; }
-            QPushButton#btnOk:hover { background-color: #FFFFFF; color: #0E1117; }
+            QPushButton#btnOk { background-color: #0E1117; color: #238636; border: 2px solid #238636; }
+            QPushButton#btnOk:hover { background-color: #238636; color: #0E1117; }
             QPushButton#btnCan { background-color: #30363D; color: #8B949E; }
             QPushButton#btnCan:hover { background-color: #4B535D; color: white; }
             QPushButton#btnSave { background-color: #0047AB; color: white; } 
@@ -3583,14 +3631,14 @@ class UbicacionTiendaWindow(QMainWindow):
             " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; }"
         )
 
-        btn_continuar = QPushButton(tr("ubic.continue", default="CONTINUAR"))
+        btn_continuar = QPushButton(tr("ubic.continue", default="Continuar"))
         btn_continuar.setFixedHeight(42)
         btn_continuar.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_continuar.setStyleSheet(
-            "QPushButton { background-color: #1ED760; color: #0D1117;"
+            "QPushButton { background-color: #0D1117; color: #1ED760;"
             " border: 2px solid #1ED760; border-radius: 10px;"
             " font-family: 'Segoe UI'; font-weight: 900; font-size: 14px; }"
-            " QPushButton:hover { background-color: transparent; color: #1ED760;"
+            " QPushButton:hover { background-color: #1ED760; color: #0D1117;"
             " border: 2px solid #1ED760; }"
         )
 
@@ -4204,15 +4252,15 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         self.btn_modo_pintar.clicked.connect(self.alternar_modo_pintado)
 
-        self.btn_guardar = QPushButton("✅ " + tr("ubic.save_finish", default="FINALIZAR Y GUARDAR"))
+        self.btn_guardar = QPushButton("✅ " + tr("ubic.save_finish", default="Finalizar y guardar"))
         self.btn_guardar.setFixedSize(220, 42)
         self.btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_guardar.setStyleSheet(
             self._estilo_boton_neon(
-                bg="#238636",
-                fg="#0E1117",
-                border="#00FFC6",
-                hover_bg="#FFFFFF",
+                bg="#0E1117",
+                fg="#238636",
+                border="#238636",
+                hover_bg="#238636",
                 hover_fg="#0E1117",
             )
         )
@@ -4247,11 +4295,11 @@ class UbicacionTiendaWindow(QMainWindow):
         self.btn_escala.setFont(self._crear_fuente_segoe(12))
         self.btn_escala.setStyleSheet(
             self._estilo_boton_neon(
-                bg="#2EA043",
-                fg="#FFFFFF",
+                bg="#0E1117",
+                fg="#3FB950",
                 border="#3FB950",
-                hover_bg="#FFFFFF",
-                hover_fg="#2EA043",
+                hover_bg="#3FB950",
+                hover_fg="#0E1117",
                 radius=8,
                 padding="8px 12px",
                 font_size=12,
@@ -4541,11 +4589,11 @@ class UbicacionTiendaWindow(QMainWindow):
                 self.btn_escala.setStyleSheet(
                     """
                     QPushButton {
-                        background-color: #2EA043; color: white; font-weight: 900;
-                        border-radius: 8px; border: 1px solid #3FB950; padding: 8px;
+                        background-color: #0E1117; color: #3FB950; font-weight: 900;
+                        border-radius: 8px; border: 2px solid #3FB950; padding: 8px;
                         font-family: 'Segoe UI'; font-size: 12px;
                     }
-                    QPushButton:hover { background-color: #3FB950; }
+                    QPushButton:hover { background-color: #3FB950; color: #0E1117; }
                 """
                 )
             else:
@@ -4554,11 +4602,11 @@ class UbicacionTiendaWindow(QMainWindow):
                 self.btn_escala.setStyleSheet(
                     """
                     QPushButton {
-                        background-color: #2EA043; color: #FFFFFF; font-weight: 900;
-                        border-radius: 8px; border: 1px solid #3FB950; padding: 8px;
+                        background-color: #0E1117; color: #3FB950; font-weight: 900;
+                        border-radius: 8px; border: 2px solid #3FB950; padding: 8px;
                         font-family: 'Segoe UI'; font-size: 12px;
                     }
-                    QPushButton:hover { background-color: #3FB950; }
+                    QPushButton:hover { background-color: #3FB950; color: #0E1117; }
                 """
                 )
 
@@ -4617,14 +4665,14 @@ class UbicacionTiendaWindow(QMainWindow):
 
         if activo:
             # --- MODO ACTIVADO: EL BOTÓN SE CONVIERTE EN "GUARDAR" ---
-            self.btn_modo_pintar.setText("✔ " + tr("ubic.paint_save", default="GUARDAR CAMBIOS"))
+            self.btn_modo_pintar.setText("✔ " + tr("ubic.paint_save", default="Guardar cambios"))
             self.btn_modo_pintar.setFont(self._crear_fuente_segoe(9))
             self.btn_modo_pintar.setStyleSheet(
                 self._estilo_boton_neon(
-                    bg="#238636",
-                    fg="#0E1117",
+                    bg="#0E1117",
+                    fg="#31AF50",
                     border="#31AF50",
-                    hover_bg="#FFFFFF",
+                    hover_bg="#31AF50",
                     hover_fg="#0E1117",
                     radius=8,
                     padding="8px 12px",
@@ -4938,14 +4986,14 @@ class UbicacionTiendaWindow(QMainWindow):
             " QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }"
         )
         estilo_success = (
-            "QPushButton { background-color: #1ED760; color: #0D1117;"
+            "QPushButton { background-color: #0D1117; color: #1ED760;"
             " border: 2px solid #1ED760; padding: 10px 14px; border-radius: 10px;"
             " font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; min-width: 115px; }"
-            " QPushButton:hover { background-color: transparent; color: #1ED760; border: 2px solid #1ED760; }"
+            " QPushButton:hover { background-color: #1ED760; color: #0D1117; border: 2px solid #1ED760; }"
         )
 
         btn_no = QPushButton(tr("ubic.dont_save", default="NO GUARDAR"))
-        btn_si = QPushButton(tr("ubic.do_save", default="SÍ, GUARDAR"))
+        btn_si = QPushButton(tr("ubic.do_save", default="Sí, guardar"))
         btn_cancelar = QPushButton(tr("ubic.cancel", default="CANCELAR"))
 
         btn_no.setStyleSheet(estilo_neutral)
@@ -5201,7 +5249,7 @@ class UbicacionTiendaWindow(QMainWindow):
         self.input_scan = QLineEdit()
         self.input_scan.setPlaceholderText(
             tr("ubic.assign_search_ph",
-               default="INGRESE EL CÓDIGO O NOMBRE DE UN ARTÍCULO PARA ASIGNARLO AL {tipo}",
+               default="🔍 INGRESE EL CÓDIGO O NOMBRE DE UN ARTÍCULO PARA ASIGNARLO AL {tipo}",
                tipo=self._tipo_label(tipo_texto))
         )
         self.input_scan.setStyleSheet(
@@ -5222,58 +5270,14 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         self.input_scan.setFixedHeight(50)
 
-        # Sugerencias de artículos (autocompletado) para asignar ubicación.
+        # Sugerencias de artículos: helper compartido, ver gui/components/completer_articulos.py
         try:
-            from PyQt6.QtCore import QStringListModel
-            from assets.estilo_global import estilizar_completer
-
-            def _cargar_arts():
-                try:
-                    from src.db.conexion import _get_todos_articulos_para_completer
-                    return [f"{c} – {n}" for c, n in _get_todos_articulos_para_completer()]
-                except Exception:
-                    return []
-
-            _model = QStringListModel(_cargar_arts())
-            _comp = QCompleter(_model, self.input_scan)
-            _comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-            _comp.setFilterMode(Qt.MatchFlag.MatchContains)
-            self.input_scan.setCompleter(_comp)
-            estilizar_completer(_comp)
-            # Relleno perezoso: si la consulta inicial vino vacía (contexto no listo en la
-            # primera construcción de la página), se recarga al empezar a escribir.
-            def _lazy(_t="", _m=_model):
-                if _t and not _m.stringList():
-                    _m.setStringList(_cargar_arts())
-            self.input_scan.textChanged.connect(_lazy)
+            from src.gui.components.completer_articulos import instalar_sugerencias_articulo
+            instalar_sugerencias_articulo(self.input_scan)
         except Exception:
             pass
 
-        # Botón de Cámara (Visión Artificial)
-        btn_cam = QPushButton("📷")  # Restaurado icono visual
-        btn_cam.setFixedSize(60, 50)
-        btn_cam.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_cam.setStyleSheet(
-            """
-            QPushButton { 
-                background-color: #30363D; 
-                color: white; 
-                font-family: 'Segoe UI';
-                font-weight: 900;
-                font-size: 20px; 
-                border-radius: 10px; 
-                border: 1px solid #30363D;
-            }
-            QPushButton:hover { background-color: #FFFFFF; color: #0D1117; border: 1px solid #FFFFFF; }
-        """
-        )
-        btn_cam.clicked.connect(
-            lambda: self.abrir_escaner_camara(
-                tr("ubic.cam_vision_title", default="VISIÓN - {tipo}", tipo=self._tipo_label(tipo_texto)),
-                modo="BUSQUEDA")
-        )
-
-        self.btn_validar = QPushButton(tr("ubic.btn_search", default="BUSCAR"))
+        self.btn_validar = QPushButton(tr("ubic.btn_search", default="🔍"))
         self.btn_validar.setFixedSize(130, 50)
         self.btn_validar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_validar.setStyleSheet(
@@ -5294,8 +5298,16 @@ class UbicacionTiendaWindow(QMainWindow):
         # Enter también valida (además del botón BUSCAR).
         self.input_scan.returnPressed.connect(lambda: self.validar_articulo(tipo_texto))
 
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC. El diálogo de espera
+        # es modal, así que `self.input_scan` no puede cambiar de pestaña (LINEAL/ALMACÉN) mientras
+        # se espera — igual de seguro que los manejadores de arriba, que también leen `self.input_scan`.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=lambda v: (self.input_scan.setText(v), self.validar_articulo(tipo_texto)),
+            contexto="ubicacion.asignar_articulo")
+
         search_lyt.addWidget(self.input_scan)
-        search_lyt.addWidget(btn_cam)
+        search_lyt.addWidget(btn_escaneo_movil)
         search_lyt.addWidget(self.btn_validar)
         layout.addWidget(self.panel_search)
 
@@ -6071,7 +6083,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         self.input_search = QLineEdit()
         self.input_search.setPlaceholderText(
-            tr("ubic.search_ph2", default="Escanee código o introduzca referencia...")
+            tr("ubic.search_ph2", default="🔍 Escanee código o introduzca referencia...")
         )
         self.input_search.setStyleSheet(
             """
@@ -6087,52 +6099,18 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         self.input_search.returnPressed.connect(self.ejecutar_busqueda)
 
-        # Sugerencias de artículos (autocompletado), igual que el resto de buscadores.
+        # Sugerencias de artículos: helper compartido, ver gui/components/completer_articulos.py
         try:
-            from PyQt6.QtCore import QStringListModel
-            from assets.estilo_global import estilizar_completer
-            from src.db.conexion import _get_todos_articulos_para_completer
-            self._bp_completer_model = QStringListModel(
-                [f"{c} – {n}" for c, n in _get_todos_articulos_para_completer()])
-            _comp = QCompleter(self._bp_completer_model, self.input_search)
-            _comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-            _comp.setFilterMode(Qt.MatchFlag.MatchContains)
-            self.input_search.setCompleter(_comp)
-            estilizar_completer(_comp)
+            from src.gui.components.completer_articulos import instalar_sugerencias_articulo
+            instalar_sugerencias_articulo(self.input_search)
         except Exception:
             pass
 
         search_layout.addWidget(lbl_icon)
         search_layout.addWidget(self.input_search)
 
-        # Botón Cámara — fuera de la cápsula, estilo app estándar
-        btn_cam = QPushButton("📷")
-        btn_cam.setFixedSize(70, 52)
-        btn_cam.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_cam.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #1C2128;
-                color: #8B949E;
-                font-family: 'Segoe UI';
-                font-weight: 900;
-                border-radius: 12px;
-                font-size: 20px;
-                border: 2px solid #30363D;
-            }
-            QPushButton:hover {
-                background-color: #FFFFFF;
-                border: 2px solid #FFFFFF;
-                color: #0D1117;
-            }
-        """
-        )
-        btn_cam.clicked.connect(
-            lambda: self.abrir_escaner_camara("BUSQUEDA", modo="LECTURA")
-        )
-
         # Botón BUSCAR — fuera de la cápsula, estilo app estándar
-        btn_go = QPushButton(tr("ubic.btn_search", default="BUSCAR"))
+        btn_go = QPushButton(tr("ubic.btn_search", default="🔍"))
         btn_go.setFixedSize(120, 52)
         btn_go.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_go.setStyleSheet(
@@ -6176,8 +6154,14 @@ class UbicacionTiendaWindow(QMainWindow):
         )
         self.btn_rastreo_rfid.clicked.connect(self.iniciar_rastreo_rfid)
 
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=lambda v: (self.input_search.setText(v), self.ejecutar_busqueda()),
+            contexto="ubicacion.buscar_producto")
+
         search_row.addWidget(search_box)
-        search_row.addWidget(btn_cam)
+        search_row.addWidget(btn_escaneo_movil)
         search_row.addWidget(btn_go)
         search_row.addWidget(self.btn_rastreo_rfid)
         layout.addLayout(search_row)
@@ -6283,6 +6267,713 @@ class UbicacionTiendaWindow(QMainWindow):
         layout.addStretch()
 
         return vista
+
+    # ============================================================
+    # BLOQUE VINCULACIÓN RFID (asistente EAN ↔ Serie ↔ EPC/SGTIN-96)
+    # ============================================================
+    # Zero-Friction UX: una sola pantalla, sin diálogos modales, sin recargas. Pasos 1-4 del
+    # encargo progresan de arriba a abajo (cada bloque se habilita cuando el anterior se completa)
+    # en vez de un QWizard multipágina (QWizard es un QDialog — ver el aviso de corrupción de heap
+    # documentado en `_crear_panel_rastreo_rfid`). Toda la lógica de negocio (generar serie,
+    # construir el EPC, grabar, verificar, persistir) vive en `services.rfid.vinculacion` — esta
+    # vista SOLO orquesta widgets.
+
+    _RFID_MOTIVOS_HONESTOS = {
+        "articulo_no_encontrado": "Artículo no encontrado.",
+        "lector_no_conectado": "No se ha detectado ningún lector/codificador RFID. Revisa la conexión del hardware.",
+        "fallo_escritura_tag": "No se pudo grabar el chip. Acerca una etiqueta RFID al codificador e inténtalo de nuevo.",
+        "fallo_verificacion_lectura_cruzada": "La lectura cruzada no coincide: el chip pudo moverse o no se grabó bien. Inténtalo de nuevo.",
+        "epc_ya_registrado": "Esta trama ya estaba vinculada a otra etiqueta. Se generará un nuevo número de serie — vuelve a pulsar Grabar.",
+        "error_interno": "No se pudo guardar la vinculación (error interno). Inténtalo de nuevo.",
+    }
+
+    def crear_vista_rfid(self):
+        """Pestaña RFID: asistente de vinculación paso a paso EAN (GTIN) → número de serie →
+        EPC (SGTIN-96, estándar GS1) → grabación física → verificación por lectura cruzada."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+                                     QListWidgetItem, QPushButton, QVBoxLayout, QWidget)
+
+        ACC = "#FFA657"  # mismo acento naranja que el resto de la UI RFID (btn_rastreo_rfid)
+
+        vista = QWidget()
+        layout = QVBoxLayout(vista)
+        layout.setContentsMargins(40, 30, 40, 30)
+        layout.setSpacing(18)
+
+        header_lyt = QHBoxLayout()
+        titulo = QLabel("📡 " + tr("ubic.rfid_wizard_title", default="VINCULACIÓN RFID"))
+        titulo.setStyleSheet(f"color:{ACC};font-family:'Segoe UI';font-size:24px;font-weight:900;"
+                             "letter-spacing:2px;")
+        header_lyt.addWidget(titulo)
+        header_lyt.addStretch()
+        self._rfid_lbl_contador = QLabel("")
+        self._rfid_lbl_contador.setStyleSheet("color:#8B949E;font-family:'Segoe UI';"
+                                              "font-size:13px;font-weight:900;")
+        header_lyt.addWidget(self._rfid_lbl_contador)
+        layout.addLayout(header_lyt)
+
+        subt = QLabel(tr("ubic.rfid_wizard_subtitle",
+                         default="Vincula el código EAN de un artículo a un chip RFID físico mediante "
+                                 "EPC / SGTIN-96 (estándar GS1) — busca, graba y verifica en un único paso."))
+        subt.setWordWrap(True)
+        subt.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:13px;")
+        layout.addWidget(subt)
+
+        def _marco(color):
+            f = QFrame()
+            f.setStyleSheet(
+                f"QFrame {{ background-color:#0D1117; border:2px solid {color}; border-radius:16px; }}"
+                " QLabel { background:transparent; border:none; }")
+            return f
+
+        def _paso_titulo(texto, color):
+            lbl = QLabel(texto)
+            lbl.setStyleSheet(f"color:{color};font-family:'Segoe UI';font-size:13px;font-weight:900;"
+                              "letter-spacing:1.5px;")
+            return lbl
+
+        # ── PASO 1 · Selección de artículo (EAN) ──────────────────────────────
+        paso1 = _marco("#00FFC6")
+        p1l = QVBoxLayout(paso1); p1l.setContentsMargins(24, 20, 24, 20); p1l.setSpacing(12)
+
+        fila_p1_titulo = QHBoxLayout()
+        fila_p1_titulo.addWidget(_paso_titulo(
+            tr("ubic.rfid_step1", default="PASO 1 · SELECCIONA EL ARTÍCULO (EAN)"), "#00FFC6"))
+        fila_p1_titulo.addStretch()
+        # Indicador de estado del lector RFID (verde=conectado/rojo=sin conexión), clicable para
+        # reintentar — reutiliza `LectorZebraGateway.conectar()`, ya existente, nunca una segunda
+        # comprobación de hardware en paralelo.
+        self._rfid_btn_hw = QPushButton("● " + tr("ubic.rfid_hw_checking", default="COMPROBANDO…"))
+        self._rfid_btn_hw.setFixedHeight(28)
+        self._rfid_btn_hw.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rfid_btn_hw.setToolTip(
+            tr("ubic.rfid_hw_tooltip", default="Estado del lector RFID — clic para reintentar la conexión."))
+        self._rfid_btn_hw.clicked.connect(lambda: self._rfid_verificar_hardware(manual=True))
+        fila_p1_titulo.addWidget(self._rfid_btn_hw)
+
+        btn_config_hw = QPushButton("⚙")
+        btn_config_hw.setFixedSize(28, 28)
+        btn_config_hw.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_config_hw.setToolTip(
+            tr("ubic.rfid_hw_config_tooltip", default="Configurar el lector (IP, puerto, modo)"))
+        btn_config_hw.setStyleSheet(
+            "QPushButton { background:#0D1117; color:#8B949E; border:1px solid #30363D;"
+            " border-radius:8px; font-size:13px; }"
+            " QPushButton:hover { background:#30363D; color:white; }")
+        btn_config_hw.clicked.connect(self._rfid_configurar_hardware)
+        fila_p1_titulo.addWidget(btn_config_hw)
+        p1l.addLayout(fila_p1_titulo)
+
+        fila_busq = QHBoxLayout(); fila_busq.setSpacing(10)
+        self._rfid_input_busqueda = QLineEdit()
+        self._rfid_input_busqueda.setFixedHeight(46)
+        self._rfid_input_busqueda.setPlaceholderText(
+            tr("ubic.rfid_search_ph", default="🔍 Escanee el EAN-13 o escriba nombre/referencia…"))
+        self._rfid_input_busqueda.setStyleSheet(
+            "QLineEdit { background:#161B22; color:white; border:1px solid #00FFC6; border-radius:10px;"
+            " padding:6px 14px; font-family:'Segoe UI'; font-weight:900; font-size:14px; }")
+        self._rfid_input_busqueda.returnPressed.connect(self._rfid_ejecutar_busqueda)
+        try:
+            from src.gui.components.completer_articulos import instalar_sugerencias_articulo
+            instalar_sugerencias_articulo(self._rfid_input_busqueda)
+        except Exception:
+            pass
+        fila_busq.addWidget(self._rfid_input_busqueda)
+
+        btn_buscar = QPushButton(tr("ubic.rfid_btn_search_icon", default="🔍"))
+        btn_buscar.setFixedSize(60, 46)
+        btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_buscar.setStyleSheet(
+            "QPushButton { background:#0D1117; color:#00FFC6; border:2px solid #00FFC6; border-radius:10px;"
+            " font-family:'Segoe UI'; font-weight:900; font-size:13px; }"
+            " QPushButton:hover { background:#00FFC6; color:#0D1117; }")
+        btn_buscar.clicked.connect(self._rfid_ejecutar_busqueda)
+        fila_busq.addWidget(btn_buscar)
+
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=lambda v: (self._rfid_input_busqueda.setText(v), self._rfid_ejecutar_busqueda()),
+            contexto="ubicacion.rfid_wizard")
+        fila_busq.addWidget(btn_escaneo_movil)
+        p1l.addLayout(fila_busq)
+
+        self._rfid_lista_resultados = QListWidget()
+        self._rfid_lista_resultados.setMaximumHeight(160)
+        self._rfid_lista_resultados.setVisible(False)
+        self._rfid_lista_resultados.setStyleSheet(
+            "QListWidget { background:#161B22; color:#E6EDF3; border:1px solid #30363D; border-radius:10px;"
+            " font-family:'Segoe UI'; font-size:13px; }"
+            " QListWidget::item { padding:8px 12px; }"
+            " QListWidget::item:selected { background:#00FFC6; color:#0D1117; }")
+        self._rfid_lista_resultados.itemClicked.connect(self._rfid_click_resultado)
+        p1l.addWidget(self._rfid_lista_resultados)
+
+        self._rfid_ficha_panel = QFrame()
+        self._rfid_ficha_panel.setVisible(False)
+        self._rfid_ficha_panel.setStyleSheet(
+            "QFrame { background:#161B22; border:1px solid #30363D; border-radius:12px; }")
+        ficha_l = QVBoxLayout(self._rfid_ficha_panel)
+        ficha_l.setContentsMargins(20, 16, 20, 16); ficha_l.setSpacing(6)
+        self._rfid_lbl_nombre = QLabel("")
+        self._rfid_lbl_nombre.setStyleSheet("color:white;font-family:'Segoe UI';font-size:19px;"
+                                            "font-weight:900;background:transparent;border:none;")
+        self._rfid_lbl_codigo = QLabel("")
+        self._rfid_lbl_codigo.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:12px;"
+                                            "font-weight:900;background:transparent;border:none;")
+        ficha_l.addWidget(self._rfid_lbl_nombre)
+        ficha_l.addWidget(self._rfid_lbl_codigo)
+        fila_cards = QHBoxLayout(); fila_cards.setSpacing(14)
+        self._rfid_card_precio = self.crear_tarjeta_info(
+            tr("ubic.rfid_card_price", default="PRECIO"), "—", "#00FFC6")
+        self._rfid_card_stock = self.crear_tarjeta_info(
+            tr("ubic.rfid_card_stock", default="STOCK ACTUAL"), "—", "#FFA657")
+        self._rfid_card_etiquetas = self.crear_tarjeta_info(
+            tr("ubic.rfid_card_tags", default="ETIQUETAS YA VINCULADAS"), "0", "#58A6FF")
+        for c in (self._rfid_card_precio, self._rfid_card_stock, self._rfid_card_etiquetas):
+            c.setMinimumHeight(90)
+            fila_cards.addWidget(c)
+        ficha_l.addLayout(fila_cards)
+        p1l.addWidget(self._rfid_ficha_panel)
+        layout.addWidget(paso1)
+
+        # ── PASO 2 · Número de serie + trama EPC (SGTIN-96) ───────────────────
+        # Contorno SIEMPRE del mismo azul que el título "PASO 2 · ..." (#58A6FF), deshabilitado o
+        # no — sin atenuar a gris en reposo, a petición expresa.
+        self._rfid_paso2 = _marco("#58A6FF")
+        self._rfid_paso2.setEnabled(False)
+        p2l = QVBoxLayout(self._rfid_paso2); p2l.setContentsMargins(24, 20, 24, 20); p2l.setSpacing(10)
+        p2l.addWidget(_paso_titulo(
+            tr("ubic.rfid_step2", default="PASO 2 · NÚMERO DE SERIE Y TRAMA EPC"), "#58A6FF"))
+        fila_serie = QHBoxLayout(); fila_serie.setSpacing(10)
+        fila_serie.addWidget(QLabel(tr("ubic.rfid_serial_label", default="Nº de serie:")))
+        self._rfid_input_serie = QLineEdit()
+        self._rfid_input_serie.setFixedSize(160, 40)
+        self._rfid_input_serie.setStyleSheet(
+            "QLineEdit { background:#0D1117; color:white; border:1px solid #58A6FF; border-radius:8px;"
+            " padding:4px 10px; font-family:'Consolas'; font-weight:900; font-size:14px; }")
+        self._rfid_input_serie.textChanged.connect(self._rfid_actualizar_preview_epc)
+        fila_serie.addWidget(self._rfid_input_serie)
+        fila_serie.addStretch()
+        p2l.addLayout(fila_serie)
+
+        self._rfid_lbl_epc_preview = QLabel("EPC: —")
+        self._rfid_lbl_epc_preview.setStyleSheet("color:#58A6FF;font-family:'Consolas';font-size:15px;"
+                                                 "font-weight:900;letter-spacing:1px;")
+        p2l.addWidget(self._rfid_lbl_epc_preview)
+        self._rfid_lbl_epc_error = QLabel("")
+        self._rfid_lbl_epc_error.setStyleSheet("color:#F85149;font-family:'Segoe UI';font-size:12px;"
+                                               "font-weight:900;")
+        p2l.addWidget(self._rfid_lbl_epc_error)
+        layout.addWidget(self._rfid_paso2)
+
+        # ── PASO 3+4 · Grabación física + verificación automática ────────────
+        self._rfid_paso3 = _marco(ACC)
+        self._rfid_paso3.setEnabled(False)
+        p3l = QVBoxLayout(self._rfid_paso3); p3l.setContentsMargins(24, 20, 24, 20); p3l.setSpacing(12)
+        p3l.addWidget(_paso_titulo(
+            tr("ubic.rfid_step34", default="PASO 3-4 · GRABAR EN CHIP RFID Y VERIFICAR"), ACC))
+
+        self._rfid_btn_grabar = QPushButton("📡 " + tr("ubic.rfid_btn_write", default="GRABAR EN CHIP RFID"))
+        self._rfid_btn_grabar.setFixedHeight(58)
+        self._rfid_btn_grabar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rfid_btn_grabar.setStyleSheet(
+            f"QPushButton {{ background:{ACC}; color:#0D1117; border:none; border-radius:14px;"
+            " font-family:'Segoe UI'; font-weight:900; font-size:16px; letter-spacing:1px; }"
+            " QPushButton:hover { background:#FFC088; }"
+            " QPushButton:disabled { background:#30363D; color:#8B949E; }")
+        self._rfid_btn_grabar.clicked.connect(self._rfid_grabar)
+        p3l.addWidget(self._rfid_btn_grabar)
+
+        # Bloque de feedback destacado (éxito en verde / fallo en rojo) — oculto hasta el primer
+        # intento de grabación, nunca un QMessageBox/QDialog modal (ver aviso de corrupción de heap
+        # documentado en `_crear_panel_rastreo_rfid`).
+        self._rfid_banner_resultado = QFrame()
+        self._rfid_banner_resultado.setVisible(False)
+        banner_l = QHBoxLayout(self._rfid_banner_resultado)
+        banner_l.setContentsMargins(16, 12, 16, 12); banner_l.setSpacing(12)
+        self._rfid_lbl_resultado_icono = QLabel("")
+        self._rfid_lbl_resultado_icono.setStyleSheet("font-size:24px;background:transparent;border:none;")
+        self._rfid_lbl_resultado = QLabel("")
+        self._rfid_lbl_resultado.setWordWrap(True)
+        self._rfid_lbl_resultado.setStyleSheet("font-family:'Segoe UI';font-size:14px;font-weight:900;"
+                                               "background:transparent;border:none;")
+        banner_l.addWidget(self._rfid_lbl_resultado_icono)
+        banner_l.addWidget(self._rfid_lbl_resultado, 1)
+        p3l.addWidget(self._rfid_banner_resultado)
+
+        fila_post = QHBoxLayout(); fila_post.setSpacing(10)
+        self._rfid_btn_ver_localizador = QPushButton(
+            "📍 " + tr("ubic.rfid_btn_locate", default="VER EN EL LOCALIZADOR"))
+        self._rfid_btn_ver_localizador.setFixedHeight(42)
+        self._rfid_btn_ver_localizador.setVisible(False)
+        self._rfid_btn_ver_localizador.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rfid_btn_ver_localizador.setStyleSheet(
+            "QPushButton { background:transparent; color:#00FFC6; border:2px solid #00FFC6; border-radius:10px;"
+            " font-family:'Segoe UI'; font-weight:900; font-size:13px; }"
+            " QPushButton:hover { background:#00FFC6; color:#0D1117; }")
+        self._rfid_btn_ver_localizador.clicked.connect(self._rfid_ver_en_localizador)
+        fila_post.addWidget(self._rfid_btn_ver_localizador)
+        fila_post.addStretch()
+        p3l.addLayout(fila_post)
+        layout.addWidget(self._rfid_paso3)
+
+        # ── Automatización masiva (vinculación en lote, opcional guiada) ──────
+        lote_frame = _marco("#8957E5")
+        ll = QVBoxLayout(lote_frame); ll.setContentsMargins(24, 16, 24, 16); ll.setSpacing(10)
+        fila_lote_top = QHBoxLayout()
+        fila_lote_top.addWidget(_paso_titulo(
+            tr("ubic.rfid_batch_title", default="⚡ AUTOMATIZACIÓN MASIVA (OPCIONAL)"), "#8957E5"))
+        fila_lote_top.addStretch()
+        self._rfid_btn_lote = QPushButton(tr("ubic.rfid_batch_activate", default="ACTIVAR LOTE"))
+        self._rfid_btn_lote.setCheckable(True)
+        self._rfid_btn_lote.setFixedSize(150, 36)
+        self._rfid_btn_lote.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rfid_btn_lote.setStyleSheet(
+            "QPushButton { background:transparent; color:#8957E5; border:2px solid #8957E5; border-radius:8px;"
+            " font-family:'Segoe UI'; font-weight:900; font-size:12px; }"
+            " QPushButton:checked { background:#8957E5; color:white; }")
+        self._rfid_btn_lote.clicked.connect(self._rfid_alternar_lote)
+        fila_lote_top.addWidget(self._rfid_btn_lote)
+        ll.addLayout(fila_lote_top)
+
+        self._rfid_lote_controles = QFrame()
+        self._rfid_lote_controles.setVisible(False)
+        # Sin esto, al ser un QFrame hijo DENTRO de `lote_frame`, hereda por cascada el selector
+        # genérico "QFrame { border:2px solid #8957E5; ... }" del stylesheet de `lote_frame` (Qt
+        # aplica las reglas de un stylesheet a TODOS los descendientes que casen el selector, no
+        # solo al widget en el que se fijó) — de ahí el segundo contorno morado "fantasma" que
+        # envolvía justo esta fila, pese a que esta fila nunca tuvo su propio border.
+        self._rfid_lote_controles.setStyleSheet("QFrame { border: none; background: transparent; }")
+        lc = QHBoxLayout(self._rfid_lote_controles); lc.setContentsMargins(0, 0, 0, 0); lc.setSpacing(10)
+        lc.addWidget(QLabel(tr("ubic.rfid_batch_qty", default="Unidades a vincular de este artículo:")))
+        self._rfid_input_lote_cantidad = QLineEdit("10")
+        self._rfid_input_lote_cantidad.setFixedSize(70, 36)
+        # Contorno morado FINO propio del campo (1px, más fino que los 2px del marco exterior del
+        # bloque) — se conserva a petición expresa; lo que se eliminó fue el contorno "fantasma"
+        # heredado por CASCADA en `_rfid_lote_controles` (la fila entera), no el de este campo.
+        self._rfid_input_lote_cantidad.setStyleSheet(
+            "QLineEdit { background:#0D1117; color:white; border:1px solid #8957E5; border-radius:8px;"
+            " padding:4px 8px; font-family:'Segoe UI'; font-weight:900; }"
+            " QLineEdit:focus, QLineEdit:hover { background:#0D1117; color:white; border:1px solid #8957E5; }")
+        lc.addWidget(self._rfid_input_lote_cantidad)
+        lc.addStretch()
+        self._rfid_lbl_lote_progreso = QLabel("")
+        self._rfid_lbl_lote_progreso.setStyleSheet("color:#8957E5;font-family:'Segoe UI';font-size:14px;"
+                                                   "font-weight:900;")
+        lc.addWidget(self._rfid_lbl_lote_progreso)
+        ll.addWidget(self._rfid_lote_controles)
+        layout.addWidget(lote_frame)
+
+        layout.addStretch()
+
+        self._rfid_ficha_actual = None
+        self._rfid_datos_epc = None
+        self._rfid_ultimo_vinculado = None
+        self._rfid_contador_ok = 0
+        self._rfid_lote_activo = False
+        self._rfid_lote_total = 0
+        self._rfid_lote_hecho = 0
+        self._rfid_hw_conectada = False
+
+        self._rfid_verificar_hardware(manual=False)
+
+        return vista
+
+    def _rfid_ejecutar_busqueda(self):
+        """Paso 1: EAN exacto (escaneado) selecciona directo (cero clics extra); texto parcial
+        muestra una lista corta de coincidencias para elegir."""
+        from src.db import articulos as art_db
+
+        texto = self._rfid_input_busqueda.text().strip()
+        if not texto:
+            return
+        ficha = art_db.ficha_rfid(texto)
+        if ficha:
+            self._rfid_lista_resultados.clear()
+            self._rfid_lista_resultados.setVisible(False)
+            self._rfid_cargar_articulo(ficha)
+            self.mostrar_mensaje_temporal(
+                "✅ " + tr("ubic.rfid_found", default="Artículo encontrado: {n}").format(
+                    n=ficha.get("nombre") or ficha["codigo"]), 2500)
+            return
+
+        resultados = art_db.buscar_stock(texto)
+        self._rfid_lista_resultados.clear()
+        if not resultados:
+            self._rfid_lista_resultados.setVisible(False)
+            self.mostrar_mensaje_temporal(
+                "❌ " + tr("ubic.rfid_not_found", default="No se ha encontrado ningún artículo."), 3000)
+            return
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtWidgets import QListWidgetItem as _Item
+        for fila in resultados[:30]:
+            codigo, nombre, stock_tienda, stock_total = fila[0], fila[1], fila[2], fila[3]
+            item = _Item(f"{nombre}  —  {codigo}   (Stock: {stock_total})")
+            item.setData(_Qt.ItemDataRole.UserRole, codigo)
+            self._rfid_lista_resultados.addItem(item)
+        self._rfid_lista_resultados.setVisible(True)
+        self.mostrar_mensaje_temporal(
+            "🔎 " + tr("ubic.rfid_results_count", default="{n} coincidencias — elige una de la lista.")
+            .format(n=len(resultados[:30])), 3000)
+
+    def _rfid_click_resultado(self, item):
+        from PyQt6.QtCore import Qt as _Qt
+        from src.db import articulos as art_db
+        codigo = item.data(_Qt.ItemDataRole.UserRole)
+        ficha = art_db.ficha_rfid(codigo)
+        if ficha:
+            self._rfid_lista_resultados.setVisible(False)
+            self._rfid_cargar_articulo(ficha)
+            self.mostrar_mensaje_temporal(
+                "✅ " + tr("ubic.rfid_found", default="Artículo encontrado: {n}").format(
+                    n=ficha.get("nombre") or ficha["codigo"]), 2500)
+
+    def _rfid_cargar_articulo(self, ficha):
+        """Carga el artículo seleccionado, habilita los Pasos 2-3 y propone el siguiente número de
+        serie libre (generación automática — el usuario puede sobrescribirlo a mano, Paso 2)."""
+        from src.db import ubicaciones as ubi_db
+
+        self._rfid_ficha_actual = ficha
+        self._rfid_ultimo_vinculado = None
+        self._rfid_lbl_nombre.setText(str(ficha.get("nombre") or ficha["codigo"]).upper())
+        self._rfid_lbl_codigo.setText(f"EAN: {ficha['codigo']}")
+        self.actualizar_tarjeta_kpi(self._rfid_card_precio, f"{float(ficha.get('precio') or 0):.2f} €")
+        self.actualizar_tarjeta_kpi(self._rfid_card_stock, str(ficha.get("stock_total") or 0))
+        n_etiquetas = ubi_db.contar_etiquetas_articulo(ficha["codigo"])
+        self.actualizar_tarjeta_kpi(self._rfid_card_etiquetas, str(n_etiquetas))
+        self._rfid_ficha_panel.setVisible(True)
+
+        self._rfid_paso2.setEnabled(True)
+        self._rfid_paso3.setEnabled(True)
+        self._rfid_banner_resultado.setVisible(False)
+        self._rfid_btn_ver_localizador.setVisible(False)
+
+        siguiente = ubi_db.siguiente_numero_serie(ficha["codigo"])
+        self._rfid_input_serie.blockSignals(True)
+        self._rfid_input_serie.setText(str(siguiente))
+        self._rfid_input_serie.blockSignals(False)
+        self._rfid_actualizar_preview_epc()
+
+    def _rfid_actualizar_preview_epc(self):
+        """Paso 2: recalcula en vivo la trama EPC al cambiar el número de serie — nunca se graba
+        nada todavía, es solo la vista previa que confirma qué se va a escribir en el chip."""
+        from src.services.rfid import sgtin
+
+        self._rfid_datos_epc = None
+        if not getattr(self, "_rfid_ficha_actual", None):
+            return
+        texto = self._rfid_input_serie.text().strip()
+        try:
+            serie = int(texto)
+        except ValueError:
+            self._rfid_lbl_epc_preview.setText("EPC: —")
+            self._rfid_lbl_epc_error.setText(
+                tr("ubic.rfid_serial_invalid", default="El número de serie debe ser un entero."))
+            self._rfid_refrescar_boton_grabar()
+            return
+        datos = sgtin.codificar_sgtin96(self._rfid_ficha_actual["codigo"], serie)
+        if datos is None:
+            self._rfid_lbl_epc_preview.setText("EPC: —")
+            self._rfid_lbl_epc_error.setText(
+                tr("ubic.rfid_serial_out_of_range", default="Número de serie fuera de rango (0 .. 274 877 906 943)."))
+            self._rfid_refrescar_boton_grabar()
+            return
+        self._rfid_datos_epc = datos
+        self._rfid_lbl_epc_error.setText("")
+        self._rfid_lbl_epc_preview.setText(f"EPC: {datos['epc_hex']}")
+        self._rfid_refrescar_boton_grabar()
+
+    def _rfid_refrescar_boton_grabar(self):
+        """El botón GRABAR solo se activa con una trama EPC válida (Paso 2 completo) Y el lector
+        RFID conectado — evita que el usuario intente grabar sin hardware operativo (mejora 5.2)."""
+        activable = bool(getattr(self, "_rfid_datos_epc", None)) and getattr(self, "_rfid_hw_conectada", False)
+        self._rfid_btn_grabar.setEnabled(activable)
+
+    def _rfid_hw_estilo(self, color):
+        return (
+            f"QPushButton {{ background:transparent; color:{color}; border:2px solid {color};"
+            " border-radius:8px; font-family:'Segoe UI'; font-weight:900; font-size:11px;"
+            " padding:4px 12px; letter-spacing:0.5px; }"
+            f" QPushButton:hover {{ background:{color}; color:#0D1117; }}"
+        )
+
+    def _rfid_verificar_hardware(self, manual=False):
+        """Indicador de estado del lector RFID (Paso 1, esquina superior derecha): verde si está
+        conectado y listo, rojo si no — reutiliza `LectorZebraGateway.conectar()` (ya existente),
+        nunca una segunda comprobación de hardware en paralelo. Clicable para reintentar."""
+        gw = getattr(self, "lector_rfid", None)
+        if gw is None:
+            ok = False
+            self._rfid_btn_hw.setText("● " + tr("ubic.rfid_hw_none", default="SIN LECTOR"))
+        else:
+            try:
+                ok = bool(gw.conectar())
+            except Exception:
+                ok = False
+            self._rfid_btn_hw.setText(
+                "● " + (tr("ubic.rfid_hw_connected", default="LECTOR CONECTADO") if ok
+                        else tr("ubic.rfid_hw_disconnected", default="SIN CONEXIÓN — REINTENTAR")))
+        self._rfid_hw_conectada = ok
+        self._rfid_btn_hw.setStyleSheet(self._rfid_hw_estilo("#3FB950" if ok else "#F85149"))
+        self._rfid_refrescar_boton_grabar()
+        if manual:
+            if ok:
+                self.mostrar_mensaje_temporal(
+                    "✅ " + tr("ubic.rfid_hw_ok_msg", default="Lector RFID conectado y listo."), 3000)
+            else:
+                self.mostrar_mensaje_temporal(
+                    "❌ " + tr("ubic.rfid_hw_fail_msg",
+                              default="No se detecta el lector RFID. Revisa la conexión."), 4000)
+
+    def _rfid_configurar_hardware(self):
+        """Diálogo de configuración del lector RFID (modo/IP/puerto) — persiste en
+        `db.rfid_hardware` para la empresa+centro ACTIVOS y re-resuelve `self.lector_rfid` al
+        guardar, sin reiniciar la app. UI 100% inline/frameless (mismo patrón que el resto de
+        diálogos de esta pestaña), nunca un QMessageBox."""
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
+                                     QPushButton, QVBoxLayout)
+        from src.db import rfid_hardware as rfid_db
+        from src.db.empresa import empresa_actual_id
+        from src.db.tiendas import codigo_tienda_actual
+
+        id_empresa = empresa_actual_id()
+        id_centro = codigo_tienda_actual()
+        cfg_actual = rfid_db.obtener_config(id_empresa, id_centro)
+
+        dlg = QDialog(self); dlg.setFixedSize(420, 400)
+        dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        base = QVBoxLayout(dlg); base.setContentsMargins(0, 0, 0, 0)
+        frm = QFrame(); frm.setStyleSheet(
+            "QFrame { background-color:#0D1117; border:2px solid #FFA657; border-radius:18px; }"
+            " QLabel { color:#E6EDF3; border:none; background:transparent; }")
+        fl = QVBoxLayout(frm); fl.setContentsMargins(28, 16, 28, 24); fl.setSpacing(12)
+        hdr = QHBoxLayout(); hdr.setContentsMargins(0, 0, 0, 0)
+        hdr.addStretch(); hdr.addWidget(self._x_cerrar_rojo(dlg))
+        fl.addLayout(hdr)
+        tit = QLabel("⚙  " + tr("ubic.rfid_hw_dialog_title", default="CONFIGURAR LECTOR RFID"))
+        tit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tit.setStyleSheet("color:#FFA657; font-family:'Segoe UI'; font-size:15px; font-weight:900;")
+        fl.addWidget(tit)
+
+        _ESTILO_CAMPO = (
+            "background:#161B22; color:white; border:1px solid #FFA657; border-radius:8px;"
+            " padding:4px 10px; font-family:'Segoe UI'; font-weight:900;")
+
+        fl.addWidget(QLabel(tr("ubic.rfid_hw_mode_label", default="Modo de operación:")))
+        combo_modo = QComboBox(); combo_modo.setFixedHeight(40)
+        combo_modo.addItem(tr("ubic.rfid_hw_mode_sim", default="Simulado (sin hardware)"), "simulado")
+        combo_modo.addItem(tr("ubic.rfid_hw_mode_real", default="Físico (lector Zebra real)"), "fisico")
+        combo_modo.setCurrentIndex(1 if cfg_actual.get("modo") == "fisico" else 0)
+        combo_modo.setStyleSheet(
+            f"QComboBox {{ {_ESTILO_CAMPO} }}"
+            "QComboBox QAbstractItemView { background:#0D1117; color:white;"
+            " selection-background-color:#FFA657; selection-color:#0D1117; }")
+        fl.addWidget(combo_modo)
+
+        fl.addWidget(QLabel(tr("ubic.rfid_hw_ip_label", default="Dirección IP del lector:")))
+        input_ip = QLineEdit(cfg_actual.get("ip") or "")
+        input_ip.setFixedHeight(40)
+        input_ip.setPlaceholderText("192.168.0.100")
+        input_ip.setStyleSheet(f"QLineEdit {{ {_ESTILO_CAMPO} font-family:'Consolas'; }}")
+        fl.addWidget(input_ip)
+
+        fl.addWidget(QLabel(tr("ubic.rfid_hw_port_label", default="Puerto (LLRP estándar: 5084):")))
+        from src.db.rfid_hardware import PUERTO_LLRP_DEFECTO
+        input_puerto = QLineEdit(str(cfg_actual.get("puerto") or PUERTO_LLRP_DEFECTO))
+        input_puerto.setFixedHeight(40)
+        input_puerto.setStyleSheet(f"QLineEdit {{ {_ESTILO_CAMPO} }}")
+        fl.addWidget(input_puerto)
+
+        lbl_error = QLabel("")
+        lbl_error.setWordWrap(True)
+        lbl_error.setStyleSheet("color:#F85149; font-family:'Segoe UI'; font-size:12px; font-weight:900;")
+        fl.addWidget(lbl_error)
+
+        def _guardar():
+            modo = combo_modo.currentData()
+            ip = input_ip.text().strip()
+            if modo == "fisico" and not ip:
+                lbl_error.setText(
+                    tr("ubic.rfid_hw_ip_required", default="Indica la IP del lector para modo físico."))
+                return
+            try:
+                puerto = int(input_puerto.text().strip() or PUERTO_LLRP_DEFECTO)
+            except ValueError:
+                lbl_error.setText(tr("ubic.rfid_hw_port_invalid", default="El puerto debe ser un número."))
+                return
+            res = rfid_db.guardar_config(id_empresa, id_centro, modo=modo, ip=ip, puerto=puerto)
+            if not res.get("ok"):
+                lbl_error.setText(
+                    tr("ubic.rfid_hw_save_failed", default="No se pudo guardar la configuración."))
+                return
+            from src.services.rfid.hardware import resolver_gateway
+            self.lector_rfid = resolver_gateway(id_empresa, id_centro)
+            dlg.accept()
+            self.mostrar_mensaje_temporal(
+                "✅ " + tr("ubic.rfid_hw_saved_msg", default="Configuración del lector guardada."), 3000)
+            self._rfid_verificar_hardware(manual=True)
+
+        btn_guardar = QPushButton(tr("ubic.rfid_hw_save", default="GUARDAR"))
+        btn_guardar.setFixedHeight(44)
+        btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_guardar.setStyleSheet(
+            "QPushButton { background:#FFA657; color:#0D1117; border:none; border-radius:10px;"
+            " font-family:'Segoe UI'; font-weight:900; font-size:14px; }"
+            " QPushButton:hover { background:#FFC088; }")
+        btn_guardar.clicked.connect(_guardar)
+        fl.addWidget(btn_guardar)
+
+        base.addWidget(frm)
+        dlg.exec()
+
+    def _rfid_mostrar_banner(self, exito, texto):
+        """Bloque de feedback destacado (Paso 3-4): icono + texto en verde (éxito) o rojo (fallo),
+        nunca un QMessageBox modal — mismo criterio inline que el resto de esta pestaña."""
+        color = "#1ED760" if exito else "#F85149"
+        fondo_rgba = "30,215,96,0.12" if exito else "248,81,73,0.12"
+        self._rfid_banner_resultado.setStyleSheet(
+            f"QFrame {{ background:rgba({fondo_rgba}); border:2px solid {color}; border-radius:12px; }}"
+            " QLabel { background:transparent; border:none; }")
+        self._rfid_lbl_resultado_icono.setText("✓" if exito else "✕")
+        self._rfid_lbl_resultado_icono.setStyleSheet(
+            f"color:{color};font-size:24px;font-weight:900;background:transparent;border:none;")
+        self._rfid_lbl_resultado.setStyleSheet(
+            f"color:{color};font-family:'Segoe UI';font-size:14px;font-weight:900;"
+            "background:transparent;border:none;")
+        self._rfid_lbl_resultado.setText(texto)
+        self._rfid_banner_resultado.setVisible(True)
+
+    def _rfid_grabar(self):
+        """Pasos 3-4: graba el EPC en el chip más cercano al codificador y lo relee de inmediato
+        para confirmar (lectura cruzada) — 100% delegado en `services.rfid.vinculacion`, esta vista
+        solo muestra el resultado honesto (éxito/motivo de fallo) y el feedback sonoro."""
+        from src.services.rfid import vinculacion as V
+
+        ficha, datos = self._rfid_ficha_actual, self._rfid_datos_epc
+        if not ficha or not datos:
+            return
+        if not getattr(self, "_rfid_hw_conectada", False):
+            # Doble candado honesto: el botón ya se deshabilita sin lector, pero si llega a
+            # pulsarse igualmente (p. ej. estado obsoleto), nunca se intenta grabar a ciegas.
+            self.mostrar_mensaje_temporal(
+                "❌ " + tr("ubic.rfid_hw_fail_msg", default="No se detecta el lector RFID. Revisa la conexión."), 4000)
+            self._rfid_verificar_hardware(manual=False)
+            return
+        gw = getattr(self, "lector_rfid", None)
+        self._rfid_btn_grabar.setEnabled(False)
+        self._rfid_banner_resultado.setStyleSheet(
+            "QFrame { background:rgba(139,148,158,0.12); border:2px solid #8B949E; border-radius:12px; }"
+            " QLabel { background:transparent; border:none; }")
+        self._rfid_lbl_resultado_icono.setText("⏳")
+        self._rfid_lbl_resultado_icono.setStyleSheet("color:#8B949E;font-size:24px;background:transparent;border:none;")
+        self._rfid_lbl_resultado.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:14px;"
+                                               "font-weight:900;background:transparent;border:none;")
+        self._rfid_lbl_resultado.setText(tr("ubic.rfid_writing", default="Grabando y verificando…"))
+        self._rfid_banner_resultado.setVisible(True)
+        QApplication.processEvents()
+
+        resultado = V.vincular_articulo(gw, ficha["codigo"], numero_serie=datos["serial"])
+
+        if resultado["ok"]:
+            self._rfid_contador_ok += 1
+            self._rfid_lbl_contador.setText(
+                tr("ubic.rfid_session_count", default="Vinculadas en esta sesión: {n}").format(
+                    n=self._rfid_contador_ok))
+            self._rfid_mostrar_banner(
+                True,
+                tr("ubic.rfid_success",
+                  default="Chip grabado y verificado correctamente — Serie {s} (lectura cruzada OK).")
+                .format(s=resultado["numero_serie"]))
+            self._rfid_ultimo_vinculado = resultado
+            self._rfid_btn_ver_localizador.setVisible(True)
+            self._rfid_beep_resultado(True)
+            n_etiquetas = int(self._rfid_card_etiquetas.findChild(QLabel, "lbl_value").text() or 0) + 1
+            self.actualizar_tarjeta_kpi(self._rfid_card_etiquetas, str(n_etiquetas))
+
+            if self._rfid_lote_activo:
+                self._rfid_lote_hecho += 1
+                self._rfid_lbl_lote_progreso.setText(f"{self._rfid_lote_hecho} / {self._rfid_lote_total}")
+                if self._rfid_lote_hecho >= self._rfid_lote_total:
+                    self._dialogo_neon_info(
+                        "✅ " + tr("ubic.rfid_batch_done_title", default="LOTE COMPLETADO"),
+                        tr("ubic.rfid_batch_done_msg",
+                           default="Se han vinculado {n} unidades de «{a}».").format(
+                               n=self._rfid_lote_total, a=ficha.get("nombre") or ficha["codigo"]),
+                        color="#8957E5")
+                    self._rfid_btn_lote.setChecked(False)
+                    self._rfid_alternar_lote()
+            # Listo para la siguiente unidad del MISMO artículo sin rebuscar (zero-friction) — esto
+            # también refresca el botón Grabar (vía textChanged → _rfid_actualizar_preview_epc),
+            # incluso justo tras completar un lote: nunca deja el EPC ya usado como "listo para
+            # grabar" (chocaría con `epc_ya_registrado`).
+            from src.db import ubicaciones as ubi_db
+            siguiente = ubi_db.siguiente_numero_serie(ficha["codigo"])
+            self._rfid_input_serie.setText(str(siguiente))
+        else:
+            motivo = self._RFID_MOTIVOS_HONESTOS.get(
+                resultado["motivo"], tr("ubic.rfid_generic_error", default="No se pudo completar la vinculación."))
+            self._rfid_mostrar_banner(False, motivo)
+            self._rfid_beep_resultado(False)
+            self._rfid_refrescar_boton_grabar()
+
+    def _rfid_beep_resultado(self, exito):
+        """Feedback sonoro de éxito/fallo (mismo patrón que `_beep_proximidad_rfid`: winsound en
+        un hilo daemon, degradable y silencioso fuera de Windows)."""
+        from threading import Thread
+        try:
+            import winsound
+        except Exception:
+            return
+        if exito:
+            Thread(target=lambda: (winsound.Beep(1800, 120), winsound.Beep(2400, 160)), daemon=True).start()
+        else:
+            Thread(target=lambda: winsound.Beep(400, 280), daemon=True).start()
+
+    def _rfid_alternar_lote(self):
+        """Activa/desactiva el modo de vinculación en lote para el artículo ya seleccionado: cada
+        pulsación de «Grabar» vincula la siguiente unidad hasta alcanzar la cantidad indicada."""
+        activo = self._rfid_btn_lote.isChecked()
+        self._rfid_lote_activo = activo
+        self._rfid_lote_controles.setVisible(activo)
+        if activo:
+            try:
+                total = max(1, int(self._rfid_input_lote_cantidad.text().strip() or "1"))
+            except ValueError:
+                total = 1
+            self._rfid_lote_total = total
+            self._rfid_lote_hecho = 0
+            self._rfid_lbl_lote_progreso.setText(f"0 / {total}")
+            self.mostrar_mensaje_temporal(
+                "⚡ " + tr("ubic.rfid_batch_on_msg", default="Modo lote activado: {n} unidades.")
+                .format(n=total), 3000)
+        else:
+            self._rfid_lote_total = 0
+            self._rfid_lote_hecho = 0
+            self._rfid_lbl_lote_progreso.setText("")
+            self.mostrar_mensaje_temporal(
+                "ℹ️ " + tr("ubic.rfid_batch_off_msg", default="Modo lote desactivado."), 2500)
+
+    def _rfid_ver_en_localizador(self):
+        """Integración con la vista de Ubicación (requisito 3): salta a "Buscar producto" y arranca
+        de inmediato el rastreo por proximidad del artículo recién vinculado con SU EPC real,
+        reutilizando 100% el localizador ya existente — no se construye un segundo "mapa en vivo"."""
+        datos = getattr(self, "_rfid_ultimo_vinculado", None)
+        if not datos:
+            return
+        ficha = self._rfid_ficha_actual or {}
+        self.stack.setCurrentIndex(2)
+        for b in self.menu_botones:
+            b.blockSignals(True)
+            b.setChecked(b is self.btn_nav_busqueda)
+            b.setStyleSheet("")
+            b.blockSignals(False)
+        self._arrancar_rastreo_rfid(datos["codigo_articulo"], ficha.get("nombre"), datos["epc_hex"])
+        self.mostrar_mensaje_temporal(
+            "📍 " + tr("ubic.rfid_locate_msg", default="Localizando «{n}» por proximidad RFID…")
+            .format(n=ficha.get("nombre") or datos["codigo_articulo"]), 3000)
 
     # ============================================================
     # BLOQUE RASTREO POR PROXIMIDAD RFID
@@ -6405,18 +7096,21 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QPushButton
         b = QPushButton("✕")
-        b.setFixedSize(46, 40)
+        b.setFixedSize(46, 46)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
-        # min-height/padding explícitos para que la ✕ no la recorte el estilo global de botones.
-        b.setStyleSheet("QPushButton { background:#F85149; color:white; border:none; border-radius:12px;"
-                        " padding:0; min-height:40px; font-family:'Segoe UI'; font-weight:900; font-size:16px; }"
-                        " QPushButton:hover { background:#FF6B63; }")
+        # padding explícito para que la ✕ no la recorte el estilo global de botones.
+        b.setStyleSheet("QPushButton { background:transparent; color:#F85149; border:none; border-radius:23px;"
+                        " padding:0; font-family:'Segoe UI'; font-weight:900; font-size:16px; }"
+                        " QPushButton:hover { background:#F85149; color:#0D1117; }")
+        b.setProperty("sin_glow", True)
+        if _blindar_tamano_fijo is not None:
+            _blindar_tamano_fijo(b, 46, 46)
         b.clicked.connect(dlg.reject)
         return b
 
     def _rfid_elegir_articulo(self):
         """Diálogo con buscador + sugerencias de artículos. Devuelve {codigo,nombre,epc} o None."""
-        from PyQt6.QtCore import Qt, QStringListModel
+        from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
         dlg = QDialog(self); dlg.setFixedSize(480, 260)
         dlg.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
@@ -6434,17 +7128,12 @@ class UbicacionTiendaWindow(QMainWindow):
         tit.setStyleSheet("color:#00FFC6; font-family:'Segoe UI'; font-size:15px; font-weight:900;")
         fl.addWidget(tit)
         inp = QLineEdit(); inp.setFixedHeight(44)
-        inp.setPlaceholderText(tr("ubic.rfid_item_ph", default="Código o nombre del artículo…"))
+        inp.setPlaceholderText(tr("ubic.rfid_item_ph", default="🔍 Código o nombre del artículo…"))
         inp.setStyleSheet("QLineEdit { background:#161B22; color:white; border:1px solid #00FFC6;"
                           " border-radius:10px; padding:6px 12px; font-family:'Segoe UI'; font-weight:900; }")
         try:
-            from assets.estilo_global import estilizar_completer
-            from src.db.conexion import _get_todos_articulos_para_completer
-            model = QStringListModel([f"{c} – {n}" for c, n in _get_todos_articulos_para_completer()])
-            comp = QCompleter(model, inp)
-            comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-            comp.setFilterMode(Qt.MatchFlag.MatchContains)
-            inp.setCompleter(comp); estilizar_completer(comp)
+            from src.gui.components.completer_articulos import instalar_sugerencias_articulo
+            instalar_sugerencias_articulo(inp)
         except Exception:
             pass
         fl.addWidget(inp)
@@ -6462,13 +7151,21 @@ class UbicacionTiendaWindow(QMainWindow):
                 dlg.accept()
             else:
                 tit.setText("❌ " + tr("ubic.not_found_master", default="ARTÍCULO NO ENCONTRADO"))
-        btn = QPushButton(tr("ubic.continue", default="CONTINUAR")); btn.setFixedHeight(44)
+        btn = QPushButton(tr("ubic.continue", default="Continuar")); btn.setFixedHeight(44)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet("QPushButton { background:#1ED760; color:#0D1117; border:2px solid #1ED760;"
+        btn.setStyleSheet("QPushButton { background:#0D1117; color:#1ED760; border:2px solid #1ED760;"
                           " border-radius:10px; font-family:'Segoe UI'; font-weight:900; font-size:14px; }"
-                          " QPushButton:hover { background:transparent; color:#1ED760; }")
+                          " QPushButton:hover { background:#1ED760; color:#0D1117; }")
         btn.clicked.connect(_ok); inp.returnPressed.connect(_ok)
-        fl.addWidget(btn)
+
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC. Se define DESPUÉS
+        # de `_ok`/`inp` (los necesita) y ANTES de `dlg.exec()` (todo es local a este diálogo modal).
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            dlg, on_result=lambda v: (inp.setText(v), _ok()), contexto="ubicacion.rfid_elegir_articulo")
+        fila_btn = QHBoxLayout()
+        fila_btn.addWidget(btn); fila_btn.addWidget(btn_escaneo_movil)
+        fl.addLayout(fila_btn)
         base.addWidget(frm)
         dlg.exec()
         return res["v"]
@@ -6509,6 +7206,7 @@ class UbicacionTiendaWindow(QMainWindow):
         combo.setStyleSheet(
             "QComboBox { background:#161B22; color:white; border:1px solid #58A6FF; border-radius:10px;"
             " padding:6px 12px; font-family:'Segoe UI'; font-weight:900; font-size:13px; }"
+            "QComboBox::drop-down { border:none; width:22px; background:transparent; }"
             "QComboBox QAbstractItemView { background:#0D1117; color:white;"
             " selection-background-color:#58A6FF; selection-color:#0D1117; }")
         for pas, est, amb, epc in registros:
@@ -6525,11 +7223,11 @@ class UbicacionTiendaWindow(QMainWindow):
             objetivo = epc or f"EST-{amb}-{pas}-{est}".upper()
             res["v"] = {"codigo": objetivo, "nombre": f"{pas} · {est}", "epc": objetivo}
             dlg.accept()
-        btn = QPushButton(tr("ubic.continue", default="CONTINUAR")); btn.setFixedHeight(44)
+        btn = QPushButton(tr("ubic.continue", default="Continuar")); btn.setFixedHeight(44)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet("QPushButton { background:#1ED760; color:#0D1117; border:2px solid #1ED760;"
+        btn.setStyleSheet("QPushButton { background:#0D1117; color:#1ED760; border:2px solid #1ED760;"
                           " border-radius:10px; font-family:'Segoe UI'; font-weight:900; font-size:14px; }"
-                          " QPushButton:hover { background:transparent; color:#1ED760; }")
+                          " QPushButton:hover { background:#1ED760; color:#0D1117; }")
         btn.clicked.connect(_ok)
         fl.addWidget(btn)
         base.addWidget(frm)
@@ -6541,18 +7239,23 @@ class UbicacionTiendaWindow(QMainWindow):
         (artículo o estantería) y CUÁL, para que el lector sepa qué EPC/radiofrecuencia buscar. El lector
         detecta la señal y emite un pitido que se ACELERA al acercarse. Degradable: RSSI real del lector
         (self.lector_rfid) o simulación de aproximación. UI 100 % inline."""
-        from PyQt6.QtCore import QTimer
-
         tipo = self._rfid_preguntar_tipo()
         if tipo is None:
             return
         objetivo = self._rfid_elegir_articulo() if tipo == "ARTICULO" else self._rfid_elegir_estanteria()
         if not objetivo:
             return
-        codigo = objetivo["codigo"]
-        nombre = objetivo.get("nombre") or codigo
-        epc = objetivo.get("epc") or codigo
+        self._arrancar_rastreo_rfid(objetivo["codigo"], objetivo.get("nombre"), objetivo.get("epc"))
 
+    def _arrancar_rastreo_rfid(self, codigo, nombre=None, epc=None):
+        """Arranca la sesión de rastreo por proximidad (panel inline + QTimer) ya con el código/EPC
+        resueltos — punto de entrada COMPARTIDO entre el flujo manual (`iniciar_rastreo_rfid`, el
+        usuario elige artículo/estantería) y el botón "Ver en el localizador" de la pestaña RFID
+        tras vincular una unidad (Integración con la vista de Ubicación, requisito 3)."""
+        from PyQt6.QtCore import QTimer
+
+        nombre = nombre or codigo
+        epc = epc or codigo
         try:
             from src.services.rfid import RastreoRFID
             gw = getattr(self, "lector_rfid", None)
@@ -6664,132 +7367,20 @@ class UbicacionTiendaWindow(QMainWindow):
         extra_data=None,
     ):
         """
-        Visor HUD con fondo ultra-oscuro y contorno azul neón.
-        Se utiliza un Frame interno para asegurar que el diseño no se pierda al quitar la barra blanca.
+        Escaneo remoto (móvil): despacha el código detectado según `modo`, igual que antes hacía la
+        detección por webcam (`finalizar_grabacion_logistica` para REGISTRO, `procesar_escaneo_barcode`
+        en el resto de casos).
         """
-        from PyQt6.QtCore import Qt, QTimer
-        from PyQt6.QtGui import QPixmap
-        from PyQt6.QtWidgets import QDialog
+        from src.gui.components.remote_scan import iniciar_escaneo_movil
 
-        self.dlg_scan = QDialog(self)
-        titulo_ui = str(titulo_contexto or "VISIÓN").upper()
-        if not titulo_ui.startswith("VISIÓN"):
-            titulo_ui = f"VISIÓN - {titulo_ui}"
+        def _on_resultado(valor, _modo=modo, _extra=extra_data):
+            if _modo == "REGISTRO":
+                self.finalizar_grabacion_logistica(_extra, valor)
+            else:
+                self.procesar_escaneo_barcode(valor)
 
-        if construir_plantilla_camara is not None:
-            plantilla = construir_plantilla_camara(
-                self.dlg_scan,
-                titulo=titulo_ui,
-                texto_video="",
-                estado_inicial=tr("ubic.cam_status", default="ALINEE EL CÓDIGO CON EL SENSOR"),
-                texto_boton_primario=tr("ubic.cam_start", default="INICIAR ESCANEO"),
-                texto_boton_cancelar=tr("ubic.cam_abort", default="ABORTAR OPERACIÓN"),
-                ancho=660,
-                alto=600,
-                ancho_video=480,
-                alto_video=320,
-                mostrar_boton_primario=False,
-                object_name_dialog="scanner_dialog",
-                object_name_frame="cuerpo_ventana_scan",
-            )
-            self.cuerpo_ventana = plantilla["main_frame"]
-            self.lbl_video = plantilla["lbl_video"]
-            self.lbl_video.setText("")
-            self.lbl_status = plantilla["lbl_status"]
-            self.lbl_status.setObjectName("lbl_info_scan")
-            self.lbl_status.setText(tr("ubic.cam_status", default="ALINEE EL CÓDIGO CON EL SENSOR"))
-            btn_cerrar = plantilla["btn_cancelar"]
-            btn_cerrar.clicked.connect(self.abortar_escaneo)
-            if aplicar_estilo_widget is not None:
-                aplicar_estilo_widget(self.lbl_video)
-                aplicar_estilo_widget(self.lbl_status)
-                aplicar_estilo_widget(btn_cerrar)
-        else:
-            self.dlg_scan.setWindowFlags(
-                Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog
-            )
-            self.dlg_scan.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-            self.dlg_scan.setFixedSize(660, 600)
-
-        # --- Lógica de Hardware ---
-        self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self.timer_camara = QTimer(self)
-
-        def update_frame():
-            if not self.dlg_scan.isVisible():
-                self.limpiar_recursos_camara()
-                return
-
-            ret, frame = self.cap.read()
-            if ret:
-                codes = pyzbar.decode(frame)
-                for barcode in codes:
-                    codigo_detectado = barcode.data.decode("utf-8")
-                    if modo == "REGISTRO":
-                        self.finalizar_grabacion_logistica(extra_data, codigo_detectado)
-                    else:
-                        self.procesar_escaneo_barcode(codigo_detectado)
-                    self.limpiar_recursos_camara()
-                    self.dlg_scan.accept()
-                    return
-
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                h, w, ch = rgb.shape
-                img = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
-                from PyQt6.QtCore import QRectF
-                from PyQt6.QtGui import QPainter, QPainterPath
-                tw = self.lbl_video.width()
-                th = self.lbl_video.height()
-                if tw > 0 and th > 0:
-                    B = 4  # border inset
-                    iw, ih = tw - 2 * B, th - 2 * B
-                    src = QPixmap.fromImage(img)
-                    scaled = src.scaled(
-                        iw, ih,
-                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
-                    ox = (scaled.width() - iw) // 2
-                    oy = (scaled.height() - ih) // 2
-                    cropped = scaled.copy(ox, oy, iw, ih)
-                    result = QPixmap(tw, th)
-                    result.fill(QColor("#05070A"))
-                    painter = QPainter(result)
-                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                    clip = QPainterPath()
-                    clip.addRoundedRect(QRectF(B, B, iw, ih), 12, 12)
-                    painter.setClipPath(clip)
-                    painter.drawPixmap(B, B, cropped)
-                    painter.setClipping(False)
-                    _pen = QPen(QColor(0, 255, 198, 255), B * 2)
-                    _pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-                    painter.setPen(_pen)
-                    painter.setBrush(Qt.BrushStyle.NoBrush)
-                    painter.drawRoundedRect(QRectF(B, B, iw, ih), 12, 12)
-                    painter.end()
-                    self.lbl_video.setPixmap(result)
-
-        self.timer_camara.timeout.connect(update_frame)
-        self.timer_camara.start(30)
-        self.dlg_scan.finished.connect(self.limpiar_recursos_camara)
-        self.dlg_scan.exec()
-
-    def abortar_escaneo(self):
-        """Cierra el diálogo y libera la cámara inmediatamente."""
-        if hasattr(self, "dlg_scan"):
-            self.dlg_scan.reject()
-        self.limpiar_recursos_camara()
-
-    def limpiar_recursos_camara(self):
-        """Libera el sensor y detiene los hilos de procesamiento de video."""
-        if hasattr(self, "timer_camara") and self.timer_camara.isActive():
-            self.timer_camara.stop()
-        if hasattr(self, "cap") and self.cap.isOpened():
-            self.cap.release()
-        print("DEBUG: Hardware de visión liberado.")
+        iniciar_escaneo_movil(
+            self, on_result=_on_resultado, contexto=f"ubicacion.camara_{modo.lower()}")
 
     # ============================================================
     # BLOQUE FLUJO DE RUTA GPS
@@ -7868,7 +8459,7 @@ class UbicacionTiendaWindow(QMainWindow):
         lyt.addWidget(lbl_head)
 
         search_input = QLineEdit()
-        search_input.setPlaceholderText(tr("ubic.goto_item_ph", default="Escriba el código de artículo..."))
+        search_input.setPlaceholderText(tr("ubic.goto_item_ph", default="🔍 Escriba el código de artículo..."))
         search_input.setStyleSheet(
             """
             QLineEdit { 
@@ -7913,7 +8504,7 @@ class UbicacionTiendaWindow(QMainWindow):
             and self.visor_mapa.pos_operario is not None
         )
         texto_confirmar = (
-            "INICIAR RUTA AHORA" if ya_ubicado else "CONFIRMAR Y LOCALIZARME"
+            "Iniciar ruta ahora" if ya_ubicado else "Confirmar y localizarme"
         )
 
         btn_confirmar = QPushButton(texto_confirmar)
@@ -7921,8 +8512,8 @@ class UbicacionTiendaWindow(QMainWindow):
         btn_confirmar.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_confirmar.setStyleSheet(
             """
-            QPushButton { background-color: #238636; color: #0E1117; font-family: 'Segoe UI'; font-weight: 900; border-radius: 12px; font-size: 13px; }
-            QPushButton:hover { background-color: #FFFFFF; color: #0E1117; }
+            QPushButton { background-color: #0E1117; color: #238636; border: 2px solid #238636; font-family: 'Segoe UI'; font-weight: 900; border-radius: 12px; font-size: 13px; }
+            QPushButton:hover { background-color: #238636; color: #0E1117; }
         """
         )
 
@@ -8189,6 +8780,7 @@ class UbicacionTiendaWindow(QMainWindow):
         from PyQt6.QtWidgets import (
             QDialog,
             QFrame,
+            QHBoxLayout,
             QLabel,
             QLineEdit,
             QPushButton,
@@ -8229,7 +8821,7 @@ class UbicacionTiendaWindow(QMainWindow):
 
         search_input = QLineEdit()
         search_input.setPlaceholderText(
-            tr("ubic.codigo_nombre_o_ubicacion_ej", default="Codigo, nombre o ubicacion (ej: PASILLO BEBIDAS 09)")
+            tr("ubic.codigo_nombre_o_ubicacion_ej", default="🔍 Codigo, nombre o ubicacion (ej: PASILLO BEBIDAS 09)")
         )
         search_input.setFont(self._crear_fuente_segoe(10))
         search_input.setStyleSheet(
@@ -8263,21 +8855,25 @@ class UbicacionTiendaWindow(QMainWindow):
         except Exception:
             pass
 
-        btn_scan = QPushButton("📷 " + tr("ubic.scan_btn", default="SCAN"))
-        btn_scan.setObjectName("btn_secundario")
-        btn_scan.setFixedSize(110, 50)
-        btn_scan.setCursor(Qt.CursorShape.PointingHandCursor)
         self._input_gps_dialog_activo = search_input
-        btn_scan.clicked.connect(
-            lambda: self.abrir_escaner_camara("BUSCAR ARTICULO", "BUSQUEDA")
-        )
-        lyt.addWidget(btn_scan)
+
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC. `validar_destino`
+        # todavía no está definida aquí — se conecta con una lambda que la referencia por closure,
+        # se resuelve en el momento del clic (después de que `validar_destino` exista más abajo).
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            dialogo, on_result=lambda v: (search_input.setText(v), validar_destino()),
+            contexto="ubicacion.buscar_destino_gps")
+
+        fila_scan = QHBoxLayout()
+        fila_scan.addWidget(btn_escaneo_movil)
+        lyt.addLayout(fila_scan)
 
         ya_ubicado = (
             getattr(getattr(self, "visor_mapa", None), "pos_operario", None) is not None
         )
         texto_confirmar = (
-            "INICIAR RUTA AHORA" if ya_ubicado else "CONFIRMAR Y LOCALIZARME"
+            "Iniciar ruta ahora" if ya_ubicado else "Confirmar y localizarme"
         )
 
         def validar_destino():
@@ -8318,13 +8914,17 @@ class UbicacionTiendaWindow(QMainWindow):
                     f"RUTA GENERADA HACIA {nombre_destino}", 5000
                 )
             else:
-                self.statusBar().setStyleSheet(
-                    "QStatusBar { background: #0D1117; color: #00FFC6; font-family: 'Segoe UI'; font-weight: 900; }"
+                # Autolocalizarse exige escanear el QR físico de un satélite — un PC de escritorio no
+                # puede hacerlo (no se camina con él por el almacén). Se redirige al móvil en vez de
+                # abrir la webcam del PC (rediseño móvil Grupo A, a petición explícita del usuario).
+                dialogo.accept()
+                self.mostrar_mensaje_error(
+                    tr("ubic.ve_al_movil_titulo", default="Continúa desde el móvil"),
+                    tr("ubic.ve_al_movil_texto",
+                       default="Para iniciar la ruta hace falta escanear el QR de un satélite físico "
+                               "— esto se hace desde la app móvil: abre Ubicación → GPS interno en tu "
+                               "dispositivo."),
                 )
-                self.statusBar().showMessage(
-                    "ESCANEE UN QR DE UBICACION PARA INICIAR LA NAVEGACION", 6000
-                )
-                self.abrir_escaner_camara("ESCANEE SU UBICACION ACTUAL", "UBICACION")
 
         btn_confirmar = QPushButton(texto_confirmar)
         btn_confirmar.setFixedHeight(50)
@@ -8332,10 +8932,10 @@ class UbicacionTiendaWindow(QMainWindow):
         btn_confirmar.setFont(self._crear_fuente_segoe(10))
         btn_confirmar.setStyleSheet(
             self._estilo_boton_neon(
-                bg="#238636",
-                fg="#0E1117",
+                bg="#0E1117",
+                fg="#238636",
                 border="#238636",
-                hover_bg="#FFFFFF",
+                hover_bg="#238636",
                 hover_fg="#0E1117",
                 radius=12,
                 padding="12px 18px",
@@ -8697,14 +9297,14 @@ class UbicacionTiendaWindow(QMainWindow):
             
             /* Botón Principal (Verde) */
             QPushButton#btnIniciar {
-                background-color: #238636;
-                color: #0E1117;
+                background-color: #0E1117;
+                color: #238636;
                 border-radius: 10px;
                 padding: 10px;
-                border: none;
+                border: 2px solid #238636;
                 min-width: 120px;
             }
-            QPushButton#btnIniciar:hover { background-color: #FFFFFF; color: #0E1117; }
+            QPushButton#btnIniciar:hover { background-color: #238636; color: #0E1117; }
             
             /* Botón Cancelar (Gris Claro) */
             QPushButton#btnCancelar { 
@@ -8752,7 +9352,7 @@ class UbicacionTiendaWindow(QMainWindow):
         btn_cancelar.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cancelar.clicked.connect(diag_init.reject)
 
-        btn_cont = QPushButton(tr("ubic.start_protocol", default="INICIAR PROTOCOLO"))
+        btn_cont = QPushButton(tr("ubic.start_protocol", default="Iniciar protocolo"))
         btn_cont.setObjectName("btnIniciar")
         btn_cont.setFont(f_btn)  # Inyección directa
         btn_cont.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -11077,15 +11677,15 @@ class VistaMapa(QGraphicsView):
         lyt.addWidget(lbl_titulo)
         lyt.addStretch()
 
-        btn_confirmar = QPushButton(tr("ubic.confirm_finish", default="CONFIRMAR Y FINALIZAR"))
+        btn_confirmar = QPushButton(tr("ubic.confirm_finish", default="Confirmar y finalizar"))
         btn_seguir = QPushButton(tr("ubic.keep_installing", default="SEGUIR INSTALANDO"))
         btn_cancelar = QPushButton(tr("ubic.cancel_op", default="CANCELAR OPERACIÓN"))
 
         btn_confirmar.setStyleSheet(
-            "QPushButton { background-color: #1ED760; color: #0D1117;"
+            "QPushButton { background-color: #0D1117; color: #1ED760;"
             " border: 2px solid #1ED760; border-radius: 10px;"
             " font-family: 'Segoe UI'; font-weight: 900; font-size: 13px; padding: 10px 14px; }"
-            " QPushButton:hover { background-color: transparent; color: #1ED760; border: 2px solid #1ED760; }"
+            " QPushButton:hover { background-color: #1ED760; color: #0D1117; border: 2px solid #1ED760; }"
         )
         btn_seguir.setStyleSheet(
             "QPushButton { background-color: transparent; color: #00FFC6;"

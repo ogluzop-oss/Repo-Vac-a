@@ -60,6 +60,42 @@ def _doc_traducir_lote(textos, idioma, dominio):
         return list(textos)
 
 
+def _dibujar_zona_agujeros(c, ancho_zona, alto_total):
+    """Dibuja, en el margen izquierdo reservado de un ticket (0 a `ancho_zona`), la línea
+    discontinua gris tenue que delimita la zona de perforación para archivar el ticket + el
+    texto vertical que pide perforar solo dentro de esa franja. Reutilizado por TODOS los
+    generadores de ticket de este módulo (venta y operación de caja) para que el margen tenga
+    siempre el mismo aspecto. Se dibuja al final (tras el contenido), pero como la franja
+    reservada queda íntegramente a la izquierda de donde empieza el contenido (`XL`), nunca se
+    superpone con él.
+    """
+    from reportlab.lib.units import mm
+
+    gris = (0.72, 0.72, 0.72)
+    x_linea = ancho_zona - 2 * mm
+    c.saveState()
+    c.setStrokeColorRGB(*gris)
+    c.setDash(2, 2)
+    c.setLineWidth(0.4)
+    c.line(x_linea, alto_total - 2 * mm, x_linea, 2 * mm)
+    c.restoreState()
+
+    # Alto mínimo para que el texto (girado) quepa con holgura sin desbordar el ticket.
+    if alto_total < 30 * mm:
+        return
+    texto = _doc_tr("ticket.punch_zone", "ZONA DE PERFORACIÓN · perfore solo dentro de esta línea")
+    c.saveState()
+    c.setFillColorRGB(*gris)
+    try:
+        c.setFont("Helvetica", 5.5)
+    except Exception:
+        pass
+    c.translate(x_linea - 2.2 * mm, alto_total / 2)
+    c.rotate(90)
+    c.drawCentredString(0, 0, texto)
+    c.restoreState()
+
+
 # ============================================================
 # BLOQUE GENERACIÓN DE TICKET EN PDF (multiidioma)
 # ============================================================
@@ -180,11 +216,14 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
         else str(pago.get("forma_pago", ""))
 
     # ── Construcción por ELEMENTOS (para calcular el alto exacto) ─────────────
+    # SIN zona de perforación: este es el ticket de COMPRA que se entrega al cliente (se lo
+    # lleva, no lo archiva la empresa) — a diferencia de `generar_ticket_operacion_pdf`
+    # (documentos internos que sí se queda la empresa), márgenes simétricos normales.
     W = 80 * mm
-    MX = 5 * mm                  # margen lateral
-    XL = MX                      # x izquierda
+    MX = 5 * mm                  # margen lateral (izquierdo y derecho)
+    XL = MX                      # x izquierda del contenido
     XR = W - MX                  # x derecha
-    CW = W - 2 * MX              # ancho útil
+    CW = XR - XL                 # ancho útil
     elementos = []               # (alto, draw_fn(c, y))
 
     def add(h, fn):
@@ -422,6 +461,16 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
             if cambio > 0.005:
                 linea_kv(L("change", "Cambio"), M(cambio), size=7)
 
+        # 8-bis) TAX FREE — deducción de IVA aplicada en caja a un cliente extranjero
+        # (documento + país declarados, importe de IVA deducido). Solo si se aplicó.
+        tax_free = datos.get("tax_free")
+        if tax_free:
+            sep()
+            texto(L("taxfree_title", "TAX FREE — VENTA SIN IVA"), _FB, 7, center=True, gap=1)
+            linea_kv(L("taxfree_doc", "Documento"), str(tax_free.get("documento") or ""), size=7)
+            linea_kv(L("taxfree_pais", "País"), str(tax_free.get("pais") or ""), size=7)
+            linea_kv(L("taxfree_iva", "IVA deducido"), M(tax_free.get("iva_deducido") or 0), size=7)
+
     sep()
 
     # 9) QR (los tickets de compra conservan SOLO el QR; sin código de barras).
@@ -443,10 +492,18 @@ def generar_ticket_pdf(datos: dict, archivo: str = "ticket.pdf", idioma: str = N
 
     sep()
 
-    # 10) POLÍTICA DE DEVOLUCIÓN
-    dias = cfg.get("devol_dias", 30)
-    texto(L("return_policy", "Dispone de {d} días para devoluciones presentando este ticket.").format(d=dias),
-          _FN, 7, center=True, gap=2)
+    # 10) POLÍTICA DE DEVOLUCIÓN — fecha límite CONGELADA de esta venta (no el plazo en
+    # días genérico: dos tickets emitidos bajo plazos distintos muestran fechas distintas).
+    fecha_limite = cfg.get("fecha_limite_devolucion")
+    if fecha_limite is not None and not isinstance(fecha_limite, str):
+        fecha_limite = fecha_limite.strftime("%d/%m/%Y")
+    if fecha_limite:
+        texto(L("return_policy_date", "Puede devolver este artículo hasta el {f} presentando este ticket.")
+              .format(f=fecha_limite), _FN, 7, center=True, gap=2)
+    else:
+        dias = cfg.get("devol_dias", 30)
+        texto(L("return_policy", "Dispone de {d} días para devoluciones presentando este ticket.").format(d=dias),
+              _FN, 7, center=True, gap=2)
     espacio(2)
 
     # 11) MENSAJE DE DESPEDIDA + TEXTO LEGAL
@@ -528,7 +585,10 @@ def generar_ticket_operacion_pdf(datos: dict, archivo: str = "ticket_operacion.p
     firmas = datos.get("firmas") or []    # [(etiqueta, valor|None), …]
 
     W = 80 * mm
-    ML = 14 * mm                          # margen IZQUIERDO ampliado (perforación para archivar)
+    ML = 9 * mm                           # margen IZQUIERDO ampliado (perforación para archivar) —
+                                           # finito a propósito: solo lo justo para la línea
+                                           # discontinua + el texto vertical, sin robarle más
+                                           # espacio del necesario al contenido del ticket.
     MR = 5 * mm
     XL, XR = ML, W - MR
     CW = XR - XL
@@ -669,6 +729,19 @@ def generar_ticket_operacion_pdf(datos: dict, archivo: str = "ticket_operacion.p
             c.setFont(_FB, 13); c.drawRightString(XR - 3 * mm, y - 16, M(_val))
         add(26, _ft); espacio(4)
 
+    # 7b) CÓDIGO DE BARRAS (p. ej. vale de devolución canjeable) — ESCANEABLE en TPV/autocobro,
+    # con el texto plano debajo como respaldo para introducirlo a mano si el escáner falla.
+    codigo_barras = datos.get("codigo_barras")
+    if codigo_barras:
+        ir, ratio = _ticket_imagen_codigo("code128", str(codigo_barras))
+        if ir is not None:
+            bw = CW * 0.9
+            bh = min(bw * ratio, 16 * mm)
+            def _fb(c, y, _ir=ir, _bw=bw, _bh=bh):
+                c.drawImage(_ir, CX - _bw / 2, y - _bh, _bw, _bh, preserveAspectRatio=True, mask="auto")
+            add(bh + 4, _fb)
+        texto(str(codigo_barras), _FB, 9, center=True, gap=4)
+
     # 8) FIRMAS (p. ej. cambio de cajero: cajero saliente encima, responsable debajo)
     if firmas:
         espacio(6)
@@ -693,6 +766,7 @@ def generar_ticket_operacion_pdf(datos: dict, archivo: str = "ticket_operacion.p
     y = alto - top_pad
     for h, fn in elementos:
         fn(c, y); y -= h
+    _dibujar_zona_agujeros(c, ML, alto)
     c.save()
     logger.info(f"Ticket de operación PDF generado ({lang}): {archivo}")
 

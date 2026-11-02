@@ -84,15 +84,24 @@ def _job_anomalias(id_empresa):
     return f"anomalias={len(ia.deteccion_anomalias(id_empresa=id_empresa))}"
 
 
+def _job_recomendaciones_finanzas(id_empresa):
+    from src.services.finanzas import ia
+    return f"recomendaciones_emitidas={ia.registrar_en_automatizacion(id_empresa=id_empresa)}"
+
+
 def registrar_jobs_finanzas(id_empresa=None):
     """Registra los jobs financieros en el Scheduler (idempotente, opt-in)."""
     from src.services import scheduler
     scheduler.registrar("fin_ratios", _job_ratios)
     scheduler.registrar("fin_riesgo_credito", _job_riesgo_credito)
     scheduler.registrar("fin_anomalias", _job_anomalias)
+    scheduler.registrar("fin_recomendaciones", _job_recomendaciones_finanzas)
     scheduler.registrar_job("fin_ratios", intervalo_horas=24, descripcion="Ratios financieros a BI",
                             id_empresa=id_empresa)
     scheduler.registrar_job("fin_riesgo_credito", intervalo_horas=24, descripcion="Riesgo de credito/impagos",
                             id_empresa=id_empresa)
     scheduler.registrar_job("fin_anomalias", intervalo_horas=24, descripcion="Anomalias financieras",
+                            id_empresa=id_empresa)
+    scheduler.registrar_job("fin_recomendaciones", intervalo_horas=24,
+                            descripcion="Recomendaciones IA de finanzas a Automatizacion/Aprobaciones",
                             id_empresa=id_empresa)

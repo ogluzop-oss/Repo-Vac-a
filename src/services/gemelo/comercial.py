@@ -2,6 +2,10 @@
 Gemelo Digital Comercial (Paquete Enterprise 8, SUBFASE 8.4). Representa: clientes, ventas,
 pedidos, facturacion, impagos, rentabilidad y estado comercial. Reutiliza PredictionService
 (clientes/ventas), BI (margen/KPIs) y consultas de solo lectura; no duplica el CRM ni ventas.
+
+Incluye además el resumen REAL de CRM (leads/pipeline/conversión/forecast/churn, vía
+`services.ia.adaptadores.crm_resumen` → `services.crm.analitica.kpis`) — antes este dominio solo veía
+actividad de compra agregada desde `ventas`, nunca las tablas propias del CRM.
 """
 
 from src.services.gemelo import fuentes as F
@@ -33,6 +37,13 @@ def estado(id_empresa=None) -> dict:
     except Exception:
         pass
 
+    crm = {}
+    try:
+        from src.services.ia import adaptadores as IA
+        crm = IA.crm_resumen(emp) or {}
+    except Exception:
+        pass
+
     ind = {
         "clientes": clientes,
         "ventas_30d": round(total_30, 2),
@@ -42,6 +53,12 @@ def estado(id_empresa=None) -> dict:
         "impagos": impagos,
         "pedidos_pendientes": pedidos_pend,
         "clientes_inactivos": inactivos,
+        "crm_leads_nuevos": crm.get("leads_nuevos", 0),
+        "crm_leads_calificados": crm.get("leads_calificados", 0),
+        "crm_conversion_pct": crm.get("conversion_pct", 0),
+        "crm_tasa_cierre_pct": crm.get("tasa_cierre_pct", 0),
+        "crm_valor_pipeline": crm.get("valor_pipeline", 0),
+        "crm_forecast": crm.get("forecast", 0),
     }
     riesgo = M.RIESGO_BAJO
     alertas = []
@@ -51,8 +68,12 @@ def estado(id_empresa=None) -> dict:
     if inactivos:
         alertas.append(f"{inactivos} cliente(s) inactivos")
         riesgo = M.peor_riesgo(riesgo, M.RIESGO_MEDIO)
+    if crm.get("churn_comercial"):
+        alertas.append(f"{crm['churn_comercial']} cliente(s) SaaS perdido(s) (churn comercial)")
+        riesgo = M.peor_riesgo(riesgo, M.RIESGO_MEDIO)
 
     resumen = (f"{clientes} clientes; ventas 30d {round(total_30, 2)} ({tickets_30} tickets); "
-               f"{facturas_pend} facturas pendientes, {impagos} impagos.")
+               f"{facturas_pend} facturas pendientes, {impagos} impagos; "
+               f"CRM: {crm.get('leads_nuevos', 0)} leads nuevos, pipeline {crm.get('valor_pipeline', 0)}.")
     return M.estado_dominio("comercial", resumen=resumen, riesgo=riesgo, indicadores=ind,
-                            alertas=alertas, detalle={"prediccion_clientes": detalle})
+                            alertas=alertas, detalle={"prediccion_clientes": detalle, "crm": crm})

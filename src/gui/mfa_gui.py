@@ -119,7 +119,7 @@ class _ReautenticarDialog(QDialog):
         ly.addWidget(self.err)
         fila = QHBoxLayout()
         fila.addWidget(_btn("Cancelar", self.reject, color=_ROJO))
-        fila.addWidget(_btn("Confirmar", self._validar, color=_VERDE, relleno=True))
+        fila.addWidget(_btn("Confirmar", self._validar, color=_VERDE))
         ly.addLayout(fila)
 
     def _validar(self):
@@ -153,7 +153,7 @@ class _CodigoTOTPDialog(QDialog):
         ly.addWidget(self.err)
         fila = QHBoxLayout()
         fila.addWidget(_btn("Cancelar", self.reject, color=_ROJO))
-        fila.addWidget(_btn("Verificar", self._validar, color=_VERDE, relleno=True))
+        fila.addWidget(_btn("Verificar", self._validar, color=_VERDE))
         ly.addLayout(fila)
 
     def _validar(self):
@@ -198,7 +198,7 @@ class _RecoveryCodesView(QWidget):
         self.chk.setStyleSheet(f"QCheckBox{{color:{_TEXT};font-family:'{_FONT}';font-size:12px;}}")
         self.chk.stateChanged.connect(lambda _=0: self.btn_fin.setEnabled(self.chk.isChecked()))
         ly.addWidget(self.chk)
-        self.btn_fin = _btn("Finalizar", on_finalizar, color=_VERDE, relleno=True)
+        self.btn_fin = _btn("Finalizar", on_finalizar, color=_VERDE)
         self.btn_fin.setEnabled(False)
         ly.addWidget(self.btn_fin)
 
@@ -286,7 +286,7 @@ class MFAEnrolamientoDialog(QDialog):
         ly.addWidget(self._err)
         bl = QHBoxLayout()
         bl.addWidget(_btn("Cancelar", self.reject, color=_ROJO))
-        bl.addWidget(_btn("Activar MFA", self._activar, color=_VERDE, relleno=True))
+        bl.addWidget(_btn("Activar MFA", self._activar, color=_VERDE))
         ly.addLayout(bl)
         return w
 
@@ -325,7 +325,7 @@ class _StepUpDialog(QDialog):
         ly.addWidget(self.err)
         fila = QHBoxLayout()
         fila.addWidget(_btn("Cancelar", self.reject, color=_ROJO))
-        fila.addWidget(_btn("Verificar", self._validar, color=_VERDE, relleno=True))
+        fila.addWidget(_btn("Verificar", self._validar, color=_VERDE))
         ly.addLayout(fila)
 
     def _validar(self):
@@ -400,7 +400,7 @@ class MFAResetAdminDialog(QDialog):
         ly.addWidget(self.err)
         fila = QHBoxLayout()
         fila.addWidget(_btn("Cancelar", self.reject, color=_ROJO))
-        fila.addWidget(_btn("Resetear MFA", self._reset, color=_VERDE, relleno=True))
+        fila.addWidget(_btn("Resetear MFA", self._reset, color=_VERDE))
         ly.addLayout(fila)
 
     def _reset(self):
@@ -453,7 +453,7 @@ class MFASeguridadPanel(QWidget):
         self.lbl_estado = _lbl("", size=14, bold=True)
         root.addWidget(self.lbl_estado)
         fila = QHBoxLayout(); fila.setSpacing(10)
-        self.btn_activar = _btn("Configurar MFA", self._configurar, color=_VERDE, relleno=True)
+        self.btn_activar = _btn("Configurar MFA", self._configurar, color=_VERDE)
         self.btn_regenerar = _btn("Regenerar códigos de recuperación", self._regenerar)
         self.btn_desactivar = _btn("Desactivar MFA", self._desactivar, color=_ROJO)
         fila.addWidget(self.btn_activar)

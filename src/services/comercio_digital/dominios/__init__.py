@@ -37,7 +37,7 @@ def disponibles() -> list:
 def _proveedor_por_defecto() -> str:
     """Proveedor activo: el configurado por Rules/config o `simulado` (degradable)."""
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         rules = cap.rules()
         if rules is not None and hasattr(rules, "registrador_dominios"):
             p = rules.registrador_dominios()

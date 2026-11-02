@@ -51,14 +51,26 @@ def emisor_para(config: dict) -> Emisor:
     """Emisor para una config. Verifactu devuelve su adaptador AEAT con TRANSPORTE
     mTLS real (C3.5.2) inyectado cuando la empresa tiene un certificado ACTIVO
     vigente (custodia C3.5.1). Sin certificado, `disponible()=False` → el worker
-    deja el registro en espera. Otros regímenes/sin configurar: no-op."""
-    if (config or {}).get("proveedor") == "verifactu":
+    deja el registro en espera. TicketBAI devuelve su adaptador LROE con el MISMO
+    transporte mTLS (C3.4-TBAI) + el `Firmante` XAdES (TicketBAI exige factura
+    firmada, a diferencia de Verifactu) — sin certificado activo, ninguno de los
+    dos queda disponible. Otros regímenes/sin configurar: no-op."""
+    proveedor = (config or {}).get("proveedor")
+    if proveedor == "verifactu":
         try:
             from src.services.fiscal.emisores.verifactu_aeat import EmisorVerifactu
             transporte = _transporte_mtls(config)
             return EmisorVerifactu(transporte=transporte, config=config)
         except Exception as e:
             logger.error("emisor_para(verifactu): %s", e)
+    elif proveedor == "ticketbai":
+        try:
+            from src.services.fiscal.emisores.ticketbai_lroe import EmisorTicketBAI
+            transporte = _transporte_mtls(config)
+            firmante = firmante_para({**(config or {}), "modo": "no_verifactu"})
+            return EmisorTicketBAI(transporte=transporte, firmante=firmante, config=config)
+        except Exception as e:
+            logger.error("emisor_para(ticketbai): %s", e)
     return Emisor()
 
 

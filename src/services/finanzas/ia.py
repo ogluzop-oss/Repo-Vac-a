@@ -117,3 +117,36 @@ def recomendaciones(*, id_empresa=None) -> list:
     except Exception:
         pass
     return recs
+
+
+_PRIORIDAD_A_NIVEL = {1: "ALTA", 2: "MEDIA", 3: "BAJA"}
+
+
+def registrar_en_automatizacion(*, id_empresa=None) -> int:
+    """Emite cada recomendacion como tarea en el circuito ya existente de "la IA propone, un humano
+    decide" (`services.automatizacion.acciones` -> Centro/Automatizacion/Aprobaciones), en vez de
+    mantenerlas aisladas en una tabla de solo lectura. Idempotente por dia: no vuelve a emitir una tarea
+    con el mismo titulo para la misma empresa si ya se emitio hoy. Devuelve el nº de tareas emitidas."""
+    eid = _emp(id_empresa)
+    recs = recomendaciones(id_empresa=eid)
+    from src.services.automatizacion import acciones as A
+    emitidas = 0
+    for r in recs:
+        titulo = r["accion"]
+        try:
+            with obtener_conexion() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM notificaciones WHERE id_empresa=%s AND modulo='finanzas' "
+                    "AND titulo=%s AND fecha_creacion >= CURDATE()", (eid, titulo))
+                if cur.fetchone():
+                    continue
+        except Exception as e:
+            logger.debug("registrar_en_automatizacion dedupe: %s", e)
+        try:
+            nivel = _PRIORIDAD_A_NIVEL.get(r.get("prioridad"), "MEDIA")
+            A.notificar({"mensaje": r.get("motivo", ""), "prioridad": nivel},
+                       {"titulo": titulo, "modulo": "finanzas"}, id_empresa=eid)
+            emitidas += 1
+        except Exception as e:
+            logger.error("registrar_en_automatizacion emitir '%s': %s", titulo, e)
+    return emitidas

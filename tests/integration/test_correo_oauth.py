@@ -38,7 +38,17 @@ def test_2_secret_manager(monkeypatch):
     assert r["origen"] == "secret_manager" and r["client_id"] == "cid-sm" and r["client_secret"] == "csec-sm"
 
 
+def _sin_bundled(monkeypatch, tmp_path):
+    """Neutraliza el tier 3 (bundled, `assets/google_oauth_client.json`) apuntándolo a una ruta
+    que no existe — necesario para aislar los tests de los tiers 4/5 (legacy) de si ESTA máquina
+    concreta tiene o no un `assets/google_oauth_client.json` real (lo tiene en desarrollo desde
+    que se centralizó el cliente OAuth de la app; el test no debe depender de ese estado)."""
+    monkeypatch.setattr("src.utils.recursos.ruta_recurso",
+                        lambda *p: str(tmp_path / "no_bundled_en_este_test.json"))
+
+
 def test_3_fallback_client_file(monkeypatch, tmp_path):
+    _sin_bundled(monkeypatch, tmp_path)
     f = tmp_path / "client.json"
     f.write_text(json.dumps({"installed": {"client_id": "cid-f", "client_secret": "csec-f"}}))
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_FILE", str(f))
@@ -47,6 +57,7 @@ def test_3_fallback_client_file(monkeypatch, tmp_path):
 
 
 def test_4_fallback_documentos(monkeypatch, tmp_path):
+    _sin_bundled(monkeypatch, tmp_path)
     # Simula instalación antigua: solo documentos/google_oauth_client.json.
     (tmp_path / "google_oauth_client.json").write_text(
         json.dumps({"installed": {"client_id": "cid-doc", "client_secret": "csec-doc"}}))
@@ -56,6 +67,7 @@ def test_4_fallback_documentos(monkeypatch, tmp_path):
 
 
 def test_5_sin_configuracion(monkeypatch, tmp_path):
+    _sin_bundled(monkeypatch, tmp_path)
     monkeypatch.setattr(S, "_dir_documentos", lambda: str(tmp_path))  # documentos vacío
     assert S._resolver_client_oauth() is None
     assert S.oauth_google_configurado() is False
@@ -87,3 +99,50 @@ def test_8_secret_manager_obtener_secreto_env(monkeypatch):
     monkeypatch.setenv("CLAVE_DEMO_X", "valor-x")
     assert SMreal.obtener_secreto("CLAVE_DEMO_X") == "valor-x"
     assert SMreal.obtener_secreto("NO_EXISTE_Y", default="def") == "def"
+
+
+def test_9_bundled_centralizado(monkeypatch, tmp_path):
+    # Client OAuth centralizado bundled (assets/google_oauth_client.json) resuelto vía
+    # ruta_recurso: sin env/secret_manager/ficheros legacy, gana el bundled si existe.
+    f = tmp_path / "google_oauth_client.json"
+    f.write_text(json.dumps({"installed": {"client_id": "cid-bundle", "client_secret": "csec-bundle"}}))
+    monkeypatch.setattr("src.utils.recursos.ruta_recurso", lambda *p: str(f))
+    r = S._resolver_client_oauth()
+    assert r["origen"] == "bundled" and r["ruta_fichero"] == str(f)
+
+
+def test_10_prioridad_bundled_sobre_ficheros_legacy(monkeypatch, tmp_path):
+    # Bundled presente + GOOGLE_OAUTH_CLIENT_FILE + documentos/ también presentes: gana bundled
+    # (tier 3, antes que los dos tiers de fichero legado 4 y 5).
+    bundled = tmp_path / "bundled.json"
+    bundled.write_text(json.dumps({"installed": {"client_id": "cid-bundle", "client_secret": "csec-bundle"}}))
+    monkeypatch.setattr("src.utils.recursos.ruta_recurso", lambda *p: str(bundled))
+    legacy = tmp_path / "legacy.json"; legacy.write_text("{}")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_FILE", str(legacy))
+    monkeypatch.setattr(S, "_dir_documentos", lambda: str(tmp_path))
+    r = S._resolver_client_oauth()
+    assert r["origen"] == "bundled" and r["ruta_fichero"] == str(bundled)
+
+
+def test_11_secret_manager_gana_a_bundled(monkeypatch, tmp_path):
+    # Secret manager (tier 2) sigue ganando al bundled (tier 3): override explícito del operador.
+    bundled = tmp_path / "bundled.json"
+    bundled.write_text(json.dumps({"installed": {"client_id": "cid-bundle", "client_secret": "csec-bundle"}}))
+    monkeypatch.setattr("src.utils.recursos.ruta_recurso", lambda *p: str(bundled))
+    secretos = {"GOOGLE_OAUTH_CLIENT_ID": "cid-sm", "GOOGLE_OAUTH_CLIENT_SECRET": "csec-sm"}
+    monkeypatch.setattr(SM, "obtener_secreto", lambda k, default=None: secretos.get(k, default))
+    r = S._resolver_client_oauth()
+    assert r["origen"] == "secret_manager"
+
+
+def test_12_sin_bundled_cae_a_legacy_o_none(monkeypatch, tmp_path):
+    # Si el bundled NO existe en disco (instalación/CI sin `assets/google_oauth_client.json`
+    # todavía colocado), _ruta_client_bundled() debe devolver None y _resolver_client_oauth debe
+    # seguir cayendo a los tiers legacy (o a None si tampoco los hay) sin romperse.
+    monkeypatch.setattr("src.utils.recursos.ruta_recurso", lambda *p: str(tmp_path / "no_existe.json"))
+    monkeypatch.setattr(S, "_dir_documentos", lambda: str(tmp_path))
+    assert S._resolver_client_oauth() is None
+    legacy = tmp_path / "google_oauth_client.json"
+    legacy.write_text(json.dumps({"installed": {"client_id": "cid-doc", "client_secret": "csec-doc"}}))
+    r = S._resolver_client_oauth()
+    assert r["origen"] == "file"

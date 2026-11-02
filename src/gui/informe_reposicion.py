@@ -3,11 +3,10 @@ import os
 from datetime import datetime
 
 import pandas as pd
-from PyQt6.QtCore import Qt, QStringListModel, QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QApplication,
-    QCompleter,
     QDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -27,7 +26,6 @@ from PyQt6.QtWidgets import (
 
 from assets.estilo_global import (
     construir_tabla_estilizada,
-    estilizar_completer,
     mostrar_confirmacion,
     mostrar_mensaje,
     repolish_widget,
@@ -37,6 +35,11 @@ from src.db.conexion import (
     set_stock_esperado,
 )
 from src.db.conexion import stock_signals as global_stock_signals
+from src.gui.components.completer_articulos import (
+    instalar_sugerencias_articulo,
+    refrescar_sugerencias_articulo,
+)
+from src.gui.foundation.tab_badges import instalar_badges_sidebar
 from src.utils import i18n
 from src.utils.i18n import tr
 
@@ -436,54 +439,45 @@ class InformeReposicionWindow(QWidget):
 
             self.search_bar = QLineEdit()
             self.search_bar.setPlaceholderText(
-                tr("repo.search_ph", default="Introduce código o nombre para editar stock esperado...")
+                tr("repo.search_ph", default="🔍 Introduce código o nombre para editar stock esperado...")
             )
             self.search_bar.setStyleSheet(InformeReposicionWindow._NEON_INPUT_SS)
             self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
             self.search_bar.returnPressed.connect(self._buscar)
-            # Sugerencias de artículos al escribir (igual que en "Registrar merma").
-            self._completer_model = QStringListModel()
-            completer = QCompleter(self._completer_model, self.search_bar)
-            completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-            completer.setFilterMode(Qt.MatchFlag.MatchContains)
-            self.search_bar.setCompleter(completer)
-            estilizar_completer(completer)
-            self.search_bar.textChanged.connect(self._on_search_text_changed)
+            # Sugerencias de artículos: helper compartido, ver gui/components/completer_articulos.py
+            self.completer = instalar_sugerencias_articulo(self.search_bar)
             layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
-            self._cargar_completer()
 
-            self._btn_buscar = btn_buscar = QPushButton(tr("repo.search_btn", default="BUSCAR ARTÍCULO"))
+            self._btn_buscar = btn_buscar = QPushButton(tr("repo.search_btn", default="🔍"))
             btn_buscar.setStyleSheet(InformeReposicionWindow._BTN_CIAN_SS)
             btn_buscar.setMinimumWidth(180); btn_buscar.setMaximumWidth(300)  # responsive (P2)
             btn_buscar.clicked.connect(self._buscar)
             InformeReposicionWindow._sombra_cian(parent, btn_buscar)
-            layout.addWidget(btn_buscar, alignment=Qt.AlignmentFlag.AlignCenter)
+
+            # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC.
+            from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+            btn_escaneo_movil = agregar_boton_escaneo_movil(
+                self, on_result=lambda v: (self.search_bar.setText(v), self._buscar()),
+                contexto="reposicion.editar_stock_esperado")
+
+            fila_btn = QHBoxLayout()
+            fila_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            fila_btn.addWidget(btn_buscar)
+            fila_btn.addWidget(btn_escaneo_movil)
+            layout.addLayout(fila_btn)
 
             layout.addStretch(1)
 
         def _retraducir(self):
             self._lbl_text.setText(tr("repo.edit_page_title", default="EDITAR STOCK ESPERADO"))
             self.search_bar.setPlaceholderText(
-                tr("repo.search_ph", default="Introduce código o nombre para editar stock esperado...")
+                tr("repo.search_ph", default="🔍 Introduce código o nombre para editar stock esperado...")
             )
-            self._btn_buscar.setText(tr("repo.search_btn", default="BUSCAR ARTÍCULO"))
-
-        def _cargar_completer(self):
-            try:
-                from src.db.conexion import _get_todos_articulos_para_completer
-                articulos = _get_todos_articulos_para_completer()
-                self._completer_model.setStringList(
-                    [f"{c} – {n}" for c, n in articulos])
-            except Exception:
-                pass
-
-        def _on_search_text_changed(self, text):
-            if len(text) >= 2 and not self._completer_model.stringList():
-                self._cargar_completer()
+            self._btn_buscar.setText(tr("repo.search_btn", default="🔍"))
 
         def cargar_datos(self):
             """Refresca el autocompletado al entrar en la pestaña."""
-            self._cargar_completer()
+            refrescar_sugerencias_articulo(self.completer)
 
         def _buscar(self):
             termino = self.search_bar.text().strip()
@@ -621,7 +615,40 @@ class InformeReposicionWindow(QWidget):
                     self._doc_win = CentroDocumentalWindow(
                         usuario=getattr(self.main_window, "usuario_actual", None),
                         categoria_inicial="exportacion")
+                    # Ventana hija abierta fuera de manejar_apertura: sin este flag se ve con la
+                    # barra de título nativa de Windows (inconsistente con el resto de módulos,
+                    # todos frameless). Replica el mismo tratamiento + animación de deslizamiento.
+                    try:
+                        self._doc_win.setWindowFlags(
+                            self._doc_win.windowFlags() | Qt.WindowType.FramelessWindowHint)
+                    except Exception:
+                        pass
+                    snap = None
+                    try:
+                        from src.gui.transiciones import capturar_pantalla
+                        snap = capturar_pantalla(self.main_window or self)
+                    except Exception:
+                        pass
+                    try:
+                        self._doc_win.setWindowOpacity(0.0)
+                        scr = self._doc_win.screen() or QApplication.primaryScreen()
+                        if scr is not None:
+                            self._doc_win.setGeometry(scr.availableGeometry())
+                    except Exception:
+                        pass
                     self._doc_win.showMaximized()
+                    try:
+                        QApplication.processEvents()
+                    except Exception:
+                        pass
+                    try:
+                        from src.gui.transiciones import deslizar_entrada_modulo
+                        deslizar_entrada_modulo(snap, self._doc_win, revelar=self._doc_win)
+                    except Exception:
+                        try:
+                            self._doc_win.setWindowOpacity(1.0)
+                        except Exception:
+                            pass
             except Exception as e:
                 QMessageBox.critical(self, tr("repo.error_title", default="Error"),
                                      tr("repo.nav_err", default="No se pudo abrir Documentos: {e}", e=e))
@@ -817,18 +844,33 @@ class InformeReposicionWindow(QWidget):
         self._tab_keys = ["repo.tab_status", "repo.tab_edit", "repo.tab_export", "repo.tab_reab"]
         _tab_def = ["ESTADO REPOSICIÓN", "EDITAR STOCK ESPERADO", "EXPORTAR INFORME", "REABASTECIMIENTO"]
 
+        # Restricciones por perfil: OPERARIO solo ve "Estado reposición" (0); ADMINISTRADOR añade
+        # "Editar stock esperado" (1) y "Exportar informe" (2); "Reabastecimiento" (3) SOLO SUPERADMIN.
         self._nav_btns = []
         for idx, key in enumerate(self._tab_keys):
-            btn = self._SidebarBtn(tr(key, default=_tab_def[idx]))
+            if idx in (1, 2) and self.perfil not in ("ADMINISTRADOR", "SUPERADMIN"):
+                continue
+            if idx == 3 and self.perfil != "SUPERADMIN":
+                continue
+            btn = self._SidebarBtn(tr(key, default=_tab_def[idx]).upper())
             btn.setCheckable(True)
             btn.setAutoExclusive(True)
             btn.clicked.connect(lambda _, i=idx: self._ir_a(i))
             side_ly.addWidget(btn)
             self._nav_btns.append(btn)
 
+        # Badges de actividad (Centro de Actividad): círculo rojo sobre "ESTADO REPOSICIÓN" (posición
+        # 0 en `_nav_btns`, siempre presente sea cual sea el perfil) con el nº de eventos pendientes
+        # (REPOSICION_GENERADA), calculado al vuelo — mismo patrón sidebar+stack que RRHH.
+        self._gestor_badges = instalar_badges_sidebar(
+            self._nav_btns, self._contar_badges_sidebar, self._al_entrar_seccion_badge)
+        self._timer_badges = QTimer(self)
+        self._timer_badges.timeout.connect(self._gestor_badges.refrescar)
+        self._timer_badges.start(60000)
+
         side_ly.addStretch()
 
-        self._btn_exit = btn_exit = self._SidebarBtn(tr("repo.exit", default="SALIR AL MENÚ"))
+        self._btn_exit = btn_exit = self._SidebarBtn(tr("repo.exit", default="SALIR AL MENÚ").upper())
         btn_exit.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -869,6 +911,38 @@ class InformeReposicionWindow(QWidget):
         self.setLayout(root)
         self.setStyleSheet(f"background-color: {self._FONDO};")
 
+    def _id_empresa(self):
+        try:
+            from src.db.empresa import empresa_actual_id
+            return empresa_actual_id()
+        except Exception:
+            return None
+
+    def _contar_badges_sidebar(self):
+        """Nº de eventos pendientes (Centro de Actividad) para el botón "ESTADO REPOSICIÓN" del
+        sidebar (posición 0 en `_nav_btns`). Best-effort: ante cualquier error, sin badges."""
+        try:
+            from src.services.actividad import badges as actividad_badges
+            counts = actividad_badges.contar_subtabs(
+                "reposicion", usuario=self.usuario_actual, id_empresa=self._id_empresa())
+        except Exception:
+            return {}
+        n = counts.get("reposicion", 0)
+        return {0: n} if n else {}
+
+    def _al_entrar_seccion_badge(self, indice):
+        """Marca como visto el badge de "ESTADO REPOSICIÓN" al pulsar ese botón del sidebar (además
+        del cambio de página que ya gestiona `_ir_a`, conectado por separado)."""
+        if indice != 0:
+            return
+        try:
+            from src.services.actividad import badges as actividad_badges
+            actividad_badges.marcar_visto(
+                "reposicion.reposicion", usuario=self.usuario_actual, id_empresa=self._id_empresa())
+            self._gestor_badges.refrescar()
+        except Exception:
+            pass
+
     def _crear_reab_page(self):
         """Pestaña de REABASTECIMIENTO migrada desde Logística (artículos monitorizados + responsables →
         Correo interno). Reutiliza la página y el motor existentes; degradable."""
@@ -888,21 +962,36 @@ class InformeReposicionWindow(QWidget):
     def estilo_boton(self, btn, rojo=False):
         if rojo:
             base, hover, text_color, padding = "#FF4B4B", "#FF2222", "#FFFFFF", "12px"
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {base};
+                    color: {text_color};
+                    font-weight: bold;
+                    border-radius: 15px;
+                    padding: {padding};
+                }}
+                QPushButton:hover {{
+                    background-color: {hover};
+                }}
+            """)
         else:
-            base, hover, text_color, padding = "#00FFC6", "#00DDAA", "#0E1117", "20px"
-
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {base};
-                color: {text_color};
-                font-weight: bold;
-                border-radius: 15px;
-                padding: {padding};
-            }}
-            QPushButton:hover {{
-                background-color: {hover};
-            }}
-        """)
+            # Diseño ESTÁNDAR (fondo oscuro + borde/texto turquesa en reposo; relleno
+            # turquesa + texto oscuro al hover) — antes tenía el relleno invertido.
+            base, hover, text_color, padding = "#0E1117", "#00FFC6", "#00FFC6", "20px"
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {base};
+                    color: {text_color};
+                    font-weight: bold;
+                    border-radius: 15px;
+                    padding: {padding};
+                    border: 2px solid #00FFC6;
+                }}
+                QPushButton:hover {{
+                    background-color: {hover};
+                    color: #0E1117;
+                }}
+            """)
         btn.setFont(QFont("Segoe UI", 11))
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         shadow = QGraphicsDropShadowEffect()
@@ -1163,10 +1252,10 @@ class InformeReposicionWindow(QWidget):
 
     def _retraducir(self):
         self.setWindowTitle(tr("repo.window_title", default="Smart Manager - Informe de Reposición"))
-        _tab_def = ["ESTADO REPOSICIÓN", "EDITAR STOCK ESPERADO", "EXPORTAR INFORME"]
+        _tab_def = ["ESTADO REPOSICIÓN", "EDITAR STOCK ESPERADO", "EXPORTAR INFORME", "REABASTECIMIENTO"]
         for i, btn in enumerate(self._nav_btns):
-            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
-        self._btn_exit.setText(tr("repo.exit", default="SALIR AL MENÚ"))
+            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]).upper())
+        self._btn_exit.setText(tr("repo.exit", default="SALIR").upper())
         for page in (self._page_estado, self._page_editar, self._page_exportar):
             if hasattr(page, "_retraducir"):
                 page._retraducir()

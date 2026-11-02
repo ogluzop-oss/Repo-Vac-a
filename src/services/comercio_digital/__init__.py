@@ -60,7 +60,7 @@ _CONTRATOS = [
 def contratos() -> list:
     """ServiceContract[] que la Enterprise Platform registrará (la PCD no toca el Service Registry).
     El contrato agregado expone `health` (Observabilidad, Fase 9) reutilizando la gobernanza."""
-    from src.platform.contracts import ServiceContract
+    from src.plataforma.contracts import ServiceContract
     out = []
     for (n, caps, trans, deps, rutas) in _CONTRATOS:
         health = gobernanza.salud if n == "comercio_digital" else None
@@ -85,7 +85,7 @@ def descriptor() -> dict:
 
 def _cap_descriptor():
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         return cap.descriptor()
     except Exception:
         return {}

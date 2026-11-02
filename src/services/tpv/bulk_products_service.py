@@ -37,7 +37,8 @@ def listar_productos_activos() -> list[dict]:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT id, nombre, precio_kg, emoji, categoria, subfamilia, codigo_interno
+                    SELECT id, nombre, precio_kg, emoji, imagen, categoria, subfamilia, codigo_interno,
+                           por_unidad
                     FROM productos_granel
                     WHERE activo = 1
                     ORDER BY categoria, subfamilia, nombre
@@ -54,8 +55,8 @@ def listar_todos() -> list[dict]:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT id, nombre, precio_kg, emoji, categoria, subfamilia,
-                           codigo_interno, activo, ultima_actualizacion
+                    SELECT id, nombre, precio_kg, emoji, imagen, categoria, subfamilia,
+                           codigo_interno, activo, ultima_actualizacion, por_unidad
                     FROM productos_granel
                     ORDER BY categoria, subfamilia, nombre
                 """)
@@ -70,8 +71,8 @@ def obtener_por_id(pid: int) -> dict | None:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, nombre, precio_kg, emoji, categoria, subfamilia, codigo_interno, activo "
-                    "FROM productos_granel WHERE id = %s", (pid,)
+                    "SELECT id, nombre, precio_kg, emoji, imagen, categoria, subfamilia, codigo_interno, "
+                    "activo, por_unidad FROM productos_granel WHERE id = %s", (pid,)
                 )
                 row = cur.fetchone()
                 return _row_to_dict(cur, row)
@@ -84,11 +85,14 @@ def obtener_por_id(pid: int) -> dict | None:
 
 def guardar_producto(nombre: str, precio_kg: float, emoji: str = "🛒",
                      categoria: str = "GENERAL", codigo_interno: str = "",
-                     pid: int | None = None, subfamilia: str = "") -> tuple[bool, str]:
+                     pid: int | None = None, subfamilia: str = "",
+                     imagen: str | None = None, por_unidad: bool = False) -> tuple[bool, str]:
     """Create or update a bulk product. Returns (ok, message).
 
     `categoria` se normaliza a una familia canónica y `subfamilia` a un apartado válido de esa familia
     (o vacío si la familia no tiene apartados). Ver `src.services.tpv.familias_granel`.
+    `por_unidad` es del PRODUCTO, no de la familia (migración 0309): permite que un producto se venda
+    por unidad aunque su familia sea de las que por defecto venden por peso, y viceversa.
     """
     if not nombre or not nombre.strip():
         return False, "El nombre no puede estar vacío."
@@ -112,19 +116,19 @@ def guardar_producto(nombre: str, precio_kg: float, emoji: str = "🛒",
                 if pid:
                     cur.execute("""
                         UPDATE productos_granel
-                        SET nombre=%s, precio_kg=%s, emoji=%s, categoria=%s, subfamilia=%s,
-                            codigo_interno=%s
+                        SET nombre=%s, precio_kg=%s, emoji=%s, imagen=%s, categoria=%s, subfamilia=%s,
+                            codigo_interno=%s, por_unidad=%s
                         WHERE id=%s
-                    """, (nombre.strip(), round(precio_kg, 3), emoji, fam, sub or None,
-                          codigo_interno or None, pid))
+                    """, (nombre.strip(), round(precio_kg, 3), emoji, imagen, fam, sub or None,
+                          codigo_interno or None, 1 if por_unidad else 0, pid))
                     msg = f"Producto '{nombre}' actualizado."
                 else:
                     cur.execute("""
                         INSERT INTO productos_granel
-                            (nombre, precio_kg, emoji, categoria, subfamilia, codigo_interno)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (nombre.strip(), round(precio_kg, 3), emoji, fam, sub or None,
-                          codigo_interno or None))
+                            (nombre, precio_kg, emoji, imagen, categoria, subfamilia, codigo_interno, por_unidad)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (nombre.strip(), round(precio_kg, 3), emoji, imagen, fam, sub or None,
+                          codigo_interno or None, 1 if por_unidad else 0))
                     msg = f"Producto '{nombre}' creado."
             conn.commit()
         return True, msg

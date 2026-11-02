@@ -1,14 +1,20 @@
 """
 FASE H (GUI) — Dashboard financiero ejecutivo. Secciones: Tesoreria, Ratios/KPIs, Financiacion,
-Credito/Riesgo, Presupuestos, Anomalias IA, Recomendaciones. Reutiliza el estilo global y
-services.finanzas.dashboard. Solo lectura.
+Credito/Riesgo. Reutiliza el estilo global y services.finanzas.dashboard. Solo lectura (salvo el umbral
+de morosidad tolerada, editable en "Riesgo / Crédito").
+
+Las recomendaciones de `services.finanzas.ia.recomendaciones()` ya NO se muestran aqui en una tabla
+aislada de solo lectura: se emiten al circuito unico "la IA propone, un humano decide" que ya usa el
+resto de la app (`services.finanzas.ia.registrar_en_automatizacion()` -> `services.automatizacion.acciones`
+-> Centro/Automatizacion/Aprobaciones), via el job `fin_recomendaciones`
+(`services.finanzas.dashboard.registrar_jobs_finanzas`).
 """
 
 import logging
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QTabWidget, QVBoxLayout, QWidget
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _tabla
 
 logger = logging.getLogger("gui.finanzas")
 
@@ -39,26 +45,85 @@ class FinanzasDashboardWindow(QWidget):
         t = QLabel("Finanzas · Cuadro de mando ejecutivo")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
-        cab.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
         if callback_vuelta:
             cab.addWidget(_btn("Volver", self._volver))
         root.addLayout(cab)
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
         self.tabs = QTabWidget()
+        self.tabs.setStyleSheet(f"QTabBar::tab{{background:{_BG};color:{_DIM};padding:8px 14px;}}"
+                                f"QTabBar::tab:selected{{color:{_CIAN};}}"
+                                f"QTabWidget::pane{{border:none;}}")
         self.tbl_ratios = _tabla(["Ratio / KPI", "Valor"])
         self.tbl_fin = _tabla(["Indicador", "Valor"])
         self.tbl_alertas = _tabla(["Cliente", "Tipo", "Importe", "Estado"])
-        self.tbl_rec = _tabla(["Prioridad", "Tipo", "Accion"])
-        self.tabs.addTab(self.tbl_ratios, "Ratios / KPIs")
-        self.tabs.addTab(self.tbl_fin, "Tesorería / Deuda")
-        self.tabs.addTab(self.tbl_alertas, "Riesgo / Crédito")
-        self.tabs.addTab(self.tbl_rec, "Recomendaciones IA")
+        self.tabs.addTab(self._envolver_ratios(self.tbl_ratios), "Ratios / KPIs")
+        self.tabs.addTab(self._envolver(self.tbl_fin), "Tesorería / Deuda")
+        self.tabs.addTab(self._envolver_riesgo(self.tbl_alertas), "Riesgo / Crédito")
         root.addWidget(self.tabs)
         self._load()
 
+    def _envolver(self, tabla):
+        """Tabla pegada directamente al borde de la pestaña: su contorno se veía más fino por
+        arriba que por los otros lados — se le da un margen superior, igual que en el resto de
+        la app (mismo criterio que `mrp_dashboard`/`bi_corporativo`)."""
+        w = QWidget(); ly = QVBoxLayout(w)
+        ly.setContentsMargins(0, 12, 0, 0)
+        ly.addWidget(tabla)
+        return w
+
+    def _envolver_ratios(self, tabla):
+        """Igual que `_envolver`, más el botón 'Actualizar' propio de esta subpestaña (antes vivía en la
+        cabecera compartida de toda la ventana) — mismo patrón que `tesoreria_gui.py._tab_prevision`:
+        una fila con el botón pegado a la esquina superior derecha, justo encima de la tabla."""
+        w = QWidget(); ly = QVBoxLayout(w)
+        ly.setContentsMargins(0, 12, 0, 0)
+        top = QHBoxLayout()
+        top.addStretch(1)
+        top.addWidget(_btn_cargando("🔄  Actualizar", self._load, primary=True))
+        ly.addLayout(top)
+        ly.addWidget(tabla)
+        return w
+
+    def _envolver_riesgo(self, tabla):
+        """Igual que `_envolver`, más una fila para fijar el % de morosidad TOLERADO de los propios
+        clientes de esta empresa (afecta a la alerta de riesgo del Gemelo Financiero) — cada empresa
+        decide su propia tolerancia, sin relación con la caducidad de su suscripción a Smart Manager."""
+        w = QWidget(); ly = QVBoxLayout(w)
+        ly.setContentsMargins(0, 12, 0, 0)
+        fila = QHBoxLayout()
+        lbl = QLabel("Morosidad de clientes tolerada antes de alerta:")
+        lbl.setStyleSheet(f"color:{_DIM};")
+        fila.addWidget(lbl)
+        self.inp_morosidad = QLineEdit()
+        self.inp_morosidad.setFixedWidth(70)
+        self.inp_morosidad.setStyleSheet(
+            f"QLineEdit{{background:{_BG};color:{_CIAN};border:2px solid {_CIAN};border-radius:6px;"
+            f"padding:4px 8px;}}")
+        fila.addWidget(self.inp_morosidad)
+        fila.addWidget(QLabel("%", styleSheet=f"color:{_DIM};"))
+        fila.addWidget(_btn("Guardar", self._guardar_morosidad, primary=True))
+        fila.addStretch()
+        ly.addLayout(fila)
+        ly.addWidget(tabla)
+        return w
+
+    def _guardar_morosidad(self):
+        from assets.estilo_global import mostrar_mensaje
+        from src.services.facturacion import config as fact_cfg
+        if fact_cfg.guardar_morosidad_tolerada(_empresa(), self.inp_morosidad.text()):
+            mostrar_mensaje(self, "Morosidad tolerada", "Umbral guardado correctamente.", nivel="success")
+        else:
+            mostrar_mensaje(self, "Morosidad tolerada",
+                            "Introduce un porcentaje válido (0-100).", nivel="warning")
+
     def _load(self):
         eid = _empresa()
+        try:
+            from src.services.facturacion import config as fact_cfg
+            self.inp_morosidad.setText(str(fact_cfg.obtener_morosidad_tolerada(eid)))
+        except Exception:
+            pass
         try:
             from src.services.finanzas import dashboard
             d = dashboard.panel(id_empresa=eid)
@@ -76,11 +141,6 @@ class FinanzasDashboardWindow(QWidget):
             for i, a in enumerate(al):
                 for j, v in enumerate([a.get("id_cliente"), a.get("tipo"), a.get("importe"), a.get("estado")]):
                     self.tbl_alertas.setItem(i, j, _it(v))
-            rec = d.get("recomendaciones", [])
-            self.tbl_rec.setRowCount(len(rec))
-            for i, r in enumerate(rec):
-                for j, v in enumerate([r.get("prioridad"), r.get("tipo"), r.get("accion")]):
-                    self.tbl_rec.setItem(i, j, _it(v))
             rt = d.get("riesgo_tesoreria", {})
             self.lbl.setText(f"EBITDA: {ratios.get('ebitda', 0)} € · Riesgo tesoreria: {rt.get('nivel', '-')}")
         except Exception as e:

@@ -96,6 +96,28 @@ def registrar_garantia(id_activo, *, proveedor=None, fecha_inicio=None, fecha_fi
         return None
 
 
+def listar_garantias(id_activo) -> list:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM activos_garantias WHERE id_activo=%s ORDER BY fecha_inicio DESC",
+                        (id_activo,))
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_garantias: %s", e)
+        return []
+
+
+def listar_documentos(id_activo) -> list:
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM activos_documentos WHERE id_activo=%s ORDER BY id DESC",
+                        (id_activo,))
+            return [_fila(cur, r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error("listar_documentos: %s", e)
+        return []
+
+
 def historial(id_activo) -> list:
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -117,6 +139,20 @@ def obtener(id_activo) -> dict | None:
         return None
 
 
+def buscar_por_codigo(codigo, *, id_empresa=None) -> dict | None:
+    """Localiza un activo por su `codigo` (lo que trae el QR impreso vía "Imprimir QR" en escritorio)
+    — punto de entrada del flujo móvil de escaneo de activo."""
+    eid = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM activos WHERE id_empresa=%s AND codigo=%s", (eid, codigo))
+            r = cur.fetchone()
+            return _fila(cur, r) if r else None
+    except Exception as e:
+        logger.error("buscar_por_codigo: %s", e)
+        return None
+
+
 def listar(*, tipo=None, estado=None, id_empresa=None, limite=500) -> list:
     eid = _emp(id_empresa)
     q = "SELECT * FROM activos WHERE id_empresa=%s"
@@ -132,6 +168,33 @@ def listar(*, tipo=None, estado=None, id_empresa=None, limite=500) -> list:
             return [_fila(cur, r) for r in cur.fetchall()]
     except Exception as e:
         logger.error("listar activos: %s", e)
+        return []
+
+
+def gastos_activos_periodo(desde, hasta, id_empresa=None) -> list[dict]:
+    """Altas de activos (maquinaria/vehículos) con coste de adquisición dentro de `[desde, hasta]`
+    (ambos 'YYYY-MM-DD'), listas para plegarse en el Libro de Gastos / Informe Anual (categorías de
+    inversión maquinaria/vehículos). Una fila por activo; SOLO lectura, sin efectos secundarios.
+    Formato: {concepto, fecha, importe, tipo}."""
+    eid = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT codigo, nombre, tipo, fecha_compra, coste_adquisicion FROM activos "
+                "WHERE id_empresa=%s AND tipo IN ('maquinaria','vehiculo') "
+                "AND fecha_compra IS NOT NULL AND fecha_compra BETWEEN %s AND %s "
+                "AND coste_adquisicion IS NOT NULL AND coste_adquisicion > 0 "
+                "ORDER BY fecha_compra", (eid, desde, hasta))
+            filas = [_fila(cur, r) for r in cur.fetchall()]
+        # `codigo` se incluye (campo adicional, no rompe a quien ya leía solo concepto/fecha/
+        # importe/tipo) para que `contabilidad.estado_flujos` pueda cruzarlo con
+        # `finanzas.inmovilizado_activos.codigo` y evitar contar dos veces la misma compra física
+        # si el mismo activo se dio de alta en ambos registros (ver auditoría de doble cómputo).
+        return [{"concepto": f"Alta activo ({r['tipo']}): {r['nombre']}", "codigo": r.get("codigo"),
+                 "fecha": r["fecha_compra"], "importe": float(r["coste_adquisicion"]), "tipo": r["tipo"]}
+                for r in filas]
+    except Exception as e:
+        logger.error("gastos_activos_periodo: %s", e)
         return []
 
 

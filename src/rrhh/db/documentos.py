@@ -14,7 +14,7 @@ from src.db.empresa import empresa_actual_id
 
 logger = logging.getLogger("rrhh.documentos")
 
-_PERMITIDOS = ("tipo_doc", "fecha", "ref_documento", "datos_snapshot")
+_PERMITIDOS = ("tipo_doc", "fecha", "ref_documento", "datos_snapshot", "cifrado")
 
 
 def crear_documento(id_empleado, id_empresa=None, **campos) -> int | None:

@@ -83,9 +83,18 @@ def encolar(evento, ref, total, fecha, subtipo=None, extra=None, id_empresa=None
         return None
 
 
-def encolar_venta(ref, total, fecha, forma_pago="efectivo", subtipo="ticket", id_empresa=None):
-    return encolar("venta", ref, total, fecha, subtipo=subtipo,
-                   extra={"forma_pago": forma_pago}, id_empresa=id_empresa)
+def encolar_venta(ref, total, fecha, forma_pago="efectivo", subtipo="ticket", id_empresa=None,
+                  base=None, iva=None):
+    """`base`/`iva` (FASE B): desglose YA resuelto (multi-tipo/ISP/exento) a pasar tal cual
+    al asiento — mismo parámetro que ya admite `encolar_compra`. Si se omiten (caso normal
+    de los tickets TPV), el procesador sigue calculando el desglose por el tipo de IVA de
+    la empresa (`_desglose`), sin cambio de comportamiento."""
+    extra = {"forma_pago": forma_pago}
+    if base is not None:
+        extra["base"] = round(float(base), 2)
+    if iva is not None:
+        extra["iva"] = round(float(iva), 2)
+    return encolar("venta", ref, total, fecha, subtipo=subtipo, extra=extra, id_empresa=id_empresa)
 
 
 def encolar_compra(ref, total, fecha, id_empresa=None, base=None, iva=None, subtipo="factura",
@@ -133,16 +142,94 @@ def _marcar(cur, ids, id_asiento):
                 (id_asiento, *ids))
 
 
+def _anio_evento(ev) -> int:
+    return int(_fecha(ev.get("fecha_evento"))[:4])
+
+
+def _separar_bloqueados_por_cierre(eventos, id_empresa):
+    """Parte `eventos` en (procesables, bloqueados): un evento está BLOQUEADO si su ejercicio
+    (el año de `fecha_evento`) ya está cerrado — en ese caso `crear_asiento` SIEMPRE lo va a
+    rechazar (ver `asientos.crear_asiento`: `if K.ejercicio_cerrado(...): return None`), así que
+    jamás se procesará solo porque se reintente otra vez.
+
+    Bug real corregido aquí: antes de esto, un evento así se quedaba en estado 'pendiente' para
+    siempre (`crear_asiento` devuelve `None` → nunca se llama a `_cerrar`/`_marcar`, que es lo
+    único que saca un evento de 'pendiente') — `procesar_cola()` se ejecuta en CADA arranque de
+    la app (`src/main.py`, hook H6), así que ese mismo evento se reintentaba y volvía a fallar con
+    el mismo warning en CADA arranque, para siempre, sin que nadie lo notara ni pudiera hacer nada
+    al respecto. Ahora se separa ANTES de intentarlo, se marca `estado='error'` (ya contemplado en
+    el propio esquema de `contab_cola`, nunca antes usado) con un `ultimo_error` explicativo, y
+    deja de reintentarse — pero NO se pierde: `listar_bloqueados_por_cierre`/`reintentar_bloqueado`
+    permiten revisarlo y re-encolarlo manualmente (p. ej. si se reabre el ejercicio)."""
+    procesables, bloqueados = [], []
+    for ev in eventos:
+        if K.ejercicio_cerrado(_anio_evento(ev), id_empresa):
+            bloqueados.append(ev)
+        else:
+            procesables.append(ev)
+    return procesables, bloqueados
+
+
+def _marcar_bloqueados(id_empresa, eventos):
+    if not eventos:
+        return
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            for ev in eventos:
+                motivo = (f"Ejercicio {_anio_evento(ev)} cerrado — requiere revisión manual "
+                          f"(reabrir el ejercicio y reintentar, o descartar).")
+                cur.execute(
+                    "UPDATE contab_cola SET estado='error', ultimo_error=%s, "
+                    "intentos=intentos+1 WHERE id=%s AND id_empresa=%s",
+                    (motivo[:300], ev["id"], id_empresa))
+            conn.commit()
+    except Exception as e:
+        logger.error("_marcar_bloqueados: %s", e)
+
+
+def listar_bloqueados_por_cierre(id_empresa=None) -> list:
+    """Eventos de la cola marcados `estado='error'` por ejercicio cerrado — para una pantalla de
+    revisión manual (p. ej. Contabilidad → Cola). Más recientes primero."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM contab_cola WHERE id_empresa=%s AND estado='error' "
+                        "ORDER BY fecha_evento DESC, id DESC", (id_empresa,))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_bloqueados_por_cierre: %s", e)
+        return []
+
+
+def reintentar_bloqueado(id_cola, id_empresa=None) -> bool:
+    """Devuelve un evento marcado `estado='error'` a `pendiente` (p. ej. tras reabrir su
+    ejercicio) para que el próximo `procesar_cola()` lo vuelva a intentar. No reintenta un evento
+    que no esté en 'error' (protege de reencolar algo ya `hecho`)."""
+    id_empresa = _empresa(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE contab_cola SET estado='pendiente' "
+                        "WHERE id=%s AND id_empresa=%s AND estado='error'", (id_cola, id_empresa))
+            ok = cur.rowcount > 0
+            conn.commit()
+        return ok
+    except Exception as e:
+        logger.error("reintentar_bloqueado(%s): %s", id_cola, e)
+        return False
+
+
 def procesar_cola(id_empresa=None, incluir_nominas=True) -> dict:
     """Genera asientos de los eventos pendientes. Tickets → 1 asiento/día; facturas
     (venta/compra) → 1 por documento. Devuelve {asientos, eventos, ventas, compras,
-    devoluciones, nominas} (contadores de asientos por tipo).
+    devoluciones, nominas, bloqueados} (contadores de asientos por tipo; `bloqueados` = eventos
+    cuyo ejercicio ya cerró, marcados para revisión manual en vez de reintentarse para siempre).
 
     `incluir_nominas=False` deja las nóminas EN COLA (las procesa la contabilidad general):
     lo usa el CIERRE DIARIO de caja, que recopila los hechos económicos del día EXCEPTO
     las nóminas (no son un hecho de caja)."""
     id_empresa = _empresa(id_empresa)
-    res = {"asientos": 0, "eventos": 0, "ventas": 0, "compras": 0, "devoluciones": 0, "nominas": 0}
+    res = {"asientos": 0, "eventos": 0, "ventas": 0, "compras": 0, "devoluciones": 0, "nominas": 0,
+           "bloqueados": 0}
     if not K.contabilidad_activa(id_empresa):
         return res
     try:
@@ -154,6 +241,15 @@ def procesar_cola(id_empresa=None, incluir_nominas=True) -> dict:
     except Exception as e:
         logger.error("procesar_cola/listar: %s", e)
         return res
+
+    ventas, bloq_v = _separar_bloqueados_por_cierre(ventas, id_empresa)
+    compras, bloq_c = _separar_bloqueados_por_cierre(compras, id_empresa)
+    devoluciones, bloq_d = _separar_bloqueados_por_cierre(devoluciones, id_empresa)
+    nominas, bloq_n = _separar_bloqueados_por_cierre(nominas, id_empresa)
+    bloqueados = bloq_v + bloq_c + bloq_d + bloq_n
+    if bloqueados:
+        _marcar_bloqueados(id_empresa, bloqueados)
+        res["bloqueados"] = len(bloqueados)
 
     # ── Ventas ──
     tickets_por_fecha = {}
@@ -238,7 +334,16 @@ def _asiento_tickets_dia(fecha, eventos, id_empresa):
 
 def _asiento_venta_factura(ev, p, id_empresa):
     total = round(float(p.get("total") or 0), 2)
-    base, cuota, tipo = _desglose(total, id_empresa)
+    # FASE B: si el evento trae base/iva YA resueltos (facturas_cliente ya aplicó el motor
+    # fiscal único —multi-tipo/ISP/intracom/exento—), se usan tal cual; si no (p. ej. un
+    # futuro llamador que no los calcule), se cae al desglose por el IVA de la empresa.
+    base = p.get("base"); cuota = p.get("iva")
+    if base is None:
+        base, cuota, tipo = _desglose(total, id_empresa)
+    else:
+        base = round(float(base), 2)
+        cuota = round(float(cuota if cuota is not None else (total - base)), 2)
+        tipo = round(cuota / base * 100, 2) if base else 0.0
     fp = p.get("forma_pago") or "factura"
     lineas = [{"codigo_cuenta": M.cuenta_forma_pago(fp, id_empresa), "debe": total,
                "descripcion": "Cobro/cliente"},
@@ -355,7 +460,7 @@ def _asegurar_cuenta_gasto(codigo, id_empresa):
 
 
 def registrar_gasto(tipo, total, fecha=None, forma_pago="banco", concepto=None,
-                    con_iva=True, tipo_iva=None, id_empresa=None) -> dict | None:
+                    con_iva=True, tipo_iva=None, id_empresa=None, naturaleza_gasto=None) -> dict | None:
     """Registra un GASTO directo (luz, agua, gas, internet, dietas, transporte…) generando
     su asiento de partida doble contra la cuenta de gasto (62x) correspondiente al tipo.
 
@@ -364,6 +469,11 @@ def registrar_gasto(tipo, total, fecha=None, forma_pago="banco", concepto=None,
         Haber  572/570/400       total            (banco / efectivo / a crédito)
 
     Instantáneo (aparece ya en Diario/Mayor/Balances/IVA). Devuelve el dict del asiento o None.
+
+    `naturaleza_gasto` (opcional, migr. 0277): 'fijo_mensual'/'extraordinario' — etiqueta de qué
+    sección de la pestaña "Libro de Gastos" procede el alta, para poder listar cada sección por
+    separado (`listar_gastos(naturaleza_gasto=...)`). None (por defecto) para TODOS los demás
+    llamadores (p. ej. la pestaña preexistente "Gastos"): comportamiento sin cambios.
     """
     id_empresa = _empresa(id_empresa)
     if not K.contabilidad_activa(id_empresa):
@@ -403,8 +513,21 @@ def registrar_gasto(tipo, total, fecha=None, forma_pago="banco", concepto=None,
 
     ref = f"gasto:{tipo}:{fecha}:{total}:{_dt.datetime.now().strftime('%H%M%S%f')}"
     concepto_final = (concepto or "").strip() or f"Gasto {tipo} ({cta_gasto})"
-    return A.crear_asiento(fecha, lineas, concepto=concepto_final, origen="gasto",
-                           ref_origen=ref, id_empresa=id_empresa)
+    r = A.crear_asiento(fecha, lineas, concepto=concepto_final, origen="gasto",
+                        ref_origen=ref, id_empresa=id_empresa)
+    if r and naturaleza_gasto:
+        # `crear_asiento` es compartida por media docena de llamadores (plantillas/cierre/
+        # tesorería/importación/posting) — no se le añade un parámetro solo para este matiz de
+        # "Gastos"; se persiste con un UPDATE puntual sobre el asiento recién creado (columna
+        # aditiva y opcional, migr. 0277). `obtener_conexion()` va en autocommit.
+        try:
+            with obtener_conexion() as conn, conn.cursor() as cur:
+                cur.execute("UPDATE contab_asientos SET naturaleza_gasto=%s WHERE id=%s AND id_empresa=%s",
+                           (naturaleza_gasto, r["id"], id_empresa))
+        except Exception as e:
+            logger.warning("registrar_gasto: no se pudo persistir naturaleza_gasto(%s): %s",
+                          r.get("id"), e)
+    return r
 
 
 def _asegurar_cuenta(codigo, nombre, tipo, naturaleza, id_empresa):
@@ -447,9 +570,57 @@ def anular_gasto(id_asiento, usuario=None, id_empresa=None) -> dict | None:
     return A.anular(id_asiento, usuario=usuario, id_empresa=_empresa(id_empresa))
 
 
-def listar_gastos(anio=None, id_empresa=None) -> list:
-    """Asientos de gasto directo (origen='gasto') del ejercicio, más recientes primero."""
+def listar_gastos(anio=None, id_empresa=None, naturaleza_gasto=None) -> list:
+    """Asientos de gasto directo (origen='gasto') del ejercicio, más recientes primero.
+
+    OJO: esto son SOLO las altas manuales de un clic (pestaña "Gastos"). NO usar esta
+    función para el Libro de Gastos — ahí falta el grueso del gasto real (facturas de
+    proveedor). Usar `listar_gastos_completo()` para eso (ver más abajo).
+
+    `naturaleza_gasto` (opcional, migr. 0277): filtra por 'fijo_mensual'/'extraordinario'
+    (las dos secciones nuevas de "Libro de Gastos"). None (por defecto) devuelve TODO el gasto
+    manual tal cual hoy — comportamiento sin cambios para la pestaña "Gastos" preexistente."""
     id_empresa = _empresa(id_empresa)
     filas = [a for a in A.listar_diario(id_empresa=id_empresa, anio=anio) if a.get("origen") == "gasto"]
+    if naturaleza_gasto is not None:
+        filas = [a for a in filas if a.get("naturaleza_gasto") == naturaleza_gasto]
     filas.sort(key=lambda a: (a.get("fecha") or "", a.get("numero") or 0), reverse=True)
     return filas
+
+
+def listar_gastos_completo(anio=None, id_empresa=None) -> list:
+    """Libro de Gastos COMPLETO (FASE B): une los asientos de gasto manual (`listar_gastos`,
+    altas de un clic desde la pestaña "Gastos") CON las facturas de compra REALES
+    (`compras_facturas`) — antes el Libro de Gastos solo mostraba las primeras y nunca las
+    segundas, dejando fuera la parte más importante del gasto real de la empresa.
+
+    Cada fila queda etiquetada por `origen` ('manual' o 'compra') para que no haya
+    confusión sobre su procedencia. Esta función es EXCLUSIVA para vistas/informes que
+    necesiten el gasto completo (p. ej. el render del Libro de Gastos); NO sustituye a
+    `listar_gastos()`, que sigue alimentando tal cual la pestaña "Gastos" (donde se anula
+    por asiento, algo que no tiene sentido para una factura de compra)."""
+    id_empresa = _empresa(id_empresa)
+    manuales = [dict(a, origen="manual",
+                     importe=round(float(a.get("total_debe") or 0), 2))
+                for a in listar_gastos(anio=anio, id_empresa=id_empresa)]
+    compras = []
+    try:
+        filtros, params = ["f.id_empresa=%s"], [id_empresa]
+        if anio:
+            filtros.append("YEAR(f.fecha_factura)=%s"); params.append(int(anio))
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT f.id_factura AS numero, f.fecha_factura AS fecha, "
+                "CONCAT('Factura proveedor ', COALESCE(p.razon_social,'(sin proveedor)'), "
+                "' nº ', COALESCE(f.numero_factura,'')) AS concepto, "
+                "f.total AS importe, f.estado AS estado "
+                "FROM compras_facturas f LEFT JOIN proveedores p ON p.id_proveedor=f.id_proveedor "
+                "WHERE " + " AND ".join(filtros) + " ORDER BY f.fecha_factura DESC",
+                tuple(params))
+            compras = [dict(r, origen="compra", importe=round(float(r.get("importe") or 0), 2))
+                       for r in _filas_a_dicts(cur, cur.fetchall())]
+    except Exception as e:
+        logger.error("listar_gastos_completo/compras: %s", e)
+    todo = manuales + compras
+    todo.sort(key=lambda g: (str(g.get("fecha") or ""), g.get("numero") or 0), reverse=True)
+    return todo

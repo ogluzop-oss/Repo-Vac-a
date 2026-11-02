@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 
-from src.platform import capabilities as cap
+from src.plataforma import capabilities as cap
 
 logger = logging.getLogger("cd.gobernanza")
 

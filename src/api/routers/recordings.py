@@ -14,7 +14,7 @@ def _es_super(ctx):
 
 def registrar(bp):
     @bp.get("/recordings")
-    @requiere_auth()
+    @requiere_auth(permiso="camaras.ver")
     def recording_meta():
         from flask import g, jsonify, request
         from src.services import camaras
@@ -26,7 +26,7 @@ def registrar(bp):
         return (jsonify(grab), 200) if grab else (jsonify({"error": "no encontrada"}), 404)
 
     @bp.get("/recordings/dates")
-    @requiere_auth()
+    @requiere_auth(permiso="camaras.ver")
     def recording_dates():
         from flask import g, jsonify, request
         from src.services import camaras
@@ -37,7 +37,7 @@ def registrar(bp):
                                                   permitir_super=_es_super(g.ctx)))
 
     @bp.get("/recordings/download")
-    @requiere_auth()
+    @requiere_auth(permiso="camaras.grabaciones.descargar")
     def recording_download():
         from flask import g, jsonify, request, send_file
         from src.services import camaras

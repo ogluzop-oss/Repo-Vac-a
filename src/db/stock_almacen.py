@@ -87,6 +87,35 @@ def almacen_de_tienda(id_tienda, id_empresa=None) -> int | None:
     return ensure_almacenes_empresa(id_empresa)["tiendas"].get(id_tienda)
 
 
+def almacen_de_codigo_centro(centro_codigo, id_empresa=None) -> int | None:
+    """Resuelve el `centro_codigo` de un empleado (texto libre del JWT/sesión —
+    `usuarios.centro_codigo`, ver `api/security.py`/`api/routers/logistics.py`, mismo valor que
+    `codigo_local`/`origen`/`centro_receptor` en Logística) al almacén real: si coincide con el
+    código de una TIENDA (`tiendas.codigo_tienda`), usa el almacén de esa tienda
+    (`almacen_de_tienda`); si no, lo prueba directamente como `almacen.codigo_almacen` (personal
+    asignado a un almacén no-tienda, p.ej. central/logístico). None si no resuelve a ningún
+    almacén — nunca inventa uno."""
+    if not centro_codigo:
+        return None
+    id_empresa = _tenant(id_empresa)
+    try:
+        from src.db.tiendas import tienda_de_codigo
+        id_tienda = tienda_de_codigo(centro_codigo, id_empresa)
+        if id_tienda:
+            return almacen_de_tienda(id_tienda, id_empresa)
+    except Exception as e:
+        logger.debug("almacen_de_codigo_centro (tienda %s): %s", centro_codigo, e)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM almacen WHERE id_empresa=%s AND codigo_almacen=%s",
+                       (id_empresa, centro_codigo))
+            r = cur.fetchone()
+            return (r["id"] if isinstance(r, dict) else r[0]) if r else None
+    except Exception as e:
+        logger.warning("almacen_de_codigo_centro (almacen %s): %s", centro_codigo, e)
+        return None
+
+
 def crear_almacen(nombre, codigo, tipo="logistico", id_tienda=None, id_empresa=None) -> int | None:
     """INV.7.1: alta de almacén (nombre único global). Devuelve id o None."""
     id_empresa = _tenant(id_empresa)
@@ -98,9 +127,11 @@ def crear_almacen(nombre, codigo, tipo="logistico", id_tienda=None, id_empresa=N
 
 
 def actualizar_almacen(id_almacen, id_empresa=None, **campos) -> bool:
-    """INV.7.1: edición de almacén (nombre/codigo_almacen/tipo_almacen/id_tienda/activo/estado)."""
+    """INV.7.1: edición de almacén (nombre/codigo_almacen/tipo_almacen/id_tienda/activo/estado/
+    latitud/longitud)."""
     id_empresa = _tenant(id_empresa)
-    permitidos = ("nombre", "codigo_almacen", "tipo_almacen", "id_tienda", "activo", "estado")
+    permitidos = ("nombre", "codigo_almacen", "tipo_almacen", "id_tienda", "activo", "estado",
+                 "latitud", "longitud")
     sets, params = [], []
     for k in permitidos:
         if k in campos:
@@ -116,6 +147,24 @@ def actualizar_almacen(id_almacen, id_empresa=None, **campos) -> bool:
         logger.error("actualizar_almacen: %s", e); return False
 
 
+def actualizar_geolocalizacion(id_almacen, latitud, longitud, id_empresa=None) -> bool:
+    """Geolocalización del almacén (grados decimales) — usada para ordenar por proximidad los
+    encargos multi-almacén del TPV (ver `services/tpv/online_orders_service.py::
+    buscar_almacenes_con_stock`, plan Fase D). Mismo patrón de forma que
+    `services/crm/rutas.py::set_geolocalizacion` (clientes), aquí sobre `almacen` y reutilizando el
+    updater genérico ya existente en este módulo en vez de duplicar el UPDATE."""
+    try:
+        lat = float(latitud); lon = float(longitud)
+    except (TypeError, ValueError):
+        logger.error("actualizar_geolocalizacion: latitud/longitud no numéricos (%r, %r)",
+                     latitud, longitud)
+        return False
+    if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
+        logger.error("actualizar_geolocalizacion: fuera de rango (%s, %s)", lat, lon)
+        return False
+    return actualizar_almacen(id_almacen, id_empresa=id_empresa, latitud=lat, longitud=lon)
+
+
 def activar_almacen(id_almacen, activo=True, id_empresa=None) -> bool:
     """INV.7.1: baja lógica / activación (no elimina; conserva existencias e histórico)."""
     return actualizar_almacen(id_almacen, id_empresa=id_empresa,
@@ -123,11 +172,36 @@ def activar_almacen(id_almacen, activo=True, id_empresa=None) -> bool:
                               estado="activo" if activo else "inactivo")
 
 
+def eliminar_almacen(id_almacen, id_empresa=None) -> dict:
+    """Borrado PROTEGIDO: se rechaza si el almacén aún tiene existencias (>0, en cualquier
+    artículo) — nunca deja stock huérfano en silencio (`stock_almacen` no tiene FK a `almacen`, así
+    que un borrado físico sin comprobar dejaría cantidades reales sin ningún almacén válido que las
+    referencie). Si está vacío, se marca `estado='eliminado'` (fila conservada para el histórico de
+    movimientos ya emitidos, pero excluida de ahora en adelante de `listar_almacenes` — desaparece
+    de la tabla de la GUI, que es lo que pide esta acción)."""
+    id_empresa = _tenant(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT COALESCE(SUM(cantidad), 0) FROM stock_almacen WHERE id_empresa=%s "
+                        "AND id_almacen=%s", (id_empresa, id_almacen))
+            row = cur.fetchone()
+            total = int((row[0] if not isinstance(row, dict) else list(row.values())[0]) or 0)
+        if total > 0:
+            return {"ok": False,
+                   "error": f"El almacén todavía tiene existencias ({total} uds. en total). "
+                            "Vacíalo (traspasa o ajusta a 0) antes de eliminarlo."}
+        ok = actualizar_almacen(id_almacen, id_empresa=id_empresa, activo=0, estado="eliminado")
+        return {"ok": True} if ok else {"ok": False, "error": "No se pudo eliminar el almacén."}
+    except Exception as e:
+        logger.error("eliminar_almacen: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 def listar_almacenes(id_empresa=None, solo_activos=True) -> list:
     id_empresa = _tenant(id_empresa)
     try:
         ensure_schema()
-        cond = ["id_empresa=%s"]; params = [id_empresa]
+        cond = ["id_empresa=%s", "estado != 'eliminado'"]; params = [id_empresa]
         if solo_activos:
             cond.append("activo=1")
         with obtener_conexion() as conn, conn.cursor() as cur:
@@ -274,8 +348,12 @@ def ajustar_stock(codigo, id_almacen, nueva_cantidad, id_empresa=None) -> bool:
         # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
         try:
             from src.services import eventos as _EV
+            # `origen="stock:inventario_fisico"` (no solo "stock" fijo): `ajustar_stock` tiene
+            # un único llamador real en todo el código — el cierre de `inventario_fisico.py`
+            # (INV.4.8), que no publica su propio evento — así el badge distingue que el ajuste
+            # viene del cierre de un recuento físico, no de una edición manual suelta.
             _EV.publicar("INVENTARIO_CORREGIDO", id_empresa=id_empresa, id_almacen=int(id_almacen or 0),
-                         origen="stock", ref_entidad="stock_almacen", ref_id=codigo,
+                         origen="stock:inventario_fisico", ref_entidad="stock_almacen", ref_id=codigo,
                          payload={"codigo": codigo, "id_almacen": id_almacen,
                                   "nueva_cantidad": int(nueva_cantidad)})
         except Exception:
@@ -286,9 +364,13 @@ def ajustar_stock(codigo, id_almacen, nueva_cantidad, id_empresa=None) -> bool:
 
 
 def traspasar_stock(codigo, almacen_origen, almacen_destino, cantidad, id_empresa=None,
-                    id_documento=None, usuario=None) -> bool:
+                    id_documento=None, usuario=None, tipo_kardex="TRASPASO") -> bool:
     """Descuenta del almacén origen e incrementa el destino (atómico) y recalcula caché.
-    Registra el movimiento TRASPASO en el kárdex con almacén origen/destino."""
+    Registra el movimiento en el kárdex con almacén origen/destino.
+
+    `tipo_kardex` (Cross-Docking, Fase D): por defecto `"TRASPASO"` — CERO cambio de comportamiento
+    para los llamadores existentes. Cross-Docking lo invoca con `tipo_kardex="CROSS_DOCKING"` para que
+    el traspaso muelle a muelle quede distinguido en el kárdex del traspaso interno genérico."""
     id_empresa = _tenant(id_empresa)
     cantidad = int(cantidad)
     if cantidad <= 0 or almacen_origen == almacen_destino:
@@ -301,11 +383,12 @@ def traspasar_stock(codigo, almacen_origen, almacen_destino, cantidad, id_empres
             recalcular_cache_articulo(codigo, id_empresa, cur=cur)
         try:
             from src.db import kardex
-            kardex.registrar_movimiento(codigo, "TRASPASO", cantidad, origen="ALMACEN",
+            kardex.registrar_movimiento(codigo, tipo_kardex, cantidad, origen="ALMACEN",
                                         destino="ALMACEN", id_documento=id_documento, usuario=usuario,
                                         id_empresa=id_empresa, id_almacen_origen=almacen_origen,
                                         id_almacen_destino=almacen_destino,
-                                        observaciones="Traspaso entre almacenes")
+                                        observaciones="Traspaso entre almacenes"
+                                        if tipo_kardex == "TRASPASO" else "Cross-docking muelle a muelle")
         except Exception:
             pass
         return True

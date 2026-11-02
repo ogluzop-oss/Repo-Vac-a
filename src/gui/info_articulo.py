@@ -1,15 +1,11 @@
 # src/gui/info_articulo.py
 import os
 
-import cv2
-
 from src.utils import divisas
-from PyQt6.QtCore import QSize, QStringListModel, Qt, QThread, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QImage, QPixmap
-from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
-    QCompleter,
     QDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -25,31 +21,25 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from pyzbar.pyzbar import decode
 
 from src.db.conexion import (
     obtener_articulo,
     ventas_semana,
 )
+from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.utils import i18n
 from src.utils.i18n import tr
 
 try:
     from assets.estilo_global import (
-        aplicar_estilo_widget,
-        construir_plantilla_camara,
-        estilizar_completer,
         mostrar_confirmacion,
         mostrar_mensaje,
         repolish_widget,
     )
 except Exception:
-    aplicar_estilo_widget = None
-    construir_plantilla_camara = None
     repolish_widget = None
     mostrar_mensaje = None
     mostrar_confirmacion = None
-    estilizar_completer = None
 
 # ---------------------------------------------------------------------------
 # CONSTANTES Y ESTILOS
@@ -117,6 +107,28 @@ QPushButton:hover {{
 }}
 """
 
+_BTN_LUPA_SS = f"""
+QPushButton {{
+    background-color: #0E1117;
+    color: {_CIAN};
+    font-weight: bold;
+    border-radius: 12px;
+    font-size: 16px;
+    font-family: 'Segoe UI';
+    border: 2px solid {_CIAN};
+    padding: 0px;
+}}
+QPushButton:hover {{
+    background-color: {_CIAN};
+    color: #0E1117;
+    border: 2px solid {_CIAN};
+}}
+"""
+# `padding: 0px` explícito es OBLIGATORIO aquí: sin él, el botón hereda el `padding: 10px 16px`
+# del `QPushButton{}` GLOBAL (estilo_global.py) — en un botón de un solo glifo (48x48) eso deja
+# un área de contenido real de solo 16x28px, demasiado estrecha para el emoji 🔍, que se ve
+# recortado por los lados (bug real reportado, persistía incluso tras agrandar el botón entero).
+
 _NEON_COMBO_SS = f"""
 QComboBox {{
     background-color: #161B22; color: #FFFFFF;
@@ -145,18 +157,6 @@ QListWidget::item:selected {{ background-color: #1A2230; color: {_CIAN}; }}
 # ---------------------------------------------------------------------------
 # COMPONENTES AUXILIARES
 # ---------------------------------------------------------------------------
-
-
-def _get_completer_data():
-    """Sugerencias en formato único 'CÓDIGO – NOMBRE' (sin duplicar código y nombre)."""
-    from src.db.articulos import listar_codigo_nombre
-    data = []
-    for cod, nom in listar_codigo_nombre():
-        cod = str(cod or "").strip()
-        nom = str(nom or "").strip()
-        if cod or nom:
-            data.append(f"{cod} – {nom}".strip(" –"))
-    return data
 
 
 def _sombra_cian(widget):
@@ -311,20 +311,46 @@ class _BuscarArticuloPage(QWidget):
         search_container.setSpacing(10)  # Reduce el espacio entre la barra y el botón
         search_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText(tr("info.search_ph", default="Introduce código o nombre del artículo..."))
+        self.search_bar.setPlaceholderText(tr("info.search_ph", default="🔍 Introduce código o nombre del artículo..."))
         self.search_bar.setStyleSheet(_NEON_INPUT_SS)
         self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
         self.search_bar.returnPressed.connect(self._buscar)
 
-        self._btn_scan = btn_scan = QPushButton("📷 " + tr("info.scan", default="SCAN"))
-        btn_scan.setFixedSize(180, 55)
-        btn_scan.setStyleSheet(_BTN_CIAN_SS)
-        btn_scan.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_scan.clicked.connect(self._abrir_escanner)
+        # Botón de lupa: disparador explícito de la búsqueda (antes solo Enter la ejecutaba).
+        btn_buscar = QPushButton("🔍")
+        btn_buscar.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 48x48 (no 40x40/44x44): evita que el glifo emoji 🔍 se vea recortado.
+        btn_buscar.setFixedSize(48, 48)
+        btn_buscar.setStyleSheet(_BTN_LUPA_SS)
+        btn_buscar.clicked.connect(self._buscar)
+
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=lambda v: (self.search_bar.setText(v), self._buscar(v)),
+            contexto="info_articulo.buscar")
 
         search_container.addWidget(self.search_bar)
-        search_container.addWidget(btn_scan)
+        search_container.addWidget(btn_buscar)
+        search_container.addWidget(btn_escaneo_movil)
+
+        # Filtros de búsqueda (talla/color/precio/género) — SOLO Retail/Textil/Supermarket.
+        from src.gui.components.completer_articulos import (crear_boton_filtros_articulo,
+                                                             manejar_resultados_filtro)
+        btn_filtros = crear_boton_filtros_articulo(self, self.search_bar, self._resultados_filtro)
+        if btn_filtros:
+            search_container.addWidget(btn_filtros)
+        self._manejar_resultados_filtro = manejar_resultados_filtro
+
         layout.addLayout(search_container)
+
+        # Navegación "artículo anterior/siguiente de la misma familia" — TODAS las ediciones.
+        from src.gui.components.navegacion_familia import NavegadorFamiliaArticulo
+        self.nav_familia = NavegadorFamiliaArticulo(on_navegar=self._buscar)
+        nav_container = QHBoxLayout()
+        nav_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        nav_container.addWidget(self.nav_familia)
+        layout.addLayout(nav_container)
 
         # Result area
         self.result_frame = QFrame()
@@ -383,7 +409,8 @@ class _BuscarArticuloPage(QWidget):
             row = QHBoxLayout()
             l_tit = QLabel(tr(ikey, default=text))
             l_tit.setStyleSheet(
-                "color: #8B949E; font-size: 12px; font-weight: bold; border:none;"
+                "color: #8B949E; font-family: 'Segoe UI'; font-size: 13px; font-weight: bold; "
+                "border:none;"
             )
             l_tit.setFixedWidth(140)
             l_val = QLabel("-")
@@ -405,7 +432,8 @@ class _BuscarArticuloPage(QWidget):
         self.info_lyt.addSpacing(8)
         row_fam = QHBoxLayout()
         self._lbl_fam = QLabel(tr("info.f_familia", default="FAMILIA:"))
-        self._lbl_fam.setStyleSheet("color:#8B949E;font-size:12px;font-weight:bold;border:none;")
+        self._lbl_fam.setStyleSheet(
+            "color:#8B949E;font-family:'Segoe UI';font-size:13px;font-weight:bold;border:none;")
         self._lbl_fam.setFixedWidth(140)
         self.cmb_familia = QComboBox()
         self.cmb_familia.setStyleSheet(_NEON_COMBO_SS)
@@ -422,13 +450,21 @@ class _BuscarArticuloPage(QWidget):
         self.info_lyt.addSpacing(8)
         row_ref = QHBoxLayout()
         self._lbl_ref_tit = QLabel(tr("info.f_precio_ref", default="PRECIO REF.:"))
-        self._lbl_ref_tit.setStyleSheet("color:#8B949E;font-size:12px;font-weight:bold;border:none;")
+        self._lbl_ref_tit.setStyleSheet(
+            "color:#8B949E;font-family:'Segoe UI';font-size:13px;font-weight:bold;border:none;")
         self._lbl_ref_tit.setFixedWidth(140)
         self.lbl_precio_ref = QLabel("-")
         self.lbl_precio_ref.setStyleSheet("color:#FFFFFF;font-size:14px;font-weight:900;border:none;")
         self.btn_edit_ref = QPushButton("✎")
-        self.btn_edit_ref.setStyleSheet(_ss_boton(_CIAN))
-        self.btn_edit_ref.setFixedSize(44, 32)
+        # Botón de UN SOLO glifo sin texto: `_ss_boton` está pensado para botones con texto
+        # (padding 10px 20px) — con un tamaño fijo pequeño ese padding dejaba el glifo recortado/
+        # invisible (mismo bug ya documentado y corregido para este tipo de botón en
+        # `catalogo_gestion._btn`). Padding 0 + tamaño cuadrado generoso, igual criterio.
+        self.btn_edit_ref.setStyleSheet(
+            f"QPushButton{{background-color:#0E1117;color:{_CIAN};font-weight:bold;"
+            f"border-radius:14px;padding:0;font-size:16px;border:2px solid {_CIAN};}}"
+            f"QPushButton:hover{{background-color:{_CIAN};color:#0E1117;}}")
+        self.btn_edit_ref.setFixedSize(44, 44)
         self.btn_edit_ref.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_edit_ref.setToolTip(tr("info.edit_precio_ref", default="Editar Precio ref."))
         self.btn_edit_ref.clicked.connect(self._editar_precio_ref)
@@ -448,7 +484,8 @@ class _BuscarArticuloPage(QWidget):
         def _fila_fisica(lbl_txt):
             row = QHBoxLayout()
             t = QLabel(lbl_txt)
-            t.setStyleSheet("color:#8B949E;font-size:12px;font-weight:bold;border:none;")
+            t.setStyleSheet(
+                "color:#8B949E;font-family:'Segoe UI';font-size:13px;font-weight:bold;border:none;")
             t.setFixedWidth(140)
             inp = QLineEdit()
             inp.setStyleSheet(_NEON_INPUT_SS)
@@ -469,6 +506,25 @@ class _BuscarArticuloPage(QWidget):
         self._btn_guardar_fisica.setFixedHeight(40)
         self._btn_guardar_fisica.clicked.connect(self._guardar_fisica)
         self.info_lyt.addWidget(self._btn_guardar_fisica)
+
+        # ── TRAZABILIDAD POR LOTE (INV.3/Punto 3): exige lote+caducidad en la recepción ──
+        # Master data del motor de lotes/FEFO (db/lotes.py, ya conectado a ventas/mermas/MRP/
+        # recepción). Por defecto desactivado (retrocompatible): activarlo pasa el lote/caducidad
+        # de opcional a OBLIGATORIO en la recepción de palés de Logística. Editable solo por
+        # administrador, mismo criterio que la física de seguridad de arriba.
+        self.info_lyt.addSpacing(8)
+        from PyQt6.QtWidgets import QCheckBox
+        self.chk_requiere_lote = QCheckBox(
+            "📦  " + tr("info.f_requiere_lote",
+                       default="Requiere trazabilidad por lote (caducidad obligatoria en recepción)"))
+        self.chk_requiere_lote.setStyleSheet(
+            "color:white;font-family:'Segoe UI';font-weight:bold;font-size:13px;border:none;")
+        self.info_lyt.addWidget(self.chk_requiere_lote)
+        self._btn_guardar_lote = QPushButton(tr("info.f_guardar_lote", default="GUARDAR TRAZABILIDAD"))
+        self._btn_guardar_lote.setStyleSheet(_BTN_CIAN_SS)
+        self._btn_guardar_lote.setFixedHeight(40)
+        self._btn_guardar_lote.clicked.connect(self._guardar_requiere_lote)
+        self.info_lyt.addWidget(self._btn_guardar_lote)
 
         # Edición TEXTIL: gestión de variantes talla/color del modelo seleccionado (gateado por edición).
         self._btn_variantes = QPushButton(tr("info.variantes", default="🎽 VARIANTES (TALLA/COLOR)"))
@@ -491,27 +547,13 @@ class _BuscarArticuloPage(QWidget):
         layout.addWidget(self.result_frame)
         layout.addStretch()
         layout.addStretch(1)  # Añadido stretch final para centrar verticalmente
-        # Completer
-        self.completer = QCompleter()
-        self.completer_model = QStringListModel()
-        self.completer.setModel(self.completer_model)
-        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        self.search_bar.setCompleter(self.completer)
-        if estilizar_completer:
-            estilizar_completer(self.completer)
-        self.completer_model.setStringList(_get_completer_data())   # precarga: sugerencias inmediatas
-        self.search_bar.textChanged.connect(self._update_suggestions)
-
-    def _update_suggestions(self):
-        if len(self.search_bar.text()) >= 1 and not self.completer_model.stringList():
-            self.completer_model.setStringList(_get_completer_data())
+        # Completer (sugerencias de artículos: helper compartido, ver gui/components/completer_articulos.py)
+        self.completer = instalar_sugerencias_articulo(self.search_bar)
 
     def _retraducir(self):
         self.search_bar.setPlaceholderText(
-            tr("info.search_ph", default="Introduce código o nombre del artículo...")
+            tr("info.search_ph", default="🔍 Introduce código o nombre del artículo...")
         )
-        self._btn_scan.setText("📷 " + tr("info.scan", default="SCAN"))
         self._lbl_fam.setText(tr("info.f_familia", default="FAMILIA:"))
         for key, ikey, text in self._fields_def:
             self._field_titles[key].setText(tr(ikey, default=text))
@@ -554,6 +596,29 @@ class _BuscarArticuloPage(QWidget):
             mostrar_mensaje(self, tr("info.f_guardado_title", default="Física de seguridad"),
                             msg, nivel="success" if ok else "warning")
 
+    def _guardar_requiere_lote(self):
+        """Activa/desactiva la trazabilidad por lote obligatoria del artículo cargado (solo
+        administrador, mismo criterio que la física de seguridad)."""
+        if not getattr(self, "_art_codigo", None):
+            return
+        try:
+            from src.db.usuario import sesion_global
+            perfil = ((sesion_global.usuario_actual or {}).get("perfil") or "").upper()
+        except Exception:
+            perfil = ""
+        if perfil not in ("ADMINISTRADOR",):
+            if mostrar_mensaje:
+                mostrar_mensaje(self, tr("info.f_perm_title", default="Permiso denegado"),
+                                tr("info.f_perm_msg",
+                                   default="Solo un administrador puede editar la física de seguridad."),
+                                nivel="warning")
+            return
+        from src.db.articulos import actualizar_requiere_lote
+        ok, msg = actualizar_requiere_lote(self._art_codigo, self.chk_requiere_lote.isChecked())
+        if mostrar_mensaje:
+            mostrar_mensaje(self, tr("info.f_guardado_lote_title", default="Trazabilidad por lote"),
+                            msg, nivel="success" if ok else "warning")
+
     def _recargar_familias(self, sel_id=None):
         """Rellena el combo de familias y selecciona la del artículo cargado (o 'Sin familia')."""
         from src.db.familias import listar_familias
@@ -576,6 +641,15 @@ class _BuscarArticuloPage(QWidget):
         # Asignación inmediata y silenciosa (el propio combo refleja el valor elegido).
         asignar_familia(self._art_codigo, self.cmb_familia.currentData())
 
+    def _resultados_filtro(self, resultados):
+        """Callback del popup "Filtros" (talla/color/precio/género): carga el artículo encontrado
+        directamente, o deja elegir si hubo varias coincidencias (ver `manejar_resultados_filtro`,
+        compartido con el resto de pantallas que también tienen el botón de filtros)."""
+        def _mensaje(titulo, texto, nivel):
+            if mostrar_mensaje:
+                mostrar_mensaje(self, titulo, texto, nivel=nivel)
+        self._manejar_resultados_filtro(self, resultados, self._buscar, _mensaje)
+
     def _buscar(self, code=None):
         q = code or self.search_bar.text().strip()
         # Si viene del autocompletado "CÓDIGO – NOMBRE", usar solo el código.
@@ -587,11 +661,24 @@ class _BuscarArticuloPage(QWidget):
         try:
             art = obtener_articulo(q)
             if not art:
+                # Búsqueda unificada (petición explícita): si lo tecleado no es un código interno,
+                # puede ser la REFERENCIA ORIGINAL de un proveedor — se resuelve vía la tabla de
+                # equivalencias (`db.equivalencias_proveedor`) antes de dar la búsqueda por fallida.
+                try:
+                    from src.db import equivalencias_proveedor as _EQ
+                    codigo_resuelto = _EQ.resolver_por_referencia(q)
+                except Exception:
+                    codigo_resuelto = None
+                if codigo_resuelto:
+                    art = obtener_articulo(codigo_resuelto)
+                    q = codigo_resuelto
+            if not art:
                 if mostrar_mensaje:
                     mostrar_mensaje(
                         self,
                         tr("info.not_found_title", default="No Encontrado"),
-                        tr("info.not_found_msg", default="No se encontró información para: {q}", q=q),
+                        tr("info.not_found_msg",
+                           default="Este código de artículo no existe en el sistema"),
                         nivel="warning",
                     )
                 return
@@ -601,8 +688,21 @@ class _BuscarArticuloPage(QWidget):
 
             self.labels["CODIGO"].setText(fmt(art.get("codigo")))
             self.labels["NOMBRE"].setText(fmt(art.get("nombre")).upper())
-            self.labels["S_LINEAL"].setText(fmt(art.get("Stock_tienda")))
-            self.labels["S_ALMACEN"].setText(fmt(art.get("Stock_total")))
+
+            # Capa de seguridad adicional sobre pedidos online (petición explícita): el stock
+            # reservado (Reservation Ledger) por pedidos online pendientes de enviar se muestra
+            # junto al stock real, en vez de descontarse en silencio — así cualquier tienda sabe
+            # qué parte del stock ya está comprometida con otro cliente/tienda.
+            reservado = 0
+            try:
+                from src.services.comercio_digital.inventario import reservas as _RSV
+                reservado = int(_RSV.reservado(art.get("codigo"), id_empresa=art.get("id_empresa")) or 0)
+            except Exception:
+                reservado = 0
+            suf = f"  (-{reservado} {tr('info.stock_reservado', default='reservado')})" if reservado > 0 else ""
+
+            self.labels["S_LINEAL"].setText(fmt(art.get("Stock_tienda")) + suf)
+            self.labels["S_ALMACEN"].setText(fmt(art.get("Stock_total")) + suf)
             self.labels["S_CENTRAL"].setText(fmt(art.get("Stock_central")))
 
             precio = float(
@@ -628,9 +728,12 @@ class _BuscarArticuloPage(QWidget):
                 self._recargar_familias(fam["id"] if fam else None)
             except Exception:
                 pass
+            # Flechas "anterior/siguiente de la misma familia" (todas las ediciones).
+            self.nav_familia.establecer(self._art_codigo)
             pu, tp = art.get("peso_unitario"), art.get("tolerancia_peso")
             self.inp_peso_unitario.setText("" if pu in (None, "") else str(pu))
             self.inp_tolerancia.setText("" if tp in (None, "") else str(tp))
+            self.chk_requiere_lote.setChecked(bool(art.get("requiere_lote")))
 
             # Photo
             img_path = art.get("imagen")
@@ -735,33 +838,45 @@ class _ImagenArticuloPage(QWidget):
         layout.addSpacing(20)  # Espacio adicional entre icono y siguiente elemento
         layout.addWidget(self.lbl_icon, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # Fila única (barra + lupa + móvil), igual criterio que "Buscar artículo" (petición
+        # explícita): mismo ancho/tamaño de texto de la barra, y los botones a la DERECHA de la
+        # barra en vez de debajo.
+        search_container = QHBoxLayout()
+        search_container.setSpacing(10)
+        search_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText(
             tr("info.image_search_ph", default="Introduce código o nombre para actualizar imagen...")
         )
-        self.search_bar.setStyleSheet(_NEON_INPUT_SS)  # Mantener estilo neón
+        self.search_bar.setStyleSheet(_NEON_INPUT_SS)
         self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
-        layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.search_bar.returnPressed.connect(self._seleccionar_articulo)
 
-        # Completer para la barra de búsqueda
-        self.completer = QCompleter()
-        self.completer_model = QStringListModel()
-        self.completer.setModel(self.completer_model)
-        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        self.search_bar.setCompleter(self.completer)
-        if estilizar_completer:
-            estilizar_completer(self.completer)
-        self.completer_model.setStringList(_get_completer_data())   # precarga: sugerencias inmediatas
-        self.search_bar.textChanged.connect(self._update_suggestions)
+        # Completer para la barra de búsqueda (helper compartido, ver gui/components/completer_articulos.py)
+        self.completer = instalar_sugerencias_articulo(self.search_bar)
 
-        self._btn = btn = QPushButton(tr("info.select_item", default="SELECCIONAR ARTÍCULO"))
-        btn.setStyleSheet(_BTN_CIAN_SS)
-        btn.setFixedSize(250, 55)
+        # Solo el emoji de lupa (sin texto): mismo tamaño/estilo que el botón de "Buscar artículo"
+        # (`_BTN_LUPA_SS`, 48×48, padding 0) para quedar compacto y sin cortar el glifo.
+        self._btn = btn = QPushButton("🔍")
+        btn.setToolTip(tr("info.select_item", default="Seleccionar artículo"))
+        btn.setStyleSheet(_BTN_LUPA_SS)
+        btn.setFixedSize(48, 48)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(self._seleccionar_articulo)
         _sombra_cian(btn)
-        layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC. Mismo comportamiento
+        # que "SELECCIONAR ARTÍCULO" tras escribir a mano (resuelve el artículo y abre el selector de
+        # imagen del sistema) — no se inventa un flujo nuevo, se replica el existente.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=lambda v: (self.search_bar.setText(v), self._seleccionar_articulo()),
+            contexto="info_articulo.imagen")
+
+        search_container.addWidget(self.search_bar)
+        search_container.addWidget(btn)
+        search_container.addWidget(btn_escaneo_movil)
+        layout.addLayout(search_container)
 
         # Vista previa de la imagen asociada (oculta hasta que se selecciona una).
         self.lbl_preview = QLabel()
@@ -777,7 +892,7 @@ class _ImagenArticuloPage(QWidget):
         botones = QHBoxLayout()
         botones.setSpacing(16)
         botones.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._btn_guardar = QPushButton(tr("info.img_save_btn", default="GUARDAR IMAGEN"))
+        self._btn_guardar = QPushButton(tr("info.img_save_btn", default="Guardar imagen"))
         self._btn_guardar.setStyleSheet(_ss_boton(_VERDE))
         self._btn_guardar.setFixedSize(220, 52)
         self._btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -794,20 +909,17 @@ class _ImagenArticuloPage(QWidget):
         self._cont_botones.setVisible(False)
         layout.addWidget(self._cont_botones, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Mensaje en línea (éxito/error): se usa feedback inline en lugar de QMessageBox porque en el
-        # proceso principal SOMA mantiene el audio activo y los modales pueden corromper el heap.
-        self.lbl_status = QLabel("")
-        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_status.setWordWrap(True)
-        self.lbl_status.setStyleSheet("color:#8B949E;font-size:13px;font-weight:bold;border:none;")
-        layout.addWidget(self.lbl_status, alignment=Qt.AlignmentFlag.AlignCenter)
-
         layout.addStretch(1)
 
     def _status(self, texto, error=False, ok=False):
-        color = "#F85149" if error else (_VERDE if ok else _CIAN)
-        self.lbl_status.setStyleSheet(f"color:{color};font-size:13px;font-weight:bold;border:none;")
-        self.lbl_status.setText(texto)
+        """Mensaje emergente CENTRADO (petición explícita: igual que el resto de avisos de la
+        app, `mostrar_mensaje`) en vez del feedback inline anterior — `mostrar_mensaje` ya se usa
+        con normalidad en el resto de esta misma ventana (física de seguridad, trazabilidad,
+        buscar, precio ref., familias), así que el mismo mecanismo es seguro también aquí."""
+        if not mostrar_mensaje:
+            return
+        nivel = "error" if error else ("success" if ok else "info")
+        mostrar_mensaje(self, tr("info.tab_imagen", default="Imagen artículo"), texto, nivel=nivel)
 
     def _resolver(self):
         """Resuelve el artículo escrito en el buscador (código, nombre o 'CÓDIGO – NOMBRE')."""
@@ -926,20 +1038,15 @@ class _ImagenArticuloPage(QWidget):
         self._art_sel["imagen"] = None
         self._img_pendiente = None
         self._mostrar_preview(None)
-        self._status(tr("info.img_deleted", default="Imagen eliminada del artículo {codigo}.", codigo=codigo),
-                     ok=True)
+        self._status(tr("info.img_deleted", default="Imagen eliminada"), error=True)
 
     def _retraducir(self):
         self.search_bar.setPlaceholderText(
             tr("info.image_search_ph", default="Introduce código o nombre para actualizar imagen...")
         )
-        self._btn.setText(tr("info.select_item", default="SELECCIONAR ARTÍCULO"))
-        self._btn_guardar.setText(tr("info.img_save_btn", default="GUARDAR IMAGEN"))
+        self._btn.setToolTip(tr("info.select_item", default="Seleccionar artículo"))
+        self._btn_guardar.setText(tr("info.img_save_btn", default="Guardar imagen"))
         self._btn_borrar.setText(tr("info.img_delete_btn", default="BORRAR IMAGEN"))
-
-    def _update_suggestions(self):
-        if len(self.search_bar.text()) >= 1 and not self.completer_model.stringList():
-            self.completer_model.setStringList(_get_completer_data())
 
 
 class _EditarArticuloPage(QWidget):
@@ -955,39 +1062,45 @@ class _EditarArticuloPage(QWidget):
         layout.addSpacing(20)  # Espacio adicional entre icono y siguiente elemento
         layout.addWidget(self.lbl_icon, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # Fila única (barra + lupa + móvil), igual criterio que "Buscar artículo" (petición
+        # explícita): mismo ancho/tamaño de texto de la barra, y los botones a la DERECHA de la
+        # barra en vez de debajo.
+        search_container = QHBoxLayout()
+        search_container.setSpacing(10)
+        search_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText(tr("info.edit_search_ph", default="Introduce código o nombre para editar..."))
         self.search_bar.setStyleSheet(_NEON_INPUT_SS)
         self.search_bar.setMinimumWidth(280); self.search_bar.setMaximumWidth(560)  # responsive (P2)
 
-        # Completer con sugerencias de artículos (igual que las otras pestañas).
-        self.completer = QCompleter()
-        self.completer_model = QStringListModel()
-        self.completer.setModel(self.completer_model)
-        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        self.search_bar.setCompleter(self.completer)
-        if estilizar_completer:
-            estilizar_completer(self.completer)
-        self.completer_model.setStringList(_get_completer_data())
-        self.search_bar.textChanged.connect(self._update_suggestions)
+        # Completer con sugerencias de artículos (helper compartido, ver gui/components/completer_articulos.py)
+        self.completer = instalar_sugerencias_articulo(self.search_bar)
 
-        layout.addWidget(self.search_bar, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        self._btn = btn = QPushButton(tr("info.search_for_edit", default="BUSCAR PARA EDITAR"))
-        btn.setStyleSheet(_BTN_CIAN_SS)
-        btn.setFixedSize(250, 55)
+        # Solo el emoji de lupa (sin texto): mismo tamaño/estilo que el botón de "Buscar artículo"
+        # (`_BTN_LUPA_SS`, 48×48, padding 0) para quedar compacto y sin cortar el glifo.
+        self._btn = btn = QPushButton("🔍")
+        btn.setStyleSheet(_BTN_LUPA_SS)
+        btn.setFixedSize(48, 48)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
         _sombra_cian(btn)
-        layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addStretch(1)
 
-    def _update_suggestions(self):
-        if len(self.search_bar.text()) >= 1 and not self.completer_model.stringList():
-            self.completer_model.setStringList(_get_completer_data())
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC. NOTA (ajena a esta
+        # tarea, no se corrige aquí): "BUSCAR PARA EDITAR" no tiene ningún manejador conectado hoy —
+        # ni el clic ni Enter hacen nada, escribiendo a mano tampoco. El botón de escaneo remoto solo
+        # rellena el campo, con la misma paridad (ninguna) que ya tiene la entrada manual.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=self.search_bar.setText, contexto="info_articulo.editar")
+
+        search_container.addWidget(self.search_bar)
+        search_container.addWidget(btn)
+        search_container.addWidget(btn_escaneo_movil)
+        layout.addLayout(search_container)
+        layout.addStretch(1)
 
     def _retraducir(self):
         self.search_bar.setPlaceholderText(tr("info.edit_search_ph", default="Introduce código o nombre para editar..."))
-        self._btn.setText(tr("info.search_for_edit", default="BUSCAR PARA EDITAR"))
+        self._btn.setText(tr("info.search_for_edit", default="🔍"))
 
 
 # ---------------------------------------------------------------------------
@@ -1160,7 +1273,7 @@ class _FamiliasPage(QWidget):
         col_izq.addWidget(self.lista_fam, 1)
 
         acc = QHBoxLayout(); acc.setSpacing(8)
-        self.btn_nueva = _BotonMas(tr("info.fam_new", default="NUEVA"))
+        self.btn_nueva = _BotonMas(tr("info.fam_new", default="NUEVA"), caja=False)
         self.btn_editar = QPushButton("✏️ " + tr("info.fam_edit", default="EDITAR"))
         self.btn_borrar = QPushButton("🗑 " + tr("info.fam_del", default="ELIMINAR"))
         for b in (self.btn_nueva, self.btn_editar):
@@ -1184,19 +1297,21 @@ class _FamiliasPage(QWidget):
         self.in_add = QLineEdit()
         self.in_add.setPlaceholderText(tr("info.fam_add_ph", default="Código o nombre del artículo a añadir..."))
         self.in_add.setStyleSheet(_NEON_INPUT_SS)
-        completer = QCompleter(); model = QStringListModel(); completer.setModel(model)
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        if estilizar_completer:
-            estilizar_completer(completer)
-        model.setStringList(_get_completer_data())
-        self.in_add.setCompleter(completer)
+        instalar_sugerencias_articulo(self.in_add)
         self.in_add.returnPressed.connect(self._anadir)
-        self.btn_add = _BotonMas(tr("info.fam_add", default="AÑADIR"))
+        self.btn_add = _BotonMas(tr("info.fam_add", default="AÑADIR"), caja=False)
         self.btn_add.setStyleSheet(_BTN_CIAN_SS); self.btn_add.setFixedWidth(150)
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add.clicked.connect(self._anadir)
+
+        # Escaneo remoto: delega el escaneo al móvil en vez de la webcam del PC.
+        from src.gui.components.remote_scan import agregar_boton_escaneo_movil
+        btn_escaneo_movil = agregar_boton_escaneo_movil(
+            self, on_result=lambda v: (self.in_add.setText(v), self._anadir()),
+            contexto="info_articulo.familias_anadir")
+
         add_row.addWidget(self.in_add, 1); add_row.addWidget(self.btn_add)
+        add_row.addWidget(btn_escaneo_movil)
         col_der.addLayout(add_row)
 
         self.lista_art = QListWidget()
@@ -1370,404 +1485,12 @@ class _FamiliasPage(QWidget):
         pass
 
 
-# ============================================================
-# BLOQUE HILO DE VÍDEO Y DECODIFICACIÓN DE CÓDIGOS
-# ============================================================
-
-
-class VideoThread(QThread):
-    change_pixmap_signal = pyqtSignal(QImage)
-    code_detected = pyqtSignal(str, object)  # código y tipo
-
-    def __init__(self, camera_index=0, parent=None):
-        super().__init__(parent)
-        self._run_flag = True
-        self.camera_index = camera_index
-
-    def preprocesar_frame(self, frame):
-        """Convierte a gris, ecualiza histograma y binariza adaptativamente."""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        eq = cv2.equalizeHist(gray)
-        binarizado = cv2.adaptiveThreshold(
-            eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 25, 10
-        )
-        return binarizado
-
-    def try_decode(self, frame):
-        """Intenta decodificar con rotaciones clásicas y ±10°. Devuelve (código, tipo)."""
-        frame_proc = self.preprocesar_frame(frame)
-        angles = [0, 10, -10, 90, 100, 80, 180, 190, 170, 270, 280, 260]
-
-        for angle in angles:
-            if angle != 0:
-                h, w = frame_proc.shape
-                M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1)
-                rotated = cv2.warpAffine(frame_proc, M, (w, h))
-            else:
-                rotated = frame_proc
-
-            try:
-                codes = decode(rotated)
-            except Exception:
-                continue
-
-            if codes:
-                code_obj = codes[0]
-                raw = code_obj.data
-                tipo = code_obj.type
-                for enc in ("utf-8", "cp1252", "latin-1"):
-                    try:
-                        return raw.decode(enc), tipo
-                    except Exception:
-                        pass
-                return raw.decode("utf-8", errors="ignore"), tipo
-
-        return None, None
-
-    def run(self):
-        cap = cv2.VideoCapture(
-            self.camera_index, cv2.CAP_DSHOW if os.name == "nt" else 0
-        )
-        if not cap.isOpened():
-            return
-
-        while self._run_flag:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            text, tipo = self.try_decode(frame)
-            if text is not None:
-                self.code_detected.emit(text, tipo)
-
-            rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb_image.shape
-            qt_image = QImage(rgb_image.data, w, h, ch * w, QImage.Format.Format_RGB888)
-            self.change_pixmap_signal.emit(qt_image)
-
-        cap.release()
-
-    def stop(self):
-        self._run_flag = False
-        self.wait(timeout=2000)
-
-
-# ============================================================
-# BLOQUE ESCÁNER DE CÓDIGO DE BARRAS (DIÁLOGO DE CÁMARA)
-# ============================================================
-
-
-class BarcodeScanner(QDialog):
-    """Ventana que muestra la cámara y detecta códigos 360° con audio de error."""
-
-    def __init__(self, callback, camera_index=0, parent=None):
-        super().__init__(parent)
-        self.callback = callback
-        self._codigo_presente = False
-        self.setWindowModality(Qt.WindowModality.ApplicationModal)
-
-        if construir_plantilla_camara is not None:
-            plantilla = construir_plantilla_camara(
-                self,
-                titulo=tr("info.cam_title", default="VISIÓN - ARTÍCULO"),
-                texto_video="",
-                estado_inicial=tr("info.cam_status", default="ALINEE EL CÓDIGO CON EL SENSOR"),
-                texto_boton_primario=tr("info.cam_start", default="INICIAR ESCANEO"),
-                texto_boton_cancelar=tr("info.cam_abort", default="ABORTAR OPERACIÓN"),
-                ancho=600,
-                alto=480,
-                ancho_video=520,
-                alto_video=280,
-                mostrar_boton_primario=False,
-                object_name_dialog="scanner_dialog",
-                object_name_frame="cuerpo_ventana_scan",
-            )
-            self.layout = plantilla["layout"]
-            self.video_label = plantilla["lbl_video"]
-            self.video_label.setText("")
-            self.hint_label = plantilla["lbl_status"]
-            self.hint_label.setObjectName("lbl_info_scan")
-            self.hint_label.setText(tr("info.cam_hint", default="APUNTA CON LA CÁMARA AL CÓDIGO DE BARRAS O QR"))
-            self.error_label = QLabel("")
-            self.error_label.setObjectName("lbl_info_scan")
-            self.error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.layout.insertWidget(3, self.error_label)
-            btn_cancel = plantilla["btn_cancelar"]
-            btn_cancel.clicked.connect(self._on_cancel)
-            if aplicar_estilo_widget is not None:
-                for w in (
-                    self.video_label,
-                    self.hint_label,
-                    self.error_label,
-                    btn_cancel,
-                ):
-                    aplicar_estilo_widget(w)
-        else:
-            self.setStyleSheet("background-color: #1A1D24; border-radius: 8px;")
-            self.resize(600, 400)
-            self.layout = QVBoxLayout(self)
-            self.layout.setContentsMargins(8, 8, 8, 8)
-            self.layout.setSpacing(6)
-            self.video_label = QLabel()
-            self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.video_label.setStyleSheet(
-                "background-color: black; border-radius: 6px;"
-            )
-            self.layout.addWidget(self.video_label)
-            self.hint_label = QLabel(
-                tr("info.cam_hint_long",
-                   default="Apunta con la cámara al código de barras o QR. Se detectará automáticamente.")
-            )
-            self.hint_label.setStyleSheet("color: white; padding: 4px;")
-            self.layout.addWidget(self.hint_label)
-            self.error_label = QLabel("")
-            self.error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.error_label.setStyleSheet(
-                "color: red; font-weight: bold; padding: 4px;"
-            )
-            self.layout.addWidget(self.error_label)
-            btn_cancel = QPushButton(tr("common.cancel", default="Cancelar"))
-            btn_cancel.clicked.connect(self._on_cancel)
-            btn_cancel.setStyleSheet("""
-                QPushButton {
-                    background-color: #FF4B4B; color: white; font-weight: bold;
-                    border-radius: 10px; padding: 8px;
-                }
-                QPushButton:hover { background-color: #FF2222; }
-            """)
-            btn_cancel.setFont(QFont("Segoe UI", 10))
-            btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.layout.addWidget(btn_cancel, alignment=Qt.AlignmentFlag.AlignRight)
-
-        # Sonido de error
-        self.error_player = QMediaPlayer()
-        self.error_audio = QAudioOutput()
-        self.error_player.setAudioOutput(self.error_audio)
-        sound_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "assets",
-            "error.wav",
-        )
-        self.error_player.setSource(QUrl.fromLocalFile(sound_path))
-        self.error_audio.setVolume(0.9)
-
-        # Hilo de cámara
-        self.thread = VideoThread(camera_index=camera_index)
-        self.thread.change_pixmap_signal.connect(self.update_image)
-        self.thread.code_detected.connect(self.callback)
-        self.thread.start()
-
-    def update_image(self, qt_image):
-        pix = QPixmap.fromImage(qt_image)
-        if not pix.isNull():
-            scaled = pix.scaled(
-                self.video_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            x = (scaled.width() - self.video_label.width()) // 2
-            y = (scaled.height() - self.video_label.height()) // 2
-            self.video_label.setPixmap(
-                scaled.copy(x, y, self.video_label.width(), self.video_label.height())
-            )
-            # Máscara redondeada para recortar esquinas del vídeo
-            from PyQt6.QtGui import QPainterPath, QRegion
-
-            p = QPainterPath()
-            p.addRoundedRect(
-                0.0,
-                0.0,
-                float(self.video_label.width()),
-                float(self.video_label.height()),
-                14.0,
-                14.0,
-            )
-            self.video_label.setMask(QRegion(p.toFillPolygon().toPolygon()))
-
-    def show_error(self, mensaje="Código no válido"):
-        """Muestra error temporal y reproduce sonido de alerta."""
-        self.error_label.setText(f"ERROR: {mensaje}")
-        QTimer.singleShot(3000, lambda: self.error_label.clear())
-        if self.error_player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
-            self.error_player.stop()
-            self.error_player.play()
-
-    def _on_cancel(self):
-        self.close()
-
-    def closeEvent(self, event):
-        try:
-            if hasattr(self, "thread") and self.thread is not None:
-                self.thread.stop()
-        except Exception:
-            pass
-        event.accept()
-
-
-# ---------------------------------------------------------------------------
-# ALTA RÁPIDA Y GENERADOR EAN-13
-# ---------------------------------------------------------------------------
-class _AltaRapidaEANPage(QWidget):
-    """Alta rápida de un artículo NUEVO con generador de EAN-13 válido y único. Da de alta en la tabla
-    PERMANENTE `articulos` para que quede disponible al instante en el buscador de Pedidos (Proveedores)."""
-
-    _UNIDADES = ["unidad", "kg", "caja", "saco", "palé", "litro", "docena"]
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._imagen_path = None
-        cont = QVBoxLayout(self)
-        cont.setContentsMargins(40, 34, 40, 34); cont.setSpacing(14)
-
-        titulo = QLabel(tr("info.ean_titulo", default="⚡ Alta Rápida y Generador EAN-13"))
-        titulo.setStyleSheet(f"color:{_CIAN};font-size:22px;font-weight:900;background:transparent;")
-        cont.addWidget(titulo)
-        sub = QLabel(tr("info.ean_sub", default="Crea un artículo nuevo y genera su código de barras "
-                                                "EAN-13 único para negociarlo con nuevos distribuidores."))
-        sub.setStyleSheet(f"color:#8B949E;font-size:12px;background:transparent;"); sub.setWordWrap(True)
-        cont.addWidget(sub)
-
-        def _lbl(txt):
-            l = QLabel(txt); l.setStyleSheet("color:#8B949E;font-weight:700;font-size:14px;"
-                                             "background:transparent;")
-            return l
-
-        self.in_nombre = QLineEdit(); self.in_nombre.setPlaceholderText(
-            tr("info.ean_nombre", default="Nombre del artículo nuevo"))
-        self.in_nombre.setStyleSheet(_NEON_INPUT_SS)
-        self.cmb_familia = QComboBox(); self.cmb_familia.setStyleSheet(_NEON_COMBO_SS)
-        self.cmb_unidad = QComboBox(); self.cmb_unidad.setStyleSheet(_NEON_COMBO_SS)
-        self.cmb_unidad.addItems(self._UNIDADES)
-        self.in_precio = QLineEdit(); self.in_precio.setPlaceholderText("0.00")
-        self.in_precio.setStyleSheet(_NEON_INPUT_SS); self.in_precio.setFixedWidth(200)
-
-        cont.addWidget(_lbl(tr("info.ean_nombre_lbl", default="Nombre del artículo *")))
-        cont.addWidget(self.in_nombre)
-        fila = QHBoxLayout()
-        colf = QVBoxLayout(); colf.addWidget(_lbl(tr("info.ean_familia", default="Categoría / Familia")))
-        colf.addWidget(self.cmb_familia)
-        colu = QVBoxLayout(); colu.addWidget(_lbl(tr("info.ean_unidad", default="Unidad de medida")))
-        colu.addWidget(self.cmb_unidad)
-        colp = QVBoxLayout(); colp.addWidget(_lbl(tr("info.ean_precio", default="Precio de referencia (€)")))
-        colp.addWidget(self.in_precio)
-        fila.addLayout(colf, 2); fila.addLayout(colu, 1); fila.addLayout(colp, 1)
-        cont.addLayout(fila)
-
-        # Imagen opcional
-        imgrow = QHBoxLayout()
-        self.btn_img = QPushButton(tr("info.ean_img", default="🖼  Cargar imagen (opcional)"))
-        self.btn_img.setStyleSheet(_BTN_CIAN_SS); self.btn_img.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_img.clicked.connect(self._elegir_imagen)
-        self.lbl_img = _lbl("")
-        imgrow.addWidget(self.btn_img); imgrow.addWidget(self.lbl_img, 1)
-        cont.addLayout(imgrow)
-
-        # EAN generado
-        eanrow = QHBoxLayout()
-        self.in_ean = QLineEdit(); self.in_ean.setReadOnly(True)
-        self.in_ean.setPlaceholderText(tr("info.ean_ph", default="EAN-13 (pulsa Generar)"))
-        self.in_ean.setStyleSheet(_NEON_INPUT_SS); self.in_ean.setFixedWidth(280)
-        self.btn_gen = QPushButton(tr("info.ean_generar", default="⚡ Generar EAN-13 único"))
-        self.btn_gen.setStyleSheet(_ss_boton(_VERDE)); self.btn_gen.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_gen.clicked.connect(self._generar_ean)
-        eanrow.addWidget(_lbl(tr("info.ean_lbl", default="Código EAN-13"))); eanrow.addWidget(self.in_ean)
-        eanrow.addWidget(self.btn_gen); eanrow.addStretch(1)
-        cont.addLayout(eanrow)
-
-        self.lbl_estado = QLabel("")
-        self.lbl_estado.setStyleSheet("color:#8B949E;font-size:12px;background:transparent;")
-        cont.addWidget(self.lbl_estado)
-
-        self.btn_guardar = QPushButton(tr("info.ean_guardar", default="💾  Guardar artículo en catálogo"))
-        self.btn_guardar.setStyleSheet(_BTN_CIAN_SS); self.btn_guardar.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_guardar.clicked.connect(self._guardar)
-        brow = QHBoxLayout(); brow.addWidget(self.btn_guardar); brow.addStretch(1)
-        cont.addLayout(brow)
-        cont.addStretch(1)
-        self._cargar_familias()
-
-    def showEvent(self, e):   # noqa: N802 (API Qt): refresca familias al mostrar
-        super().showEvent(e)
-        self._cargar_familias()
-
-    def _cargar_familias(self):
-        self.cmb_familia.clear()
-        self.cmb_familia.addItem(tr("info.ean_sin_familia", default="— Sin familia —"), None)
-        try:
-            from src.db import familias
-            for f in familias.listar_familias():
-                self.cmb_familia.addItem(f.get("nombre"), f.get("id_familia"))
-        except Exception:
-            pass
-
-    def _estado(self, txt, error=False, ok=False):
-        col = _ROJO if error else (_VERDE if ok else "#8B949E")
-        self.lbl_estado.setText(txt)
-        self.lbl_estado.setStyleSheet(f"color:{col};font-size:12px;font-weight:700;background:transparent;")
-
-    def _elegir_imagen(self):
-        from PyQt6.QtWidgets import QFileDialog
-        ruta, _ = QFileDialog.getOpenFileName(self, tr("info.ean_img", default="Cargar imagen"), "",
-                                              "Imágenes (*.png *.jpg *.jpeg *.webp);;Todos (*)")
-        if ruta:
-            self._imagen_path = ruta
-            self.lbl_img.setText(os.path.basename(ruta))
-
-    def _generar_ean(self):
-        from src.db import articulos as A
-        from src.utils import ean
-        codigo = ean.generar(existe_fn=lambda c: A.existe_codigo(c))
-        if not codigo:
-            self._estado(tr("info.ean_err_gen", default="No se pudo generar un EAN único. Reinténtalo."),
-                         error=True)
-            return
-        self.in_ean.setText(codigo)
-        self._estado(tr("info.ean_ok_gen", default="EAN-13 válido generado: {c}", c=codigo), ok=True)
-
-    def _guardar(self):
-        from src.db import articulos as A
-        from src.utils import ean
-        nombre = (self.in_nombre.text() or "").strip()
-        if not nombre:
-            self._estado(tr("info.ean_falta_nombre", default="El nombre es obligatorio."), error=True); return
-        if A.existe_nombre(nombre):
-            self._estado(tr("info.ean_dup_nombre", default="Ya existe un artículo con ese nombre."),
-                         error=True); return
-        codigo = (self.in_ean.text() or "").strip()
-        if not ean.es_valido(codigo):
-            self._estado(tr("info.ean_falta_ean", default="Genera primero un EAN-13 válido."), error=True)
-            return
-        if A.existe_codigo(codigo):
-            self._estado(tr("info.ean_dup_ean", default="Ese EAN ya existe; genera otro."), error=True); return
-        try:
-            precio = float((self.in_precio.text() or "0").replace(",", "."))
-        except ValueError:
-            self._estado(tr("info.ean_precio_num", default="El precio debe ser numérico."), error=True); return
-        id_fam = self.cmb_familia.currentData()
-        categoria = self.cmb_familia.currentText() if id_fam else None
-        ok = A.crear_articulo(codigo, nombre, precio=precio, categoria=categoria, id_familia=id_fam,
-                              unidad=self.cmb_unidad.currentText(), imagen=self._imagen_path)
-        if ok:
-            self._estado(tr("info.ean_guardado",
-                            default="Artículo «{n}» dado de alta con EAN {c}. Ya disponible en Pedidos.",
-                            n=nombre, c=codigo), ok=True)
-            if mostrar_mensaje:
-                mostrar_mensaje(self, tr("info.ean_titulo2", default="Alta de artículo"),
-                                tr("info.ean_guardado2", default="Artículo creado correctamente."),
-                                nivel="success")
-            for w in (self.in_nombre, self.in_ean, self.in_precio):
-                w.clear()
-            self._imagen_path = None; self.lbl_img.setText("")
-        else:
-            self._estado(tr("info.ean_err_save", default="No se pudo dar de alta el artículo."), error=True)
-
-    def _retraducir(self):
-        pass
-
-
 # ---------------------------------------------------------------------------
 # VENTANA PRINCIPAL
 # ---------------------------------------------------------------------------
+# ("Alta rápida y generador EAN-13" — antigua pestaña "Alta artículo" de este módulo — MIGRADA al
+# Portal Empresa, petición explícita. Ver `backend/portal_empresa_gestion.py::pagina_alta_articulo`,
+# que reutiliza el MISMO motor `src/utils/ean.py::generar` + `src/db/articulos.py::crear_articulo`.)
 
 
 class InfoArticuloWindow(QWidget):
@@ -1808,21 +1531,27 @@ class InfoArticuloWindow(QWidget):
         side_ly.setContentsMargins(0, 40, 0, 20)
         side_ly.setSpacing(0)
 
-        lbl_m = QLabel(tr("info.smart_info", default="SMART INFO"))
+        lbl_m = QLabel(tr("info.smart_info", default="SMART INFO").upper())
         lbl_m.setStyleSheet(
             "color: #ffffff; font-size: 16px; font-weight: 900; margin-left: 30px; "
             "margin-bottom: 35px; letter-spacing: 2px; border: none; background: transparent;"
         )
         side_ly.addWidget(lbl_m)
 
-        self._tab_keys = ["info.tab_search", "info.tab_image", "info.tab_edit", "info.tab_families",
-                          "info.tab_ean"]
-        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS",
-                    "ALTA ARTÍCULO"]
+        # "Alta artículo" (antiguo índice 4) MIGRADA al Portal Empresa (petición explícita, ver
+        # `backend/portal_empresa_gestion.py::pagina_alta_articulo`) — retirada de aquí, sin dejar
+        # ninguna referencia residual (`_AltaRapidaEANPage` ya no existe en este fichero).
+        self._tab_keys = ["info.tab_search", "info.tab_image", "info.tab_edit", "info.tab_families"]
+        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS"]
 
+        # Restricciones por perfil: OPERARIO solo ve "Buscar artículo" (índice 0);
+        # "Imagen/Editar/Familias" (1-3) ADMINISTRADOR|SUPERADMIN.
+        _perfil_info = str((self.usuario_actual or {}).get("perfil", "")).upper()
         self._nav_btns = []
         for idx, key in enumerate(self._tab_keys):
-            btn = _SidebarBtn(tr(key, default=_tab_def[idx]))
+            if idx in (1, 2, 3) and _perfil_info not in ("ADMINISTRADOR", "SUPERADMIN"):
+                continue
+            btn = _SidebarBtn(tr(key, default=_tab_def[idx]).upper())
             btn.setCheckable(True)
             btn.setAutoExclusive(True)
             btn.clicked.connect(lambda _, i=idx: self._ir_a(i))
@@ -1831,7 +1560,7 @@ class InfoArticuloWindow(QWidget):
 
         side_ly.addStretch()
 
-        self._btn_exit = btn_exit = _SidebarBtn(tr("info.exit", default="SALIR AL MENÚ"))
+        self._btn_exit = btn_exit = _SidebarBtn(tr("info.exit", default="SALIR AL MENÚ").upper())
         btn_exit.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -1860,26 +1589,22 @@ class InfoArticuloWindow(QWidget):
         self._page_imagen = _ImagenArticuloPage(self)
         self._page_editar = _EditarArticuloPage(self)
         self._page_familias = _FamiliasPage(self)
-        self._page_ean = _AltaRapidaEANPage(self)
 
         self._vistas.addWidget(self._page_buscar)
         self._vistas.addWidget(self._page_imagen)
         self._vistas.addWidget(self._page_editar)
         self._vistas.addWidget(self._page_familias)
-        self._vistas.addWidget(self._page_ean)
 
         root.addWidget(self._vistas)
         self._ir_a(0)
 
     def _retraducir(self):
         self.setWindowTitle(tr("info.window_title", default="Información de Artículo"))
-        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS",
-                    "ALTA ARTÍCULO"]
+        _tab_def = ["BUSCAR ARTÍCULO", "IMAGEN ARTÍCULO", "EDITAR ARTÍCULO", "FAMILIAS"]
         for i, btn in enumerate(self._nav_btns):
-            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]))
-        self._btn_exit.setText(tr("info.exit", default="SALIR AL MENÚ"))
-        for page in (self._page_buscar, self._page_imagen, self._page_editar, self._page_familias,
-                     self._page_ean):
+            btn.setText(tr(self._tab_keys[i], default=_tab_def[i]).upper())
+        self._btn_exit.setText(tr("info.exit", default="SALIR AL MENÚ").upper())
+        for page in (self._page_buscar, self._page_imagen, self._page_editar, self._page_familias):
             if hasattr(page, "_retraducir"):
                 page._retraducir()
 
@@ -1891,24 +1616,13 @@ class InfoArticuloWindow(QWidget):
                 repolish_widget(btn)
 
     def abrir_escanner(self):
-        try:
-            _ = cv2.__version__  # Check if OpenCV is available
-        except Exception:
-            if mostrar_mensaje:
-                mostrar_mensaje(
-                    self,
-                    tr("info.opencv_error_title", default="Error"),
-                    tr("info.opencv_error_msg",
-                       default="OpenCV no está disponible. Instala opencv-python y pyzbar."),
-                    nivel="error",
-                )
-            return
-        self.scanner = BarcodeScanner(self._on_barcode_detected, parent=self)
-        self.scanner.exec()
+        from src.gui.components.remote_scan import iniciar_escaneo_movil
+        iniciar_escaneo_movil(
+            self, on_result=lambda v: self._on_barcode_detected(v, "movil"),
+            contexto="info_articulo.scanner_camara")
 
     def _on_barcode_detected(self, code, tipo=None):
         if code:
-            self.scanner.close()
             self._page_buscar._buscar(code)
 
     def volver_menu_principal(self):

@@ -54,7 +54,10 @@ def qss_panel() -> str:
 
 
 def qss_titulo(acento: str = INFO) -> str:
-    return f"color:{acento};font-size:20px;font-weight:bold;background:transparent;border:none;"
+    # background opaco (no "transparent"): un QLabel con fondo transparente puede dejar restos
+    # visibles ("fantasma") tras la transición de deslizamiento entre pantallas — mismo problema ya
+    # documentado y resuelto en `transiciones.capturar_pantalla` para las instantáneas de la animación.
+    return f"color:{acento};font-size:20px;font-weight:bold;background:{BG};border:none;"
 
 
 def qss_tarjeta(acento: str = INFO) -> str:

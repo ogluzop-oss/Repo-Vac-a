@@ -67,10 +67,15 @@ def precio_de_lista(referencia, *, lista=None, moneda="EUR", id_empresa=None):
 
 # ── Cotización comercial unificada (reutiliza promociones + cupones) ──────────
 def cotizar(lineas, *, cliente_id=None, segmento=None, id_tienda=None, cupon=None, lista=None,
-            moneda="EUR", id_empresa=None) -> dict:
+            moneda="EUR", pais_destino=None, id_empresa=None) -> dict:
     """Cotiza una cesta: precio de lista (o base) → mejor promoción por línea (db.promociones) →
-    cupón sobre el total (db.fidelizacion). Devuelve el desglose. NO redime el cupón (eso es del
-    checkout) ni crea la Transacción."""
+    cupón sobre el total (db.fidelizacion) → envío por zona si se da `pais_destino` (Fase 3
+    e-commerce: `comercio_digital.envios.zonas`, respeta el "envío gratis" del cupón). Devuelve el
+    desglose. NO redime el cupón (eso es del checkout) ni crea la Transacción.
+
+    `pais_destino=None` (por defecto): NO se añade ninguna línea de envío — comportamiento
+    IDÉNTICO al de antes de esta fase (recogida en tienda / venta física / cualquier llamador que
+    no necesite envío a domicilio sigue sin coste de envío, como siempre)."""
     emp = _emp(id_empresa)
     from src.db import promociones as promo
     detalle, subtotal, desc_promos = [], 0.0, 0.0
@@ -94,12 +99,15 @@ def cotizar(lineas, *, cliente_id=None, segmento=None, id_tienda=None, cupon=Non
     desc_promos = round(desc_promos, 2)
     base_post_promo = round(subtotal - desc_promos, 2)
 
-    # Cupón (reutiliza fidelización). No se redime aquí.
-    cupon_info, desc_cupon = None, 0.0
+    # Cupón (reutiliza fidelización). No se redime aquí. Pasa cliente/importe para que
+    # `validar_cupon` compruebe la restricción por cliente y el importe mínimo (Fase 2 e-commerce:
+    # "fechas de validez, límite de usos totales y [mínimo de pedido]" del encargo).
+    cupon_info, desc_cupon, envio_gratis = None, 0.0, False
     if cupon:
         try:
             from src.db import fidelizacion as fid
-            c = fid.validar_cupon(cupon, id_empresa=emp)
+            c = fid.validar_cupon(cupon, id_empresa=emp, id_cliente=cliente_id,
+                                  importe_pedido=base_post_promo)
         except Exception:
             c = None
         if c:
@@ -108,23 +116,44 @@ def cotizar(lineas, *, cliente_id=None, segmento=None, id_tienda=None, cupon=Non
                 desc_cupon = round(base_post_promo * val / 100.0, 2)
             elif tipo == "importe_fijo":
                 desc_cupon = round(min(base_post_promo, val), 2)
+            elif tipo == "envio_gratis":
+                # No descuenta el subtotal de PRODUCTOS (no hay nada que descontar ahí) — marca el
+                # pedido para que el cálculo de envío de más abajo (Fase 3: `envios.zonas`) lo
+                # aplique gratis.
+                envio_gratis = True
             cupon_info = {"codigo": cupon, "tipo": tipo, "valor": val, "descuento": desc_cupon,
-                          "valido": True}
+                          "envio_gratis": envio_gratis, "valido": True}
         else:
-            cupon_info = {"codigo": cupon, "valido": False, "descuento": 0.0}
+            cupon_info = {"codigo": cupon, "valido": False, "descuento": 0.0, "envio_gratis": False}
 
     descuento_total = round(desc_promos + desc_cupon, 2)
-    total = round(subtotal - descuento_total, 2)
+    base_post_cupon = round(subtotal - descuento_total, 2)
+
+    # Envío por zona (Fase 3 e-commerce) — solo si se pide un destino; si no, comportamiento
+    # idéntico a siempre (sin línea de envío, p. ej. recogida en tienda).
+    envio_info = {"zona": None, "coste": 0.0, "gratis": envio_gratis, "motivo": None}
+    if pais_destino:
+        from src.services.comercio_digital.envios import zonas as _zonas
+        peso = _zonas.peso_total_lineas(lineas, id_empresa=emp)
+        envio_info = _zonas.calcular_envio(pais_destino, peso, base_post_cupon,
+                                           envio_gratis_forzado=envio_gratis, id_empresa=emp)
+    total = round(base_post_cupon + envio_info["coste"], 2)
     return {"moneda": moneda, "lista": lista, "lineas": detalle, "subtotal": subtotal,
             "descuento_promociones": desc_promos, "cupon": cupon_info,
-            "descuento_cupon": desc_cupon, "descuento_total": descuento_total, "total": total}
+            "descuento_cupon": desc_cupon, "descuento_total": descuento_total, "envio": envio_info,
+            "total": total,
+            "envio_gratis": envio_gratis}
 
 
-def redimir_cupon(cupon, *, id_venta=None, id_empresa=None) -> bool:
-    """Passthrough a fidelización (lo usará el checkout al confirmar). Reutilización."""
+def redimir_cupon(cupon, *, id_venta=None, id_cliente=None, importe_pedido=None,
+                  id_empresa=None) -> bool:
+    """Passthrough a fidelización, usado por `checkout.confirmar` al confirmar el pedido.
+    Reutilización — revalida las mismas condiciones que `cotizar` (cliente/importe mínimo) antes
+    de consumir el uso, por si algo cambió entre cotizar y confirmar."""
     try:
         from src.db import fidelizacion as fid
-        return fid.redimir_cupon(cupon, id_venta=id_venta, id_empresa=_emp(id_empresa))
+        return fid.redimir_cupon(cupon, id_venta=id_venta, id_empresa=_emp(id_empresa),
+                                 id_cliente=id_cliente, importe_pedido=importe_pedido)
     except Exception as e:
         logger.error("redimir_cupon(%s): %s", cupon, e)
         return False
@@ -148,7 +177,7 @@ def sugerencias(id_publicacion, *, tipo="up", limite=5, id_empresa=None):
             return []
     # cross-selling: degradable vía capacidad de IA (nunca acopla proveedor).
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         ia = cap.ia()
         if ia is not None and hasattr(ia, "agente"):
             ag = ia.agente("comercio")

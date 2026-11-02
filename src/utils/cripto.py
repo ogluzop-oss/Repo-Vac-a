@@ -146,6 +146,134 @@ def descifrar_seguro(token: str | None) -> str | None:
     return descifrar(token)
 
 
+def cifrar_bytes(datos: bytes | None) -> bytes | None:
+    """Cifra bytes binarios (p. ej. un PDF completo) con el MISMO backend/clave que `cifrar()` —
+    sin esto, forzar un `.encode('utf-8')` sobre contenido binario arbitrario (como hace `cifrar`,
+    pensado para secretos de texto) rompería/corrompería el archivo. `None` si no hay backend de
+    cifrado disponible (degradación honesta: el llamador decide si guarda el original sin cifrar)."""
+    if not datos:
+        return datos
+    f = _get_fernet()
+    if f is None:
+        return None
+    try:
+        return f.encrypt(datos)
+    except Exception as e:
+        logger.error("Error cifrando bytes: %s", e)
+        return None
+
+
+def descifrar_bytes(token: bytes | None) -> bytes | None:
+    """Descifra bytes producidos por `cifrar_bytes()`."""
+    if not token:
+        return token
+    f = _get_fernet()
+    if f is None:
+        return None
+    try:
+        return f.decrypt(token)
+    except Exception as e:
+        logger.error("Error descifrando bytes: %s", e)
+        return None
+
+
+_MAGIC_FERNET = b"gAAAAA"  # todo token Fernet (texto o bytes) empieza así — versión 0x80 en base64url
+
+
+def parece_cifrado_bytes(datos: bytes | None) -> bool:
+    """True si `datos` tiene pinta de ser un token Fernet (el mismo prefijo que `parece_cifrado`,
+    a nivel de bytes) — permite a un lector genérico (abrir/imprimir/descargar/adjuntar un fichero)
+    detectar SOLO los ficheros realmente cifrados por esta app y dejar cualquier otro intacto."""
+    return isinstance(datos, (bytes, bytearray)) and bytes(datos[:6]) == _MAGIC_FERNET
+
+
+def descifrar_bytes_si_cifrado(datos: bytes | None) -> bytes | None:
+    """Descifra `datos` SOLO si parecen un token Fernet; si no, los devuelve tal cual (fichero
+    legado o nunca cifrado — nunca intenta "descifrar" contenido que no lo está)."""
+    if not parece_cifrado_bytes(datos):
+        return datos
+    descifrado = descifrar_bytes(datos)
+    return descifrado if descifrado is not None else datos
+
+
+def cifrar_archivo_en_disco(ruta: str) -> bool:
+    """Cifra EN SITIO el fichero de `ruta` (lee el contenido en claro, lo sustituye por el token
+    Fernet) — pensado para "repositorio cifrado" de documentos generados (nóminas/certificados):
+    se llama justo después de generar el PDF, antes de registrarlo/subirlo a almacenamiento, así
+    tanto la copia local como la réplica en `StorageProvider` (que lee el fichero local tal cual)
+    quedan cifradas sin tocar ese segundo chokepoint. Devuelve `True` si quedó cifrado; `False` si
+    no hay backend de cifrado disponible o el fichero no existe — en ambos casos el fichero
+    original queda intacto (degradación honesta, nunca se pierde el documento)."""
+    try:
+        if not (ruta and os.path.exists(ruta)):
+            return False
+        with open(ruta, "rb") as f:
+            datos = f.read()
+        if parece_cifrado_bytes(datos):
+            return True  # ya estaba cifrado (reintento/regeneración) — idempotente
+        cifrado = cifrar_bytes(datos)
+        if cifrado is None:
+            return False
+        with open(ruta, "wb") as f:
+            f.write(cifrado)
+        return True
+    except Exception as e:
+        logger.error("cifrar_archivo_en_disco(%s): %s", ruta, e)
+        return False
+
+
+def resolver_ruta_legible(ruta: str) -> str:
+    """Punto único de lectura para CUALQUIER consumidor de un fichero potencialmente cifrado
+    (abrir con la app del sistema, imprimir, descargar, adjuntar a un correo, calcular su hash...):
+    si el contenido de `ruta` es un token Fernet, lo descifra a un fichero temporal (mismo nombre/
+    extensión, para que el visor del SO lo reconozca) y devuelve esa ruta temporal; si no, devuelve
+    `ruta` sin tocar. Quien use el resultado es responsable de que sea una ruta transitoria cuando
+    difiere de la original (no se borra aquí para no interrumpir al programa que la vaya a abrir)."""
+    try:
+        if not (ruta and os.path.isfile(ruta)):
+            return ruta
+        with open(ruta, "rb") as f:
+            datos = f.read()
+        if not parece_cifrado_bytes(datos):
+            return ruta
+        plano = descifrar_bytes(datos)
+        if plano is None:
+            logger.error("resolver_ruta_legible(%s): no se pudo descifrar", ruta)
+            return ruta
+        import tempfile
+        base = os.path.basename(ruta)
+        fd, tmp = tempfile.mkstemp(prefix="sm_dec_", suffix=f"_{base}")
+        with os.fdopen(fd, "wb") as f:
+            f.write(plano)
+        return tmp
+    except Exception as e:
+        logger.error("resolver_ruta_legible(%s): %s", ruta, e)
+        return ruta
+
+
+def hash_sha256_archivo(ruta: str) -> str | None:
+    """SHA-256 del contenido EN CLARO de `ruta` (si el fichero está cifrado en disco, lo descifra
+    primero a un temporal) — punto único reutilizado por `db.documentos`/`rrhh.firma_servicio`
+    (antes dos implementaciones idénticas) para que el hash ancla SIEMPRE el documento que el
+    usuario realmente ve/firma, nunca el blob cifrado."""
+    import hashlib
+    try:
+        legible = resolver_ruta_legible(ruta)
+        h = hashlib.sha256()
+        with open(legible, "rb") as f:
+            for bloque in iter(lambda: f.read(65536), b""):
+                h.update(bloque)
+        if legible != ruta:
+            try:
+                os.remove(legible)
+            except OSError:
+                pass
+        return h.hexdigest()
+    except Exception as e:
+        logger.warning("hash_sha256_archivo(%s): %s", ruta, e)
+        return None
+
+
 def cifrado_disponible() -> bool:
     """True si hay backend de cifrado real (cryptography + clave)."""
     return _get_fernet() is not None

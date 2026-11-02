@@ -38,7 +38,7 @@ def _pasarela(proveedor, moneda, id_empresa):
     except Exception as e:
         logger.debug("conexion pago (%s): %s", proveedor, e)
     try:
-        from src.platform import capabilities as cap
+        from src.plataforma import capabilities as cap
         pagos = cap.pagos()
         if pagos is not None and hasattr(pagos, "pasarela_para"):
             return pagos.pasarela_para(config)

@@ -8,11 +8,11 @@ delegan en el servicio; y que NO hay lógica de negocio todavía (solo scaffoldi
 
 import inspect
 
-from src import platform as plat
+from src import plataforma as plat
 
 
 def test_capabilities_facade():
-    from src.platform import capabilities as cap
+    from src.plataforma import capabilities as cap
     # La fachada expone las capacidades Enterprise que la PCD necesita.
     for c in ("eventbus", "workflow", "rules", "scheduler", "ccp", "ia", "observabilidad",
               "marketplace", "saas_global", "storage"):

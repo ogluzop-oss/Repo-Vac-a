@@ -6,9 +6,9 @@ Reutiliza el estilo global. Aditivo: NO sustituye BIDashboardWindow existente.
 
 import logging
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QTabWidget, QVBoxLayout, QWidget
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _tabla
 
 logger = logging.getLogger("gui.bi_corp")
 
@@ -16,6 +16,22 @@ logger = logging.getLogger("gui.bi_corp")
 def _it(v):
     from PyQt6.QtWidgets import QTableWidgetItem
     return QTableWidgetItem("" if v is None else str(v))
+
+
+def _info_msg(parent, titulo, mensaje):
+    try:
+        from assets.estilo_global import mostrar_mensaje
+        mostrar_mensaje(parent, titulo, mensaje, "info")
+    except Exception:
+        logger.info("%s: %s", titulo, mensaje)
+
+
+def _error_msg(parent, titulo, mensaje):
+    try:
+        from assets.estilo_global import mostrar_mensaje
+        mostrar_mensaje(parent, titulo, mensaje, "error")
+    except Exception:
+        logger.warning("%s: %s", titulo, mensaje)
 
 
 def _empresa():
@@ -40,7 +56,7 @@ class BICorporativoWindow(QWidget):
         cab.addWidget(t); cab.addStretch()
         cab.addWidget(_btn("Recalcular DW", self._etl, primary=True))
         cab.addWidget(_btn("Exportar", self._export, primary=True))
-        cab.addWidget(_btn("🔄  Actualizar", self._load, primary=True))
+        cab.addWidget(_btn_cargando("🔄  Actualizar", self._load, primary=True))
         if callback_vuelta:
             cab.addWidget(_btn("Volver", self._volver))
         root.addLayout(cab)
@@ -51,10 +67,10 @@ class BICorporativoWindow(QWidget):
         self.tbl_sec = _tabla(["Seccion", "Metrica", "Valor"])
         self.tbl_alert = _tabla(["Tipo", "Severidad", "Mensaje"])
         self.tbl_ia = _tabla(["Categoria", "Detalle"])
-        self.tabs.addTab(self.tbl_kpi, "KPIs estratégicos")
-        self.tabs.addTab(self.tbl_sec, "Secciones")
-        self.tabs.addTab(self.tbl_alert, "Alertas")
-        self.tabs.addTab(self.tbl_ia, "IA ejecutiva")
+        self.tabs.addTab(self._envolver(self.tbl_kpi), "KPIs estratégicos")
+        self.tabs.addTab(self._envolver(self.tbl_sec), "Secciones")
+        self.tabs.addTab(self._envolver(self.tbl_alert), "Alertas")
+        self.tabs.addTab(self._envolver(self.tbl_ia), "IA ejecutiva")
         # Animación de deslizamiento al cambiar de subpestaña (igual que el resto de la app).
         try:
             from src.gui.transiciones import instalar_transicion_tabs
@@ -65,14 +81,21 @@ class BICorporativoWindow(QWidget):
         self._panel = None
         self._load()
 
+    def _envolver(self, tabla):
+        """Tabla pegada directamente al borde de la pestaña: su contorno se veía más fino por
+        arriba que por los otros lados — se le da un margen superior, igual que en el resto de la app."""
+        w = QWidget(); ly = QVBoxLayout(w); ly.setContentsMargins(0, 12, 0, 0)
+        ly.addWidget(tabla)
+        return w
+
     def _etl(self):
         try:
             from src.services.bi_corp import dw
             r = dw.ejecutar_etl(id_empresa=_empresa())
-            QMessageBox.information(self, "DW", f"ETL: {r['filas']} hechos actualizados")
+            _info_msg(self, "DW", f"ETL: {r['filas']} hechos actualizados")
             self._load()
         except Exception as e:
-            QMessageBox.critical(self, "DW", str(e))
+            _error_msg(self, "DW", str(e))
 
     def _load(self):
         try:
@@ -112,6 +135,6 @@ class BICorporativoWindow(QWidget):
         try:
             from src.services.bi_corp import dashboard_corp
             r = dashboard_corp.exportar_panel(self._panel, "xlsx")
-            QMessageBox.information(self, "Export", r.get("ruta") if r.get("ok") else "Error")
+            _info_msg(self, "Export", r.get("ruta") if r.get("ok") else "Error")
         except Exception as e:
-            QMessageBox.critical(self, "Export", str(e))
+            _error_msg(self, "Export", str(e))

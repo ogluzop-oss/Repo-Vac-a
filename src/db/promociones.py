@@ -51,7 +51,15 @@ def crear_promocion(nombre, tipo="descuento_pct", valor=0, ambito="articulo", id
             for r in (reglas or []):
                 cur.execute("INSERT INTO promociones_reglas (id_promocion, id_empresa, clave, valor) "
                             "VALUES (%s,%s,%s,%s)", (pid, id_empresa, r.get("clave"), str(r.get("valor"))))
-            return pid
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("PROMOCION_PUBLICADA", id_empresa=id_empresa, origen="promociones",
+                         ref_entidad="promocion", ref_id=pid,
+                         payload={"nombre": nombre, "tipo": tipo, "valor": valor})
+        except Exception:
+            pass
+        return pid
     except Exception as e:
         logger.error("crear_promocion: %s", e)
         return None

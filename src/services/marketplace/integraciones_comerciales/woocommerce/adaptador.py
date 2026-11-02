@@ -65,7 +65,7 @@ class WooCommerceAdapter(_WooPreparado):
 
     def _config(self, id_empresa=None):
         url = self._url or self._url_integracion(id_empresa) or os.getenv("WOO_URL")
-        ck, cs = S.credenciales(self._credenciales_ref)
+        ck, cs = S.credenciales(self._credenciales_ref, id_empresa=id_empresa)
         return url, ck, cs
 
     def disponible(self, id_empresa=None) -> bool:
@@ -218,10 +218,20 @@ class WooCommerceAdapter(_WooPreparado):
                            "precio": _num(li.get("price"))} for li in (o.get("line_items") or [])]
                 if not lineas:
                     continue
+                # Dirección de envío (REST v3: `shipping`, ya en el propio pedido) — si el
+                # comprador usó "enviar a la misma dirección de facturación", `shipping` puede
+                # venir vacío: cae a `billing` (misma garantía legal postal en ese caso).
+                sh = o.get("shipping") or {}
+                cp = sh.get("postcode") or bl.get("postcode")
+                base_dir = sh if sh.get("postcode") else bl
+                direccion_envio = ", ".join(str(x) for x in (
+                    base_dir.get("address_1"), base_dir.get("address_2"), base_dir.get("city"),
+                    base_dir.get("state"), cp, base_dir.get("country")) if x)
                 try:
                     # MISMO motor de pedidos que TPV/Portal Web/Canal Web.
-                    OS.crear_pedido_online(cliente, lineas, plataforma="woocommerce",
-                                           referencia_externa=ref)
+                    OS.crear_pedido_canal_externo(cliente, lineas, plataforma="woocommerce",
+                                           referencia_externa=ref, direccion_envio=direccion_envio,
+                                           cp_cliente=cp)
                     creados += 1
                 except Exception as e:
                     logger.debug("crear pedido woo %s: %s", ref, e)

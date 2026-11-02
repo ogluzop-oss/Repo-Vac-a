@@ -30,15 +30,15 @@ class SimuladoProvider(BillingProvider):
 
 
 class StripeProvider(BillingProvider):
+    """Cobro real vía SEPA Direct Debit (`billing.stripe_gateway`, Fase 5). Requiere `datos={"id_empresa": ...}`
+    — sin eso no hay forma de saber a qué Customer/IBAN de Stripe cobrar."""
+
     codigo = "stripe"
 
     def cobrar(self, importe, *, referencia=None, datos=None) -> dict:
-        try:
-            import stripe  # noqa: F401  (solo si está instalado y configurado)
-        except Exception:
-            return {"ok": False, "estado": "no_configurado", "proveedor": self.codigo}
-        # Integración real requiere credenciales/cliente; se deja preparado el punto de extensión.
-        return {"ok": False, "estado": "no_implementado", "proveedor": self.codigo}
+        id_empresa = (datos or {}).get("id_empresa")
+        from src.services.saas.billing import stripe_gateway
+        return stripe_gateway.cobrar(importe, referencia=referencia, id_empresa=id_empresa)
 
 
 class PaypalProvider(BillingProvider):

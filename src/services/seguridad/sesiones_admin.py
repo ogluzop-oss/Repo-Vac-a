@@ -17,8 +17,8 @@ def listar_sesiones(id_usuario) -> list:
     """Sesiones (refresh) activas del usuario."""
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cur.execute("SELECT jti, id_empresa, expira, creada FROM sesiones WHERE id_usuario=%s "
-                        "AND (revocada=0 OR revocada IS NULL) ORDER BY creada DESC", (id_usuario,))
+            cur.execute("SELECT jti, id_empresa, expira, emitido FROM sesiones WHERE id_usuario=%s "
+                        "AND (revocado=0 OR revocado IS NULL) ORDER BY emitido DESC", (id_usuario,))
             return [_fila(cur, r) for r in cur.fetchall()]
     except Exception as e:
         logger.debug("listar_sesiones (esquema variable): %s", e)

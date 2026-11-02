@@ -24,7 +24,13 @@ def _jwt_contexto(auth_header):
     if not claims:
         return None
     return {"usuario": {"id": claims.get("sub"), "id_empresa": claims.get("empresa"),
-                        "perfil": claims.get("rol"), "nombre": claims.get("nombre")},
+                        "perfil": claims.get("rol"), "nombre": claims.get("nombre"),
+                        # OJO: claim "tienda" = `usuarios.tienda_id`, un CÓDIGO DE CENTRO en texto
+                        # libre (p.ej. "ALMC"/"TND-001", igual que `codigo_local` de escritorio) — NO
+                        # es el mismo concepto que la columna INT `id_tienda` (FK a `tiendas.id`) que
+                        # ya usan varios routers/servicios para aislar filas por tienda. Se expone bajo
+                        # un nombre propio para no confundir ambos ni romper esos usos existentes.
+                        "centro_codigo": claims.get("tienda")},
             "id_empresa": claims.get("empresa"), "auth": "jwt", "claims": claims}
 
 

@@ -61,6 +61,25 @@ def test_reconexion_fuente_real_caida_no_cuelga(fab, emp):
     assert tardado < 15
 
 
+def test_grabacion_usa_mainstream_si_existe(fab, emp):
+    """Cámara con perfiles ONVIF: la grabación 24/7 debe conectar al MAINSTREAM (mejor calidad), no a
+    la URL legacy — sin romper el caso sin perfiles (ver test_reconexion_fuente_real_caida_no_cuelga,
+    que sigue usando la legacy tal cual)."""
+    _limpiar_dir(fab, emp)
+    cid = R.crear_camara("CamDual", id_empresa=emp, id_centro="CT", tipo_centro="centro",
+                         fuente="badsource://legacy")
+    fab._borrar("camaras", "id", cid)
+    fab._borrar("camaras_grabaciones", "id_camara", cid)
+    assert R.actualizar_perfiles(cid, fuente_main="badsource://main", fuente_sub="badsource://sub",
+                                 id_empresa=emp)
+    cam = R.obtener_camara(cid, id_empresa=emp)
+    assert G._fuente_conexion(cam) == "badsource://main"
+    t0 = time.time()
+    ruta = G.grabar_dia(cam, fecha="2099-12-31", duracion_seg=1, fps=2, reintento_seg=0)
+    assert ruta and os.path.exists(ruta)
+    assert time.time() - t0 < 15
+
+
 def test_arranca_solo_camaras_reales(fab, emp):
     _limpiar_dir(fab, emp)
     real = R.crear_camara("CamReal", id_empresa=emp, id_centro="CT", tipo_centro="centro",

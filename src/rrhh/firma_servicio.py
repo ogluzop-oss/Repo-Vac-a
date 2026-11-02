@@ -9,7 +9,6 @@ Multiempresa por id_empresa. Sin Qt.
 """
 
 import datetime as _dt
-import hashlib
 import logging
 import os
 
@@ -22,9 +21,12 @@ logger = logging.getLogger("rrhh.firma")
 PENDIENTE, ACEPTADO, RECHAZADO, EXPIRADO, ANULADO = (
     "pendiente", "aceptado", "rechazado", "expirado", "anulado")
 
-# Tipos que pueden requerir firma (ampliable).
+# Tipos que pueden requerir firma (ampliable). Los 3 últimos (migr. 0322, petición explícita):
+# anexos de contrato / políticas internas de seguridad / recepción de equipos PRL generados junto
+# al contrato laboral — ver `rrhh/documents/forms_rrhh.py::_p2_CONTRATO`.
 TIPOS_FIRMABLES = {"contrato", "anexo", "vacaciones", "comunicacion", "certificado",
-                   "carta_disciplinaria", "carta_despido", "cert_laboral", "otros"}
+                   "carta_disciplinaria", "carta_despido", "cert_laboral", "otros",
+                   "anexo_contrato", "politica_seguridad", "recepcion_prl"}
 
 
 class FirmaError(Exception):
@@ -32,16 +34,13 @@ class FirmaError(Exception):
 
 
 def _hash_fichero(ruta) -> str | None:
-    try:
-        if ruta and os.path.exists(ruta):
-            h = hashlib.sha256()
-            with open(ruta, "rb") as f:
-                for chunk in iter(lambda: f.read(65536), b""):
-                    h.update(chunk)
-            return h.hexdigest()
-    except Exception as e:
-        logger.warning("_hash_fichero(%s): %s", ruta, e)
-    return None
+    """SHA-256 del contenido EN CLARO (descifra primero si está cifrado en reposo). Delegado a
+    `utils.cripto` — mismo chokepoint que `db.documentos._hash_fichero` (antes dos copias
+    idénticas), para que el hash ancle siempre el documento que el empleado realmente ve/firma."""
+    if not (ruta and os.path.exists(ruta)):
+        return None
+    from src.utils import cripto
+    return cripto.hash_sha256_archivo(ruta)
 
 
 def _doc(cur, id_documento, id_empresa) -> dict | None:
@@ -98,15 +97,26 @@ def _resolver(cur, id_documento, id_empresa, id_empleado):
 
 
 def aceptar(id_documento, usuario=None, id_empleado=None, ip=None, id_empresa=None) -> bool:
+    """Acepta el documento y, si hay hash anclado, aplica la FIRMA CRIPTOGRÁFICA real (RSA-PSS/
+    SHA-256, clave propia de RRHH por empresa — `firma_criptografica.firmar_hash`, petición
+    explícita de "firma telemática"). La firma es best-effort: si el backend de firma no está
+    disponible, la aceptación sigue adelante igual que antes (hash + clic + auditoría, que ya
+    existía), simplemente sin el campo `firma_criptografica` relleno — nunca bloquea al empleado."""
     id_empresa = id_empresa or empresa_actual_id()
     try:
         with transaccion() as conn, conn.cursor() as cur:
             doc = _resolver(cur, id_documento, id_empresa, id_empleado)
+            firma = None
+            if doc.get("hash_documental"):
+                from src.rrhh import firma_criptografica as FC
+                firma = FC.firmar_hash(doc["hash_documental"], id_empresa=id_empresa)
             cur.execute("UPDATE rrhh_documentos SET estado_firma=%s, fecha_aceptacion=NOW(), "
-                        "firmado_por=%s WHERE id=%s AND id_empresa=%s",
-                        (ACEPTADO, usuario, id_documento, id_empresa))
+                        "firmado_por=%s, firma_criptografica=COALESCE(%s, firma_criptografica) "
+                        "WHERE id=%s AND id_empresa=%s",
+                        (ACEPTADO, usuario, firma, id_documento, id_empresa))
             _auditar(cur, id_empresa, doc, "aceptado", usuario=usuario,
-                     id_empleado=doc["id_empleado"], ip=ip)
+                     id_empleado=doc["id_empleado"], ip=ip,
+                     detalle="firma_criptografica_aplicada" if firma else None)
         return True
     except FirmaError:
         raise

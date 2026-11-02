@@ -49,6 +49,9 @@ def _m_create_template(ctx, codigo=None, categoria=None, idioma="es", **_):
 
 
 # ── Marketplace / Plugins ──────────────────────────────────────────────────────
+# @deprecated: la App Store se retiró del menú de escritorio (decisión de producto informada, ver
+# `gui/marketplace_gui.py`); sin consumidores conocidos (mobile no las llama, grep confirmado). Se
+# conservan por ser endpoints ya vivos, no se cablean a nada nuevo.
 def _m_install_plugin(ctx, clave=None, origen=None, **_):
     try:
         from src.services import marketplace

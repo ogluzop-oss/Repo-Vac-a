@@ -55,6 +55,9 @@ def _en_horario(p, ahora):
 def _coincide(regla, art, ahora):
     tipo = regla["tipo"]
     p = regla.get("_params", {})
+    id_familia = p.get("id_familia")
+    if id_familia is not None and art.get("id_familia") != id_familia:
+        return False
     if tipo == "horario":
         return _en_horario(p, ahora)
     if tipo == "stock":
@@ -122,7 +125,8 @@ def _mejor(art, reglas, ahora):
 
 def _articulos(id_empresa):
     with obtener_conexion() as conn, conn.cursor() as cur:
-        cur.execute("SELECT codigo, nombre, precio, precio_base, COALESCE(Stock_tienda,0) AS Stock_tienda, "
+        cur.execute("SELECT codigo, nombre, precio, precio_base, id_familia, "
+                    "COALESCE(Stock_tienda,0) AS Stock_tienda, "
                     "COALESCE(Stock_total,0) AS Stock_total, COALESCE(Stock_central,0) AS Stock_central "
                     "FROM articulos WHERE id_empresa=%s", (id_empresa,))
         return _filas_a_dicts(cur, cur.fetchall())

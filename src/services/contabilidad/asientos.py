@@ -124,7 +124,11 @@ def crear_asiento(fecha, lineas, concepto=None, tipo="normal", origen="manual",
         # Fase 2 (motor de eventos/distribucion): publicacion OBSERVACIONAL, aditiva y bulletproof.
         try:
             from src.services import eventos as _EV
-            _EV.publicar("ASIENTO_CONTABILIZADO", id_empresa=id_empresa, origen="contabilidad",
+            # `origen="contabilidad:<origen>"` (no solo "contabilidad" fijo): `crear_asiento` es
+            # compartida por plantillas/cierre/tesoreria/importacion/posting, pero el `origen` que
+            # cada una ya pasa (p.ej. "compra"/"venta"/"nomina") SI distingue de forma fiable el
+            # subsistema real, sin tener que tocar cada uno de esos llamadores.
+            _EV.publicar("ASIENTO_CONTABILIZADO", id_empresa=id_empresa, origen=f"contabilidad:{origen}",
                          ref_entidad="asiento", ref_id=aid,
                          payload={"numero": numero, "anio": anio, "origen": origen, "total": td})
         except Exception:

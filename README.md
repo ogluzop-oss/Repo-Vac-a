@@ -93,3 +93,15 @@ La app **degrada con elegancia** si faltan dependencias no esenciales:
 IA (`anthropic`, `prophet`, `matplotlib`), voz (`edge-tts`, `pyttsx3`,
 `SpeechRecognition`, `pygame`) y hardware (`opencv-python`, `pyzbar`, `pyserial`,
 `pyusb`, `python-escpos`). Ver `requirements.txt` para el detalle por grupos.
+
+### Videovigilancia (Cámaras)
+
+- **`ffmpeg`** debe estar en el `PATH` del sistema (binario, no un paquete de Python) para que la
+  grabación 24/7 use el motor de producción por stream-copy (CPU mínima). Sin él, degrada
+  automáticamente a un motor OpenCV (funciona igual, pero recodifica y usa más CPU). Instalación:
+  `winget install ffmpeg` (Windows) o `apt install ffmpeg` (Linux).
+- **`onvif-zeep`** (ya en `requirements.txt`) habilita el descubrimiento automático de cámaras
+  (WS-Discovery), la extracción de perfiles mainstream/substream y el control PTZ. Sin ella, el
+  módulo degrada a alta 100% manual (sin descubrimiento ni perfiles duales).
+- La GUI de Cámaras muestra un aviso visible si alguno de los dos falta, con instrucciones de
+  instalación — nunca degrada en silencio.

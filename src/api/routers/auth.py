@@ -101,7 +101,7 @@ def registrar(bp):
             return jsonify({"error": "invalid_mfa"}), 401
         mfa_eventos.emitir("MFA_RECOVERY_USED" if es_recovery else "MFA_SUCCESS",
                            id_usuario=uid, id_empresa=claims.get("empresa"), detalle="api")
-        u = {"id": uid, "id_empresa": claims.get("empresa"), "tienda_id": claims.get("tienda"),
+        u = {"id": uid, "id_empresa": claims.get("empresa"), "centro_codigo": claims.get("tienda"),
              "perfil": claims.get("rol"), "nombre": claims.get("nombre")}
         import time as _time
         refresh_token, rjti, expira = tokens.emitir_refresh(u)
@@ -139,7 +139,7 @@ def registrar(bp):
         import time as _time
 
         from src.seguridad import tokens
-        u = {"id": uid, "id_empresa": emp, "tienda_id": claims.get("tienda"),
+        u = {"id": uid, "id_empresa": emp, "centro_codigo": claims.get("tienda"),
              "perfil": us.get("perfil"), "nombre": us.get("nombre")}
         return jsonify({"access": tokens.emitir_access(u, amr=["pwd", "otp"],
                                                        auth_time=int(_time.time()))})
@@ -162,7 +162,15 @@ def registrar(bp):
                 return jsonify({"error": "invalid_token"}), 401
         except Exception:
             pass
-        u = {"id": claims.get("sub"), "id_empresa": claims.get("empresa")}
+        # El refresh token SOLO lleva sub/empresa/jti (a propósito: es de larga duración, no se le
+        # incrustan rol/tienda que puedan quedar desfasados semanas). El access token nuevo debe
+        # llevar el estado ACTUAL del usuario — `obtener_usuario` existe precisamente para esto
+        # ("refrescar claims del token"), pero no estaba conectada aquí: el access renovado se
+        # emitía con `rol`/`tienda`/`nombre` vacíos, perdidos en cuanto el cliente refrescaba una vez
+        # (rompía en silencio, entre otras cosas, cualquier lectura de `tienda` en el móvil).
+        from src.db.usuario import obtener_usuario
+        u = obtener_usuario(claims.get("sub")) or {
+            "id": claims.get("sub"), "id_empresa": claims.get("empresa")}
         return jsonify({"access": tokens.emitir_access(u)})
 
     @bp.post("/auth/logout")

@@ -9,7 +9,7 @@ import logging
 
 from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_x, _combo, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _btn_x, _combo, _tabla
 from src.services import notificaciones as _N
 
 logger = logging.getLogger("notificaciones.gui")
@@ -47,7 +47,7 @@ class NotificacionesWindow(QWidget):
         t = QLabel("Centro de notificaciones")
         t.setStyleSheet(f"color:{_CIAN};font-size:20px;font-weight:bold;")
         cab.addWidget(t); cab.addStretch()
-        cab.addWidget(_btn("Actualizar", self._load))
+        cab.addWidget(_btn_cargando("Actualizar", self._load))
         if callback_vuelta:
             cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)

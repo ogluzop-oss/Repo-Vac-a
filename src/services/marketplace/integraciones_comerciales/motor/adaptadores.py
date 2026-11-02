@@ -119,6 +119,21 @@ class TikTokShopConnector(AdaptadorConector):
     version = VersionInfo(api_version="202309", connector_version="0.1.0", minimum_version="1.0")
 
 
+# Instagram Shopping y Facebook Shop comparten el MISMO Catálogo de Comercio de Meta Graph API
+# (Commerce Manager) — una sola integración ("Meta Shop") con dos destinos/canales activables, no
+# dos motores distintos. Se registran como dos claves de plataforma (coinciden con el nombre
+# comercial que usa la empresa) para que ambas aparezcan independientemente en el catálogo y en el
+# Centro de Integraciones, pero comparten la misma implementación real (`meta_shop/adaptador.py`).
+class InstagramShoppingConnector(AdaptadorConector):
+    plataforma = "instagram_shopping"
+    version = VersionInfo(api_version="v20.0", connector_version="0.1.0", minimum_version="1.0")
+
+
+class FacebookShopConnector(AdaptadorConector):
+    plataforma = "facebook_shop"
+    version = VersionInfo(api_version="v20.0", connector_version="0.1.0", minimum_version="1.0")
+
+
 # Registro plataforma → adaptador (extensible; el motor nunca ramifica por plataforma).
 ADAPTADORES = {
     "hostinger": HostingerAdapter,
@@ -132,6 +147,8 @@ ADAPTADORES = {
     "miravia": MiraviaConnector,
     "aliexpress": AliExpressConnector,
     "tiktok_shop": TikTokShopConnector,
+    "instagram_shopping": InstagramShoppingConnector,
+    "facebook_shop": FacebookShopConnector,
 }
 
 

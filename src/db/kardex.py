@@ -7,7 +7,7 @@ lanza excepción ni participa en la transacción de stock/venta/devolución (se 
 el commit), de modo que el TPV/devoluciones/stock siguen funcionando exactamente igual.
 Multiempresa por `id_empresa` (+ id_tienda). Tipos soportados (compatibles con los
 previos): ENTRADA_COMPRA, ENTRADA_PALE, ENTRADA_TRASPASO, TRASPASO, MERMA, SALIDA_VENTA,
-DEVOLUCION, AJUSTE.
+DEVOLUCION, AJUSTE, CROSS_DOCKING.
 """
 
 import logging
@@ -26,6 +26,10 @@ TIPOS = (
     "SALIDA_REPARTO",
     # Salud / Consultas (R8) — consumo de material sanitario al realizar una consulta.
     "SALIDA_CONSULTA",
+    # Cross-Docking (Landed Cost/Consignación/Cross-Docking, Fase A) — traspaso muelle a muelle,
+    # ni entrada ni salida pura en el sentido informativo de abajo (mercancía que entra y sale casi
+    # de inmediato sin permanencia en almacén).
+    "CROSS_DOCKING",
 )
 # Signo orientativo (+ entra, − sale) — informativo, no altera el dato almacenado.
 ENTRADAS = {"ENTRADA_COMPRA", "ENTRADA_PALE", "ENTRADA_TRASPASO", "DEVOLUCION", "ENTRADA_PRODUCCION"}
@@ -108,8 +112,13 @@ def registrar_movimiento(codigo, tipo, cantidad, *, id_documento=None, id_pale=N
         # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
         try:
             from src.services import eventos as _EV
+            # `origen="kardex:<tipo_movimiento>"` (no solo "kardex" fijo): `registrar_movimiento` es
+            # una funcion compartida por ~20 pantallas distintas, pero el TIPO de movimiento (ya
+            # recibido de cada llamador) SI distingue de forma fiable que accion de negocio fue
+            # (AJUSTE/MERMA/ENTRADA_COMPRA/TRASPASO/...) — se usa para dar badge por pestaña sin
+            # tener que tocar cada uno de los ~20 llamadores.
             _EV.publicar("KARDEX_MOVIMIENTO", id_empresa=id_empresa, id_tienda=id_tienda,
-                         origen="kardex", ref_entidad="movimiento_stock", ref_id=id_documento,
+                         origen=f"kardex:{tipo}", ref_entidad="movimiento_stock", ref_id=id_documento,
                          payload={"codigo": str(codigo), "tipo": tipo, "cantidad": int(cantidad or 0)})
         except Exception:
             pass

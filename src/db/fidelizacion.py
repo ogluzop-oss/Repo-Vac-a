@@ -100,6 +100,42 @@ def revertir_puntos(id_cliente, importe_venta, id_venta=None, id_empresa=None) -
         logger.error("revertir_puntos: %s", e); return 0
 
 
+# Catálogo de recompensas (Generador de Apps Móviles PWA, Fase 3 — "Gamificación: 1€=1 punto,
+# canje por cupones"): tramos fijos puntos->cupón de importe fijo. Reutiliza `emitir_cupon`
+# (motor de cupones ya existente), no crea un sistema de descuentos paralelo.
+TIERS_CANJE = ((100, 5.0), (200, 12.0), (500, 35.0))
+
+
+def canjear_por_cupon(id_cliente, puntos, id_empresa=None) -> dict:
+    """Canjea `puntos` (debe coincidir con uno de los tramos de `TIERS_CANJE`) por un cupón de
+    importe fijo ligado a este cliente, con 30 días de validez. Nunca deja el saldo descontado
+    sin emitir el cupón: si `emitir_cupon` falla, revierte el canje de puntos."""
+    id_empresa = _emp(id_empresa)
+    puntos = int(puntos)
+    valor = next((v for p, v in TIERS_CANJE if p == puntos), None)
+    if valor is None:
+        return {"ok": False, "error": "tramo_invalido"}
+    if not canjear_puntos(id_cliente, puntos, id_empresa=id_empresa):
+        return {"ok": False, "error": "saldo_insuficiente"}
+    import secrets
+    codigo = f"FID-{secrets.token_hex(4).upper()}"
+    caduca = (_dt.date.today() + _dt.timedelta(days=30)).isoformat()
+    cid = emitir_cupon(codigo, tipo="importe_fijo", valor=valor, id_cliente=id_cliente,
+                       fecha_caducidad=caduca, id_empresa=id_empresa)
+    if not cid:
+        # No se pudo emitir el cupón: revertir el gasto de puntos (nunca cobrar sin entregar).
+        try:
+            with transaccion() as conn, conn.cursor() as cur:
+                cur.execute("UPDATE clientes SET saldo_puntos=COALESCE(saldo_puntos,0)+%s "
+                            "WHERE id=%s AND id_empresa=%s", (puntos, id_cliente, id_empresa))
+                _mov(cur, id_empresa, id_cliente, "ajuste", puntos=puntos,
+                     desc="Reversión: fallo al emitir cupón de canje")
+        except Exception as e:
+            logger.error("canjear_por_cupon: fallo revirtiendo tras error de emisión: %s", e)
+        return {"ok": False, "error": "emision_fallida"}
+    return {"ok": True, "codigo": codigo, "valor": valor, "caduca": caduca}
+
+
 def movimientos(id_cliente, id_empresa=None) -> list:
     id_empresa = _emp(id_empresa)
     try:
@@ -112,46 +148,78 @@ def movimientos(id_cliente, id_empresa=None) -> list:
 
 
 # ── Cupones ───────────────────────────────────────────────────────────────────
+TIPOS_CUPON = ("descuento_pct", "importe_fijo", "envio_gratis")
+
+
 def emitir_cupon(codigo, tipo="descuento_pct", valor=0, id_cliente=None, fecha_caducidad=None,
-                 id_empresa=None) -> int | None:
+                 fecha_inicio=None, uso_maximo=1, importe_minimo=None, id_empresa=None) -> int | None:
+    """`uso_maximo` (Fase 2 e-commerce — "límite de usos totales" del encargo): por DEFECTO 1,
+    preserva el comportamiento de siempre (un cupón = un solo uso) — subirlo es opt-in explícito,
+    nunca retroactivo. `importe_minimo`: el cupón no se valida si el carrito no lo alcanza
+    ("uso mínimo" del encargo, interpretado como importe mínimo de pedido — el estándar de
+    Shopify/la mayoría de motores de cupón). `tipo="envio_gratis"` no descuenta el subtotal de
+    productos (ver `comercio_digital.comercial.cotizar`, que expone `envio_gratis=True` en su
+    resultado para que el motor de envíos lo aplique cuando exista — Fase 3)."""
     id_empresa = _emp(id_empresa)
     try:
         ensure_schema()
         with transaccion() as conn, conn.cursor() as cur:
-            cur.execute("INSERT INTO cupones (id_empresa, codigo, id_cliente, tipo, valor, "
-                        "fecha_caducidad) VALUES (%s,%s,%s,%s,%s,%s)",
-                        (id_empresa, codigo, id_cliente, tipo, valor, fecha_caducidad))
+            cur.execute(
+                "INSERT INTO cupones (id_empresa, codigo, id_cliente, tipo, valor, fecha_caducidad, "
+                "fecha_inicio, uso_maximo, importe_minimo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (id_empresa, codigo, id_cliente, tipo, valor, fecha_caducidad, fecha_inicio,
+                 int(uso_maximo or 1), importe_minimo))
             return cur.lastrowid
     except Exception as e:
         logger.error("emitir_cupon: %s", e); return None
 
 
-def validar_cupon(codigo, id_empresa=None) -> dict | None:
-    """Devuelve el cupón si está activo y no caducado; None en caso contrario."""
+def validar_cupon(codigo, id_empresa=None, *, id_cliente=None, importe_pedido=None) -> dict | None:
+    """Devuelve el cupón si está activo, dentro de su ventana de fechas, con usos disponibles,
+    restringido al cliente correcto (si lo está) y el pedido alcanza su importe mínimo (si lo
+    tiene); None en cualquier otro caso. `id_cliente`/`importe_pedido` son opcionales (None =
+    no se comprueba esa condición — mismo criterio best-effort que el resto del motor)."""
     id_empresa = _emp(id_empresa)
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute("SELECT * FROM cupones WHERE codigo=%s AND id_empresa=%s", (codigo, id_empresa))
             c = _fila_a_dict(cur, cur.fetchone())
-        if not c or c.get("estado") != "activo":
-            return None
-        cad = c.get("fecha_caducidad")
-        if cad and cad < _dt.date.today():
-            return None
-        return c
     except Exception as e:
         logger.error("validar_cupon: %s", e); return None
+    if not c or c.get("estado") != "activo":
+        return None
+    hoy = _dt.date.today()
+    if c.get("fecha_inicio") and hoy < c["fecha_inicio"]:
+        return None
+    if c.get("fecha_caducidad") and hoy > c["fecha_caducidad"]:
+        return None
+    if int(c.get("usos_actuales") or 0) >= int(c.get("uso_maximo") or 1):
+        return None
+    if c.get("id_cliente") and id_cliente and str(c["id_cliente"]) != str(id_cliente):
+        return None
+    if c.get("importe_minimo") and importe_pedido is not None \
+            and float(importe_pedido) < float(c["importe_minimo"]):
+        return None
+    return c
 
 
-def redimir_cupon(codigo, id_venta=None, id_empresa=None) -> bool:
+def redimir_cupon(codigo, id_venta=None, id_empresa=None, *, id_cliente=None,
+                  importe_pedido=None) -> bool:
+    """Redime UN uso del cupón. Con `uso_maximo` > 1 el cupón sigue 'activo' mientras le queden
+    usos (incrementa `usos_actuales`); al agotar el último uso pasa a 'usado' — mismo estado
+    terminal de siempre, ahora alcanzado por contador en vez de por una única redención."""
     id_empresa = _emp(id_empresa)
-    c = validar_cupon(codigo, id_empresa)
+    c = validar_cupon(codigo, id_empresa, id_cliente=id_cliente, importe_pedido=importe_pedido)
     if not c:
         return False
     try:
         with transaccion() as conn, conn.cursor() as cur:
-            cur.execute("UPDATE cupones SET estado='usado', id_venta_uso=%s WHERE id=%s AND id_empresa=%s",
-                        (id_venta, c["id"], id_empresa))
+            usos_tras = int(c.get("usos_actuales") or 0) + 1
+            agotado = usos_tras >= int(c.get("uso_maximo") or 1)
+            cur.execute(
+                "UPDATE cupones SET usos_actuales=%s, id_venta_uso=%s"
+                + (", estado='usado'" if agotado else "") + " WHERE id=%s AND id_empresa=%s",
+                (usos_tras, id_venta, c["id"], id_empresa))
         return True
     except Exception as e:
         logger.error("redimir_cupon: %s", e); return False
@@ -167,3 +235,30 @@ def expirar_cupones(id_empresa=None) -> int:
             return cur.rowcount
     except Exception as e:
         logger.error("expirar_cupones: %s", e); return 0
+
+
+def listar_cupones(id_empresa=None) -> list:
+    """Todos los cupones de la empresa, más recientes primero — para la pantalla de gestión
+    (Catálogo Web → Descuentos, Fase 2 e-commerce)."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute("SELECT * FROM cupones WHERE id_empresa=%s ORDER BY fecha DESC, id DESC",
+                        (id_empresa,))
+            return _filas_a_dicts(cur, cur.fetchall())
+    except Exception as e:
+        logger.error("listar_cupones: %s", e); return []
+
+
+def desactivar_cupon(id_cupon, id_empresa=None) -> bool:
+    """Cancela un cupón manualmente (p. ej. se publicó por error) — estado terminal distinto de
+    'usado'/'caducado' para que el motivo quede claro en la gestión, aunque a `validar_cupon` le
+    basta con que no sea 'activo'."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with transaccion() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE cupones SET estado='cancelado' WHERE id=%s AND id_empresa=%s "
+                        "AND estado='activo'", (id_cupon, id_empresa))
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error("desactivar_cupon(%s): %s", id_cupon, e); return False

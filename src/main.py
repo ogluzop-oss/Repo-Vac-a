@@ -1,11 +1,23 @@
-# --- Diagnóstico de crashes nativos (segfault/abort de Qt/C++): imprime el stack Python
-# en el momento del fallo. Barato y siempre útil; escribe a stderr (terminal) y a un log. ---
+# --- Diagnóstico de crashes nativos (segfault/abort de Qt/C++): vuelca el stack de Python
+# (de TODOS los hilos) en el momento del fallo — un crash nativo (p. ej. 0xc0000005 en
+# Qt6Widgets.dll) mata el proceso antes de que `sys.excepthook` pueda hacer nada, así que esto
+# es la ÚNICA vía para ver dónde estaba realmente el código Python en ese instante. Escribe a
+# `logs/faulthandler.log` (persistente — sobrevive a que la terminal se cierre con el proceso;
+# `faulthandler` necesita un descriptor de fichero real y no puede escribir a la vez en la
+# terminal, así que para verlo EN VIVO mientras se prueba, en otra terminal:
+#   Get-Content logs\faulthandler.log -Wait -Tail 0        (PowerShell)
+# o usar `tools/ultimo_crash.py` después del cierre para ver solo el último volcado, ya
+# recortado). Cada arranque escribe una marca con fecha/hora para poder ubicar qué volcados
+# pertenecen a qué sesión de pruebas.
 import faulthandler as _faulthandler
 import os as _os
 
 try:
     _os.makedirs("logs", exist_ok=True)
     _fh_log = open("logs/faulthandler.log", "a", encoding="utf-8")  # noqa: SIM115
+    import datetime as _dt_fh
+    _fh_log.write(f"\n===== ARRANQUE {_dt_fh.datetime.now().isoformat(timespec='seconds')} =====\n")
+    _fh_log.flush()
     _faulthandler.enable(file=_fh_log, all_threads=True)
 except Exception:
     _faulthandler.enable(all_threads=True)
@@ -39,11 +51,40 @@ from assets.estilo_global import aplicar_estilo_app, mostrar_mensaje
 warnings.filterwarnings("ignore", category=UserWarning, module="pandas")
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.gl=false"
 
-# Intentar importar Prophet
-try:
-    from prophet import Prophet
-except ImportError:
-    Prophet = None
+
+def _silenciar_log_nativo_ffmpeg():
+    """Qt Multimedia (backend FFmpeg, usado para `assets/startup.wav`/`assets/carga.mp4`) escribe
+    DIRECTAMENTE a stdout/stderr el volcado de cada fichero que abre («Input #0, ...», sondeos de
+    codecs de hardware de Windows como MFT) — es diagnóstico interno de FFmpeg, no pasa por el
+    logger de Qt ni por `configurar_logging()`, así que no hay forma de silenciarlo desde ahí (bug
+    real reportado: "sigue apareciendo mucho texto" en la terminal en cada arranque).
+
+    Se silencia llamando a `av_log_set_level` de `avutil` — la MISMA DLL que PyQt6 ya trae
+    incluida (`PyQt6/Qt6/bin/avutil-*.dll`), cargada aquí vía `ctypes` ANTES de crear el primer
+    `QMediaPlayer` (ver `SmartManagerApp.__init__`). `av_log_set_level` es estado GLOBAL de esa
+    librería dentro del proceso — a Windows le basta con que sea el mismo fichero en disco para
+    reutilizar el mismo módulo ya cargado (no una copia aparte), así que afecta igual al backend
+    de Qt use esta DLL antes o después. Se baja a solo errores reales (no se silencia del todo:
+    un fallo real de códec se seguiría viendo). Best-effort/silencioso: si la DLL no está donde se
+    espera (versión de Qt futura con otro nombre), no se silencia — nunca bloquea el arranque."""
+    try:
+        import ctypes
+        import glob
+
+        import PyQt6
+        base = os.path.join(os.path.dirname(PyQt6.__file__), "Qt6", "bin")
+        candidatos = glob.glob(os.path.join(base, "avutil-*.dll"))
+        if not candidatos:
+            return
+        avutil = ctypes.CDLL(candidatos[0])
+        AV_LOG_ERROR = 16
+        avutil.av_log_set_level(ctypes.c_int(AV_LOG_ERROR))
+    except Exception:
+        pass
+
+
+if os.name == "nt":
+    _silenciar_log_nativo_ffmpeg()
 
 from PyQt6.QtCore import QEvent, QObject, QPropertyAnimation, Qt, QTimer, QUrl
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -57,7 +98,7 @@ from PyQt6.QtWidgets import (
 
 # Importaciones internas
 from src.db.conexion import init_db, obtener_conexion
-from src.db.usuario import sesion_global, validar_login_usuario
+from src.db.usuario import puede_iniciar_sesion, sesion_global, validar_login_usuario
 from src.gui.login import LoginWindow
 from src.gui.menu_principal import MenuPrincipal
 from src.utils.i18n import tr
@@ -121,24 +162,6 @@ def _puerto_backend() -> int:
     return int(os.environ.get("BACKEND_PORT", os.environ.get("PORT", "8090")))
 
 
-def _codigo_backend_mtime() -> float:
-    """Fecha de la modificación MÁS RECIENTE entre los .py de `src/` — usada para saber si un
-    backend que ya está escuchando en el puerto es más viejo que el código actual (arrancado antes
-    de la última sesión de cambios) o no."""
-    raiz = os.path.dirname(os.path.abspath(__file__))
-    mas_reciente = 0.0
-    for base, _dirs, ficheros in os.walk(raiz):
-        for f in ficheros:
-            if f.endswith(".py"):
-                try:
-                    m = os.path.getmtime(os.path.join(base, f))
-                    if m > mas_reciente:
-                        mas_reciente = m
-                except OSError:
-                    pass
-    return mas_reciente
-
-
 def _backend_remoto_info(port: int, timeout: float = 1.5) -> dict | None:
     """Consulta `/salud` del backend que responde en `port`. None si no responde o no es un
     backend de Smart Manager identificable (no toca nada que no podamos reconocer con certeza)."""
@@ -197,8 +220,20 @@ def _matar_backend_obsoleto(port: int) -> bool:
 
 
 def detener_backend():
-    """Termina el backend lanzado por esta instancia. Idempotente. Se registra en atexit/aboutToQuit
-    para que NO queden procesos `backend/app.py` huérfanos acumulándose en cada arranque."""
+    """Termina el backend lanzado por esta instancia. Idempotente.
+
+    YA NO se registra automáticamente en atexit/aboutToQuit (bug real reportado: "no quiero que
+    se cierren los procesos antiguos y se reabran desde cero en cada arranque de la app" — con el
+    backend muriendo al cerrar la app de escritorio, CADA arranque pagaba de nuevo todo su coste
+    de inicio, aunque el código del backend no hubiera cambiado un ápice). El backend ahora
+    persiste entre cierres/arranques de la app de escritorio a propósito: `iniciar_backend()` lo
+    REUTILIZA si sigue vivo y no está desactualizado (ver `_codigo_propio_desactualizado` en
+    `src/backend/app.py`, que el propio backend se autodiagnostica); solo se mata+relanza cuando
+    de verdad hace falta. No hay riesgo de huérfanos acumulándose: solo hay UN backend por puerto
+    en todo momento, nunca se lanza uno nuevo mientras otro siga sirviendo ese puerto.
+
+    Esta función se conserva (Strangler Pattern — no se borra código que funciona) como utilidad
+    manual para quien necesite forzar un apagado completo explícito."""
     global _backend_proc
     p, _backend_proc = _backend_proc, None
     if p is None:
@@ -216,7 +251,11 @@ def detener_backend():
 
 
 def iniciar_backend():
-    """Inicia el backend API si no está corriendo, y lo deja registrado para cerrarlo al salir."""
+    """Inicia el backend API si no está corriendo, o REUTILIZA el que ya esté escuchando en su
+    puerto si sigue vigente — a propósito NO se registra para matarlo al salir (ver
+    `detener_backend`): persiste entre cierres/arranques de la app de escritorio, así que un
+    arranque con un backend ya corriendo y vigente se ahorra por completo su coste de inicio
+    (bootstrap de BD, registro de rutas, etc. — varios segundos reales medidos)."""
     global _backend_proc
     # En modo empaquetado (.exe) sys.executable ES el propio ejecutable: relanzarlo
     # con un script como argumento abriría la aplicación completa otra vez, en bucle
@@ -225,7 +264,6 @@ def iniciar_backend():
         logger.info("Modo empaquetado: backend externo deshabilitado.")
         return
     try:
-        import atexit
         import socket
 
         # El backend es opcional y puede no existir todavía: si no está, se omite.
@@ -242,23 +280,28 @@ def iniciar_backend():
         result = sock.connect_ex(("127.0.0.1", port))
         sock.close()
         if result == 0:
-            # Ya hay algo en el puerto — pero puede ser un backend HUÉRFANO de una sesión de
-            # desarrollo anterior, arrancado antes de los últimos cambios de código: reutilizarlo
-            # a ciegas (como se hacía antes) sirve endpoints obsoletos sin ningún aviso — así se
-            # pasaron varias rondas de cambios sin verse reflejados en el navegador. Si es
-            # identificable como backend de Smart Manager y es más viejo que el código en disco,
-            # se sustituye por uno nuevo; si no se puede identificar con certeza, se deja intacto
-            # (podría ser otra instancia de Smart Manager compartiendo backend a propósito).
+            # Ya hay algo en el puerto — persistido de un arranque anterior (a propósito, ver
+            # docstring) o huérfano de una sesión de desarrollo. Reutilizarlo a ciegas sirve
+            # endpoints obsoletos sin ningún aviso si el código SÍ cambió — así se pasaron varias
+            # rondas de cambios sin verse reflejados en el navegador. El propio backend se
+            # autodiagnostica (`codigo_desactualizado` en `/salud`, ver `_codigo_propio_
+            # desactualizado` en `src/backend/app.py`): compara, de sus PROPIOS módulos ya
+            # cargados bajo `src/`, si alguno se modificó en disco después de que él arrancara —
+            # a diferencia del chequeo anterior (cualquier `.py` de TODO `src/`, incluido código
+            # que el backend ni siquiera importa, como `src/gui/*`), esto ya no invalida un
+            # backend sano solo porque se tocó un fichero de la GUI. Si es identificable como
+            # backend de Smart Manager y SÍ está desactualizado, se sustituye por uno nuevo; si no
+            # se puede identificar con certeza, se deja intacto (podría ser otra instancia de
+            # Smart Manager compartiendo backend a propósito).
             info = _backend_remoto_info(port)
-            if info is not None and float(info.get("iniciado_en") or 0) < _codigo_backend_mtime():
-                logger.info("Backend en el puerto %s es más antiguo que el código actual; "
-                           "sustituyendo.", port)
+            if info is not None and info.get("codigo_desactualizado"):
+                logger.info("Backend en el puerto %s tiene código desactualizado; sustituyendo.", port)
                 if not _matar_backend_obsoleto(port):
                     logger.warning("No se pudo liberar el puerto %s del backend obsoleto; se deja "
                                    "el existente.", port)
                     return
             else:
-                logger.info("Backend ya está corriendo (puerto %s).", port)
+                logger.info("Backend ya está corriendo y vigente (puerto %s) — reutilizado.", port)
                 return
         logger.info("Iniciando backend API (puerto %s)...", port)
         # Se lanza con `-m src.backend.app` (NO con la ruta directa al .py): ejecutar el script
@@ -274,7 +317,9 @@ def iniciar_backend():
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
-        atexit.register(detener_backend)   # red de seguridad: cerrar el backend al terminar el proceso
+        # Deliberadamente SIN `atexit.register(detener_backend)`: debe persistir al cerrar la app
+        # de escritorio (ver docstring). `detener_backend()` sigue disponible para un apagado
+        # manual explícito.
     except Exception as e:
         logger.error(f"Error iniciando backend: {e}")
 
@@ -430,6 +475,10 @@ class SmartManagerApp(QStackedWidget):
 
         # --- 1. CONFIGURACIÓN BÁSICA ---
         self._articulos_notificados = set()
+        # Marca de agua de la última llamada MCP externa YA avisada (ver `_tick_mcp_actividad`) —
+        # None hasta la primera comprobación, para no avisar de actividad histórica previa al
+        # arranque de esta sesión de escritorio.
+        self._mcp_ultima_fecha_vista = None
         self._rfid_signals_connected = False
         self.menu_principal = None
         self.notificacion = None
@@ -477,6 +526,13 @@ class SmartManagerApp(QStackedWidget):
             self.worker_rfid = None
             self.hilo_rfid = None
 
+        # Latido de sesión de escritorio (control de sesión única salvo SUPERADMIN, ver
+        # src/db/sesiones_desktop.py): mientras haya un usuario logueado, refresca su fila cada
+        # 30 s para que no expire por TTL; no hace nada si no hay sesión de escritorio registrada.
+        self._timer_latido_sesion = QTimer(self)
+        self._timer_latido_sesion.timeout.connect(self._latido_sesion_desktop)
+        self._timer_latido_sesion.start(30_000)
+
         # --- 3. INICIALIZAR COMPONENTES DE INTERFAZ ---
         self.ventana_login = LoginWindow()
         self.setup_spinner()
@@ -511,6 +567,37 @@ class SmartManagerApp(QStackedWidget):
         # ONBOARDING de EDICIÓN (Vía B): en la PRIMERA ejecución de una instalación sin edición definida se
         # pregunta el tipo de comercio y se persiste (per-install). Si ya está definida (entorno/SaaS o elección
         # previa), esta pantalla NO aparece y se sigue el flujo normal (selector de perfil / login).
+        # ONBOARDING del primer perfil SUPERADMIN: instalación nueva (sin edición aún O sin ningún
+        # perfil todavía, p. ej. edición fijada por entorno/SaaS pero BD vacía). Los perfiles SUPERADMIN
+        # son los únicos que pueden dar de alta al resto de perfiles de empleado más adelante, así que
+        # sin este paso una instalación nueva no tendría forma de crear su primer usuario.
+        self.ventana_primer_admin = None
+        try:
+            if not self.ventana_selector.tiene_perfiles():
+                from src.gui.primer_superadmin_wizard import PrimerSuperadminWindow
+                self.ventana_primer_admin = PrimerSuperadminWindow()
+                conectar_senal_segura(self.ventana_primer_admin.cuenta_creada, self._on_primer_admin_creado)
+                self.addWidget(self.ventana_primer_admin)
+        except Exception:
+            self.ventana_primer_admin = None
+
+        # ONBOARDING de ACTIVACIÓN de licencia central (Fase 3, licenciamiento central): solo
+        # aparece si esta instalación usa un servidor central (`SMART_MANAGER_LICENCIA_URL`
+        # configurada) y todavía no se ha activado. Instalaciones sin esa variable de entorno
+        # (el caso de la inmensa mayoría hoy, comportamiento legacy) nunca ven esta pantalla.
+        self.ventana_activacion_licencia = None
+        try:
+            import os as _os
+            if _os.getenv("SMART_MANAGER_LICENCIA_URL"):
+                from src.services.licencia_central import identidad as _lic_id
+                if not _lic_id.activado():
+                    from src.gui.activacion_licencia_wizard import ActivacionLicenciaWindow
+                    self.ventana_activacion_licencia = ActivacionLicenciaWindow()
+                    conectar_senal_segura(self.ventana_activacion_licencia.activada, self._on_licencia_activada)
+                    self.addWidget(self.ventana_activacion_licencia)
+        except Exception:
+            self.ventana_activacion_licencia = None
+
         self.ventana_edicion = None
         try:
             from src.services import verticales as _vert
@@ -524,6 +611,10 @@ class SmartManagerApp(QStackedWidget):
 
         if self.ventana_edicion is not None:
             self.setCurrentWidget(self.ventana_edicion)
+        elif self.ventana_primer_admin is not None:
+            self.setCurrentWidget(self.ventana_primer_admin)
+        elif self.ventana_activacion_licencia is not None:
+            self.setCurrentWidget(self.ventana_activacion_licencia)
         # Si hay perfiles registrados, se muestra primero el SELECTOR; si no, el login directo.
         elif self.ventana_selector.tiene_perfiles():
             self.setCurrentWidget(self.ventana_selector)
@@ -532,7 +623,8 @@ class SmartManagerApp(QStackedWidget):
 
     def _on_edicion_elegida(self, codigo):
         """Onboarding: el negocio eligió su tipo de comercio → persistido por `verticales.fijar_edicion`. Se
-        reaplica el nombre de la app y los datos por defecto de la edición, y se continúa al flujo normal."""
+        reaplica el nombre de la app y los datos por defecto de la edición, y se continúa al flujo normal
+        (alta del primer SUPERADMIN si aún no hay ningún perfil, si no, selector/login)."""
         try:
             from src.services import verticales
             self.setWindowTitle(f"{verticales.nombre_edicion()} — "
@@ -545,7 +637,11 @@ class SmartManagerApp(QStackedWidget):
             verticales.aplicar_datos_por_defecto(EMPRESA_DEFAULT_ID)
         except Exception:
             pass
-        if self.ventana_selector.tiene_perfiles():
+        if getattr(self, "ventana_primer_admin", None) is not None:
+            self.setCurrentWidget(self.ventana_primer_admin)
+        elif getattr(self, "ventana_activacion_licencia", None) is not None:
+            self.setCurrentWidget(self.ventana_activacion_licencia)
+        elif self.ventana_selector.tiene_perfiles():
             self.setCurrentWidget(self.ventana_selector)
         else:
             self.setCurrentWidget(self.ventana_login)
@@ -558,6 +654,39 @@ class SmartManagerApp(QStackedWidget):
             except Exception:
                 pass
             self.ventana_edicion = None
+
+    def _on_primer_admin_creado(self, nombre):
+        """Onboarding: se creó el primer perfil SUPERADMIN → login con el nombre pre-rellenado
+        (mismo patrón que `_on_perfil_elegido`) y se saca el asistente del stack (uso único)."""
+        try:
+            self.ventana_selector.cargar_perfiles()
+        except Exception:
+            pass
+        self.ventana_login.fijar_perfil(nombre)
+        if getattr(self, "ventana_activacion_licencia", None) is not None:
+            self.setCurrentWidget(self.ventana_activacion_licencia)
+        else:
+            self.setCurrentWidget(self.ventana_login)
+        if getattr(self, "ventana_primer_admin", None) is not None:
+            try:
+                self.removeWidget(self.ventana_primer_admin)
+                self.ventana_primer_admin.deleteLater()
+            except Exception:
+                pass
+            self.ventana_primer_admin = None
+
+    def _on_licencia_activada(self):
+        """Onboarding: paso de activación de licencia central terminado (con éxito u omitido) →
+        continúa al login/selector y se saca el asistente del stack (uso único), mismo patrón que
+        `_on_primer_admin_creado`."""
+        self.setCurrentWidget(self.ventana_login)
+        if getattr(self, "ventana_activacion_licencia", None) is not None:
+            try:
+                self.removeWidget(self.ventana_activacion_licencia)
+                self.ventana_activacion_licencia.deleteLater()
+            except Exception:
+                pass
+            self.ventana_activacion_licencia = None
 
     def _on_perfil_elegido(self, nombre):
         """Perfil elegido en el selector → ir al login con el nombre pre-rellenado y BLOQUEADO."""
@@ -609,8 +738,10 @@ class SmartManagerApp(QStackedWidget):
     def _montar_clip_carga(self, layout) -> bool:
         """Busca un clip de animación de carga en `assets/` y lo monta en `layout`. Acepta animación
         (gif/webp/apng → QMovie, ideal: soporta transparencia y bucle) o vídeo (mp4/webm/mov →
-        QVideoWidget). Nombres admitidos: carga/cargando/loading/loader/spinner/animacion_carga. Devuelve
-        True si montó un clip; False si no hay ninguno (se usa el logo estático)."""
+        `QVideoSink`, fotograma a fotograma vía `_on_frame_video_carga` — permite croma key real,
+        cosa que una superficie de vídeo nativa `QVideoWidget` no admite). Nombres admitidos:
+        carga/cargando/loading/loader/spinner/animacion_carga. Devuelve True si montó un clip; False
+        si no hay ninguno (se usa el logo estático)."""
         import os
         try:
             from src.utils import recursos
@@ -644,25 +775,43 @@ class SmartManagerApp(QStackedWidget):
                 mov = QMovie(ruta)
                 if not mov.isValid():
                     return False
+                # Render NATIVO de Qt (`setMovie`), sin interceptar fotogramas en Python — rápido
+                # (decodificación + escalado en C++, sin una vuelta por numpy 24 veces/segundo).
+                #
+                # Esto SOLO es seguro porque `assets/carga.webp` ya tiene el canal alfa REAL y
+                # limpio (horneado por `tools/generar_animacion_carga.py` desde el vídeo con croma,
+                # ver ese script para el porqué: el croma key EN TIEMPO REAL —ver
+                # `_on_frame_video_carga` más abajo— obligaba a elegir entre fluidez y calidad en
+                # cada fotograma; hornearlo una sola vez, sin presupuesto de tiempo, resuelve ambas
+                # a la vez). Un `carga.webp` ANTERIOR, de otro origen, tenía un defecto real (alfa
+                # parcial de fábrica, ~185-197/255, no solo en el borde antialiasado) que SÍ
+                # necesitaba una corrección por fotograma — si un futuro asset volviera a traer ese
+                # mismo defecto, la corrección es volver a exportarlo bien (como aquí), no
+                # reintroducir una pasada de numpy en el camino caliente de cada fotograma.
                 self.loading_logo.setMovie(mov)
                 self._loading_movie = mov
                 # NO se arranca aquí ni se hace jumpToFrame/escalado: renderizar un frame durante __init__
                 # (cuando la ventana de login aún NO está mostrada) fuerza a Qt a materializar el overlay
                 # como ventana NATIVA suelta → PARPADEO de un marco vacío en el arranque. Tanto el
-                # jumpToFrame(0) como el escalado ya se hacen al MOSTRAR el spinner (iniciar_proceso_login),
-                # así que aquí solo se asocia el QMovie (setMovie sin frame actual no pinta nada).
+                # jumpToFrame(0) como el escalado ya se hacen al MOSTRAR el spinner (iniciar_proceso_login).
                 layout.addWidget(self.loading_logo, 0, Qt.AlignmentFlag.AlignCenter)
                 return True
             from PyQt6.QtCore import QUrl
-            from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
-            from PyQt6.QtMultimediaWidgets import QVideoWidget
-            vw = QVideoWidget(self.overlay)   # CON PADRE: evita que sea un top-level huérfano (parpadeo)
-            self._loading_video_widget = vw
+            from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
+            # Se renuncia a `QVideoWidget` (superficie de vídeo NATIVA, opaca — no admite
+            # transparencia/alpha real) a favor de `QVideoSink`: entrega cada fotograma como
+            # `QVideoFrame`, que se procesa a mano (croma key, ver `_on_frame_video_carga`) y se
+            # pinta en `self.loading_logo` (el mismo `QLabel` ya usado para gif/webp) — mismo
+            # criterio que el alfa reforzado del webp (`_on_frame_carga`): procesar fotograma a
+            # fotograma con numpy en vez de depender de lo que el propio backend de vídeo soporte.
+            sink = QVideoSink(self)
+            sink.videoFrameChanged.connect(self._on_frame_video_carga)
+            self._loading_video_sink = sink
             player = QMediaPlayer(self)
             self._loading_audio = QAudioOutput(self)
             self._loading_audio.setMuted(True)          # la animación de carga no debe sonar
             player.setAudioOutput(self._loading_audio)
-            player.setVideoOutput(vw)
+            player.setVideoSink(sink)
             player.setSource(QUrl.fromLocalFile(ruta))
             try:
                 player.setLoops(QMediaPlayer.Loops.Infinite)   # Qt ≥ 6.4
@@ -673,10 +822,95 @@ class SmartManagerApp(QStackedWidget):
             self._loading_video = player
             # No se reproduce ni se escala aquí (arranca/escala en iniciar_proceso_login): evitar
             # realizar el widget durante __init__ para no provocar el parpadeo del overlay en el arranque.
-            layout.addWidget(vw, 0, Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(self.loading_logo, 0, Qt.AlignmentFlag.AlignCenter)
             return True
         except Exception:
             return False
+
+    def _on_frame_video_carga(self, frame):
+        """Croma key en tiempo real sobre `assets/carga.mp4`: el usuario sustituyó el fondo del
+        clip por un VERDE croma para poder retirarlo e integrar la animación con el fondo real de
+        la app — `QVideoSink` entrega cada fotograma como `QVideoFrame` (sin pasar por una
+        superficie de vídeo nativa opaca), se convierte a `QImage` y se procesa con numpy (mismo
+        criterio que `_on_frame_carga` para el alfa del webp): el canal G muy por encima de R y B
+        se vuelve transparente, con una RAMPA de transición (no un corte binario duro) para que el
+        contorno del sujeto no quede dentado, más una atenuación barata del verde residual del
+        borde (spill) para evitar un halo verdoso al componer sobre el fondo oscuro de la app.
+
+        RENDIMIENTO (bug real, reportado como "la animación se corta muchísimo" tras el primer
+        intento): procesar con numpy a la resolución NATIVA del clip (1280×720) tardaba ~95-110ms/
+        fotograma medido — muy por encima del presupuesto de 41.7ms a 24fps, así que la mayoría de
+        fotogramas llegaban tarde y Qt los descartaba (de ahí el "corte": no es un recorte visual,
+        es la animación congelándose/saltando fotogramas). Fix: el numpy se hace sobre el
+        fotograma reducido a MITAD de tamaño (menos bytes que mover en cada paso) y la matemática
+        del croma en sí se fusiona en menos pasos/arrays temporales (evita la promoción a float64
+        de numpy en operaciones de punto flotante que no la necesitaban) — medido en ~25ms/fotograma.
+
+        CALIDAD (bug real, 2º reporte tras el fix de rendimiento anterior: "contorno verde croma" +
+        "pixelado"): la 1ª versión de este fix usaba `FastTransformation` (vecino más próximo, SIN
+        interpolar) para los dos reescalados (reducir antes del numpy, ampliar después) — con
+        pantallas más grandes que la mitad de la resolución del clip, el reescalado final amplificaba
+        cada píxel en un bloque visible (de ahí el "pixelado"), y la atenuación de verde residual
+        (spill) solo quitaba la MITAD del exceso de verde en los píxeles semitransparentes del borde,
+        dejando un tinte verdoso que esa ampliación por bloques volvía claramente visible como un
+        "contorno" (antes, a resolución nativa con reescalado suave, era demasiado sutil para
+        notarse). Fix: `SmoothTransformation` (bilineal) en AMBOS reescalados — interpola en vez de
+        repetir píxeles, sigue costando ~25ms/fotograma, medido — y el de-spill ahora quita el
+        exceso de verde POR COMPLETO (`min(verde, max(rojo,azul))`, no la mitad), así ningún píxel
+        del borde conserva tinte verdoso, se vea ampliado o no.
+
+        Degrada con honestidad: si algo falla, se pinta el fotograma original (nunca una pantalla
+        en blanco), sin croma — un vídeo con fondo verde visible en vez de uno transparente roto."""
+        if frame is None or not frame.isValid():
+            return
+        img = frame.toImage()
+        if img.isNull():
+            return
+        try:
+            import numpy as np
+            from PyQt6.QtGui import QImage, QPixmap
+            # Downscale a mitad de tamaño ANTES de tocar numpy (hecho en Qt/C++, barato) — todo el
+            # procesado de croma ocurre sobre la mitad de píxeles, no sobre el fotograma nativo.
+            # SmoothTransformation (bilineal, no vecino-más-próximo): evita bloques de píxel visibles
+            # tanto aquí como en la ampliación final.
+            w0, h0 = img.width(), img.height()
+            proc_w, proc_h = max(1, w0 // 2), max(1, h0 // 2)
+            img = img.scaled(proc_w, proc_h, Qt.AspectRatioMode.IgnoreAspectRatio,
+                              Qt.TransformationMode.SmoothTransformation)
+            img = img.convertToFormat(QImage.Format.Format_RGBA8888)
+            w, h = img.width(), img.height()
+            ptr = img.bits(); ptr.setsize(img.sizeInBytes())
+            arr = np.frombuffer(ptr, np.uint8).reshape((h, w, 4)).copy()
+            r = arr[..., 0].astype(np.int16)
+            g0 = arr[..., 1].astype(np.int16)
+            b = arr[..., 2].astype(np.int16)
+            maxrb = np.maximum(r, b)
+            exceso = g0 - maxrb   # cuánto "se sale" el verde sobre el resto de canales
+            # exceso<=40 → opaco (sujeto real); exceso>=80 → transparente (fondo croma); rampa lineal
+            # entre medias (evita un borde recortado a tijera alrededor del sujeto). float32, no
+            # float64 (la precisión doble no aporta nada aquí y numpy la usa por defecto si no se
+            # especifica, duplicando el trabajo de memoria en el paso más caro de la cadena).
+            alpha = np.clip((80 - exceso) * np.float32(1.0 / 40.0), 0.0, 1.0)
+            # Realce de opacidad del sujeto (petición explícita, mismo criterio que
+            # `tools/generar_animacion_carga.py::_croma_key`, mantenido en sincronía): gamma 0.6
+            # SOLO sobre el alpha ya calculado — un píxel de fondo puro (alpha==0) se queda en 0,
+            # nunca gana opacidad el croma verde, solo el sujeto ya parcialmente opaco.
+            alpha = np.power(alpha, 0.6, dtype=np.float32)
+            arr[..., 3] = (alpha * 255).astype(np.uint8)
+            # De-spill TOTAL (no parcial): capa el verde al máximo de rojo/azul — elimina el exceso
+            # de verde del todo, en vez de solo atenuarlo a la mitad (eso dejaba un tinte verdoso en
+            # los píxeles semitransparentes del borde, visible como "contorno verde").
+            arr[..., 1] = np.minimum(g0, maxrb).astype(np.uint8)
+            out = QImage(arr.tobytes(), w, h, QImage.Format.Format_RGBA8888).copy()
+            destino = getattr(self, "_video_tam_destino", None) or (w, h)
+            pm = QPixmap.fromImage(out).scaled(
+                destino[0], destino[1],
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation)
+            self.loading_logo.setPixmap(pm)
+        except Exception:
+            from PyQt6.QtGui import QPixmap
+            self.loading_logo.setPixmap(QPixmap.fromImage(img))
 
     def _detener_clip_carga(self):
         """Detiene la animación de carga (al ocultar la pantalla) para que no siga corriendo en segundo
@@ -694,24 +928,36 @@ class SmartManagerApp(QStackedWidget):
             pass
 
     def _ajustar_tamano_clip(self):
-        """Escala la animación de carga A PANTALLA COMPLETA: un cuadrado tan grande como la dimensión
-        MENOR de la pantalla (cabe entero, centrado). Se llama al montar, al mostrar el overlay y al
-        redimensionar la ventana."""
+        """Escala la animación de carga. Dos criterios DISTINTOS a propósito, según el tipo de
+        clip:
+
+        - GIF/WEBP/APNG (`QMovie`, `assets/carga.webp`): SIN escalar — a su tamaño NATIVO/original
+          (bug real, 2ª vuelta: a pantalla completa `QMovie.setScaledSize()` se veía "pixelada" —
+          la estrella es un PNG/WebP de detalle fino, y el reescalado interno de `QMovie` por
+          fotograma, pensado para ir barato en cada tick de la animación, no es tan nítido como un
+          `QImage.scaled(..., SmoothTransformation)` puntual; ampliarlo a toda la pantalla hacía el
+          efecto mucho más visible que a tamaño pequeño/nativo). Sin `setScaledSize`, `QMovie`
+          pinta cada fotograma 1:1 — la nitidez máxima posible, sin ningún reescalado de por medio.
+        - Vídeo (`QVideoSink`, solo si algún día se usa un clip que no exista como webp): pantalla
+          COMPLETA real, sin recorte a cuadrado — el croma key en tiempo real (`_on_frame_video_
+          carga`) ya hace su propio reescalado con `SmoothTransformation`, así que ahí sí tiene
+          sentido pedir una cobertura total.
+        Se llama al montar, al mostrar el overlay y al redimensionar la ventana."""
         try:
-            from PyQt6.QtCore import QSize
             from PyQt6.QtWidgets import QApplication
-            r = self.overlay.rect() if getattr(self, "overlay", None) is not None else None
-            w = r.width() if r and r.width() > 0 else 0
-            h = r.height() if r and r.height() > 0 else 0
-            if w <= 0 or h <= 0:
-                scr = QApplication.primaryScreen()
-                g = scr.availableGeometry() if scr else None
-                w, h = (g.width(), g.height()) if g else (1280, 800)
-            lado = max(320, min(w, h))   # cuadrado = dimensión menor → cabe completo a pantalla completa
             if getattr(self, "_loading_movie", None) is not None:
-                self._loading_movie.setScaledSize(QSize(lado, lado))
-            if getattr(self, "_loading_video_widget", None) is not None:
-                self._loading_video_widget.setFixedSize(lado, lado)
+                self.loading_logo.setFixedSize(self.loading_logo.sizeHint())
+            if getattr(self, "_loading_video_sink", None) is not None:
+                r = self.overlay.rect() if getattr(self, "overlay", None) is not None else None
+                w = r.width() if r and r.width() > 0 else 0
+                h = r.height() if r and r.height() > 0 else 0
+                if w <= 0 or h <= 0:
+                    scr = QApplication.primaryScreen()
+                    g = scr.availableGeometry() if scr else None
+                    w, h = (g.width(), g.height()) if g else (1280, 800)
+                w, h = max(1, w), max(1, h)
+                self._video_tam_destino = (w, h)
+                self.loading_logo.setFixedSize(w, h)
         except Exception:
             pass
 
@@ -769,8 +1015,66 @@ class SmartManagerApp(QStackedWidget):
             self.overlay.setGeometry(self.ventana_login.rect())
             self._ajustar_tamano_clip()   # mantener la animación de carga a pantalla completa
 
+    def _latido_sesion_desktop(self):
+        """Refresca el latido de la sesión de escritorio activa (ver `_timer_latido_sesion`)."""
+        id_sesion = getattr(sesion_global, "id_sesion_desktop", None)
+        if not id_sesion:
+            return
+        try:
+            from src.db import sesiones_desktop
+            sesiones_desktop.actualizar_latido(id_sesion)
+        except Exception:
+            pass
+
+    def _tick_mcp_actividad(self):
+        """Avisa (FloatingNotification, mismo patrón que el aviso de stock bajo en
+        `verificar_ia_reposicion`) cuando una app externa (ChatGPT/Claude Desktop) hace una llamada
+        MCP real (`tools/call`) contra `/mcp`. El backend (mismo proceso, puerto 8090) y el
+        escritorio son procesos SEPARADOS que comparten la misma base de datos — la señal
+        desktop↔backend es la traza mínima que `mcp_server.transport._registrar_actividad_tool_call`
+        deja en `auditoria_logs` (tabla='mcp'), leída aquí vía `db.auditoria.listar_por_tabla` (ya
+        existente, cliente fino de auditoría) — sin tabla/endpoint nuevos. Cadencia de 15s, mismo
+        mecanismo de `QTimer` que `_timer_ic_sync_canales` (2 min) usa para su propio latido."""
+        try:
+            from src.db.auditoria import listar_por_tabla
+            from src.db.empresa import empresa_actual_id
+            id_empresa = empresa_actual_id()
+            filas = listar_por_tabla(["mcp"], id_empresa=id_empresa, limite=5)
+        except Exception as e:
+            logger.debug(f"SOMA MCP: comprobación de actividad fallida: {e}")
+            return
+        if not filas:
+            return
+        ultima = filas[0]
+        if not str(ultima.get("accion") or "").startswith("MCP_TOOL_CALL"):
+            return
+        fecha = ultima.get("fecha")
+        if self._mcp_ultima_fecha_vista is None:
+            # Primera comprobación de la sesión: solo fija la marca de agua, nunca notifica
+            # actividad que ya existía antes de que esta ventana arrancara.
+            self._mcp_ultima_fecha_vista = fecha
+            return
+        if not fecha or (self._mcp_ultima_fecha_vista and fecha <= self._mcp_ultima_fecha_vista):
+            return
+        self._mcp_ultima_fecha_vista = fecha
+        detalle = str(ultima.get("detalles") or "").strip()
+        msg = (f"SOMA: Petición MCP externa procesada con éxito ({detalle})" if detalle
+               else "SOMA: Petición MCP externa procesada con éxito.")
+        try:
+            self.notificacion_mcp = FloatingNotification(msg)
+            screen = QApplication.primaryScreen().availableGeometry()
+            self.notificacion_mcp.move(screen.width() - 380, screen.height() - 120)
+            self.notificacion_mcp.show()
+        except Exception as e:
+            logger.debug(f"SOMA MCP: no se pudo mostrar la notificación: {e}")
+
     def closeEvent(self, event):
         """Cierre ordenado para evitar objetos Qt colgando."""
+        try:
+            if sesion_global.usuario_actual:
+                sesion_global.cerrar_sesion()
+        except Exception:
+            pass
         try:
             if self._soma_tts:
                 self._soma_tts.detener()
@@ -854,6 +1158,23 @@ class SmartManagerApp(QStackedWidget):
         # como modo legacy desactivado por defecto.)
         user_data = validar_login_usuario(nombre, password)
 
+        if user_data and not puede_iniciar_sesion(user_data.get("id"), user_data.get("perfil")):
+            self.overlay.hide()
+            self._detener_clip_carga()
+            mostrar_mensaje(
+                self,
+                tr("login.multisesion_title", default="Sesión ya activa"),
+                tr(
+                    "login.multisesion_msg",
+                    default="Este usuario ya tiene una sesión activa en otro equipo. Solo los perfiles "
+                    "SUPERADMIN pueden iniciar sesión en varios equipos a la vez.",
+                ),
+                nivel="error",
+            )
+            self.ventana_login.txt_password.clear()
+            self.ventana_login.txt_password.setFocus()
+            return
+
         if user_data:
             # NOTA (por decisión de producto): la verificación en dos pasos (MFA/TOTP) se RETIRA del
             # LOGIN. El acceso al sistema NO exige 2º factor ni fuerza enrolamiento obligatorio: todo
@@ -893,6 +1214,23 @@ class SmartManagerApp(QStackedWidget):
             # llamaba aquí en línea y el arranque de SOMA congelaba los botones del
             # menú durante 1-3 s. Con el retardo, la UI responde de inmediato.
             QTimer.singleShot(350, self._iniciar_soma)
+            # Centro OBLIGATORIO para SUPERADMIN (pedido explícito), SIN bloquear el login: antes el
+            # diálogo modal se abría ANTES de ocultar el overlay de carga, solapándose con su
+            # animación. Ahora el SUPERADMIN entra directo al Menú Principal y, una vez pintado, se
+            # abre solo (diferido, mismo criterio que SOMA arriba) el selector "Cambiar de Centro"
+            # si todavía no hay un centro activo — ver `_abrir_selector_centro_tras_login`.
+            if (user_data.get("perfil") or "").upper() == "SUPERADMIN":
+                QTimer.singleShot(
+                    400, lambda ud=user_data: self._abrir_selector_centro_tras_login(ud))
+            # Licenciamiento central (Fase 3, ver plan): primera verificación diferida (mismo
+            # motivo que SOMA arriba) + repetición cada 24h mientras la app esté abierta. Nunca
+            # bloquea el login ni el arranque — sin servidor configurado o sin conexión, es un
+            # no-op silencioso (ver `services.licencia_central.sincronizacion`).
+            QTimer.singleShot(1500, self._verificar_licencia_central)
+            if not hasattr(self, "_timer_licencia_central"):
+                self._timer_licencia_central = QTimer(self)
+                self._timer_licencia_central.timeout.connect(self._verificar_licencia_central)
+                self._timer_licencia_central.start(24 * 60 * 60 * 1000)
         else:
             try:
                 from src.utils.observabilidad import registrar_evento
@@ -910,11 +1248,44 @@ class SmartManagerApp(QStackedWidget):
             self.ventana_login.txt_password.clear()
             self.ventana_login.txt_password.setFocus()
 
+    def _abrir_selector_centro_tras_login(self, user_data):
+        """Centro OBLIGATORIO para SUPERADMIN (pedido explícito) — SIN bloquear el login ni tapar
+        la animación de carga del overlay (el diálogo modal antiguo se abría ANTES de ocultarlo).
+        El SUPERADMIN ya está viendo el Menú Principal cuando esto se dispara (diferido 400 ms);
+        si todavía no hay un centro activo, se abre automáticamente el MISMO selector "Cambiar de
+        Centro" del chip de la esquina superior izquierda (`MenuPrincipal._abrir_selector_centro`,
+        reutilizado con `es_login=True` para que cerrarlo sin elegir redirija al selector de
+        perfil — ver `menu_principal.py`). Degradación honesta: instalación nueva sin NINGÚN
+        centro dado de alta → no se exige nada (sería una elección imposible)."""
+        try:
+            from src.db.empresa import empresa_actual_id, tienda_actual_id
+            if tienda_actual_id():
+                return
+            from src.db import centros as centros_db
+            id_empresa = empresa_actual_id()
+            uid = user_data.get("id")
+            if not centros_db.listar_centros(id_empresa, creado_por_id=uid):
+                return
+            if self.menu_principal is not None:
+                self.menu_principal._abrir_selector_centro(es_login=True)
+        except Exception as e:
+            logger.error(f"Error abriendo selector de centro tras login: {e}")
+
     # ============================================================
     # BLOQUE IA / PREDICCIÓN
     # ============================================================
     def predecir_ventas_semanales(self):
-        """IA Prophet para predecir demanda."""
+        """IA Prophet para predecir demanda.
+
+        Import PEREZOSO (dentro del método, no a nivel de módulo): importar `prophet` tarda
+        ~3.3s en frío (mide su propio backend cmdstan/Stan) — pagar ese coste en CADA arranque de
+        la app, se use o no esta pantalla en la sesión, es puro despilfarro. Se difiere al primer
+        uso real (bug real reportado: "la app tarda en abrirse", confirmado con `time.perf_counter`
+        que este import por sí solo eran ~3.3 de los segundos de retraso)."""
+        try:
+            from prophet import Prophet
+        except ImportError:
+            Prophet = None
         if not Prophet:
             return {}
         try:
@@ -1003,6 +1374,14 @@ class SmartManagerApp(QStackedWidget):
     # ============================================================
     # BLOQUE SOMA — ASISTENTE DE VOZ
     # ============================================================
+    def _verificar_licencia_central(self):
+        """Lanza `services.licencia_central.sincronizacion.ejecutar_verificacion()` en un hilo en
+        segundo plano — la llamada HTTP no debe bloquear nunca el hilo de la interfaz, igual que
+        SOMA (ver `_iniciar_soma`). Best-effort: cualquier fallo queda dentro del propio hilo."""
+        import threading
+        from src.services.licencia_central import sincronizacion
+        threading.Thread(target=sincronizacion.ejecutar_verificacion, daemon=True).start()
+
     def _iniciar_soma(self):
         """Starts the SOMA voice worker in a background QThread after login.
         TTS is initialized with a 1.5s delay so startup.wav plays first (COM conflict avoidance).
@@ -1015,6 +1394,13 @@ class SmartManagerApp(QStackedWidget):
             _soma_voz = bool(_cfg_soma.get("soma_voz", True))
         except Exception:
             _soma_activo, _soma_voz = True, True
+
+        # SOMA restringido a SUPERADMIN: se gatea aquí, en el ÚNICO punto de arranque real (kernel +
+        # overlay + worker de voz + TTS cuelgan todos de `_soma_activo` más abajo), en vez de ocultar
+        # solo el icono — así ningún perfil no-SUPERADMIN llega a tener kernel/overlay/escucha activos,
+        # ni aunque cambie el ajuste `soma_activo` de la empresa. Mismo criterio que la restricción de
+        # "Proveedores"/"GENERAR PERFIL EMPLEADO" a SUPERADMIN (gate en el origen, no solo en la UI).
+        _soma_activo = _soma_activo and sesion_global.es_superadmin()
 
         # SOMA Copiloto IA — Fase 1: arranque del KERNEL residente (independiente de la voz).
         # Aditivo y a prueba de fallos: nunca rompe el arranque del ERP. Reutiliza worker/tts en vivo.
@@ -1064,10 +1450,101 @@ class SmartManagerApp(QStackedWidget):
                     logger.info("Scheduler: catálogo de jobs sincronizado (opt-in; sin ejecutar).")
                 except Exception as _e4:
                     logger.debug(f"sincronización de jobs scheduler: {_e4}")
+                try:
+                    # Delegación de tareas repetitivas a SOMA: suscribe al Event Bus los tipos del
+                    # catálogo que reaccionan a un evento (p. ej. CORREO_RECIBIDO/CENTRO_CREADO) —
+                    # idempotente, no ejecuta nada hasta que ocurra el evento real.
+                    from src.services.soma_delegacion import wiring as _soma_deleg_wiring
+                    _soma_deleg_wiring.registrar_suscripciones()
+                    logger.info("Delegación SOMA: suscripciones al Event Bus registradas.")
+                except Exception as _e5:
+                    logger.debug(f"suscripciones de delegación SOMA no registradas: {_e5}")
 
             _th.Thread(target=_reg_jobs, daemon=True, name="scheduler-registro").start()
         except Exception as _ej:
             logger.debug(f"registro de jobs scheduler no lanzado: {_ej}")
+        # Integraciones Comerciales: worker que drena la cola local de exportación de stock encolada
+        # tras cada venta (VENTA_REGISTRADA -> sync_venta_listener -> cola_jobs -> sync_worker). El
+        # checkout solo ENCOLA (nunca llama a la API externa en línea), así que algo tiene que drenar
+        # esa cola periódicamente o los trabajos se quedan en "pendiente" para siempre. El job queda
+        # registrado en el Scheduler (intervalo_horas=1, la granularidad mínima que admite la columna
+        # INT) para auditoría/panel, pero el drenado REAL cada pocos minutos lo activa este latido —
+        # MISMO patrón exacto que soma/observador.SomaObserver._tick_scheduler (90 s) usa para activar
+        # "soma_observacion" llamando a scheduler.ejecutar_job directamente, sin esperar a
+        # scheduler.ejecutar_pendientes()/intervalo_horas. 2 minutos: rápido para que el stock llegue a
+        # los canales minutos después de la venta, sin generar carga perceptible en segundo plano.
+        try:
+            if not hasattr(self, "_timer_ic_sync_canales"):
+                from src.services.marketplace.integraciones_comerciales import \
+                    sync_worker as _icsw
+                _icsw.registrar_jobs_sync_canales()
+                # Carritos B2B abandonados (Smart Suppliers): misma razón exacta que ic_sync_canales
+                # — scheduler_jobs.intervalo_horas es INT (mínimo 1h) pero el umbral de abandono es de
+                # 2h y hace falta comprobarlo con más frecuencia que una vez por hora para que el
+                # aviso "Reanudar Pedido"/la oferta del proveedor aparezcan poco después de cumplirse
+                # el umbral. Reutiliza el MISMO latido de 2 min en vez de crear un segundo QTimer.
+                try:
+                    from src.services.compras import b2b_carrito_abandono as _icab
+                    _icab.registrar_jobs_abandono()
+                except Exception as _eicab:
+                    logger.debug(f"b2b_carrito_abandono: registro de job no lanzado: {_eicab}")
+                # Carritos del STOREFRONT PÚBLICO abandonados (Motor de Alta Conversión e-Commerce):
+                # misma razón exacta que el bloque B2B de arriba — umbral de 30 min, más fino que la
+                # granularidad horaria del Scheduler, reutiliza este mismo latido de 2 min.
+                try:
+                    from src.services.comercio_digital import carrito_abandono as _cdab
+                    _cdab.registrar_jobs_abandono()
+                except Exception as _ecdab:
+                    logger.debug(f"cd_carrito_abandono: registro de job no lanzado: {_ecdab}")
+                # Click & Collect (Generador de Apps Móviles PWA, Fase 4): caducidad automática a
+                # 24h de las reservas de recogida no recogidas (libera stock, reembolsa, notifica —
+                # motor YA COMPLETO en `comercio_digital.pickup.expirar_vencidas`, hasta ahora nunca
+                # invocado). Misma razón que los dos bloques de arriba: el umbral es más fino que la
+                # granularidad horaria del Scheduler clásico, así que se reutiliza este mismo latido
+                # de 2 min en vez de crear un tercer QTimer.
+                try:
+                    from src.services.comercio_digital import pickup as _cdpk
+                    _cdpk.registrar_job()
+                except Exception as _ecdpk:
+                    logger.debug(f"cd_pickup_expirar: registro de job no lanzado: {_ecdpk}")
+
+                def _tick_ic_sync_canales():
+                    try:
+                        from src.services import scheduler as _sch
+                        _sch.ejecutar_job("ic_sync_canales")
+                    except Exception as _eick:
+                        logger.debug(f"ic_sync_canales tick: {_eick}")
+                    try:
+                        from src.services import scheduler as _sch
+                        _sch.ejecutar_job("b2b_carrito_abandono")
+                    except Exception as _eicab2:
+                        logger.debug(f"b2b_carrito_abandono tick: {_eicab2}")
+                    try:
+                        from src.services import scheduler as _sch
+                        _sch.ejecutar_job("cd_carrito_abandono")
+                    except Exception as _ecdab2:
+                        logger.debug(f"cd_carrito_abandono tick: {_ecdab2}")
+                    try:
+                        from src.services.comercio_digital import pickup as _cdpk2
+                        _cdpk2.expirar_vencidas()
+                    except Exception as _ecdpk2:
+                        logger.debug(f"cd_pickup_expirar tick: {_ecdpk2}")
+
+                self._timer_ic_sync_canales = QTimer(self)
+                self._timer_ic_sync_canales.timeout.connect(_tick_ic_sync_canales)
+                self._timer_ic_sync_canales.start(120_000)   # 2 minutos
+        except Exception as _eicsw:
+            logger.debug(f"Integraciones comerciales: worker de exportación no iniciado: {_eicsw}")
+        # SOMA Conectores Externos (MCP): aviso casi en vivo de actividad MCP real (ver
+        # `_tick_mcp_actividad`). Cadencia corta (15s, no 2 min como el latido de arriba) porque es
+        # un aviso al usuario, no un job de sincronización en segundo plano.
+        try:
+            if not hasattr(self, "_timer_mcp_actividad"):
+                self._timer_mcp_actividad = QTimer(self)
+                self._timer_mcp_actividad.timeout.connect(self._tick_mcp_actividad)
+                self._timer_mcp_actividad.start(15_000)
+        except Exception as _emcp:
+            logger.debug(f"SOMA MCP: aviso de actividad no iniciado: {_emcp}")
         # Voz de SOMA (escuchar por micro + hablar por TTS). Si el usuario la desactivó, SOMA sigue
         # disponible SOLO por chat de texto (ni escucha ni responde en voz alta).
         if not (_soma_activo and _soma_voz) or not _SOMA_DISPONIBLE:
@@ -1550,10 +2027,6 @@ class SmartManagerApp(QStackedWidget):
             self._maximizar_a_area_trabajo()
             self.menu_principal.setFocus()
 
-            # R1: en el PRIMER inicio (asistente no completado y datos de empresa aún básicos), lanzar
-            # el asistente de PRIMEROS PASOS. Diferido para que el menú pinte antes; best-effort.
-            QTimer.singleShot(500, self._lanzar_asistente_onboarding)
-
             logger.info(
                 f"Navegación: Menú Principal cargado para {sesion_global.obtener_nombre()}"
             )
@@ -1561,22 +2034,6 @@ class SmartManagerApp(QStackedWidget):
             logger.error(f"Error crítico al abrir el menú: {e}")
             sesion_global.usuario_actual = None
             self.detectar_logout()
-
-    def _lanzar_asistente_onboarding(self):
-        """R1: muestra el asistente de PRIMEROS PASOS solo en el primer inicio real (no completado y
-        empresa aún sin datos básicos). Si el asistente activa el modo simple, refresca el menú.
-        Best-effort: cualquier fallo no rompe el arranque."""
-        try:
-            from src.services import onboarding
-            if onboarding.completado() or not onboarding.datos_empresa_incompletos():
-                return
-            simple_antes = onboarding.modo_simple()
-            from src.gui.onboarding_wizard import OnboardingWizard
-            OnboardingWizard(self.menu_principal or self).exec()
-            if self.menu_principal is not None and onboarding.modo_simple() != simple_antes:
-                self.menu_principal.refrescar_menu()
-        except Exception as e:
-            logger.error("asistente onboarding: %s", e)
 
     def detectar_logout(self):
         """Gestiona el retorno al login o el cierre total de la aplicación."""
@@ -1834,7 +2291,10 @@ if __name__ == "__main__":
     manager = SmartManagerApp()
     manager._maximizar_a_area_trabajo()
 
-    app.aboutToQuit.connect(detener_backend)   # cierra el backend al salir (no deja huérfanos)
+    # Deliberadamente SIN `app.aboutToQuit.connect(detener_backend)`: el backend debe PERSISTIR al
+    # cerrar la app de escritorio (petición explícita — ver docstring de `iniciar_backend`/
+    # `detener_backend`), para que el siguiente arranque lo reutilice en vez de pagar de nuevo
+    # todo su coste de inicio.
     app.aboutToQuit.connect(
         lambda: logger.info("Sistema Smart Manager finalizado. Terminal liberada.")
     )

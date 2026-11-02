@@ -25,7 +25,7 @@ def limpio(db):
 
 def test_regiones_y_resolucion(limpio):
     from src.services import saas_global as sg
-    from src.platform import cloud
+    from src.plataforma import cloud
     codigos = {r["codigo"] for r in sg.regiones.listar_regiones()}
     assert {"eu", "am", "as", "af", "oc"} <= codigos
     assert sg.regiones.asignar_region(EMP, "am")

@@ -33,3 +33,13 @@ class PasarelaPago:
     def verificar_pago(self, referencia: str) -> str:
         """Estado del cobro: 'pendiente' | 'pagado' | 'fallido'."""
         return "pendiente"
+
+    def reembolsar(self, referencia: str, importe=None) -> bool:
+        """Devuelve el dinero de un cobro ya confirmado en la pasarela real (Click & Collect:
+        cancelación voluntaria o caducidad a 24h). `importe=None` reembolsa el importe total del
+        cobro original; un valor reembolsa solo esa cantidad (devolución parcial). Devuelve
+        True/False (nunca una excepción ni un dict, para que `pagos.refund()` pueda usarlo
+        directamente en un `if`); False tanto si no hay credenciales como si la pasarela rechaza
+        la devolución — `pagos.refund()` interpreta False como 'no se pudo con la pasarela real' y
+        degrada a solo REGISTRAR el reembolso (nunca inventa un reembolso que no ocurrió)."""
+        return False

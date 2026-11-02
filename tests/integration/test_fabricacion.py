@@ -88,6 +88,17 @@ def test_transiciones_invalidas(db, escenario):
     assert ordenes.cancelar(oid, id_empresa=E)["ok"]
 
 
+def test_mensaje_orden_inexistente_dice_op_no_of(db):
+    """Terminología pedida explícitamente: los mensajes de cara al usuario dicen "OP" (Orden de
+    Producción), nunca "OF" (Orden de Fabricación) — este `error` llega tal cual hasta el toast
+    de `mrp_dashboard.py` (`self._set(f"OP {oid}: {r.get('error')}", ...)`)."""
+    from src.services.mrp import ordenes
+    r = ordenes.cambiar_estado(999999999, "liberada", id_empresa=E)
+    assert r == {"ok": False, "error": "OP inexistente"}
+    r2 = ordenes.registrar_produccion(999999999, 1, id_empresa=E)
+    assert r2 == {"ok": False, "error": "OP inexistente"}
+
+
 def test_kardex_tipos_produccion():
     """Los tipos de produccion estan registrados en el kardex (integracion, no sistema paralelo)."""
     from src.db import kardex, lotes

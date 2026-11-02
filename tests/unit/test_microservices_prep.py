@@ -8,9 +8,9 @@ eventos se declaran sobre el Corporate Event Bus (nunca un bus paralelo).
 
 import pytest
 
-from src import platform as plat
-from src.platform.contracts import Request, ServiceContract
-from src.platform.versioning import Version
+from src import plataforma as plat
+from src.plataforma.contracts import Request, ServiceContract
+from src.plataforma.versioning import Version
 
 
 @pytest.fixture(autouse=True)
@@ -89,7 +89,7 @@ def test_gateway_graphql_resuelve_via_capa():
 
 def test_eventos_sobre_event_bus():
     """Los eventos de plataforma se declaran sobre el Corporate Event Bus, no un bus paralelo."""
-    from src.platform.contracts import Event
+    from src.plataforma.contracts import Event
     e = Event(tipo="ServiceRegistered", id_empresa="EMP-A", ref_entidad="servicio", ref_id="ccp")
     assert e.tipo and e.ts > 0
     # El Event Bus corporativo es la única vía (importable y con catálogo).

@@ -178,10 +178,15 @@ def _slug(valor):
 
 
 def etiqueta(valor, code=None):
-    """Etiqueta COMPACTA de una denominación: '2 €', '0.5 €', '500 €', '$100', '¥1000'
-    (sin decimales innecesarios, a diferencia de formatear() que es para importes)."""
+    """Etiqueta COMPACTA de una denominación: '2 €', '0.50 €', '500 €', '$100', 'S$0.50'
+    (sin decimales innecesarios para valores >= 1, a diferencia de formatear() que es para
+    importes). Excepción: valores fraccionarios (< 1 unidad de la divisa) SIEMPRE se
+    muestran con 2 decimales —nunca "0.5"/"0.1"— para no perder el segundo dígito en
+    NINGUNA divisa (bug detectado en la tabla de arqueo con SGD: 'S$0.5' en vez de
+    'S$0.50')."""
     inf = info(code)
-    txt = "%g" % float(valor)
+    v = float(valor)
+    txt = f"{v:.2f}" if 0 < v < 1 else "%g" % v
     return f"{txt} {inf['simbolo']}" if inf["simbolo_pos"] == "despues" else f"{inf['simbolo']}{txt}"
 
 

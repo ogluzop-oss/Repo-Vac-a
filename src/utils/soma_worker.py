@@ -1,6 +1,8 @@
 """
 SOMA Voice Worker — Smart Manager AI
-Continuously listens for the wake phrase "Ey SOMA" and routes commands.
+Continuously listens for the wake phrase "Oye SOMA" and routes commands. "Ey SOMA" (the previous
+official phrase) keeps working too — it's still an accepted prefix in `_PREFIJOS` below, same
+degrade-gracefully spirit as the rest of the fuzzy-matching in this module.
 
 Design notes (latency + reliability):
   * PERSISTENT microphone: the mic stream is opened ONCE and reused across
@@ -34,17 +36,17 @@ ESTADO_PROCESANDO = "procesando"
 ESTADO_ERROR      = "error"
 
 # ── Wake word ──────────────────────────────────────────────────────────────────
-# Greeting prefixes that may precede the name ("Ey SOMA", "Oye SOMA"...).
+# Greeting prefixes that may precede the name ("Oye SOMA" — la frase OFICIAL —, "Ey SOMA"...).
 # Añadidos EL/E/EX a partir de transcripciones reales: Google STT convierte el
 # "Ey" de "Ey SOMA" en "EL", "E" o "EX" con frecuencia.
-# La wake word "Ey SOMA" es UNIVERSAL, pero cada idioma activo cambia el locale de
+# La wake word "Oye SOMA" es UNIVERSAL, pero cada idioma activo cambia el locale de
 # Google STT, que transcribe el "Ey" con su fonética: ES "ey/el/e", PL "ej/hej",
 # DE/EN "hey/hi", etc. Incluimos esas variantes para que la wake funcione en los 20.
 #   NOTA (anti-falsos-positivos): se retiraron los prefijos de UNA sola letra ("A", "E") porque,
 #   combinados con un nombre-laxo, disparaban a SOMA en habla normal ("a solas", "e sopa"...). El
 #   "Ey SOMA" mal transcrito como "E SOMA"/"EL SOMA" sigue detectándose por la Forma 2 (SOMA a secas),
 #   así que no se pierde cobertura real.
-_PREFIJOS = ("EY", "HEY", "OYE", "EI", "OK", "HOLA", "VALE", "OYES", "EH",
+_PREFIJOS = ("OYE", "EY", "HEY", "EI", "OK", "HOLA", "VALE", "OYES", "EH",
              "EL", "EX",
              "EJ", "HEJ", "AJ", "HAJ", "OJ", "AY", "HI", "HE", "AH", "HA",
              "HALO", "HALLO", "OLA", "ECO",
@@ -290,7 +292,7 @@ class SomaWorker(QObject):
             return
 
         logger.info(
-            f"SOMA activo (umbral={rec.energy_threshold:.0f}). Di 'Ey SOMA' o 'SOMA'."
+            f"SOMA activo (umbral={rec.energy_threshold:.0f}). Di 'Oye SOMA' o 'SOMA'."
         )
         self.estado_cambiado.emit(ESTADO_ESCUCHANDO)
 

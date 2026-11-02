@@ -1,17 +1,19 @@
 """
 Cursores personalizados de la app (opt-in, DEGRADABLE).
 
-Sustituye SOLO 3 formas estándar de cursor —flecha (Arrow), mano (PointingHand) y texto (I-beam)— por
-imágenes propias en ``assets/cursores/``, dejando INTACTOS los demás estados (espera/cruz/redimensionar/
+Sustituye SOLO un puñado de formas estándar de cursor —flecha (Arrow), mano (PointingHand), texto
+(I-beam), mano abierta/cerrada (arrastrar) y las cuatro flechas (mover, SizeAll)— por imágenes
+propias en ``assets/cursores/``, dejando INTACTOS los demás estados (espera/cruz/redimensionar/
 prohibido…). Si falta algún fichero (o Qt no puede cargarlo), ese estado usa el cursor del sistema, sin
 romper nada.
 
 Ficheros esperados (PNG con transparencia, ~24–32 px):
-  · ``assets/cursores/arrow.png``   → flecha   · hotspot 0,0
-  · ``assets/cursores/hand.png``    → mano      · hotspot en la punta del dedo (arriba)
-  · ``assets/cursores/ibeam.png``   → texto     · hotspot centrado
+  · ``assets/cursores/arrow.png``              → flecha        · hotspot 0,0
+  · ``assets/cursores/hand.png``                → mano          · hotspot en la punta del dedo (arriba)
+  · ``assets/cursores/ibeam.png``                → texto         · hotspot centrado
+  · ``assets/cursores/cursor 4 flechas.png``    → mover (4 flechas) · hotspot centrado
 
-Mecanismo: un event-filter en la ``QApplication`` remapea, cuando un widget fija uno de esos 3 cursores, el
+Mecanismo: un event-filter en la ``QApplication`` remapea, cuando un widget fija uno de esos cursores, el
 cursor por el personalizado (los .png no llevan hotspot incorporado → se usa uno razonable por forma). La
 flecha se fija además como cursor por DEFECTO de cada ventana (los hijos la heredan salvo que fijen el suyo).
 """
@@ -31,6 +33,8 @@ _FICHEROS = (
      "OpenHandCursor"),
     (("closedhand.png", "close hand.png", "closed hand.png", "closed_hand.png", "fist.png", "puno.png"),
      "ClosedHandCursor"),
+    (("cursor 4 flechas.png", "4flechas.png", "4 flechas.png", "cuatro_flechas.png", "cuatro flechas.png",
+      "sizeall.png", "move.png"), "SizeAllCursor"),
 )
 _MAX_PX = 32   # tamaño de cursor estándar; los PNG más grandes se reducen a este (proporcionalmente)
 

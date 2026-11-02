@@ -27,6 +27,28 @@ from src.soma.voz import AdaptadorVoz
 logger = logging.getLogger("soma.kernel")
 
 
+def _con_nombre(texto, nombre):
+    """Añade un vocativo con el nombre del usuario al final de la PRIMERA frase/cláusula de
+    `texto` (no del bloque completo) — en una respuesta larga, dejar el nombre para el final de
+    todo el párrafo suena a ocurrencia tardía; insertarlo justo tras el primer cierre de frase
+    ('.'/'!'/'?') es lo más parecido a cómo se dirige a alguien una persona real dentro de una
+    conversación. No hay motor de lenguaje detrás (SOMA es 100% basado en reglas, sin LLM) — no se
+    reescribe la frase, solo se inserta la forma de dirigirse a alguien."""
+    if not texto or not nombre:
+        return texto
+    t = str(texto).rstrip()
+    if not t or nombre.lower() in t.lower():
+        return texto   # ya lo menciona (p. ej. saludo de continuidad) — no se duplica
+    import re
+    # El '.' NO cuenta como cierre de frase si es un separador decimal ("3.50 €") — muy frecuente
+    # en un ERP con importes/porcentajes; solo '!'/'?' son SIEMPRE cierre de frase real.
+    m = re.search(r"(?<!\d)\.(?!\d)|[!?]", t)
+    if m is None:
+        return f"{t}, {nombre}."
+    i = m.start()
+    return f"{t[:i]}, {nombre}{t[i]}{t[i + 1:]}"
+
+
 class _PuenteRespuesta(QObject):
     """Puente Qt para traer la respuesta del cerebro (calculada en un hilo) al HILO PRINCIPAL de
     forma segura (la UI/TTS solo pueden tocarse desde el hilo principal)."""
@@ -359,6 +381,24 @@ class SomaKernel:
             pass
 
         def _worker():
+            # NUEVO: motor LLM real (Anthropic + tool-use) como ruta PRINCIPAL. Si no está
+            # disponible o degrada (límite de coste IA/rate-limit/timeout/sin API key), cae al
+            # motor determinista existente SIN CAMBIOS — nunca un error crudo al usuario.
+            aviso_degradacion = None
+            try:
+                from src.services.copilot import motor_llm
+                resp_llm = motor_llm.responder_con_llm(texto, usuario, empresa)
+                if isinstance(resp_llm, dict) and resp_llm.get("via") == "llm":
+                    try:
+                        self._puente.lista.emit(resp_llm, t0, texto)
+                    except Exception:
+                        pass
+                    return
+                if isinstance(resp_llm, dict) and resp_llm.get("texto"):
+                    aviso_degradacion = resp_llm["texto"]
+            except Exception as e:
+                logger.debug("motor_llm no disponible, se usa el motor determinista: %s", e)
+
             # Consultas amplias → RAZONAMIENTO MULTIPASO (varias fuentes → una síntesis).
             # El resto → CopilotService (Especialistas IA). El usuario no ve el proceso interno.
             try:
@@ -370,6 +410,9 @@ class SomaKernel:
                         resp = self.cerebro().preguntar(texto, usuario, empresa)
                 else:
                     resp = self.cerebro().preguntar(texto, usuario, empresa)
+                if aviso_degradacion and isinstance(resp, dict):
+                    previo = resp.get("texto") or resp.get("mensaje") or ""
+                    resp["texto"] = f"{aviso_degradacion}\n\n{previo}".strip()
             except Exception as e:
                 resp = {"__error__": str(e)}
             try:
@@ -527,7 +570,11 @@ class SomaKernel:
 
     def _decir(self, texto, *, tipo="respuesta", datos=None):
         """MUESTRA el texto en el overlay (con visual/fuentes si los hay) y lo DICE por voz, fijando la
-        expresión (HABLANDO/CONFIRMACION/ERROR) y manteniéndola hasta que la voz termine; luego FELIZ."""
+        expresión (HABLANDO/CONFIRMACION/ERROR) y manteniéndola hasta que la voz termine; luego FELIZ.
+        Único punto de paso de AMBOS canales (texto y voz) — aquí se personaliza dirigiéndose al
+        usuario por su nombre, para que quede cubierto en los dos sin tocar cada generador de
+        mensajes por separado."""
+        texto = _con_nombre(texto, self._usuario())
         try:
             self._espacio.mostrar_respuesta(texto, datos=datos)
         except Exception:

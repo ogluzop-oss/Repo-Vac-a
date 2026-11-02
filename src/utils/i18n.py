@@ -27,6 +27,7 @@ Características:
 import json
 import logging
 import os
+import re
 
 try:
     from PyQt6.QtCore import QObject, pyqtSignal
@@ -35,6 +36,8 @@ except Exception:  # pragma: no cover - permite importar sin Qt (tests/CLI)
 
     def pyqtSignal(*_a, **_k):  # type: ignore
         return None
+
+from src.utils.texto import SIGLAS
 
 logger = logging.getLogger("i18n")
 
@@ -48,6 +51,54 @@ _SETTINGS_PATH = os.path.join(_PROJECT_ROOT, "documentos", "app_settings.json")
 
 _DEFAULT_LANG = "es"
 _FALLBACK_LANG = "en"
+
+# Patrón de las sidebars (petición explícita): "absolutamente todos los textos de la app... a
+# excepción de las sidebars, ya que deben mantener sus textos completamente en mayúsculas" — las
+# sidebars YA se escriben en toda la app como `tr(clave, default=...).upper()` (ver p. ej.
+# `correo_corporativo.py::_build_sidebar`, `_SidebarBtn` en `gestion_usuarios.py`), así que
+# convertir aquí la PLANTILLA a frase (primera letra mayúscula, resto minúscula) y dejar que ese
+# `.upper()` posterior siga aplicándose tal cual preserva las sidebars intactas SIN necesitar
+# ningún caso especial: `frase(x).upper() == x.upper()` para cualquier `x`.
+_RE_PLACEHOLDER = re.compile(r"\{[^{}]*\}")
+# Palabra = racha de letras (Unicode, acentos incluidos), sin dígitos/guion bajo — unidad mínima
+# sobre la que decidimos "es una sigla, consérvala en mayúsculas" vs "pásala a minúscula".
+_RE_PALABRA = re.compile(r"[^\W\d_]+", re.UNICODE)
+
+
+def _frase(texto: str) -> str:
+    """Normaliza `texto` a "frase" (solo la primera letra en mayúscula, el resto en minúscula) —
+    SIN tocar los `{marcadores}` de `str.format` (su contenido se sustituye después por datos
+    dinámicos — nombres de artículo, códigos, cantidades... — que nunca deben verse alterados en
+    mayúsculas/minúsculas) y SIN tocar ninguna palabra que sea una SIGLA del dominio (KPI, CRM,
+    RRHH, TPV..., ver `utils.texto.SIGLAS`) — esas se fuerzan siempre en mayúsculas, estén donde
+    estén en la frase, en vez de degradar a "Kpi"/"Crm"/"Rrhh". Degrada devolviendo `texto` tal
+    cual si no es una cadena o está vacía."""
+    if not isinstance(texto, str) or not texto:
+        return texto
+    partes = _RE_PLACEHOLDER.split(texto)
+    marcadores = _RE_PLACEHOLDER.findall(texto)
+    # Si la plantilla EMPIEZA por un marcador (p. ej. "{n}  —  {c} ud."), no hay ningún "primer
+    # carácter" real que capitalizar — forzar la mayúscula igualmente acababa capitalizando la
+    # primera letra de un sufijo/abreviatura intermedio (p. ej. "ud." -> "Ud."), un artefacto
+    # cosmético no deseado. En ese caso solo se pasa todo a minúsculas, sin tocar mayúsculas.
+    primera_aplicada = [bool(partes) and partes[0] == ""]
+
+    def _transformar_palabra(m):
+        palabra = m.group(0)
+        if palabra.lower() in SIGLAS:
+            primera_aplicada[0] = True
+            return palabra.upper()
+        minuscula = palabra.lower()
+        if not primera_aplicada[0]:
+            primera_aplicada[0] = True
+            return minuscula[:1].upper() + minuscula[1:]
+        return minuscula
+
+    partes = [_RE_PALABRA.sub(_transformar_palabra, parte) for parte in partes]
+    resultado = partes[0]
+    for marcador, parte in zip(marcadores, partes[1:]):
+        resultado += marcador + parte
+    return resultado
 
 
 # ============================================================
@@ -144,15 +195,28 @@ class _GestorI18n(QObject):
     def stt_code(self, code=None):
         return self.info(code).get("stt")
 
-    def tr(self, key, default=None, **kwargs):
+    def tr(self, key, default=None, lang=None, **kwargs):
         """Devuelve el texto traducido para `key` (notación con puntos:
         'login.user_label'). Cae a inglés y luego a `default`/`key`.
-        Admite formato: tr('saludo', nombre='Ana') con '{nombre}' en el texto."""
-        val = self._lookup(self._catalogo, key)
+        Admite formato: tr('saludo', nombre='Ana') con '{nombre}' en el texto.
+
+        `lang` (opcional, portales web): resuelve contra ESE idioma concreto en vez del idioma
+        activo del proceso (`self._catalogo`/`self._lang`), SIN mutar ningún estado global — los
+        portales (Flask) atienden peticiones de varios visitantes a la vez, cada uno con su propio
+        idioma elegido (sesión/cookie), así que no pueden compartir el idioma "activo" único de la
+        app de escritorio (un solo usuario por proceso). Usa `self._cache` (mismo caché ya usado
+        para el idioma activo) para no releer el JSON en cada llamada."""
+        catalogo = self._catalogo
+        if lang and lang != self._lang:
+            if lang not in self._cache:
+                self._cache[lang] = self._cargar_catalogo(lang)
+            catalogo = self._cache[lang]
+        val = self._lookup(catalogo, key)
         if val is None:
             val = self._lookup(self._fallback, key)
         if val is None:
             val = default if default is not None else key
+        val = _frase(val)
         # Autoinyección del símbolo de divisa: cualquier plantilla puede usar {sym}
         # (p. ej. "Importe ({sym}):") y se rellena con el símbolo de la divisa activa.
         if isinstance(val, str) and "{sym}" in val and "sym" not in kwargs:

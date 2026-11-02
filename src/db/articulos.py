@@ -56,9 +56,18 @@ def existe_nombre(nombre, id_empresa=None) -> bool:
 
 
 def crear_articulo(codigo, nombre, *, precio=0, categoria=None, id_familia=None, unidad=None,
-                   imagen=None, id_empresa=None) -> bool:
+                   imagen=None, marca=None, seccion=None, es_complementario=False,
+                   es_promocional=False, id_empresa=None) -> bool:
     """Alta de un artículo nuevo en el catálogo PERMANENTE `articulos`. `codigo` = EAN-13 generado.
-    Queda disponible de inmediato en el buscador de Pedidos/Proveedores. No pisa uno existente."""
+    Queda disponible de inmediato en el buscador de Pedidos/Proveedores. No pisa uno existente.
+
+    `marca`/`seccion` (migración 0317 / columna `seccion` ya existente): opcionales, usados por la
+    detección de duplicados (Nombre+Talla+Marca+Color) y por el reetiquetado automático (etiqueta
+    = ref. interna + PVP + sección) del Alta artículo del Portal Empresa.
+
+    `es_complementario`/`es_promocional` (migración 0320, petición explícita): marcan el artículo
+    para que sus ventas por TPV cuenten como "venta cruzada"/"venta promocional" en el Resumen de
+    Ventas (`db.ventas_analitica.resumen_periodo`) — no cambian nada del flujo de venta en sí."""
     if not codigo or not (nombre or "").strip():
         return False
     id_empresa = _emp(id_empresa)
@@ -66,8 +75,10 @@ def crear_articulo(codigo, nombre, *, precio=0, categoria=None, id_familia=None,
         with obtener_conexion() as conn, conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO articulos (codigo, id_empresa, nombre, precio, categoria, unidad, imagen, "
-                "estado) VALUES (%s,%s,%s,%s,%s,%s,%s,'activo')",
-                (str(codigo), id_empresa, nombre.strip(), float(precio or 0), categoria, unidad, imagen))
+                "marca, seccion, es_complementario, es_promocional, estado) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'activo')",
+                (str(codigo), id_empresa, nombre.strip(), float(precio or 0), categoria, unidad, imagen,
+                 marca, seccion, bool(es_complementario), bool(es_promocional)))
             conn.commit()
         if id_familia:
             try:
@@ -75,10 +86,118 @@ def crear_articulo(codigo, nombre, *, precio=0, categoria=None, id_familia=None,
                 familias.asignar_familia(str(codigo), id_familia, id_empresa=id_empresa)
             except Exception as e:
                 logger.debug("crear_articulo asignar_familia: %s", e)
+        # Fase 1 (motor de eventos): publicacion OBSERVACIONAL, aditiva y bulletproof.
+        try:
+            from src.services import eventos as _EV
+            _EV.publicar("ARTICULO_CREADO", id_empresa=id_empresa, origen="catalogo",
+                         ref_entidad="articulo", ref_id=str(codigo),
+                         payload={"nombre": nombre.strip()})
+        except Exception:
+            pass
         return True
     except Exception as e:
         logger.error("crear_articulo(%s): %s", codigo, e)
         return False
+
+
+def actualizar_articulo(codigo, id_empresa=None, **campos) -> bool:
+    """Actualiza campos de un artículo YA EXISTENTE (solo los indicados). Mismo patrón que
+    `db.proveedores.actualizar_proveedor`/`db.clientes.actualizar_cliente`: whitelist de columnas +
+    UPDATE dinámico. `id_familia` se gestiona aparte vía `familias.asignar_familia` (mismo camino que
+    ya usa `crear_articulo`), no como columna directa del UPDATE, para no duplicar esa lógica.
+
+    `promo_activa`/`precio_promo` (Catálogo Web, Fase 1 PIM): estas DOS columnas ya existían en
+    `articulos` y ya las LEÍA `services.catalogo.service._precio_efectivo` (precio tachado/real de
+    cara al cliente) y `services.esl.sync` (etiquetas electrónicas) — pero ninguna pantalla las
+    escribía todavía. Es el "Precio de comparación" que pedía el encargo de e-commerce: se expone
+    aquí (reutilizando este mismo UPDATE genérico) en vez de añadir una columna nueva
+    `precio_comparacion` en `catalogo_productos`, que habría duplicado exactamente este mecanismo."""
+    permitidos = ("nombre", "descripcion", "precio", "categoria", "unidad", "imagen",
+                 "promo_activa", "precio_promo", "marca", "seccion",
+                 "es_complementario", "es_promocional")
+    id_familia = campos.pop("id_familia", "__sin_tocar__")
+    sets = {k: campos[k] for k in permitidos if k in campos}
+    if not codigo:
+        return False
+    id_empresa = _emp(id_empresa)
+    ok = True
+    if sets:
+        cols = ", ".join(f"{k}=%s" for k in sets)
+        try:
+            with obtener_conexion() as conn, conn.cursor() as cur:
+                cur.execute(f"UPDATE articulos SET {cols} WHERE codigo=%s AND id_empresa=%s",
+                            (*sets.values(), str(codigo), id_empresa))
+                ok = cur.rowcount > 0
+                conn.commit()
+        except Exception as e:
+            logger.error("actualizar_articulo(%s): %s", codigo, e)
+            return False
+    if id_familia != "__sin_tocar__":
+        try:
+            from src.db import familias
+            familias.asignar_familia(str(codigo), id_familia, id_empresa=id_empresa)
+        except Exception as e:
+            logger.debug("actualizar_articulo asignar_familia: %s", e)
+    if not sets and id_familia == "__sin_tocar__":
+        return False
+    try:
+        from src.services import eventos as _EV
+        _EV.publicar("ARTICULO_MODIFICADO", id_empresa=id_empresa, origen="catalogo",
+                     ref_entidad="articulo", ref_id=str(codigo), payload={"campos": list(sets)})
+    except Exception:
+        pass
+    return ok
+
+
+# Mensaje ESTÁNDAR de toda la app para una referencia/código escaneado o tecleado que no existe
+# en el sistema (petición explícita: un único texto reutilizado en todos los puntos de búsqueda,
+# no un mensaje distinto por pantalla).
+MENSAJE_CODIGO_NO_EXISTE = "Este código de artículo no existe en el sistema"
+
+
+def detectar_posible_duplicado(nombre, *, talla=None, marca=None, color=None, id_empresa=None) -> dict | None:
+    """Detección de duplicados antes de tramitar un pedido a proveedor (petición explícita):
+    coincidencia EXACTA simultánea de Nombre + Talla + Marca + Color (los parámetros que no se
+    indiquen —p. ej. un proveedor agrícola sin talla/color— simplemente no se exigen). Devuelve
+    el artículo interno coincidente (dict con codigo/nombre/marca) o None si no hay ninguno.
+
+    Talla/Color se leen de `producto_variantes` (el único sitio donde ya se modelan, módulo
+    Textil) vía un LEFT JOIN — un artículo sin variantes nunca sale en esa combinación si se exige
+    talla/color, lo cual es correcto: no se puede afirmar una coincidencia de talla/color sobre un
+    artículo que no las tiene registradas."""
+    nombre = (nombre or "").strip()
+    if not nombre:
+        return None
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            condiciones = ["a.id_empresa=%s", "LOWER(TRIM(a.nombre))=LOWER(TRIM(%s))"]
+            params = [id_empresa, nombre]
+            join = ""
+            if talla or color:
+                join = ("LEFT JOIN producto_variantes v ON v.id_empresa=a.id_empresa "
+                       "AND v.codigo_variante=a.codigo")
+                if talla:
+                    condiciones.append("LOWER(TRIM(v.talla))=LOWER(TRIM(%s))")
+                    params.append(talla)
+                if color:
+                    condiciones.append("LOWER(TRIM(v.color))=LOWER(TRIM(%s))")
+                    params.append(color)
+            if marca:
+                condiciones.append("LOWER(TRIM(COALESCE(a.marca,'')))=LOWER(TRIM(%s))")
+                params.append(marca)
+            query = (f"SELECT a.codigo, a.nombre, a.marca FROM articulos a {join} "
+                    f"WHERE {' AND '.join(condiciones)} LIMIT 1")
+            cur.execute(query, tuple(params))
+            fila = cur.fetchone()
+            if not fila:
+                return None
+            if isinstance(fila, dict):
+                return fila
+            return {"codigo": fila[0], "nombre": fila[1], "marca": fila[2]}
+    except Exception as e:
+        logger.error("detectar_posible_duplicado(%s): %s", nombre, e)
+        return None
 
 
 # ============================================================
@@ -230,6 +349,26 @@ def buscar_stock(query, id_familia=None, id_empresa=None) -> list:
         return []
 
 
+def ficha_rfid(codigo, id_empresa=None) -> dict | None:
+    """Ficha compacta de un artículo para el asistente de vinculación RFID (Paso 1: selección de
+    artículo): nombre, categoría, precio y stock total en una sola consulta. None si no existe."""
+    id_empresa = _emp(id_empresa)
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT codigo, nombre, categoria, precio, COALESCE(Stock_total,0), imagen "
+                "FROM articulos WHERE codigo=%s AND id_empresa=%s", (str(codigo), id_empresa))
+            r = cur.fetchone()
+            if not r:
+                return None
+            v = list(r.values()) if isinstance(r, dict) else r
+            return {"codigo": v[0], "nombre": v[1], "categoria": v[2], "precio": v[3],
+                   "stock_total": v[4], "imagen": v[5]}
+    except Exception as e:
+        logger.error("ficha_rfid(%s): %s", codigo, e)
+        return None
+
+
 def df_stock_export(id_empresa=None):
     """DataFrame (pandas) con el stock de todos los artículos para EXPORTAR: 6 columnas en orden
     (codigo, nombre, Stock lineal/almacen/central/esperado). La GUI pone las cabeceras traducidas.
@@ -244,36 +383,6 @@ def df_stock_export(id_empresa=None):
                 "FROM articulos WHERE id_empresa=%s ORDER BY nombre ASC", conn, params=(id_empresa,))
     except Exception:
         return pd.DataFrame()
-
-
-def importar_articulos_df(df) -> int:
-    """Importa/actualiza artículos desde un DataFrame (columnas ya en minúscula). Crea como TEXT las
-    columnas que no existan (import flexible) y hace UPSERT por `codigo`. Devuelve nº de filas.
-    Fase 3 · cliente fino: lógica extraída y COMPARTIDA por las GUIs de importación (evita duplicar el
-    ALTER dinámico + bulk INSERT en varias ventanas)."""
-    if df is None or getattr(df, "empty", True):
-        return 0
-    with obtener_conexion() as conn, conn.cursor() as cur:
-        cur.execute("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
-                    "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='articulos'")
-        existentes = {(r[0] if not isinstance(r, dict) else list(r.values())[0]).lower()
-                      for r in cur.fetchall()}
-        for col in df.columns:
-            if col not in existentes:
-                cur.execute(f"ALTER TABLE articulos ADD COLUMN `{col}` TEXT")
-                existentes.add(col)
-        n = 0
-        for _, row in df.iterrows():
-            cols = list(row.index)
-            values = [row[c] for c in cols]
-            col_names = ", ".join(f"`{c}`" for c in cols)
-            placeholders = ", ".join(["%s"] * len(cols))
-            updates = ", ".join(f"`{c}`=VALUES(`{c}`)" for c in cols if c != "codigo")
-            cur.execute(f"INSERT INTO articulos ({col_names}) VALUES ({placeholders}) "
-                        f"ON DUPLICATE KEY UPDATE {updates}", values)
-            n += 1
-        conn.commit()
-    return n
 
 
 # ── Reposición (extraído de gui/informe_reposicion — Fase 3 · cliente fino) ──────────────────────────
@@ -352,6 +461,28 @@ def marcar_repuestos(items, id_empresa=None) -> int:
     return n
 
 
+def marcar_stock_esperado(items, id_empresa=None) -> int:
+    """Bulk: fija SOLO `Stock_esperado` (umbral mínimo de reposición). `items` = iterable de
+    (codigo, nuevo_stock_esperado). Devuelve nº actualizados.
+
+    A propósito NO reutiliza `marcar_repuesto_exportado` (bulk, pero marca además `repuesto=1` y
+    `ultima_recepcion` — efectos secundarios del flujo de recepción de pedidos a reposición, no
+    deseados en una importación de datos plana) ni `conexion.set_stock_esperado` (un único artículo,
+    sin `id_empresa` — sin aislamiento por tenant). Fase migración centralizada (Catálogo Web)."""
+    id_empresa = _emp(id_empresa)
+    n = 0
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            for codigo, nuevo_esperado in items:
+                cur.execute("UPDATE articulos SET Stock_esperado=%s WHERE codigo=%s AND id_empresa=%s",
+                            (nuevo_esperado, codigo, id_empresa))
+                n += 1
+            conn.commit()
+    except Exception as e:
+        logger.error("marcar_stock_esperado: %s", e)
+    return n
+
+
 def marcar_repuesto_exportado(items, id_empresa=None) -> int:
     """Bulk: marca `repuesto=1`, fija Stock_tienda y ultima_recepcion. `items` = iterable de
     (codigo, stock_esperado, fecha). Devuelve nº actualizados. Fase 3 · reposición.
@@ -413,5 +544,26 @@ def guardar_fisica_seguridad(codigo, peso_unitario=None, tolerancia_peso=None, i
                 (pu, tp, codigo, id_empresa))
             conn.commit()
         return True, "Física de seguridad actualizada."
+    except Exception as e:
+        return False, f"Error al guardar: {e}"
+
+
+def actualizar_requiere_lote(codigo, requiere_lote, id_empresa=None):
+    """Activa/desactiva la trazabilidad por lote obligatoria del artículo (migr. 0259). Cuando
+    está activo, la recepción (Logística/palés) exige lote+caducidad en vez de ofrecerlos como
+    opcionales. Mismo patrón que `guardar_fisica_seguridad`: valida existencia, UPDATE simple,
+    devuelve (ok, mensaje)."""
+    id_empresa = _emp(id_empresa)
+    val = 1 if requiere_lote else 0
+    try:
+        with obtener_conexion() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM articulos WHERE codigo=%s AND id_empresa=%s", (codigo, id_empresa))
+            if not cur.fetchone():
+                return False, "Artículo no encontrado."
+            cur.execute("UPDATE articulos SET requiere_lote=%s WHERE codigo=%s AND id_empresa=%s",
+                        (val, codigo, id_empresa))
+            conn.commit()
+        return True, "Trazabilidad por lote actualizada."
     except Exception as e:
         return False, f"Error al guardar: {e}"

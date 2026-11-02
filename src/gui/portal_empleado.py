@@ -11,7 +11,7 @@ import logging
 import os
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QMessageBox, QTabWidget,
+from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QTabWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.gui.catalogo_gestion import (_BG, _BORDE, _CIAN, _DIM, _SIDEBAR, _TEXT,
@@ -22,6 +22,25 @@ logger = logging.getLogger("rrhh.portal.gui")
 
 def _it(v):
     return QTableWidgetItem("" if v is None else str(v))
+
+
+# `QMessageBox` nativo se sustituye por el diálogo propio de la app: sobre la ventana anfitriona
+# FRAMELESS de todo Smart Manager, un QMessageBox nativo puede quedar sin handle correcto y no
+# llegar a mostrarse — mismo criterio ya aplicado en `rrhh_gestion.py`/`catalogo_gestion._InfoDialog`.
+def _info_msg(parent, titulo, mensaje):
+    try:
+        from assets.estilo_global import mostrar_mensaje
+        mostrar_mensaje(parent, titulo, mensaje, "info")
+    except Exception:
+        logger.info("%s: %s", titulo, mensaje)
+
+
+def _error_msg(parent, titulo, mensaje):
+    try:
+        from assets.estilo_global import mostrar_mensaje
+        mostrar_mensaje(parent, titulo, mensaje, "error")
+    except Exception:
+        logger.warning("%s: %s", titulo, mensaje)
 
 
 class PortalEmpleadoWindow(QWidget):
@@ -60,6 +79,11 @@ class PortalEmpleadoWindow(QWidget):
         tabs.addTab(self._tab_horario(), "Control horario")
         tabs.addTab(self._tab_pendientes(), "Documentos pendientes")
         tabs.addTab(self._tab_documentos(), "Documentos")
+        try:
+            from src.gui.transiciones import instalar_transicion_tabs
+            instalar_transicion_tabs(tabs)
+        except Exception:
+            pass
         root.addWidget(tabs)
 
     # ── resolución segura ─────────────────────────────────────────────────────
@@ -179,24 +203,24 @@ class PortalEmpleadoWindow(QWidget):
                 from src.utils import plataforma
                 plataforma.abrir_archivo(ruta)
             except Exception as e:
-                QMessageBox.warning(self, "Portal", f"No se pudo abrir: {e}")
+                _error_msg(self, "Portal", f"No se pudo abrir: {e}")
         else:
-            QMessageBox.information(self, "Portal", "El documento no está disponible en disco.")
+            _info_msg(self, "Portal", "El documento no está disponible en disco.")
 
     def _firma(self, accion):
         from src.rrhh import portal_servicio
         from src.rrhh.firma_servicio import FirmaError
         d = self._pend_sel()
         if not d:
-            QMessageBox.information(self, "Portal", "Selecciona un documento."); return
+            _info_msg(self, "Portal", "Selecciona un documento."); return
         usuario = (self.usuario or {}).get("nombre")
         fn = (portal_servicio.aceptar_documento if accion == "acepta"
               else portal_servicio.rechazar_documento)
         try:
             fn(self.empleado["id"], d["id"], usuario=usuario, id_empresa=self._id_empresa())
         except FirmaError as e:
-            QMessageBox.warning(self, "Portal", str(e)); return
-        QMessageBox.information(self, "Portal", f"Documento {accion}do.")
+            _error_msg(self, "Portal", str(e)); return
+        _info_msg(self, "Portal", f"Documento {accion}do.")
         self._panel = self._cargar_panel()
         self._pend = self._panel.get("documentos_pendientes", [])
         self.tbl_pend.setRowCount(0)
@@ -229,8 +253,8 @@ class PortalEmpleadoWindow(QWidget):
             portal_servicio.solicitar_vacaciones(self.empleado["id"], self.v_ini.text().strip(),
                                                  self.v_fin.text().strip(), self._id_empresa())
         except GestionLaboralError as e:
-            QMessageBox.warning(self, "Vacaciones", str(e)); return
-        QMessageBox.information(self, "Vacaciones", "Solicitud enviada.")
+            _error_msg(self, "Vacaciones", str(e)); return
+        _info_msg(self, "Vacaciones", "Solicitud enviada.")
         self._panel = self._cargar_panel()
         self.tbl_vac.setRowCount(0)
         for i, r in enumerate(self._panel["vacaciones"]["lista"]):
@@ -248,20 +272,20 @@ class PortalEmpleadoWindow(QWidget):
         try:
             with open(ruta, "w", encoding="utf-8", newline="") as fh:
                 fh.write(portal_servicio.exportar_control_horario(self.empleado["id"], self._id_empresa()))
-            QMessageBox.information(self, "Portal", f"Exportado a {ruta}")
+            _info_msg(self, "Portal", f"Exportado a {ruta}")
         except Exception as e:
-            QMessageBox.warning(self, "Portal", f"No se pudo exportar: {e}")
+            _error_msg(self, "Portal", f"No se pudo exportar: {e}")
 
     def _abrir_doc(self):
         i = self.tbl_docs.currentRow()
         if not (0 <= i < len(self._docs)):
-            QMessageBox.information(self, "Portal", "Selecciona un documento."); return
+            _info_msg(self, "Portal", "Selecciona un documento."); return
         ruta = self._docs[i].get("ref_documento")
         if ruta and os.path.exists(ruta):
             try:
                 from src.utils import plataforma
                 plataforma.abrir_archivo(ruta)
             except Exception as e:
-                QMessageBox.warning(self, "Portal", f"No se pudo abrir: {e}")
+                _error_msg(self, "Portal", f"No se pudo abrir: {e}")
         else:
-            QMessageBox.information(self, "Portal", "El documento no está disponible en disco.")
+            _info_msg(self, "Portal", "El documento no está disponible en disco.")

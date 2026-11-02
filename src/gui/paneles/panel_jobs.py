@@ -43,25 +43,30 @@ class PanelJobs(QWidget):
         self.tabla.tabla.cellClicked.connect(self._sel_fila)
         root.addWidget(self.tabla)
 
-        # Barra de configuración del job seleccionado.
+        # Barra de configuración del job seleccionado — en DOS filas: los campos arriba (con sitio de
+        # sobra para no recortarse) y los botones de acción abajo, a la derecha, en su propia fila.
         barra = QHBoxLayout()
         self.cmb_hab = EnterpriseFilter([("Habilitar", "1"), ("Deshabilitar", "0")])
         self.cmb_hab.setFixedWidth(150)
-        self.in_freq = self._inp("Frecuencia (h)", 90)
+        self.in_freq = self._inp("Frecuencia (h)", 130)
         self.cmb_prio = EnterpriseFilter([("crítica", "critica"), ("alta", "alta"),
                                           ("normal", "normal"), ("baja", "baja")])
         self.cmb_prio.setFixedWidth(130)
-        self.in_timeout = self._inp("Timeout (s)", 90)
-        self.in_reint = self._inp("Reintentos", 80)
+        self.in_timeout = self._inp("Timeout (s)", 120)
+        self.in_reint = self._inp("Reintentos", 110)
         barra.addWidget(QLabel("Estado:")); barra.addWidget(self.cmb_hab)
-        barra.addWidget(QLabel("Frec.:")); barra.addWidget(self.in_freq)
+        barra.addWidget(QLabel("Frecuencia:")); barra.addWidget(self.in_freq)
         barra.addWidget(QLabel("Prioridad:")); barra.addWidget(self.cmb_prio)
         barra.addWidget(QLabel("Timeout:")); barra.addWidget(self.in_timeout)
-        barra.addWidget(QLabel("Reint.:")); barra.addWidget(self.in_reint)
-        barra.addWidget(self._btn("Guardar configuración", self._guardar, T.OK))
-        barra.addWidget(self._btn("Ejecutar ahora", self._ejecutar, T.INFO))
+        barra.addWidget(QLabel("Reintentos:")); barra.addWidget(self.in_reint)
         barra.addStretch(1)
         root.addLayout(barra)
+
+        barra_acciones = QHBoxLayout()
+        barra_acciones.addStretch(1)
+        barra_acciones.addWidget(self._btn("Guardar configuración", self._guardar, T.OK))
+        barra_acciones.addWidget(self._btn("Ejecutar ahora", self._ejecutar, T.INFO))
+        root.addLayout(barra_acciones)
 
         self.status = QLabel("")
         self.status.setStyleSheet(f"color:{T.DIM};font-size:11px;")

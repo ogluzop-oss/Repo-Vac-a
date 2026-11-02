@@ -59,9 +59,17 @@ def test_genera_pdf_real_por_subtipo(subtipo, fab, db):
     ruta = getattr(w, "_pdf_ruta", None)
     assert ruta and os.path.exists(ruta) and os.path.getsize(ruta) > 1500
     fab.al_limpiar(lambda r=ruta: os.path.exists(r) and os.remove(r))
-    with open(ruta, "rb") as f:
+    # "Repositorio cifrado" (petición explícita, ver gestion_usuarios._generar_pdf): CERT LABORAL
+    # se cifra en disco justo tras generarse — `resolver_ruta_legible` es el punto único de lectura
+    # para cualquier consumidor de un fichero potencialmente cifrado (descifra a un temporal si
+    # hace falta, devuelve la ruta tal cual si no), igual que usaría cualquier otro lector real.
+    from src.utils import cripto
+    ruta_legible = cripto.resolver_ruta_legible(ruta)
+    if ruta_legible != ruta:
+        fab.al_limpiar(lambda r=ruta_legible: os.path.exists(r) and os.remove(r))
+    with open(ruta_legible, "rb") as f:
         head = f.read(5)
-    with open(ruta, "rb") as f:
+    with open(ruta_legible, "rb") as f:
         tail = f.read()[-8:]
     assert head == b"%PDF-" and b"%%EOF" in tail
     w.close()
