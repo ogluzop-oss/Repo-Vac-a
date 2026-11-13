@@ -76,6 +76,10 @@ def crear_app():
         logger.debug("validar_arranque_seguro: %s", e)
 
     app = Flask("smart_manager_backend")
+    # Sesión de navegador del sitio oficial (`sitio_oficial.py`, cookie firmada de Flask para el
+    # login web de clientes): reutiliza el secreto de producción YA exigido por
+    # `validar_arranque_seguro()` en vez de inventar uno nuevo — un secreto más que rotar.
+    app.secret_key = os.environ.get("SMART_MANAGER_JWT_SECRET", "dev-secret-no-usar-en-produccion")
 
     @app.get("/salud")
     def salud():
@@ -104,6 +108,14 @@ def crear_app():
         return jsonify(res), http
 
     # (El webhook de MARKETPLACE Stripe Connect se retiró con el desmontaje del pagos_marketplace/lonja.)
+
+    # Sitio oficial y comercial (dominio raíz, smartmanager-app.com): presentación del ERP, planes,
+    # alta/pago (Stripe Checkout) y descarga de la app — ver docstring del módulo.
+    try:
+        from src.backend.sitio_oficial import crear_blueprint as crear_blueprint_sitio_oficial
+        app.register_blueprint(crear_blueprint_sitio_oficial())
+    except Exception as e:
+        logger.warning("Sitio oficial no disponible: %s", e)
 
     # Tienda online propia (Escenario B): storefront dinámico por empresa.
     try:
@@ -134,13 +146,13 @@ def crear_app():
     except Exception as e:
         logger.warning("Portal empresa Gestión no disponible: %s", e)
 
-    # Portal del Empleado (extranet): gestión de pedidos online (Preparar/Enviar/Entregar) — sustituye
-    # al diálogo Qt `gui/portal_web_home.PortalWebHome`, abierto desde "Venta almacén" del TPV.
+    # Pedidos Online (extranet): gestión de pedidos online (Preparar/Enviar/Entregar) — sustituye
+    # al diálogo Qt `gui/portal_web_home.PortalWebHome`, abierto desde "Venta online" del TPV.
     try:
-        from src.backend.portal_empleado_web import crear_blueprint as crear_blueprint_portal_empleado
+        from src.backend.portal_pedidos_online import crear_blueprint as crear_blueprint_portal_empleado
         app.register_blueprint(crear_blueprint_portal_empleado())
     except Exception as e:
-        logger.warning("Portal del empleado no disponible: %s", e)
+        logger.warning("Portal Pedidos Online no disponible: %s", e)
 
     # API REST versionada (/api/v1): Enterprise REST API (Fase III · B2, ver ADR-0001) — sustituye al
     # blueprint legacy `src.backend.api` (Fase A1, @deprecated, ver su docstring). Hasta ahora este

@@ -149,11 +149,46 @@ def estado(conexion_fn=None) -> list:
              "aplicada": m.version in aplicadas} for m in migs]
 
 
+def _fila_valor(cur, r):
+    if r is None:
+        return None
+    return r[0] if not isinstance(r, dict) else next(iter(r.values()))
+
+
 def aplicar_pendientes(conexion_fn=None, backup=True) -> dict:
     """Aplica en orden las migraciones pendientes. Hace BACKUP previo si hay
     pendientes. La baseline (0001) se SELLA (no se re-ejecuta) si la BD ya existía.
-    Devuelve {aplicadas, selladas, backup, error}."""
+    Devuelve {aplicadas, selladas, backup, error}.
+
+    Serializado con un lock asesor de MariaDB (`GET_LOCK`, por base de datos — nunca bloquea entre
+    tenants distintos): sin él, varios procesos llamando a esto A LA VEZ sobre la MISMA base de
+    datos (p. ej. los workers de gunicorn al arrancar, cada uno con su propia llamada independiente
+    a `aplicar_pendientes()`) competían por aplicar LA MISMA migración simultáneamente — ninguna
+    corrupción real (el perdedor simplemente fallaba esa migración y paraba, el ganador seguía y la
+    dejaba bien aplicada), pero sí ruido de "Duplicate column"/deadlock en los logs en cada arranque
+    con migraciones pendientes nuevas. Con el lock, solo un proceso aplica a la vez; el resto espera
+    su turno y, al conseguirlo, ya no tiene nada pendiente (`pendientes` vacío, vuelve al momento)."""
     conexion_fn = conexion_fn or obtener_conexion
+    with conexion_fn() as lock_conn, lock_conn.cursor() as lock_cur:
+        lock_cur.execute("SELECT DATABASE()")
+        esquema = _fila_valor(lock_cur, lock_cur.fetchone()) or "smart_manager"
+        nombre_lock = f"sm_migraciones_{esquema}"
+        lock_cur.execute("SELECT GET_LOCK(%s, 60)", (nombre_lock,))
+        obtenido = _fila_valor(lock_cur, lock_cur.fetchone())
+        if not obtenido:
+            logger.warning("No se pudo obtener el lock de migraciones (%s) en 60s; otro proceso ya "
+                          "las está aplicando ahora mismo, se omite este intento.", nombre_lock)
+            return {"aplicadas": [], "selladas": [], "backup": None, "error": None}
+        try:
+            return _aplicar_pendientes_con_lock(conexion_fn, backup)
+        finally:
+            try:
+                lock_cur.execute("SELECT RELEASE_LOCK(%s)", (nombre_lock,))
+            except Exception:
+                pass
+
+
+def _aplicar_pendientes_con_lock(conexion_fn, backup) -> dict:
     migs = descubrir()
     with conexion_fn() as conn, conn.cursor() as cur:
         _asegurar_tabla(cur)

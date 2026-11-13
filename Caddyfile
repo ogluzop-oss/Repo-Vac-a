@@ -1,0 +1,85 @@
+# Caddyfile de PRODUCCIÓN — proxy inverso con HTTPS automático (Let's Encrypt) para el VPS único.
+#
+# El backend (gunicorn, contenedor `backend`, puerto 8000 SOLO interno a la red de Docker) es UNA
+# única app Flask que ya enruta por PATH, no por dominio/puerto: `/api/v1/*` (API REST, la misma
+# que usan la app de escritorio y la app móvil), `/portal/*` (portales web proveedor/empresa/
+# empleado) y `/tienda/<id_empresa>/*` (Catálogo Web / storefront, multi-tenant por path). Caddy
+# por tanto NO necesita repartir rutas entre varios servicios: solo necesita apuntar cada dominio
+# al mismo `backend:8000` y dejar que Flask decida. Sustituye los dominios `<...>` por los reales
+# antes de desplegar.
+
+# ── Sitio oficial y comercial — dominio raíz público ────────────────────────────────────────────
+# Mismo backend que admin./tienda. (una única app Flask que enruta por PATH) — aquí vive la
+# presentación del ERP, los planes, el alta/pago y las páginas legales (`src.backend.sitio_oficial`).
+smartmanager-app.com, www.smartmanager-app.com {
+	encode gzip zstd
+
+	reverse_proxy backend:8000
+
+	log {
+		output stdout
+		format console
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+}
+
+# ── Backend administrativo + API (desktop/móvil) ───────────────────────────────────────────────
+admin.smartmanager-app.com {
+	encode gzip zstd
+
+	# Servidor CENTRAL de licencias (activación + puente del sitio oficial, `backend_central`,
+	# contenedor/proceso DISTINTO de `backend`): únicamente bajo este path, nunca su propio dominio
+	# (sin DNS nuevo que provisionar). Protegido además por `CENTRAL_INTERNAL_SECRET` en los
+	# endpoints internos (`/central/sitio/*`) — ver `src/backend_central/rutas_sitio_web.py`.
+	handle /central/* {
+		reverse_proxy backend_central:8091
+	}
+
+	# SSE (`/api/v1/realtime/stream`): Caddy NO bufferiza la respuesta del proxy por defecto, así que
+	# las conexiones largas de tiempo real funcionan sin configuración adicional (a diferencia de
+	# Nginx, que necesitaría `proxy_buffering off`).
+	handle {
+		reverse_proxy backend:8000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+}
+
+# ── Catálogo Web / storefront — dominio público de la tienda ──────────────────────────────────
+# La tienda vive en el backend bajo `/tienda/<id_empresa>/...` (ver arriba). Un dominio propio de
+# cliente (p. ej. `tienda.clienteX.com`, gestionado hoy como metadato en `comercio_digital.dominios`)
+# se sirve en la RAÍZ de ese dominio reescribiendo la petición al path real de SU tenant — así el
+# visitante nunca ve `/tienda/<id_empresa>` en la URL. Cuando se dé de alta un dominio real para un
+# tenant, se duplica este bloque sustituyendo el dominio y el id_empresa.
+tienda.smartmanager-app.com {
+	encode gzip zstd
+
+	# Sustituir "1" por el id_empresa real del tenant propietario de este dominio.
+	rewrite * /tienda/1{uri}
+
+	reverse_proxy backend:8000
+
+	log {
+		output stdout
+		format console
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+	}
+}

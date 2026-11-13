@@ -32,7 +32,7 @@ _PLUS = _BASE + ["rrhh", "tesoreria", "contabilidad", "workflow", "scheduler", "
 _PRO = list(MODULOS.keys())
 
 PLANES = {
-    "BASIC": {"nombre": "Smart Manager", "precio": 0.0,
+    "BASIC": {"nombre": "Smart Manager", "precio": 29.0,
               "limites": {"max_empresas": 1, "max_tiendas": 1, "max_usuarios": 3,
                           "max_almacenes": 1, "max_correos": 3}, "modulos": _BASE},
     "PLUS": {"nombre": "Smart Manager Plus", "precio": 49.0,

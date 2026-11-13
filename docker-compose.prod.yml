@@ -1,10 +1,15 @@
-# Despliegue de PRODUCCIÓN de referencia (OBS-9). Backend con gunicorn (WSGI) + MariaDB.
-# Estructura preparada para evolucionar a Kubernetes/Helm (no se despliega aquí).
+# Despliegue de PRODUCCIÓN de referencia (OBS-9) — VPS único (Hetzner Cloud) con Docker Compose.
+# db + backend (gunicorn/WSGI) + caddy (proxy inverso con HTTPS automático, ver ./Caddyfile).
+# Límites de memoria pensados para un VPS de 4GB (ver variables *_MEM_LIMIT); en un VPS de 8GB basta
+# subirlas en `.env` (p. ej. DB_MEM_LIMIT=3072m, BACKEND_MEM_LIMIT=3072m) sin tocar este fichero.
 version: "3.9"
+
 services:
   db:
     image: mariadb:11
     restart: always
+    mem_limit: ${DB_MEM_LIMIT:-1536m}
+    mem_reservation: ${DB_MEM_RESERVATION:-512m}
     environment:
       MARIADB_ROOT_PASSWORD: ${DB_PASSWORD:?requerido}
       MARIADB_DATABASE: ${DB_NAME:-smart_manager_db}
@@ -15,9 +20,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - interna
+
   backend:
     build: .
     restart: always
+    mem_limit: ${BACKEND_MEM_LIMIT:-1536m}
+    mem_reservation: ${BACKEND_MEM_RESERVATION:-512m}
     depends_on:
       db:
         condition: service_healthy
@@ -31,12 +46,114 @@ services:
       SMART_MANAGER_JWT_SECRET: ${SMART_MANAGER_JWT_SECRET:?requerido}
       SM_LOG_JSON: "1"
       API_HSTS: "1"
+      # Nº de workers gunicorn: por defecto bajo para no agotar RAM en un VPS pequeño (cada worker
+      # carga la app completa). Subir con margen en un VPS de más CPU/RAM vía `.env`.
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      # Sitio oficial (`src/backend/sitio_oficial.py`): puente interno a `backend_central` (mismo
+      # secreto que ese servicio, ver arriba) + Stripe Checkout. Las variables de Stripe son
+      # OPCIONALES en el sentido de que su ausencia no rompe nada: sin ellas, el alta de pago
+      # degrada con un aviso honesto en vez de simular un cobro — pero con los 3 planes de pago
+      # (Básico incluido, 29€/mes) hacen falta los 3 STRIPE_PRICE_ID_* para que el alta funcione.
+      CENTRAL_BASE_URL: http://backend_central:8091
+      CENTRAL_INTERNAL_SECRET: ${CENTRAL_INTERNAL_SECRET:?requerido}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PRICE_ID_BASIC: ${STRIPE_PRICE_ID_BASIC:-}
+      STRIPE_PRICE_ID_PLUS: ${STRIPE_PRICE_ID_PLUS:-}
+      STRIPE_PRICE_ID_PRO: ${STRIPE_PRICE_ID_PRO:-}
+      # Email del código de activación tras el alta web (SMTP directo, propio del sitio oficial —
+      # no el CCP multiempresa). Opcional: sin ello, el código se sigue mostrando en pantalla.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@smartmanager-app.com}
+    volumes:
+      - documentos_data:/app/documentos
+      - instaladores_data:/app/instaladores:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/live').status==200 else 1)"]
       interval: 15s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - interna
+
+  backend_central:
+    # Servidor CENTRAL de licencias (src/backend_central/, imagen propia `Dockerfile.central`,
+    # YA preparada de una fase anterior) — activación/verificación de licencias y, desde ahora,
+    # el puente interno del sitio oficial (`backend_central.rutas_sitio_web`): alta/login de
+    # clientes web + generación de códigos de activación tras un pago real en Stripe. Su propio
+    # DB_NAME (`smart_manager_central`) le da su propio esquema en el MISMO servidor MariaDB,
+    # autocreado por `ensure_schema()` igual que el de `backend`. NUNCA expuesto directamente a
+    # Internet: Caddy solo publica `/central/*` dentro de `admin.smartmanager-app.com` (ver
+    # Caddyfile), y esos endpoints además exigen `CENTRAL_INTERNAL_SECRET` en la cabecera
+    # `X-Internal-Secret`.
+    build:
+      context: .
+      dockerfile: Dockerfile.central
+    restart: always
+    mem_limit: ${CENTRAL_MEM_LIMIT:-512m}
+    mem_reservation: ${CENTRAL_MEM_RESERVATION:-256m}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:?requerido}
+      DB_NAME: smart_manager_central
+      DB_PORT: "3306"
+      SMART_MANAGER_JWT_SECRET: ${SMART_MANAGER_JWT_SECRET:?requerido}
+      CENTRAL_INTERNAL_SECRET: ${CENTRAL_INTERNAL_SECRET:?requerido}
+      STRIPE_WEBHOOK_SECRET_SAAS: ${STRIPE_WEBHOOK_SECRET_SAAS:-}
+      SM_LOG_JSON: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8091/salud').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - interna
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    mem_limit: ${CADDY_MEM_LIMIT:-256m}
+    mem_reservation: ${CADDY_MEM_RESERVATION:-64m}
+    depends_on:
+      - backend
+      - backend_central
     ports:
-      - "8000:8000"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - interna
+
+networks:
+  interna:
+
 volumes:
   db_data:
+  documentos_data:
+  instaladores_data:
+  caddy_data:
+  caddy_config:

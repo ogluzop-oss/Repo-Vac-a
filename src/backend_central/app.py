@@ -57,6 +57,11 @@ def crear_app_central():
     from src.backend_central.rutas_stripe import crear_blueprint as crear_blueprint_stripe
     app.register_blueprint(crear_blueprint_stripe())
 
+    # Puente interno para el sitio oficial (smartmanager-app.com, en el contenedor `backend`):
+    # registro/login/confirmación de pago contra esta misma BD central — ver docstring del módulo.
+    from src.backend_central.rutas_sitio_web import crear_blueprint as crear_blueprint_sitio_web
+    app.register_blueprint(crear_blueprint_sitio_web())
+
     return app
 
 
