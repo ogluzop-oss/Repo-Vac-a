@@ -74,7 +74,7 @@ from src.db.conexion import (
     stock_signals,
     transaccion,
 )
-from src.db.usuario import listar_usuarios_empresa, sesion_global, validar_login_empleado
+from src.db.usuario import sesion_global, validar_login_empleado
 from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 
 from assets.estilo_global import _blindar_tamano_fijo
@@ -994,9 +994,17 @@ class _LoginTPVDialog(QDialog):
         # (opacidad 0) y se revela ya centrado (ver _centrar_en_pantalla) para que no salte de posición.
         self.setStyleSheet(f"QDialog{{background:{_BG};border-radius:20px;}}")
         self.setWindowOpacity(0.0)
-        self._nombre_empleado: str = ""
+        # Columna izquierda con los perfiles del centro (petición explícita, revierte una
+        # simplificación anterior): en una tienda con una sola caja, forzar a cerrar sesión
+        # COMPLETA de la app de escritorio cada vez que cambia el cajero era un lastre — ahora
+        # cualquier empleado del mismo centro puede elegir su propio perfil aquí y teclear SU PIN,
+        # sin tocar la sesión de escritorio (`sesion_global.usuario_actual`), que solo se usa como
+        # preselección por defecto (lo normal: quien abre el TPV es quien ya inició sesión).
+        _u = sesion_global.usuario_actual or {}
+        self._nombre_empleado: str = (_u.get("nombre") or _u.get("usuario") or "").upper()
         self._id_empleado = None
         self._pin: str = ""
+        self._botones_perfil: dict[str, QPushButton] = {}
         self._build()
         # Fuera de pantalla YA, antes del primer show(): `setWindowOpacity(0.0)` no siempre surte
         # efecto en el primerísimo fotograma de una ventana nativa recién creada en Windows — si ese
@@ -1052,74 +1060,57 @@ class _LoginTPVDialog(QDialog):
                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         ly.addLayout(hbar)
 
-        # Cuerpo: lista izquierda + pin derecha
+        # Cuerpo: columna izquierda con los perfiles del centro (restaurada, petición explícita)
+        # + columna derecha con el pad de PIN de quien esté seleccionado.
         body = QHBoxLayout()
-        body.setSpacing(40)
+        body.setSpacing(24)
         ly.addLayout(body)
 
-        # ── columna izquierda: lista de empleados ───────────────
         col_izq = QVBoxLayout()
-        col_izq.setSpacing(10)
-
-        lbl_lista = QLabel(tr("login_tpv.select_name"))
-        lbl_lista.setStyleSheet(f"color:{_TEXT2};font-family:'{_FONT}';font-size:13px;")
-        col_izq.addWidget(lbl_lista)
-
-        from PyQt6.QtWidgets import QListWidget
-
-        self._lista = QListWidget()
-        self._lista.setFixedWidth(260)
-        self._lista.setFixedHeight(260)
-        self._lista.setStyleSheet(
-            f"QListWidget{{background:{_BG2};color:{_TEXT};border:2px solid {_CIAN};"
-            f"border-radius:10px;font-family:'{_FONT}';font-size:13px;outline:none;}}"
-            f"QListWidget::item{{padding:10px 12px;border-bottom:1px solid #21262D;}}"
-            # Esquinas de los ÍTEMS siempre rectas (encargo explícito) — el único redondeo real es
-            # el de las 2 esquinas superiores del CONTENEDOR, resuelto aparte vía
-            # `instalar_corner_cover(..., esquinas="superior")` más abajo, no con border-radius por
-            # ítem (eso redondearía cualquier perfil que se seleccione, no solo "ADMIN" el primero).
-            f"QListWidget::item:hover{{background:#21262D;}}"
-            f"QListWidget::item:selected{{background:{_CIAN};color:#0D1117;font-weight:bold;}}"
+        col_izq.setSpacing(8)
+        lbl_perfiles = QLabel(tr("login_tpv.perfiles_title", default="EMPLEADOS DEL CENTRO"))
+        lbl_perfiles.setStyleSheet(
+            f"color:{_TEXT2};font-family:'{_FONT}';font-weight:900;font-size:11px;"
+            f"letter-spacing:1px;"
         )
-        self._lista.itemSelectionChanged.connect(self._on_sel_empleado)
-        col_izq.addWidget(self._lista)
+        col_izq.addWidget(lbl_perfiles)
 
-        try:
-            for u in listar_usuarios_empresa():
-                nombre = u.get("nombre") or u.get("usuario") or ""
-                if nombre:
-                    self._lista.addItem(nombre.upper())
-        except Exception:
-            pass
-
-        # El resaltado de selección/hover de `QListWidget::item` es un rectángulo recto: en el
-        # primer elemento sobresale por encima del borde redondeado (10px) del propio contenedor —
-        # "ADMIN" suele quedar preseleccionado al abrir el diálogo, el caso más visible. La caja
-        # tiene alto de sobra bajo los 3 perfiles reales (`setFixedHeight(260)`), así que NINGÚN
-        # perfil llega a tocar el borde inferior — `esquinas="superior"` solo cubre arriba, dejando
-        # el resto (incluidas las esquinas inferiores de "ADMIN" y los demás perfiles) con esquinas
-        # rectas, a propósito.
-        #
-        # `bg` debe ser el color de lo que hay DETRÁS/ALREDEDOR del widget (la tarjeta del diálogo,
-        # `_BG`), NO el fondo propio de la lista (`_BG2`): son dos grises oscuros DISTINTOS. Con
-        # `_BG2` el parche de esquina quedaba más CLARO que la tarjeta que lo rodea — exactamente
-        # el "gris sutil que sobresale, del mismo color que su caja" reportado.
-        try:
-            from assets.estilo_global import instalar_corner_cover
-            instalar_corner_cover(self._lista, radius=10, bg=_BG, border=_CIAN, esquinas="superior")
-        except Exception:
-            pass
-
+        scroll_perfiles = QScrollArea()
+        scroll_perfiles.setWidgetResizable(True)
+        scroll_perfiles.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_perfiles.setFixedWidth(220)
+        scroll_perfiles.setFixedHeight(260)
+        scroll_perfiles.setStyleSheet(
+            f"QScrollArea{{background:{_BG2};border:2px solid {_BORDE};border-radius:12px;}}"
+        )
+        host_perfiles = QWidget()
+        host_perfiles.setStyleSheet("background:transparent;")
+        ly_perfiles = QVBoxLayout(host_perfiles)
+        ly_perfiles.setContentsMargins(8, 8, 8, 8)
+        ly_perfiles.setSpacing(6)
+        for emp in self._cargar_empleados_centro():
+            nombre = (emp.get("nombre") or "").strip()
+            if not nombre:
+                continue
+            btn = QPushButton(nombre.upper())
+            btn.setFixedHeight(42)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _c=False, n=nombre: self._seleccionar_perfil(n))
+            ly_perfiles.addWidget(btn)
+            self._botones_perfil[nombre.upper()] = btn
+        ly_perfiles.addStretch()
+        scroll_perfiles.setWidget(host_perfiles)
+        col_izq.addWidget(scroll_perfiles)
         body.addLayout(col_izq)
+        self._refrescar_estilo_perfiles()
 
-        # ── columna derecha: PIN pad ────────────────────────────
         col_der = QVBoxLayout()
         col_der.setSpacing(10)
         col_der.setAlignment(
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter
         )
 
-        self._lbl_sel = QLabel("—")
+        self._lbl_sel = QLabel(self._nombre_empleado or "—")
         self._lbl_sel.setStyleSheet(
             f"color:{_CIAN};font-family:'{_FONT}';font-weight:900;font-size:14px;"
         )
@@ -1215,22 +1206,61 @@ class _LoginTPVDialog(QDialog):
 
         body.addLayout(col_der)
 
-    # ── lógica ─────────────────────────────────────────────────
+    def _cargar_empleados_centro(self) -> list[dict]:
+        """Empleados del MISMO centro que esta caja — mismo criterio de resolución que
+        `_AutorizacionDialog._cargar_empleados_centro` (autocobro): vía el contexto operativo
+        activo (`tienda_actual_id()` → centro), no elegible a mano."""
+        try:
+            from src.db import centros as centros_db
+            from src.db.empresa import empresa_actual_id, tienda_actual_id
+            from src.db.usuario import listar_usuarios_empresa
+            id_empresa = empresa_actual_id()
+            id_tienda = tienda_actual_id()
+            codigo_centro = None
+            if id_tienda is not None:
+                for c in centros_db.listar_centros(id_empresa):
+                    if c.get("id_tienda") == id_tienda:
+                        codigo_centro = c.get("codigo_centro")
+                        break
+            if not codigo_centro:
+                return []
+            return listar_usuarios_empresa(id_empresa, centro_codigo=codigo_centro)
+        except Exception as e:
+            logger.debug("_LoginTPVDialog: no se pudo cargar empleados del centro: %s", e)
+            return []
 
-    def _on_sel_empleado(self):
-        items = self._lista.selectedItems()
-        if items:
-            self._nombre_empleado = items[0].text()
-            self._lbl_sel.setText(self._nombre_empleado)
-            self._pin = ""
-            self._actualizar_dots()
-            self._lbl_err.setText("")
-        else:
-            self._nombre_empleado = ""
-            self._lbl_sel.setText("—")
+    def _seleccionar_perfil(self, nombre: str):
+        """Cambia de perfil dentro del MISMO diálogo de login — sin tocar la sesión de escritorio
+        (`sesion_global`). Reinicia el PIN: el de la persona anterior no vale para esta otra."""
+        self._nombre_empleado = nombre.upper()
+        self._pin = ""
+        self._lbl_sel.setText(self._nombre_empleado)
+        self._actualizar_dots()
+        self._lbl_err.setText("")
+        self._btn_entrar.setEnabled(False)
+        self._refrescar_estilo_perfiles()
+
+    def _refrescar_estilo_perfiles(self):
+        _ss_normal = (
+            f"QPushButton{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:10px;font-family:'{_FONT}';font-weight:700;font-size:12px;"
+            f"text-align:left;padding:0 12px;}}"
+            f"QPushButton:hover{{border-color:{_CIAN};color:{_CIAN};}}"
+        )
+        _ss_sel = (
+            f"QPushButton{{background:{_CIAN};color:#0D1117;border:2px solid {_CIAN};"
+            f"border-radius:10px;font-family:'{_FONT}';font-weight:900;font-size:12px;"
+            f"text-align:left;padding:0 12px;}}"
+        )
+        for nombre, btn in self._botones_perfil.items():
+            btn.setStyleSheet(_ss_sel if nombre == self._nombre_empleado else _ss_normal)
+
+    # ── lógica ─────────────────────────────────────────────────
 
     def _tecla(self, t: str):
         if not self._nombre_empleado:
+            # Defensivo: solo puede pasar si `sesion_global.usuario_actual` viniera vacío Y el
+            # centro no tuviera ningún empleado en la lista (sin preselección posible).
             self._lbl_err.setText(tr("login_tpv.err_select_first"))
             return
         if t == "⌫":
@@ -1405,6 +1435,134 @@ class _ComboMaxPopup(QComboBox):
 
 
 # ============================================================
+# BLOQUE — IMAGEN DEL ARTÍCULO EN EL CARRITO (columna "Imagen")
+# ============================================================
+
+
+def _mostrar_imagen_ampliada(ruta: str, parent=None):
+    """Popup de imagen ampliada al hacer clic en la miniatura del carrito (petición explícita).
+    Mismo diseño (sin barra de Windows, esquinas redondeadas, borde turquesa, X roja) que el
+    resto de popups de la app — antes usaba un QDialog nativo con barra de título de Windows,
+    cuyas esquinas cuadradas traspasaban el contorno redondeado turquesa."""
+    pix = QPixmap(ruta)
+    if pix.isNull():
+        return
+    max_w, max_h = 640, 640
+    if pix.width() > max_w or pix.height() > max_h:
+        pix = pix.scaled(max_w, max_h, Qt.AspectRatioMode.KeepAspectRatio,
+                         Qt.TransformationMode.SmoothTransformation)
+
+    dlg = QDialog(parent)
+    dlg.setModal(True)
+    dlg.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+    dlg.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    outer = QVBoxLayout(dlg)
+    outer.setContentsMargins(0, 0, 0, 0)
+    body = QFrame()
+    body.setObjectName("imagen_ampliada_body")
+    body.setStyleSheet(
+        f"QFrame#imagen_ampliada_body{{background:{_BG};border:2px solid {_CIAN};"
+        f"border-radius:20px;}}")
+    outer.addWidget(body)
+    root = QVBoxLayout(body)
+    root.setContentsMargins(20, 16, 20, 20)
+    root.setSpacing(12)
+
+    cab = QHBoxLayout()
+    cab.addWidget(_lbl(tr("tpv.imagen_ampliada_title", default="Imagen del artículo"),
+                       bold=True, size=15, color=_CIAN))
+    cab.addStretch()
+    btn_cerrar = _BotonCerrarX(32)
+    btn_cerrar.clicked.connect(dlg.reject)
+    cab.addWidget(btn_cerrar)
+    root.addLayout(cab)
+
+    lbl_img = QLabel()
+    lbl_img.setPixmap(pix)
+    lbl_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    root.addWidget(lbl_img)
+
+    dlg.exec()
+
+
+class _ImagenCeldaLabel(QLabel):
+    """Miniatura clicable del artículo para la columna "Imagen" del carrito del TPV. Si
+    `ruta` es `None` (artículo sin imagen asignada en Info Artículo → pestaña IMAGEN ARTÍCULO),
+    la celda queda vacía pero el espacio de la columna se reserva igualmente (ancho fijo, ver
+    `_build_tabla`) — nunca se colapsa ni se oculta."""
+
+    def __init__(self, ruta: str | None, parent=None):
+        super().__init__(parent)
+        self._ruta = ruta
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet("background:transparent;")
+        self.setFixedSize(72, 56)
+        if ruta:
+            pix = QPixmap(ruta)
+            if not pix.isNull():
+                self.setPixmap(pix.scaled(68, 52, Qt.AspectRatioMode.KeepAspectRatio,
+                                          Qt.TransformationMode.SmoothTransformation))
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if self._ruta and event.button() == Qt.MouseButton.LeftButton:
+            _mostrar_imagen_ampliada(self._ruta, self)
+        super().mousePressEvent(event)
+
+
+class _CantidadInlineDialog(QDialog):
+    """Popup mínimo para editar SOLO la cantidad, al doble clic directo sobre la celda "Cantidad"
+    del carrito (petición explícita: la cantidad se retira del diálogo "Editar artículo" completo
+    y se edita aquí). Mismo estilo sin barra de Windows que el resto de popups de la app."""
+
+    def __init__(self, cantidad_actual: int, nombre: str, parent=None):
+        super().__init__(parent)
+        self.nueva_cantidad: int | None = None
+        self.setModal(True)
+        self.setFixedWidth(320)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        body = QFrame()
+        body.setObjectName("cant_inline_body")
+        body.setStyleSheet(
+            f"QFrame#cant_inline_body{{background:{_BG};border:2px solid {_CIAN};"
+            f"border-radius:16px;}}")
+        outer.addWidget(body)
+        root = QVBoxLayout(body)
+        root.setContentsMargins(20, 16, 20, 16)
+        root.setSpacing(10)
+        cab = QHBoxLayout()
+        cab.addWidget(_lbl(tr("tpv.cantidad_inline_title", default="Cantidad"),
+                           bold=True, size=15, color=_CIAN))
+        cab.addStretch()
+        btn_cerrar = _BotonCerrarX(32)
+        btn_cerrar.clicked.connect(self.reject)
+        cab.addWidget(btn_cerrar)
+        root.addLayout(cab)
+        root.addWidget(_lbl(nombre, size=12, color=_TEXT2))
+        self.spin = QSpinBox()
+        self.spin.setRange(1, 9999)
+        self.spin.setValue(int(cantidad_actual or 1))
+        self.spin.setStyleSheet(
+            f"QSpinBox{{background:{_BG2};color:{_TEXT};border:1px solid {_BORDE};"
+            f"border-radius:6px;padding:6px 10px;font-size:15px;}}")
+        root.addWidget(self.spin)
+        root.addSpacing(4)
+        btn_ok = _btn(tr("common.accept", default="Aceptar"), color_bg=_BG2, color_fg=_VERDE,
+                     color_border=_VERDE, hover_bg=_VERDE, hover_fg="#0D1117")
+        btn_ok.clicked.connect(self._confirmar)
+        root.addWidget(btn_ok)
+        self.spin.setFocus()
+        self.spin.selectAll()
+
+    def _confirmar(self):
+        self.nueva_cantidad = self.spin.value()
+        self.accept()
+
+
+# ============================================================
 # BLOQUE — DIALOGO EDICIÓN DE LÍNEA
 # ============================================================
 
@@ -1456,26 +1614,19 @@ class _LineaEditDialog(QDialog):
             f"border-radius:6px;padding:5px 10px;font-size:13px;}}"
             f"QLineEdit:focus{{border-color:{_CIAN};}}"
         )
-        _spin_ss = (
-            f"QSpinBox{{background:{_BG2};color:{_TEXT};border:1px solid {_BORDE};"
-            f"border-radius:6px;padding:4px 8px;font-size:13px;}}"
-        )
-
         def _row(label, widget):
             h = QHBoxLayout()
             h.addWidget(_lbl(label, bold=True, size=14))
             h.addWidget(widget)
             lay.addLayout(h)
 
-        self.spin_qty = QSpinBox()
-        self.spin_qty.setRange(1, 9999)
-        self.spin_qty.setValue(int(linea.get("cantidad", 1)))
-        self.spin_qty.setStyleSheet(_spin_ss)
-        _row(tr("linea.qty"), self.spin_qty)
-
+        # La cantidad se retira de este modal a propósito (petición explícita): se edita con
+        # doble clic directo sobre la celda "Cantidad" de la tabla (ver `_editar_linea`), sin
+        # necesidad de abrir este diálogo — `self._linea["cantidad"]` se conserva tal cual venía,
+        # nunca se toca aquí.
         self.inp_precio = QLineEdit(f"{linea.get('precio', 0):.2f}")
         self.inp_precio.setStyleSheet(_inp_ss)
-        _row(tr("linea.unit_price"), self.inp_precio)
+        _row(tr("linea.unit_price", sym=divisas.simbolo()), self.inp_precio)
 
         self.inp_dto = QLineEdit(f"{linea.get('descuento_pct', 0):.1f}")
         self.inp_dto.setStyleSheet(_inp_ss)
@@ -1517,7 +1668,6 @@ class _LineaEditDialog(QDialog):
             dto = float(self.inp_dto.text().replace(",", "."))
             if precio < 0 or not (0 <= dto <= 100):
                 raise ValueError
-            self._linea["cantidad"] = self.spin_qty.value()
             self._linea["precio"] = round(precio, 2)
             self._linea["descuento_pct"] = round(dto, 2)
             self._linea["subtotal"] = round(
@@ -2461,6 +2611,8 @@ class _PagoDialog(QDialog):
             }
 
         elif idx == 1:  # tarjeta
+            if not self._cobrar_con_datafono(self._total):
+                return
             self._resultado = {
                 "forma_pago": "tarjeta",
                 "total": self._total,
@@ -2480,6 +2632,8 @@ class _PagoDialog(QDialog):
                 return
             tj = round(max(0.0, self._total - ef), 2)
             cambio = round(max(0.0, ef - self._total), 2)
+            if tj > 0 and not self._cobrar_con_datafono(tj):
+                return
             self._resultado = {
                 "forma_pago": "mixto",
                 "total": self._total,
@@ -2492,6 +2646,31 @@ class _PagoDialog(QDialog):
         if self._resultado is not None:
             self._resultado["tax_free"] = self.tax_free_info
         self.accept()
+
+    def _cobrar_con_datafono(self, importe: float) -> bool:
+        """Cobro REAL con el datáfono emparejado de la tienda (Configuración → Datáfono) —
+        petición explícita. Bloquea mientras el cliente completa el pago en el terminal (mismo
+        criterio ya usado en `autocobro.py`): cambia el texto del botón a "esperando" (mismo
+        patrón que `_btn_actualizar` en otras pantallas) para que el cajero sepa que debe esperar
+        al terminal, sin un modal extra que añadiría un clic de más sobre la confirmación que ya
+        acaba de dar al pulsar «Cobrar»."""
+        texto_original = self.btn_cobrar.text()
+        self.btn_cobrar.setText(tr("pago.datafono_esperando", default="⏳ Esperando datáfono…"))
+        self.btn_cobrar.setEnabled(False)
+        QApplication.processEvents()
+        try:
+            from src.services.tpv.card_terminal_service import get_terminal
+            res = get_terminal().cobrar(importe)
+        finally:
+            self.btn_cobrar.setText(texto_original)
+            self.btn_cobrar.setEnabled(True)
+        if not res.ok:
+            self._advertir(
+                tr("pago.datafono_rechazado_title", default="Pago rechazado"),
+                res.mensaje or tr("pago.datafono_rechazado_msg", default="No se pudo completar el cobro."))
+            return False
+        self._ultima_ref_datafono = res.referencia
+        return True
 
     def get_resultado(self) -> dict | None:
         return self._resultado
@@ -3563,9 +3742,9 @@ class _BasculaFamiliaDialog(QDialog):
 
 class _VentaOnlineDialog(QDialog):
     """Cobro de un ENCARGO A ALMACÉN pendiente (F2): la búsqueda de artículo, la elección de
-    almacén de origen por proximidad y la captura del cliente se hacen ahora en el **Portal del
-    Empleado** (`src/backend/portal_empleado_web.py`, ruta `/encargo`, abierto en el navegador vía
-    "Venta almacén" → `TPVWindow._abrir_construir_encargo`) — ya NO en este popup. Este diálogo se
+    almacén de origen por proximidad y la captura del cliente se hacen ahora en el **Portal
+    Pedidos Online** (`src/backend/portal_pedidos_online.py`, ruta `/encargo`, abierto en el
+    navegador vía "Venta online" → `TPVWindow._abrir_construir_encargo`) — ya NO en este popup. Este diálogo se
     reduce a un selector "búsqueda → tabla → selección" (mismo patrón que el resto de la app, p.ej.
     `_BuscarTicketDialog`) de los encargos que ya están en `PENDIENTE` para la tienda activa: el
     cajero busca por referencia/cliente/teléfono, elige uno y sus líneas se vuelcan a la cesta del
@@ -3681,7 +3860,7 @@ class _VentaOnlineDialog(QDialog):
         ly.addWidget(self.tabla, 1)
 
         # Sin botón "Ver pedidos online" aquí: redundante con el botón "Pedidos online" de
-        # "Acciones avanzadas" (que ya abre el mismo Portal del Empleado y concentra el único
+        # "Acciones avanzadas" (que ya abre el mismo Portal Pedidos Online y concentra el único
         # badge rojo consolidado de todos los tipos de pedido). Retirado a petición explícita.
         pie = QHBoxLayout()
         pie.addStretch()
@@ -3772,7 +3951,7 @@ class _VentaOnlineDialog(QDialog):
     def _cargar_seleccionado(self):
         """Carga a la cesta del TPV las líneas del encargo PENDIENTE elegido y cuelga SOLO su
         `id_pedido` de `TPVWindow._encargo_pendiente` — ya no hay cliente/líneas/almacén que
-        reconstruir aquí: el pedido YA existe (creado en el Portal del Empleado vía
+        reconstruir aquí: el pedido YA existe (creado en el Portal Pedidos Online vía
         `crear_encargo_almacen`). Lo único que falta es `confirmar_pago_encargo`, tras el cobro
         real (`TPVWindow._crear_encargo_tras_venta`)."""
         r = self.tabla.currentRow()
@@ -4092,10 +4271,10 @@ from src.gui.pasarela_config_dialog import PasarelaConfigDialog as _PasarelaConf
 # ----------------------------------------------------------------------------------------------
 
 
-# --- Portal del Empleado: de ventana Qt a página web real (Fase de rediseño móvil) -------------
+# --- Portal Pedidos Online: de ventana Qt a página web real (Fase de rediseño móvil) -------------
 # El antiguo `_GestionPedidosOnlineDialog`/`PortalWebHome` (ventana Qt) se retiró por completo: la
 # gestión de pedidos online (Preparar/Enviar/Entregar) vive ahora en
-# `src/backend/portal_empleado_web.py`, servida como página web real de la extranet. El TPV NO
+# `src/backend/portal_pedidos_online.py`, servida como página web real de la extranet. El TPV NO
 # contiene su lógica: solo abre esa URL en el navegador del sistema con un token emitido al vuelo
 # (`_abrir_gestion_pedidos_online`). NO reintroducir una ventana Qt aquí.
 # ----------------------------------------------------------------------------------------------
@@ -4636,28 +4815,51 @@ class _EditarGranelDialog(QDialog):
 
 
 class _AutorizacionDialog(QDialog):
-    """Pide credenciales de un ADMINISTRADOR para autorizar."""
+    """Pide credenciales de un ADMINISTRADOR para autorizar (autocobro). Sin barra de Windows,
+    esquinas redondeadas y X roja (petición explícita, mismo criterio que el resto de ventanas
+    emergentes de la app, ver `_AutorizacionAdminDialog` justo debajo). El usuario se ELIGE de un
+    desplegable con los empleados del MISMO CENTRO que el terminal (en vez de teclear un nombre a
+    mano) — la validación de perfil/PIN sigue siendo la MISMA (`refund_service.verificar_
+    autorizacion`), el desplegable solo evita errores de tecleo; cualquier empleado sin permiso de
+    autorizar sigue siendo rechazado igual que antes."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.autorizador = None
-        self.setWindowTitle(tr("autoriz.title"))
         self.setModal(True)
         self.setFixedWidth(380)
-        self.setStyleSheet(f"QDialog{{background:{_BG};}}")
-        root = QVBoxLayout(self)
-        root.setContentsMargins(22, 20, 22, 20)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        body = QFrame()
+        body.setObjectName("autorizbody")
+        body.setStyleSheet(f"QFrame#autorizbody{{background:{_BG};border:2px solid {_CIAN};"
+                           f"border-radius:16px;}}")
+        outer.addWidget(body)
+        root = QVBoxLayout(body)
+        root.setContentsMargins(22, 18, 22, 20)
         root.setSpacing(10)
-        root.addWidget(_lbl(tr("autoriz.header"), bold=True, size=15, color=_CIAN))
+
+        cab = QHBoxLayout()
+        cab.addWidget(_lbl(tr("autoriz.header"), bold=True, size=15, color=_CIAN), 1)
+        bx = _BotonCerrarX(30)
+        bx.clicked.connect(self.reject)
+        cab.addWidget(bx)
+        root.addLayout(cab)
         root.addWidget(_lbl(tr("autoriz.subtitle"), size=11, color=_TEXT2))
         root.addSpacing(6)
         root.addWidget(_lbl(tr("autoriz.user"), bold=True, size=11, color=_TEXT2))
-        self.inp_user = QLineEdit()
-        self.inp_user.setStyleSheet(
-            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
-            f"border-radius:8px;padding:8px;font-size:14px;}}QLineEdit:focus{{border-color:{_CIAN};}}"
-        )
-        root.addWidget(self.inp_user)
+        self.cmb_user = QComboBox()
+        self.cmb_user.setStyleSheet(
+            f"QComboBox{{combobox-popup:0;background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:8px;padding:8px;font-size:14px;}}"
+            f"QComboBox:hover,QComboBox:on{{border-color:{_CIAN};}}"
+            f"QComboBox::drop-down{{border:none;width:24px;}}"
+            f"QComboBox QAbstractItemView{{background:{_BG};color:{_TEXT};border:2px solid {_CIAN};"
+            f"border-radius:8px;selection-background-color:{_CIAN};selection-color:{_BG};}}")
+        self._cargar_empleados_centro()
+        root.addWidget(self.cmb_user)
         root.addWidget(_lbl(tr("autoriz.pin"), bold=True, size=11, color=_TEXT2))
         self.inp_pin = QLineEdit()
         self.inp_pin.setEchoMode(QLineEdit.EchoMode.Password)
@@ -4668,14 +4870,7 @@ class _AutorizacionDialog(QDialog):
         root.addWidget(self.inp_pin)
         root.addSpacing(8)
         bl = QHBoxLayout()
-        b_cancel = _btn(
-            tr("common.cancel"),
-            color_fg=_ROJO,
-            color_border=_ROJO,
-            hover_bg=_ROJO,
-            hover_fg="#FFF",
-        )
-        b_cancel.clicked.connect(self.reject)
+        bl.addStretch()
         b_ok = _btn(
             tr("autoriz.authorize"),
             color_bg=_BG2,
@@ -4684,16 +4879,39 @@ class _AutorizacionDialog(QDialog):
             hover_bg=_VERDE,
         )
         b_ok.clicked.connect(self._validar)
-        bl.addWidget(b_cancel)
         bl.addWidget(b_ok)
         root.addLayout(bl)
+
+    def _cargar_empleados_centro(self):
+        """Empleados del MISMO centro que este terminal de autocobro — resuelto por el contexto
+        operativo activo (`tienda_actual_id()`), nunca elegible a mano (un kiosco no tiene sesión
+        de usuario propia que lo decida de otra forma, a diferencia de `_prod_centro_actual`)."""
+        try:
+            from src.db import centros as centros_db
+            from src.db.empresa import empresa_actual_id, tienda_actual_id
+            from src.db.usuario import listar_usuarios_empresa
+            id_empresa = empresa_actual_id()
+            id_tienda = tienda_actual_id()
+            codigo_centro = None
+            if id_tienda is not None:
+                for c in centros_db.listar_centros(id_empresa):
+                    if c.get("id_tienda") == id_tienda:
+                        codigo_centro = c.get("codigo_centro")
+                        break
+            empleados = listar_usuarios_empresa(id_empresa, centro_codigo=codigo_centro) \
+                if codigo_centro else []
+            for e in empleados:
+                nombre = e.get("nombre")
+                if nombre:
+                    self.cmb_user.addItem(nombre, nombre)
+        except Exception as e:
+            logger.debug("_AutorizacionDialog: no se pudo cargar empleados del centro: %s", e)
 
     def _validar(self):
         from src.services.tpv import refund_service as R
 
-        ok, res = R.verificar_autorizacion(
-            self.inp_user.text().strip(), self.inp_pin.text()
-        )
+        nombre = self.cmb_user.currentData() or self.cmb_user.currentText().strip()
+        ok, res = R.verificar_autorizacion(nombre, self.inp_pin.text())
         if ok:
             self.autorizador = res
             self.accept()
@@ -6861,9 +7079,9 @@ class _AccionesAvanzadasDialog(QDialog):
             acciones.append(("↩", tr("tpv.refund", default="Devolución"), tpv._abrir_devolucion))
         acciones.append(("🔎", tr("tpv.tickets", default="Tickets"), tpv._abrir_buscar_tickets))
         if _ver_valm:
-            # "Pedidos online" (antes "Venta almacén") abre el Portal del Empleado en el
+            # "Pedidos online" (antes "Venta almacén") abre el Portal Pedidos Online en el
             # navegador — la construcción del pedido (artículo, almacén de origen por proximidad,
-            # cliente) se hace AHÍ (`src/backend/portal_empleado_web.py`, ruta `/encargo`), ya no
+            # cliente) se hace AHÍ (`src/backend/portal_pedidos_online.py`, ruta `/encargo`), ya no
             # en un popup del TPV. El TPV se limita a COBRAR un pedido ya construido, acción
             # separada abajo. Este botón concentra el badge rojo de TODOS los tipos de pedido
             # (entre tiendas/almacenes, Click&Collect, web propia, Marketplace) — ver más abajo.
@@ -6887,6 +7105,8 @@ class _AccionesAvanzadasDialog(QDialog):
                              tpv._editar_descuento_personal))
             acciones.append(("⚙", tr("tpv.acc_config_pasarela", default="Config. pasarela de pago"),
                              tpv._abrir_config_pasarela))
+            acciones.append(("💳", tr("tpv.acc_config_datafono", default="Datáfono de esta tienda"),
+                             tpv._abrir_config_datafono))
         for i, (icono, txt, fn) in enumerate(acciones):
             btn, _ = tpv._btn_accion_card(icono, txt, _CIAN, lambda _=False, f=fn: self._lanzar(f))
             btn.setMinimumHeight(72)
@@ -7397,7 +7617,8 @@ class _GestionProductosFamiliaDialog(QDialog):
         from src.db import familias as F
         from src.db import articulos as A
         if v is not None and v > 0:
-            A.actualizar_precio(self._sel, round(v, 2), id_empresa=self._emp)
+            A.actualizar_precio(self._sel, round(v, 2), id_empresa=self._emp,
+                                usuario=sesion_global.usuario_actual)
         A.actualizar_emoji(self._sel, self.cmb_emoji.emoji(), id_empresa=self._emp)
         F.asignar_familia(self._sel, id_familia, id_empresa=self._emp)
         self._recargar()
@@ -7748,8 +7969,13 @@ class TPVWindow(QWidget):
         self.main_window = main
         self._callback_vuelta = callback_vuelta
         self._lineas: list[dict] = []
+        # Caché codigo->ruta de imagen (o None si no tiene) para la columna "Imagen" del carrito
+        # (ver `_refresh_tabla`): `_refresh_tabla()` se llama ~15 veces por venta, así que resolver
+        # la ruta de disco en cada refresco (en vez de una sola vez por código) sería I/O
+        # repetido e innecesario.
+        self._cache_imagenes_tpv: dict = {}
         # Encargo a almacén (F2, `_VentaOnlineDialog`) seleccionado para cobro: el pedido YA existe
-        # en PENDIENTE (construido en el Portal del Empleado) — solo guarda su `id_pedido`, a la
+        # en PENDIENTE (construido en el Portal Pedidos Online) — solo guarda su `id_pedido`, a la
         # espera de que `_procesar_venta` confirme el cobro real (ver el hook ahí). Se consume
         # (vuelve a None) tanto en éxito como al vaciar/reemplazar el carrito — nunca sobrevive para
         # una venta posterior no relacionada.
@@ -7792,6 +8018,11 @@ class TPVWindow(QWidget):
 
         # Pantalla bloqueada (índice 0)
         self._bloqueada = _PantallaBlockeada()
+        # "Ir a gestión de caja" (petición explícita): un OPERARIO raso jamás debe poder llegar a
+        # Gestión de Caja desde aquí — ese módulo es solo de ADMINISTRADOR/SUPERADMIN. El resto de
+        # la pantalla bloqueada (motivo, reintentar, volver al menú) se mantiene igual para todos.
+        _perfil_sesion = ((usuario or sesion_global.usuario_actual or {}).get("perfil") or "").upper()
+        self._bloqueada.btn_ir.setVisible(_perfil_sesion in ("ADMINISTRADOR", "SUPERADMIN"))
         self._bloqueada.btn_ir.clicked.connect(self._ir_gestion_caja)
         self._bloqueada.btn_reintentar.clicked.connect(self._verificar_caja)
         self._bloqueada.btn_menu.clicked.connect(self._volver_menu)
@@ -8376,21 +8607,21 @@ class TPVWindow(QWidget):
                 _w.setVisible(not compacto)
 
         if hasattr(self, "tabla"):
+            # OJO: esta tabla tiene 5 columnas desde la rearquitectura EAN/Artículo/Cantidad/
+            # Divisa/Imagen (petición explícita) — valores anteriores (columnas hasta la 6, y
+            # Cantidad a 44-54px) eran residuo de un diseño de tabla anterior de 7 columnas y
+            # pisaban SIEMPRE los anchos fijados en `_build_tabla` en cuanto llegaba el primer
+            # `resizeEvent` (se dispara ya en el primer layout), por eso la columna "Cantidad"
+            # nunca se veía más ancha por mucho que se cambiara allí. Solo se oculta/muestra la
+            # columna Imagen según el espacio disponible; Cantidad/Divisa mantienen SIEMPRE el
+            # ancho fijado en `_build_tabla` (170/96) — nunca se reducen en modo compacto, para
+            # que la cabecera "Cantidad" no vuelva a cortarse.
             self.tabla.setColumnHidden(4, compacto)
             hh = self.tabla.horizontalHeader()
-            if compacto:
-                hh.resizeSection(0, 82)
-                hh.resizeSection(2, 44)
-                hh.resizeSection(3, 62)
-                hh.resizeSection(5, 74)
-                hh.resizeSection(6, 92)
-            else:
-                hh.resizeSection(0, 104)
-                hh.resizeSection(2, 54)
-                hh.resizeSection(3, 72)
-                hh.resizeSection(4, 82)
-                hh.resizeSection(5, 82)
-                hh.resizeSection(6, 120)
+            hh.resizeSection(2, 170)
+            hh.resizeSection(3, 96)
+            if not compacto:
+                hh.resizeSection(4, 112)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -8583,17 +8814,24 @@ class TPVWindow(QWidget):
     def _tpv_headers(self) -> list:
         # Petición explícita: se retiran Dto%/Subtotal/Acciones de la tabla (el subtotal ya se ve
         # debajo; el descuento pasa a su propia fila roja; editar/eliminar pasan a un único botón
-        # "⋮" por fila). Ya NO hay una 5ª columna aparte para ese botón: vive DENTRO de la celda de
-        # "Precio unitario" (ver `_celda_precio_boton` en `_refresh_tabla`) — columna y cabecera
-        # unificadas de verdad, no solo visualmente, así que el hover nativo de la cabecera funciona
-        # exactamente igual que en el resto (sin trucos de pintado ni widgets superpuestos). "EAN"
-        # permanece en mayúsculas completas: el parche global de cabeceras de tabla
-        # (`assets/estilo_global._primera_mayuscula_resto_minuscula`) reconoce las SIGLAS del dominio.
+        # "⋮" por fila). No hay una columna aparte para ese botón: vive DENTRO de la celda de "EAN"
+        # (ver `_celda_boton_texto` en `_refresh_tabla`), anclado a su extremo izquierdo — columna
+        # y cabecera unificadas de verdad, no solo visualmente, así que el hover nativo de la
+        # cabecera funciona exactamente igual que en el resto (sin trucos de pintado ni widgets
+        # superpuestos). "EAN" permanece en mayúsculas completas: el parche global de cabeceras de
+        # tabla (`assets/estilo_global._primera_mayuscula_resto_minuscula`) reconoce las SIGLAS del
+        # dominio.
+        #
+        # La cabecera de "Precio unitario" pasa a ser SOLO el símbolo de la divisa activa
+        # (`divisas.simbolo()`, petición explícita) — NO se traduce vía `tr()`: un símbolo de
+        # divisa (€/CHF/$…) es un dato de negocio (la divisa configurada en Gestión Caja), no un
+        # texto de idioma. Columna nueva "Imagen" al final (ver `_refresh_tabla`/`_celda_imagen`).
         return [
             tr("tpv.col_code"),
-            tr("tpv.col_name"),
+            tr("tpv.col_name", default="Artículo"),
             tr("tpv.col_qty"),
-            tr("tpv.col_unit"),
+            divisas.simbolo(),
+            tr("tpv.col_image", default="Imagen"),
         ]
 
     def _build_tabla(self) -> QFrame:
@@ -8606,7 +8844,7 @@ class TPVWindow(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
 
         self.tabla = QTableWidget()
-        self.tabla.setColumnCount(4)
+        self.tabla.setColumnCount(5)
         self.tabla.setHorizontalHeaderLabels(self._tpv_headers())
         self.tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -8616,12 +8854,44 @@ class TPVWindow(QWidget):
         self.tabla.setStyleSheet(_ss_tabla_neon())
         _RoundTableCorners(self.tabla)
 
+        # Anchuras (petición explícita): EAN/Artículo mantienen su comportamiento elástico
+        # (Stretch, se reparten el espacio sobrante); Cantidad y la columna de la divisa solo
+        # llevan números cortos → ancho fijo. Petición explícita posterior (repetida varias veces
+        # porque 104px y 132px seguían sin ser suficientes): Cantidad pasa a 170px, con margen de
+        # sobra sobre el ancho real medido (`header.sectionSizeHint`, con la hoja de estilos
+        # COMPLETA de la app ya aplicada) para la cabecera "Cantidad" en negrita 900 — así no
+        # vuelve a cortarse aunque varíe el escalado de pantalla. La columna Imagen también gana
+        # ancho (96→112) para que las miniaturas se vean nítidas. Al crecer una columna Fixed, Qt
+        # reparte el hueco que le cede EXACTAMENTE a partes iguales entre las dos columnas Stretch
+        # (EAN/Artículo) — verificado con un offscreen smoke test — así que ese "robo equitativo"
+        # (petición explícita) sale solo, sin tener que fijarles un ancho propio a EAN/Artículo.
         hh = self.tabla.horizontalHeader()
-        for col in range(4):
-            hh.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)  # 4 columnas, igual ancho
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)       # EAN
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)       # Artículo
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)         # Cantidad
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)         # Divisa (precio unitario)
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)         # Imagen
+        self.tabla.setColumnWidth(2, 170)
+        self.tabla.setColumnWidth(3, 96)
+        self.tabla.setColumnWidth(4, 112)
         hh.setMinimumSectionSize(40)
 
         self.tabla.doubleClicked.connect(self._editar_linea)
+        # Cabecera de la divisa en caliente: si un admin cambia la divisa de empresa (Gestión
+        # Caja) mientras el TPV sigue abierto, la columna (símbolo) se actualiza sola. Conectado
+        # a un MÉTODO de instancia (no un lambda): `divisas.senal()` es un singleton GLOBAL que
+        # sobrevive a esta ventana, así que si se cierra el TPV y luego cambia la divisa desde
+        # otra pantalla, la señal seguiría disparando sobre una tabla ya destruida
+        # (`RuntimeError: wrapped C/C++ object ... has been deleted`) — un lambda no es un método
+        # ligado a un QObject, así que Qt no podía desconectarlo solo al destruirse la ventana; un
+        # método ligado (`self._refrescar_cabecera_divisa`) sí lo es, y Qt lo desconecta
+        # automáticamente cuando `self` se destruye.
+        try:
+            _senal_div = divisas.senal()
+            if _senal_div is not None:
+                _senal_div.divisa_cambiada.connect(self._refrescar_cabecera_divisa)
+        except Exception:
+            pass
         lay.addWidget(self.tabla)
         return card
 
@@ -9221,23 +9491,51 @@ class TPVWindow(QWidget):
         return cont
 
     @staticmethod
-    def _celda_precio_boton(texto_precio: str, btn: QPushButton) -> QWidget:
-        """Celda de la columna "Precio unitario", ya fusionada de verdad con la columna del botón
-        "⋮" (petición explícita: unificación REAL de columna, no solo de cabecera — así el hover
-        nativo de esta cabecera funciona exactamente igual que en el resto, sin ningún truco de
-        pintado/widget superpuesto). El precio queda centrado en el espacio que le deja el botón,
-        fijo a la derecha."""
+    def _celda_boton_texto(btn: QPushButton, texto: str, color: str | None = None) -> QWidget:
+        """Celda de la columna "EAN", fusionada de verdad con el botón "⋮" (petición explícita:
+        unificación REAL de columna, no solo de cabecera — así el hover nativo de esta cabecera
+        funciona exactamente igual que en el resto, sin ningún truco de pintado/widget superpuesto).
+        El botón queda anclado al extremo IZQUIERDO de la celda (petición explícita) y el texto
+        (código EAN, o el detalle del descuento en su fila roja) ocupa el resto del espacio."""
         cont = QWidget()
         cont.setStyleSheet("background:transparent;")
         lay = QHBoxLayout(cont)
-        lay.setContentsMargins(10, 0, 8, 0)
-        lay.setSpacing(6)
-        lbl = QLabel(texto_precio)
-        lbl.setStyleSheet(f"color:{_TEXT};font-family:'{_FONT}';font-size:12px;background:transparent;")
+        lay.setContentsMargins(6, 0, 8, 0)
+        lay.setSpacing(8)
+        lay.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        lbl = QLabel(texto)
+        lbl.setStyleSheet(f"color:{color or _TEXT};font-family:'{_FONT}';font-size:12px;"
+                          f"background:transparent;")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(lbl, 1)
-        lay.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter)
         return cont
+
+    def _refrescar_cabecera_divisa(self, _codigo=None):
+        """Slot de `divisas.senal().divisa_cambiada` (ver `_build_tabla`). Defensivo además de
+        auto-desconectable: si por cualquier motivo llegara a dispararse ya con la tabla
+        destruida, no debe tumbar la app."""
+        try:
+            self.tabla.setHorizontalHeaderLabels(self._tpv_headers())
+        except RuntimeError:
+            pass
+
+    def _ruta_imagen(self, codigo: str) -> str | None:
+        """Ruta de la imagen del artículo (la misma que gestiona Info Artículo → pestaña IMAGEN
+        ARTÍCULO, `db.articulos.obtener_imagen`), cacheada en memoria por `codigo` — ver
+        `self._cache_imagenes_tpv` (evita I/O de disco repetido en cada `_refresh_tabla`)."""
+        if codigo in self._cache_imagenes_tpv:
+            return self._cache_imagenes_tpv[codigo]
+        ruta = None
+        try:
+            from src.db import articulos as _ART
+            from src.db.empresa import empresa_actual_id
+            r = _ART.obtener_imagen(codigo, id_empresa=empresa_actual_id())
+            if r and os.path.exists(r):
+                ruta = r
+        except Exception:
+            ruta = None
+        self._cache_imagenes_tpv[codigo] = ruta
+        return ruta
 
     def _refresh_tabla(self):
         """Petición explícita: cada línea de artículo es UNA fila; si tiene descuento aplicado,
@@ -9270,27 +9568,29 @@ class TPVWindow(QWidget):
             codigo_fila = l["codigo"]
 
             if tipo == "descuento":
-                # 64px: margen de sobra al botón "⋮" de 36x36 (ya centrado en la celda vía
-                # `_celda_centrada`).
+                # 64px: margen de sobra al botón "⋮" de 36x36 (fusionado en la celda 0, anclado a
+                # la izquierda — justo debajo del botón turquesa de su artículo, misma columna).
                 self.tabla.setRowHeight(row, 64)
-                self.tabla.setSpan(row, 0, 1, 3)  # cols 0-2; la 3 (fusionada) queda para el botón
+                self.tabla.setSpan(row, 0, 1, 3)  # cols 0-2; la celda 0 (fusionada) lleva el botón
                 texto = tr("tpv.discount_row", default="↓ Descuento aplicado: -{pct}%",
                           pct=f"{l['descuento_pct']:.1f}")
-                self.tabla.setItem(row, 0, _cell(texto, center, color=_ROJO))
                 btn = self._boton_puntos(_ROJO, "#FFFFFF")
                 btn.clicked.connect(lambda _=False, c=codigo_fila: self._abrir_acciones_descuento(c))
-                self.tabla.setCellWidget(row, 3, self._celda_centrada(btn))
+                self.tabla.setCellWidget(row, 0, self._celda_boton_texto(btn, texto, color=_ROJO))
                 continue
 
             self.tabla.setRowHeight(row, 56)
-            self.tabla.setItem(row, 0, _cell(str(l["codigo"]), center))
-            self.tabla.setItem(row, 1, _cell(l["nombre"], center))
-            self.tabla.setItem(row, 2, _cell(str(l["cantidad"]), center))
-
             btn = self._boton_puntos(_CIAN, "#0D1117")
             btn.clicked.connect(lambda _=False, c=codigo_fila: self._abrir_acciones_articulo(c))
-            self.tabla.setCellWidget(
-                row, 3, self._celda_precio_boton(f"{divisas.formatear(l['precio'])}", btn))
+            self.tabla.setCellWidget(row, 0, self._celda_boton_texto(btn, str(l["codigo"])))
+            self.tabla.setItem(row, 1, _cell(l["nombre"], center))
+            self.tabla.setItem(row, 2, _cell(str(l["cantidad"]), center))
+            # Solo el número (sin símbolo): el símbolo de divisa ya va en la cabecera de la
+            # columna (`_tpv_headers`, petición explícita) — repetirlo en cada fila era redundante.
+            self.tabla.setItem(row, 3, _cell(divisas.formatear(l["precio"], con_simbolo=False), center))
+
+            ruta_img = self._ruta_imagen(codigo_fila)
+            self.tabla.setCellWidget(row, 4, self._celda_centrada(_ImagenCeldaLabel(ruta_img)))
 
         self._refresh_totales()
 
@@ -9431,10 +9731,31 @@ class TPVWindow(QWidget):
 
     def _editar_linea(self, index):
         idx = self._fila_a_indice_linea(index.row())
-        if idx is not None and 0 <= idx < len(self._lineas):
-            dlg = _LineaEditDialog(self._lineas[idx], self)
-            if dlg.exec() == QDialog.DialogCode.Accepted:
-                self._lineas[idx] = dlg.get_linea()
+        if idx is None or not (0 <= idx < len(self._lineas)):
+            return
+        # Doble clic en la celda "Cantidad" (columna 2) de una fila de ARTÍCULO: edición directa
+        # e inline (petición explícita) — el resto de columnas sigue abriendo el diálogo completo
+        # (precio/descuento). Una fila de DESCUENTO no tiene columna "Cantidad" propia (cols 0-2
+        # fusionadas para su texto en rojo), así que conserva el comportamiento de siempre.
+        filas = getattr(self, "_filas_render", [])
+        tipo = filas[index.row()][0] if 0 <= index.row() < len(filas) else "linea"
+        if tipo == "linea" and index.column() == 2:
+            self._editar_cantidad_inline(idx)
+            return
+        dlg = _LineaEditDialog(self._lineas[idx], self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._lineas[idx] = dlg.get_linea()
+            self._refresh_tabla()
+
+    def _editar_cantidad_inline(self, idx: int):
+        l = self._lineas[idx]
+        dlg = _CantidadInlineDialog(l.get("cantidad", 1), l.get("nombre", ""), self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.nueva_cantidad is not None:
+            nueva = dlg.nueva_cantidad
+            if nueva != l.get("cantidad"):
+                l["cantidad"] = nueva
+                l["subtotal"] = round(
+                    nueva * l["precio"] * (1 - l.get("descuento_pct", 0) / 100), 2)
                 self._refresh_tabla()
 
     def _borrar_linea(self, row: int):
@@ -9586,9 +9907,9 @@ class TPVWindow(QWidget):
         self._abrir_ventana_completa(self._win_buscar_ticket)
 
     def _abrir_portal_empleado(self, sufijo: str = ""):
-        """Abre el Portal del Empleado en el navegador del sistema (extranet) — ya NO abre una
+        """Abre el Portal Pedidos Online en el navegador del sistema (extranet) — ya NO abre una
         ventana Qt propia: se migró de `gui/portal_web_home.PortalWebHome` (retirado) a
-        `src/backend/portal_empleado_web.py`, servida como página web real. Se emite un JWT al
+        `src/backend/portal_pedidos_online.py`, servida como página web real. Se emite un JWT al
         vuelo para el usuario de la sesión de escritorio (no se persiste, mismo patrón que
         `gui/components/remote_scan.py::_token_desktop`) y viaja en la URL. ``sufijo`` (p. ej.
         ``"/encargo"``) decide la página inicial dentro del portal; vacío = tablero de seguimiento
@@ -9603,26 +9924,34 @@ class TPVWindow(QWidget):
                 raise RuntimeError("No se pudo identificar la sesión de escritorio.")
             token = tokens.emitir_access(usuario)
             puerto = int(os.environ.get("BACKEND_PORT", os.environ.get("PORT", "8090")))
-            webbrowser.open(f"http://127.0.0.1:{puerto}/portal/empleado/{token}{sufijo}")
+            # PORTAL_EMPLEADO_URL (producción): apunta al backend alojado en el VPS, mismo patrón
+            # que PORTAL_PROVEEDOR_URL/PORTAL_EMPRESA_URL. Sin definir, degrada al backend LOCAL
+            # que el propio escritorio arrancó (comportamiento de siempre, sin romper nada).
+            # Requiere que SMART_MANAGER_JWT_SECRET de este equipo coincida con el del backend de
+            # destino: el token se verifica allí contra ese secreto (`src.seguridad.tokens`).
+            base = os.environ.get("PORTAL_EMPLEADO_URL", f"http://127.0.0.1:{puerto}/portal/empleado/")
+            # .rstrip("/") normaliza tanto el valor por defecto como un PORTAL_EMPLEADO_URL con o
+            # sin barra final (documentado sin ella en .env.example) antes de añadir la del token.
+            webbrowser.open(f"{base.rstrip('/')}/{token}{sufijo}")
         except Exception as e:
             from assets.estilo_global import mostrar_mensaje as _mm
             _mm(self, tr("tpv.online", default="Venta online"),
-                tr("portalweb.open_err", default="No se pudo abrir el Portal del Empleado: {e}", e=e),
+                tr("portalweb.open_err", default="No se pudo abrir el Portal Pedidos Online: {e}", e=e),
                 "warning")
 
     def _abrir_gestion_pedidos_online(self):
-        """Portal del Empleado — tablero de seguimiento Preparar/Enviar/Entregar (raíz)."""
+        """Portal Pedidos Online — tablero de seguimiento Preparar/Enviar/Entregar (raíz)."""
         self._abrir_portal_empleado()
 
     def _abrir_construir_encargo(self):
-        """"Venta almacén" (F2, acción PRIMARIA del cajero): abre el Portal del Empleado
+        """"Venta almacén" (F2, acción PRIMARIA del cajero): abre el Portal Pedidos Online
         directamente en la construcción de un encargo a almacén (`/encargo` — búsqueda de
         artículo, almacenes por proximidad y captura de cliente). El TPV ya no construye el
         encargo; solo lo cobra después (ver `_abrir_cobro_encargo`/`_VentaOnlineDialog`)."""
         self._abrir_portal_empleado("/encargo")
 
     def _abrir_cobro_encargo(self):
-        """Cobro de un encargo a almacén ya construido en el Portal del Empleado: abre el selector
+        """Cobro de un encargo a almacén ya construido en el Portal Pedidos Online: abre el selector
         de encargos PENDIENTES (`_VentaOnlineDialog`, simplificado — ya no construye pedidos)."""
         _VentaOnlineDialog(
             empleado=getattr(self, "_empleado_tpv", None) or "—",
@@ -9638,6 +9967,15 @@ class TPVWindow(QWidget):
         `_PasarelaConfigDialog._guardar` — acción crítica registrada en
         `services.seguridad.mfa_stepup.ACCIONES_CRITICAS`), que este botón NO toca ni debilita."""
         _PasarelaConfigDialog(parent=self).exec()
+
+    def _abrir_config_datafono(self):
+        """Emparejamiento del datáfono FÍSICO de ESTA tienda (cobro real con tarjeta en caja,
+        petición explícita) — distinto de la pasarela online de arriba (esa es para Canal Web/
+        Click&Collect, una config por EMPRESA; el datáfono es un dispositivo físico, una config
+        por TIENDA — ver `services.tpv.datafono`/`db.datafono`). Mismo gate de perfil que la
+        pasarela; el guardado real exige el mismo step-up MFA (`pagos.pasarela.configurar`)."""
+        from src.gui.datafono_pairing_dialog import DatafonoPairingDialog
+        DatafonoPairingDialog(parent=self).exec()
 
     def _seleccionar_cliente(self):
         """Selecciona/da de alta el cliente de la venta (o genérico)."""
@@ -9789,49 +10127,126 @@ class TPVWindow(QWidget):
             logger.warning("Comprobación de reserva de stock (venta TPV): %s", e)
 
         venta_id = None
-        try:
-            # P0 — RUTA CANÓNICA ÚNICA: delega la persistencia (y todas las integraciones:
-            # Verifactu, contabilidad, kárdex, FEFO, stock_almacen, política M4) en
-            # registrar_venta_con_items. NO se decrementa stock aquí (lo hace la ruta canónica).
-            from src.db.conexion import registrar_venta_con_items
+        venta_offline = False
+        items = [
+            {
+                "codigo": l["codigo"],
+                "codigo_articulo": l["codigo"],
+                "nombre": l.get("nombre"),
+                "seccion": l.get("seccion", ""),
+                "cantidad": l["cantidad"],
+                "precio_unitario": l["precio"],
+                "subtotal": l["subtotal"],
+                "peso_vendido": l.get("peso_vendido"),
+                "precio_kg": l.get("precio_kg"),
+                "modo_venta": l.get("modo_venta", "UNIDAD"),
+            }
+            for l in lineas
+        ]
+        empleado_id_val = self._empleado_tpv or (
+            str(self.empleado_id) if self.empleado_id else None
+        )
+        id_usuario_val = self._empleado_id_tpv or self.empleado_id
 
-            items = [
-                {
-                    "codigo_articulo": l["codigo"],
-                    "nombre": l.get("nombre"),
-                    "seccion": l.get("seccion", ""),
-                    "cantidad": l["cantidad"],
-                    "precio_unitario": l["precio"],
-                    "subtotal": l["subtotal"],
-                    "peso_vendido": l.get("peso_vendido"),
-                    "precio_kg": l.get("precio_kg"),
-                    "modo_venta": l.get("modo_venta", "UNIDAD"),
+        # Resiliencia (venta offline con sincronización automática al reconectar, Bloque 7): un
+        # encargo a almacén pendiente de cobro (`_encargo_pendiente`) necesita confirmar el pago
+        # contra un `venta_id` REAL de inmediato (`_crear_encargo_tras_venta`) — ese caso concreto
+        # se queda fuera de la ruta offline (alcance explícito) y sigue el comportamiento de
+        # siempre: si no hay conexión, se avisa y no se completa, en vez de fingir un cobro que
+        # no se puede reconciliar todavía con el pedido.
+        permite_offline = not self._encargo_pendiente
+        import uuid as _uuid
+
+        from src.db.conexion import hay_conexion, registrar_venta_con_items
+        from src.services.resiliencia import edge_node
+
+        modo_actual = "online"
+        if permite_offline:
+            try:
+                modo_actual = edge_node.estado(_id_empresa, _id_tienda or 0).get("modo", "online")
+            except Exception:
+                modo_actual = "online"
+        ir_offline = permite_offline and (
+            modo_actual == "offline" or not hay_conexion()
+        )
+
+        if not ir_offline:
+            try:
+                # P0 — RUTA CANÓNICA ÚNICA: delega la persistencia (y todas las integraciones:
+                # Verifactu, contabilidad, kárdex, FEFO, stock_almacen, política M4) en
+                # registrar_venta_con_items. NO se decrementa stock aquí (lo hace la ruta canónica).
+                venta_id = registrar_venta_con_items(
+                    items,
+                    fecha=fecha.strftime("%Y-%m-%d %H:%M:%S"),
+                    forma_pago=forma_pago,
+                    empleado_id=empleado_id_val,
+                    cliente=cli,
+                    numero_caja=n_caja,
+                    total=total,
+                    id_empresa=_id_empresa,
+                    id_tienda=_id_tienda,
+                    origen_flujo="tpv",
+                    id_usuario=id_usuario_val,
+                )
+                if not venta_id:
+                    raise RuntimeError("registro de venta no devolvió id")
+            except Exception as e:
+                if not permite_offline:
+                    self._msg(tr("tpv.db_error_title"), tr("tpv.db_error_msg", e=e), "error")
+                    return
+                # Falló a mitad (no solo el pre-chequeo): se trata igual que "sin conexión" y se
+                # cae a la ruta offline de abajo en vez de bloquear la venta.
+                ir_offline = True
+
+        if ir_offline:
+            try:
+                from src.services.resiliencia import offline_store
+
+                idem = str(_uuid.uuid4())
+                payload = {
+                    "lineas": items,
+                    "fecha": fecha.strftime("%Y-%m-%d %H:%M:%S"),
+                    "forma_pago": forma_pago,
+                    "empleado_id": empleado_id_val,
+                    "cliente": cli or None,
+                    "numero_caja": n_caja,
+                    "total": total,
+                    "id_usuario": id_usuario_val,
                 }
-                for l in lineas
-            ]
-            venta_id = registrar_venta_con_items(
-                items,
-                fecha=fecha.strftime("%Y-%m-%d %H:%M:%S"),
-                forma_pago=forma_pago,
-                empleado_id=self._empleado_tpv
-                or (str(self.empleado_id) if self.empleado_id else None),
-                cliente=cli,
-                numero_caja=n_caja,
-                total=total,
-                id_empresa=_id_empresa,
-                id_tienda=_id_tienda,
-                origen_flujo="tpv",
-                id_usuario=self._empleado_id_tpv or self.empleado_id,
+                edge_node.entrar_offline(_id_empresa, _id_tienda or 0)
+                r = offline_store.registrar_venta(
+                    _id_empresa, idem, payload, total, id_tienda=_id_tienda or 0
+                )
+                if not r.get("ok"):
+                    raise RuntimeError(str(r))
+                # `venta_id` sigue siendo un INT (lo exige `construir_datos_ticket`, que hace
+                # `int(venta_id or 0)` sin protegerse de un valor no numérico) — se usa el id LOCAL
+                # de la fila SQLite en NEGATIVO, que nunca puede coincidir con un `ventas.id` real
+                # (auto_increment positivo) ni antes ni después de sincronizar. La referencia
+                # humana (para el aviso al cajero) es la `idem` completa, no este número interno.
+                venta_id = -(int(r.get("id") or 0)) or -1
+                venta_offline = True
+                referencia_offline = idem[:8].upper()
+            except Exception as e:
+                logger.error("Venta offline (captura local) falló: %s", e)
+                self._msg(tr("tpv.db_error_title"), tr("tpv.db_error_msg", e=e), "error")
+                return
+
+        if venta_offline:
+            # Aviso NO bloqueante y siempre visible — nunca se pretende que la venta ya esté en
+            # el servidor central: queda registrada localmente y se sincronizará sola en cuanto
+            # el latido de reconexión detecte que ha vuelto la conexión (ver `main.py`).
+            self._msg(
+                tr("tpv.venta_offline_title", default="Venta registrada sin conexión"),
+                tr("tpv.venta_offline_msg", default="Sin conexión con el servidor — la venta se "
+                                                     "ha guardado en este equipo y se sincronizará "
+                                                     "automáticamente en cuanto vuelva la conexión. "
+                                                     "Referencia: {ref}", ref=referencia_offline),
             )
-            if not venta_id:
-                raise RuntimeError("registro de venta no devolvió id")
-        except Exception as e:
-            self._msg(tr("tpv.db_error_title"), tr("tpv.db_error_msg", e=e), "error")
-            return
 
         # Encargo a almacén (F2, `_VentaOnlineDialog`) pendiente de cobro: el cobro real ACABA de
         # confirmarse arriba (`registrar_venta_con_items` con éxito) — es el ÚNICO punto legítimo
-        # para confirmar el pago del pedido (ya existente, construido en el Portal del Empleado) y
+        # para confirmar el pago del pedido (ya existente, construido en el Portal Pedidos Online) y
         # darlo por PAGADO, nunca antes ("si el cliente no ha pagado, no se podrá hacer ningún
         # encargo"). Se consume siempre (vuelve a None) para que jamás pueda reengancharse
         # a una venta posterior no relacionada.
@@ -9922,7 +10337,7 @@ class TPVWindow(QWidget):
         `_VentaOnlineDialog`) que el cajero cargó a la cesta, atómicamente con el cobro real que
         acaba de completarse.
 
-        YA NO crea el pedido — ahora existe desde que se construyó en el Portal del Empleado
+        YA NO crea el pedido — ahora existe desde que se construyó en el Portal Pedidos Online
         (`crear_encargo_almacen`, disparado ahí, siempre nace PENDIENTE). Único camino que queda:
         `confirmar_pago_encargo` sobre el `id_pedido` ya existente (el único que puede pasarlo a
         PAGADO). Reconcilia (aviso, no bloqueante) que las líneas del pedido pendiente tengan

@@ -43,10 +43,13 @@ REGISTRO = [
     # (la antigua pestaña "SAT / Postventa" se MIGRÓ a su propio módulo de nivel superior —
     # tarjeta "Posventa", v_id "sat", en `menu_principal.py`/`modulos_menu.py` — ya no vive como
     # pestaña de este módulo, así que se retira su entrada.)
+    # (la antigua pestaña "KPIs / Previsión" se RETIRÓ por completo, petición explícita —
+    # redundante con "Productividad" del módulo Ventas — así que se retira su entrada.)
+    # (la antigua pestaña "Objetivos" se UNIFICÓ dentro de "Productividad" del módulo Ventas,
+    # petición explícita — ver `services.productividad.objetivos` metrica='visitas' — así que se
+    # retira su entrada.)
     ("clientes_crm.oportunidades", "Oportunidades", "Clientes", "clientes_crm", False, False),
-    ("clientes_crm.kpis", "KPIs / Previsión", "Clientes", "clientes_crm", False, False),
     ("clientes_crm.campanias", "Campañas", "Clientes", "clientes_crm", False, False),
-    ("clientes_crm.objetivos", "Objetivos", "Clientes", "clientes_crm", False, False),
     ("clientes_crm.rutas", "Rutas", "Clientes", "clientes_crm", False, False),
     ("clientes_crm.actividades", "Actividades", "Clientes", "clientes_crm", False, False),
     ("clientes_crm.clientes", "Clientes", "Clientes", "clientes_crm", False, False),

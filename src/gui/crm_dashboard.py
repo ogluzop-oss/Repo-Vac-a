@@ -9,8 +9,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QStackedWidget, QTableWidgetItem,
                              QTabWidget, QVBoxLayout, QWidget)
 
-from src.gui.catalogo_gestion import (_BG, _BG2, _CIAN, _DIM, _btn, _btn_cargando, _btn_x, _combo,
-                                      _dialogo_frameless, _inp, _lbl, _tabla)
+from src.gui.catalogo_gestion import (_BG, _BG2, _BORDE, _CIAN, _DIM, _TEXT, _btn, _btn_cargando,
+                                      _btn_x, _combo, _dialogo_frameless, _inp, _lbl, _tabla)
 from src.gui.components import EnterpriseKanbanBoard
 from src.db import articulos as ART
 from src.db import clientes as CLIDB
@@ -71,6 +71,15 @@ class _FormDialog(QDialog):
             v.addWidget(_lbl(c["label"]))
             if c.get("tipo") == "combo":
                 w = _combo(c["opciones"], c.get("default"))
+            elif c.get("tipo") == "textarea":
+                from PyQt6.QtWidgets import QPlainTextEdit
+                w = QPlainTextEdit(str(c.get("default") or ""))
+                w.setPlaceholderText(c.get("ph", ""))
+                w.setFixedHeight(100)
+                w.setStyleSheet(
+                    f"QPlainTextEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+                    f"border-radius:8px;padding:8px;font-size:12px;}}"
+                    f"QPlainTextEdit:focus{{border-color:{_CIAN};}}")
             else:
                 w = _inp(c.get("ph", ""))
                 if c.get("default") is not None:
@@ -82,8 +91,13 @@ class _FormDialog(QDialog):
         v.addLayout(fila)
 
     def datos(self):
-        return {k: (w.currentData() if tipo == "combo" else w.text().strip())
-               for k, (w, tipo) in self._w.items()}
+        def _valor(w, tipo):
+            if tipo == "combo":
+                return w.currentData()
+            if tipo == "textarea":
+                return w.toPlainText().strip()
+            return w.text().strip()
+        return {k: _valor(w, tipo) for k, (w, tipo) in self._w.items()}
 
 
 class _ParadasRutaDialog(QDialog):
@@ -188,10 +202,8 @@ class CRMDashboardWindow(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
         self.tbl_ops = _tabla(["ID", "Titulo", "Estado", "Valor", "Prob %", "Cierre prev.", "Doc.", "Proy."])
-        self.tbl_kpi = _tabla(["KPI", "Valor"])
         # Enriquecimiento CRM (Módulo 1): campañas/marketing, objetivos comerciales y rutas comerciales.
         self.tbl_camp = _tabla(["ID", "Nombre", "Canal", "Segmento", "Estado", "Presupuesto"])
-        self.tbl_obj = _tabla(["Responsable", "Tipo", "Objetivo", "Real", "%", "Cumplido"])
         self.tbl_rutas = _tabla(["ID", "Nombre", "Responsable", "Fecha", "Estado"])
         self.tbl_act = _tabla(["ID", "Tipo", "Asunto", "Vinculado a", "Responsable", "Vencimiento", "Estado"])
         # La antigua pestaña "Contactos" (leads) se ha ELIMINADO: su tabla + altas/cambio de
@@ -200,24 +212,31 @@ class CRMDashboardWindow(QWidget):
         # (`src/gui/clientes_gui.py`) — reutiliza el mismo backend `services/crm/leads.py`, no se
         # duplica lógica. Ver `_construir_tab_clientes`.
         self.tabs.addTab(self._tab_oportunidades(), "Oportunidades")  # idx 0
-        self.tabs.addTab(self._tabla_con_actualizar(self.tbl_kpi, self._load_kpis), "KPIs / Previsión")  # idx 1
-        self.tabs.addTab(self._tab_campanias(), "Campañas")  # idx 2
-        self.tabs.addTab(self._tab_objetivos(), "Objetivos")  # idx 3
-        self.tabs.addTab(self._tab_rutas(), "Rutas comerciales")  # idx 4
-        self.tabs.addTab(self._tab_actividades(), "Actividades")  # idx 5
+        self.tabs.addTab(self._tab_campanias(), "Campañas")  # idx 1
+        self.tabs.addTab(self._tab_rutas(), "Rutas comerciales")  # idx 2
+        self.tabs.addTab(self._tab_actividades(), "Actividades")  # idx 3
 
-        # Lazy loading (init en primer acceso): las 6 pestañas de arriba ya existen como widgets
-        # (tablas), pero poblarlas TODAS de golpe (6 consultas a BD seguidas) en __init__ es lo que
+        # Lazy loading (init en primer acceso): las 4 pestañas de arriba ya existen como widgets
+        # (tablas), pero poblarlas TODAS de golpe (4 consultas a BD seguidas) en __init__ es lo que
         # hacía tardar la apertura. Solo se carga de inmediato la pestaña visible (Oportunidades); el
         # resto carga sus datos la primera vez que el usuario la visita.
         self._load_tab_map = {
-            0: self._load_oportunidades, 1: self._load_kpis,
-            2: self._load_campanias, 3: self._load_objetivos, 4: self._load_rutas,
-            5: self._load_actividades,
+            0: self._load_oportunidades,
+            1: self._load_campanias, 2: self._load_rutas,
+            3: self._load_actividades,
         }
         self._datos_cargados = set()
         self.tabs.currentChanged.connect(self._asegurar_datos_tab)
         self._asegurar_datos_tab(self.tabs.currentIndex())
+        # "KPIs / Previsión" ya NO es una pestaña (petición explícita: redundante con
+        # "Productividad" de Ventas) — pero el forecast/conversión de la cabecera (`self.lbl`,
+        # SIEMPRE visible, no depende de ninguna pestaña) y la sincronización con BI
+        # (`analitica.registrar_en_bi`) seguían dependiendo de que esa pestaña se visitara. Se
+        # carga aquí, una vez, al abrir el módulo — igual de eager que "Oportunidades" arriba.
+        try:
+            self._load_kpis()
+        except Exception as e:
+            logger.debug("CRM: carga inicial de KPIs/forecast: %s", e)
 
         # Submódulos del dominio CRM (reutilizan las ventanas existentes, sin duplicarlas): gestión de
         # clientes, y Presupuestos para clientes (migrado tal cual desde Contabilidad). Embeben
@@ -246,7 +265,11 @@ class CRMDashboardWindow(QWidget):
         # concesión de pestaña suelta), ninguna se ve por defecto — solo la(s) concedida(s).
         from src.services.seguridad import pestanas_app
         _tiene_completo = pestanas_app.tiene_modulo_completo("clientes_crm", self.usuario, False)
-        _slugs = ["oportunidades", "kpis", "campanias", "objetivos", "rutas", "actividades",
+        # "kpis" y "objetivos" se retiraron de aquí (ya no son pestañas, ver __init__ — objetivos
+        # se unificó dentro de "Productividad" de Ventas) — mantener esta lista alineada
+        # POSICIONALMENTE con los `addTab()` de arriba es crítico: cada índice de `_slugs`
+        # controla la visibilidad de la pestaña en ESA MISMA posición.
+        _slugs = ["oportunidades", "campanias", "rutas", "actividades",
                  "clientes", "presupuestos"]
         if str((self.usuario or {}).get("perfil", "")).strip().upper() == "SUPERADMIN":
             _slugs = _slugs + ["delegacion_ia"]
@@ -255,23 +278,6 @@ class CRMDashboardWindow(QWidget):
                 self.tabs.setTabVisible(_i, False)
 
         root.addWidget(self.tabs)
-
-    def _tabla_con_actualizar(self, tabla, on_actualizar):
-        """Envuelve `tabla` con una barra superior con el botón 'Actualizar' alineado a la
-        derecha, justo encima de ella — misma posición en las 6 pestañas de datos propias
-        (Contactos/KPIs/Campañas/Objetivos/Rutas; Oportunidades la añade aparte porque ya
-        tiene su propia barra inferior). Sustituye al antiguo botón único de la cabecera,
-        que quedaba duplicado con el de SAT/Postventa y no dejaba claro qué recargaba."""
-        w = QWidget()
-        ly = QVBoxLayout(w)
-        ly.setContentsMargins(0, 0, 0, 0)
-        ly.setSpacing(6)
-        barra = QHBoxLayout()
-        barra.addStretch()
-        barra.addWidget(_btn_cargando("🔄  Actualizar", on_actualizar, primary=True))
-        ly.addLayout(barra)
-        ly.addWidget(tabla)
-        return w
 
     def _asegurar_datos_tab(self, idx):
         if idx in self._datos_cargados:
@@ -884,8 +890,12 @@ class CRMDashboardWindow(QWidget):
             {"key": "canal", "label": "Canal", "tipo": "combo",
              "opciones": [("Email", "email"), ("SMS", "sms"), ("WhatsApp", "whatsapp"), ("Otro", "otro")],
              "default": "email"},
-            {"key": "segmento_objetivo", "label": "Segmento (opcional)", "ph": "Ej: mayoristas"},
+            {"key": "segmento_objetivo", "label": "Segmento de clientes (opcional; los leads activos "
+                                                  "con email se incluyen siempre)", "ph": "Ej: mayoristas"},
             {"key": "presupuesto", "label": "Presupuesto (€)", "ph": "0", "default": "0"},
+            {"key": "asunto", "label": "Asunto del correo (para «Activar»)", "ph": "Asunto del correo"},
+            {"key": "cuerpo", "label": "Cuerpo del correo (para «Activar»)", "tipo": "textarea",
+             "ph": "Texto que recibirán los leads/clientes al activar la campaña…"},
         ])
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
@@ -900,7 +910,8 @@ class CRMDashboardWindow(QWidget):
         from src.services.crm import campanias
         cid = campanias.crear_campania(d["nombre"], canal=d["canal"],
                                        segmento_objetivo=d["segmento_objetivo"] or None,
-                                       presupuesto=presupuesto, id_empresa=_empresa())
+                                       presupuesto=presupuesto, asunto=d["asunto"] or None,
+                                       cuerpo=d["cuerpo"] or None, id_empresa=_empresa())
         if cid:
             _aviso(self, "Campañas", "Campaña creada correctamente.", "success")
             self._load_campanias()
@@ -921,60 +932,22 @@ class CRMDashboardWindow(QWidget):
             return
         from src.services.crm import campanias
         res = campanias.activar(cid, id_empresa=_empresa())
-        if res.get("ok"):
-            _aviso(self, "Campañas", "Campaña activada.", "success")
+        # "activar" ahora DISPARA el envío real (petición explícita) — el estado puede haber
+        # cambiado a ACTIVA aunque el envío falle (p. ej. falta asunto/cuerpo); se muestra siempre
+        # el detalle real del envío, nunca un simple "activada" que escondería si llegó o no.
+        if res.get("estado") == "ACTIVA" and res.get("ok"):
+            _aviso(self, "Campañas",
+                  f"Campaña activada y enviada: {res.get('enviados', 0)} correo(s) enviados"
+                  + (f", {res.get('fallidos', 0)} fallido(s)" if res.get("fallidos") else "")
+                  + f" de {res.get('total', 0)} destinatario(s).", "success")
+            self._load_campanias()
+        elif res.get("estado") == "ACTIVA":
+            _aviso(self, "Campañas",
+                  "La campaña se activó, pero el envío no se pudo hacer: "
+                  + (res.get("motivo") or "motivo desconocido."), "warning")
             self._load_campanias()
         else:
             _aviso(self, "Campañas", "No se pudo activar: " + (res.get("motivo") or ""), "error")
-
-    def _tab_objetivos(self):
-        w = QWidget(); ly = QVBoxLayout(w); ly.setContentsMargins(0, 16, 0, 0); ly.setSpacing(14)
-        barra = QHBoxLayout()
-        barra.addStretch()
-        barra.addWidget(_btn("➕ Nuevo objetivo", self._nuevo_objetivo, primary=True))
-        barra.addWidget(_btn_cargando("🔄  Actualizar", self._load_objetivos, primary=True))
-        ly.addLayout(barra)
-        ly.addWidget(self.tbl_obj)
-        return w
-
-    def _nuevo_objetivo(self):
-        if not autorizacion.puede(self.usuario, "crm.admin"):
-            _aviso(self, "Objetivos", "No tiene permiso para crear objetivos.", "warning")
-            return
-        dlg = _FormDialog(self, "Nuevo objetivo", [
-            {"key": "responsable", "label": "Responsable *", "ph": "Nombre del responsable"},
-            {"key": "tipo", "label": "Tipo", "tipo": "combo",
-             "opciones": [("Ventas", "ventas"), ("Oportunidades", "oportunidades"), ("Visitas", "visitas")],
-             "default": "ventas"},
-            {"key": "objetivo_valor", "label": "Objetivo (importe o cantidad)", "ph": "0", "default": "0"},
-            {"key": "periodo", "label": "Periodo (opcional)", "ph": "Ej: 2026-Q1"},
-            {"key": "fecha_inicio", "label": "Fecha inicio (AAAA-MM-DD, opcional)", "ph": "2026-01-01"},
-            {"key": "fecha_fin", "label": "Fecha fin (AAAA-MM-DD, opcional)", "ph": "2026-03-31"},
-        ])
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        d = dlg.datos()
-        if not d["responsable"]:
-            _aviso(self, "Objetivos", "El responsable es obligatorio.", "warning")
-            return
-        try:
-            valor = float((d["objetivo_valor"] or "0").replace(",", ".") or 0)
-        except ValueError:
-            valor = 0
-        from src.services.crm import objetivos
-        try:
-            oid = objetivos.crear_objetivo(d["responsable"], valor, tipo=d["tipo"],
-                                           periodo=d["periodo"] or None,
-                                           fecha_inicio=d["fecha_inicio"] or None,
-                                           fecha_fin=d["fecha_fin"] or None, id_empresa=_empresa())
-        except ValueError as e:
-            _aviso(self, "Objetivos", str(e), "warning")
-            return
-        if oid:
-            _aviso(self, "Objetivos", "Objetivo creado correctamente.", "success")
-            self._load_objetivos()
-        else:
-            _aviso(self, "Objetivos", "No se pudo crear el objetivo.", "error")
 
     def _tab_rutas(self):
         w = QWidget(); ly = QVBoxLayout(w); ly.setContentsMargins(0, 16, 0, 0); ly.setSpacing(14)
@@ -1324,14 +1297,13 @@ class CRMDashboardWindow(QWidget):
             logger.debug("sincronizar kanban tras _load_oportunidades: %s", e)
 
     def _load_kpis(self):
+        """Ya no alimenta ninguna pestaña (ver `__init__`: "KPIs / Previsión" se retiró, petición
+        explícita) — sigue viva solo para el forecast/conversión de la cabecera (`self.lbl`) y para
+        que `registrar_en_bi` siga sincronizando estos KPIs con BI (mismo patrón que MRP/SAT/
+        Calidad/GMAO/Finanzas)."""
         eid = _empresa()
         from src.services.crm import analitica
-        # `registrar_en_bi` calcula los mismos KPIs que `kpis()` y además los sincroniza con BI (mismo
-        # patrón que MRP/SAT/Calidad/GMAO/Finanzas — antes CRM lo tenía definido pero sin caller real).
         k = analitica.registrar_en_bi(id_empresa=eid)
-        self.tbl_kpi.setRowCount(len(k))
-        for i, (nombre, val) in enumerate(k.items()):
-            self.tbl_kpi.setItem(i, 0, _it(nombre)); self.tbl_kpi.setItem(i, 1, _it(val))
         self.lbl.setText(f"Forecast ponderado: {k.get('forecast', 0)} € · Conversión: {k.get('conversion_pct', 0)}%")
 
     # Enriquecimiento CRM (Módulo 1): campañas · objetivos · rutas.
@@ -1344,16 +1316,6 @@ class CRMDashboardWindow(QWidget):
             for j, v in enumerate([cp.get("id"), cp.get("nombre"), cp.get("canal"),
                                    cp.get("segmento_objetivo"), cp.get("estado"), cp.get("presupuesto")]):
                 self.tbl_camp.setItem(i, j, _it(v))
-
-    def _load_objetivos(self):
-        eid = _empresa()
-        from src.services.crm import objetivos
-        obs = objetivos.progreso(id_empresa=eid)
-        self.tbl_obj.setRowCount(len(obs))
-        for i, o in enumerate(obs):
-            for j, v in enumerate([o.get("responsable"), o.get("tipo"), o.get("objetivo_valor"),
-                                   o.get("real"), o.get("pct"), "Sí" if o.get("cumplido") else "No"]):
-                self.tbl_obj.setItem(i, j, _it(v))
 
     def _load_rutas(self):
         eid = _empresa()

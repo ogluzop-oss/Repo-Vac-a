@@ -2,6 +2,13 @@
 CRM · Objetivos comerciales (Módulo 1, enriquecimiento). Fija objetivos/cuotas por responsable y
 período (ventas, oportunidades ganadas o visitas) y calcula el progreso REAL reutilizando los datos ya
 existentes (ventas, crm_oportunidades, crm_actividades). Integra auditoría + BI. No duplica lógica.
+
+@deprecated (petición explícita): la pestaña "Objetivos" del CRM que consumía este módulo se
+RETIRÓ — su capacidad distintiva (objetivos de Nº de visitas, además de facturación) se unificó
+dentro de "Productividad" del módulo Ventas (`services.productividad.objetivos`, columna
+`metrica`='eur'|'visitas'). Este módulo se conserva intacto (Strangler: no se borra código ni la
+tabla `crm_objetivos` con histórico real) por si queda algún otro consumidor o haga falta migrar
+datos antiguos — pero no tiene ya ningún punto de entrada en la UI.
 """
 
 import logging

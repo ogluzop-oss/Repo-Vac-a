@@ -708,14 +708,11 @@ class MenuPrincipal(QWidget):
         # pestaña "Delegación IA" dentro de la ventana del módulo al que pertenece (Correo, CRM,
         # Posventa, Compras, Configuración…), ver `gui.soma_delegacion_gui.DelegacionSomaPanel`.
 
-        # Registro Temperatura (control de cadena de frío): módulo nuevo, SOLO OPERARIO/ADMINISTRADOR
-        # (ejecución in situ por el personal de tienda — el SUPERADMIN programa el recordatorio desde
-        # "Tareas", pero no registra lecturas él mismo). Exclusión explícita de SUPERADMIN: sin el
-        # `self.perfil != "SUPERADMIN"` de aquí, `_mm.default_visible` deja pasar a SUPERADMIN por su
-        # comodín habitual de "ve todos los módulos" (ver `modulos_menu.default_visible`) — este módulo
-        # es la excepción deliberada a ese comodín (el propio guard de ruta en
-        # `abrir_ventana_por_id` ya bloqueaba a SUPERADMIN; ahora la tarjeta tampoco se muestra).
-        if self.perfil != "SUPERADMIN" and self._acceso_modulo(
+        # Registro Temperatura (control de cadena de frío): petición explícita, revierte la
+        # exclusión anterior de SUPERADMIN — ahora ve TODOS los módulos de la app, incluido este
+        # (antes se razonaba que "el SUPERADMIN programa el recordatorio desde Tareas, pero no
+        # registra lecturas él mismo"; ya no aplica).
+        if self._acceso_modulo(
                 "registro_temperatura", _mm.default_visible("registro_temperatura", self.perfil)):
             btn_regtemp = self.crear_tarjeta_menu(
                 "Temperaturas", "registro_temperatura", "#22F4E6", "document"
@@ -753,7 +750,7 @@ class MenuPrincipal(QWidget):
         # notificaciones sigue activo; el Centro de Actividad permanece accesible por ruta).
 
         # SaaS/Suscripción: MIGRADA tal cual (petición explícita) a la pestaña "SUSCRIPCIÓN" de
-        # Configuración (`gestion_usuarios.py::ConfiguracionWindow`, SUPERADMIN, mismo gate que
+        # Configuración (`configuracion.py::ConfiguracionWindow`, SUPERADMIN, mismo gate que
         # tenía esta tarjeta). El enrutado v_id "saas" se conserva por compatibilidad (no crea
         # tarjeta) — `SaaSAdminWindow` sigue intacta, ahora embebida ahí sin su botón X.
 
@@ -830,10 +827,14 @@ class MenuPrincipal(QWidget):
             )
             footer_buttons.append(btn_migracion)
 
-        # Cámaras (videovigilancia): SOLO admin/superadmin — acceso restringido a propósito.
+        # Seguridad (petición explícita: "Cámaras" renombrado — ahora con pestañas Cámaras + Placas
+        # Antihurto EAS, ver `camaras_gui.CamarasWindow._build`). SOLO admin/superadmin — acceso
+        # restringido a propósito. v_id se mantiene "camaras" sin tocar (compatibilidad hacia atrás:
+        # ACL/rutas/voz SOMA ya apuntan ahí) — solo cambia el texto visible de la tarjeta; no hay
+        # colisión con la tarjeta "Permisos" (v_id "seguridad", módulo de RBAC/Gobierno, distinto).
         if self._acceso_modulo("camaras", _mm.default_visible("camaras", self.perfil)):
             btn_camaras = self.crear_tarjeta_menu(
-                "Cámaras", "camaras", "#22F4E6", "security_camera"
+                "Seguridad", "camaras", "#22F4E6", "security_camera"
             )
             footer_buttons.append(btn_camaras)
 
@@ -903,13 +904,9 @@ class MenuPrincipal(QWidget):
         # (`crm_dashboard.py`) a módulo de nivel superior propio (tarjeta "Posventa", v_id "sat"),
         # mismo patrón que la extracción de Mantenimiento (GMAO). Toda la lógica sigue en
         # `services.sat` (sin cambios); `SATDashboardWindow` sigue siendo la misma ventana completa
-        # de siempre — solo cambia su punto de entrada. Disponible EXCLUSIVAMENTE para
-        # OPERARIO/ADMINISTRADOR — excepción INVERSA a propósito (se oculta al perfil de MÁS
-        # privilegio, no al de menos; `default_visible`/`DEFAULT_OPERARIO` ya cubren
-        # OPERARIO/ADMINISTRADOR, aquí solo se excluye SUPERADMIN explícitamente). Mismo criterio
-        # aplicado también en el routing de `abrir_ventana_por_id` para cerrar el acceso por vías
-        # que no pasan por la tarjeta (p. ej. comando de voz de SOMA).
-        if self.perfil != "SUPERADMIN" and self._acceso_modulo("sat", _mm.default_visible("sat", self.perfil)):
+        # de siempre — solo cambia su punto de entrada. Petición explícita: ya NO se excluye a
+        # SUPERADMIN (antes era exclusivo de OPERARIO/ADMINISTRADOR) — ahora ve TODOS los módulos.
+        if self._acceso_modulo("sat", _mm.default_visible("sat", self.perfil)):
             btn_sat = self.crear_tarjeta_menu("Posventa", "sat", "#22F4E6", "clipboard_check")
             footer_buttons.append(btn_sat)
 
@@ -917,9 +914,10 @@ class MenuPrincipal(QWidget):
         # de acceso que dejó la retirada de la tarjeta "Portal del empleado" del menú: un OPERARIO
         # sin acceso a RRHH/Documentos se quedaba sin ninguna vía de escritorio para ver sus propias
         # nóminas). Autoconsulta SOLO LECTURA de la nómina PROPIA de cada trabajador con cuenta
-        # vinculada — mismo criterio INVERSO que "sat": exclusivo de ADMINISTRADOR/OPERARIO, oculto
-        # a SUPERADMIN (que gestiona/aprueba nóminas desde RRHH, no desde aquí).
-        if self.perfil != "SUPERADMIN" and self._acceso_modulo(
+        # vinculada. Petición explícita posterior: ya NO se excluye a SUPERADMIN (antes se
+        # razonaba que gestiona/aprueba nóminas desde RRHH, no desde aquí) — ahora ve TODOS los
+        # módulos de la app.
+        if self._acceso_modulo(
                 "nominas", _mm.default_visible("nominas", self.perfil)):
             btn_nominas = self.crear_tarjeta_menu("Nóminas", "nominas", "#22F4E6", "wallet")
             footer_buttons.append(btn_nominas)
@@ -937,6 +935,18 @@ class MenuPrincipal(QWidget):
                                                          "#22F4E6", "bell")
             footer_buttons.append(btn_redes_sociales)
 
+        # Eventos: módulo de nivel superior NUEVO, EXCLUSIVO de SUPERADMIN a petición explícita
+        # (antes pestaña "PLANIFICAR CITAS" de Configuración — migrada tal cual, calendario +
+        # agenda única). Mismo criterio que RRSS/Cámaras/Reparto/Distribución: la tarjeta respeta
+        # ACL (`_acceso_modulo`) por consistencia visual, pero el gate AUTORITATIVO es el
+        # `self.perfil != "SUPERADMIN"` en el routing de `abrir_ventana_por_id` (alcanzable también
+        # sin tarjeta, p. ej. por voz SOMA).
+        if self.perfil == "SUPERADMIN" and (self._acceso_modulo(
+                "eventos", _mm.default_visible("eventos", self.perfil))
+                or self._acceso_por_pestana("eventos")):
+            btn_eventos = self.crear_tarjeta_menu("Eventos", "eventos", "#22F4E6", "calendar_clock")
+            footer_buttons.append(btn_eventos)
+
         # Salir → esquina inferior DERECHA (botón plano, fuera del grid).
         btn_salir = self._crear_boton_esquina("Salir", "logout", "#FF5C70", "logout")
 
@@ -944,7 +954,10 @@ class MenuPrincipal(QWidget):
         # se descartan aquí (nunca se crean ni se colocan).
         footer_buttons = [b for b in footer_buttons if b is not None]
 
-        columns = 6
+        # 7 columnas (petición explícita, para que SUPERADMIN vea TODOS los módulos — incluidos
+        # los antes ocultos — sin desbordar filas de más): antes 6. AlignCenter en el grid y en
+        # el contenedor (más abajo) recentra automáticamente, sin más cambios.
+        columns = 7
         for index, widget in enumerate(footer_buttons):
             row = index // columns
             col = index % columns
@@ -1064,6 +1077,7 @@ class MenuPrincipal(QWidget):
         "fichajes": "Fichajes.png",
         "horarios": "Horario.png",
         "redes_sociales": "RRSS.png",
+        "eventos": "calendario.png",
         "nominas": "nominas.png",
     }
 
@@ -1936,6 +1950,18 @@ class MenuPrincipal(QWidget):
                 from src.gui.redes_sociales_gui import RedesSocialesWindow
 
                 self.manejar_apertura(v_id, RedesSocialesWindow, **kwargs)
+            elif v_id == "eventos":
+                # EXCLUSIVO de SUPERADMIN (petición explícita) — la tarjeta ya está oculta para
+                # el resto de perfiles, pero esta ruta también es alcanzable sin pasar por la
+                # tarjeta (p. ej. comando de voz de SOMA), así que se aplica el mismo filtro aquí
+                # (mismo patrón que "camaras"/"transporte"/"distribucion"/"redes_sociales"). El
+                # aviso flotante de citas de hoy (`_notif_ver_cita`) NO pasa por aquí a propósito
+                # — es una funcionalidad previa sin gate, para cualquier rol.
+                if self.perfil != "SUPERADMIN":
+                    return
+                from src.gui.eventos_gui import EventosWindow
+
+                self.manejar_apertura(v_id, EventosWindow, **kwargs)
             elif v_id == "cloud_manager":
                 from src.gui.cloud_manager_gui import CloudManagerWindow
 
@@ -1981,12 +2007,8 @@ class MenuPrincipal(QWidget):
 
                 self.manejar_apertura(v_id, PortalEmpleadoWindow, **kwargs)
             elif v_id == "nominas":
-                # Exclusivo de ADMINISTRADOR/OPERARIO (petición explícita) — la tarjeta ya está
-                # oculta para SUPERADMIN, pero esta ruta también es alcanzable sin pasar por la
-                # tarjeta (p. ej. comando de voz de SOMA), así que se aplica el mismo filtro aquí
-                # (mismo patrón inverso que "sat").
-                if self.perfil == "SUPERADMIN":
-                    return
+                # Petición explícita (revierte la exclusión anterior): SUPERADMIN ahora ve TODOS
+                # los módulos de la app, incluido este — ya no se oculta a ningún perfil.
                 from src.gui.nominas_personales import NominasPersonalesWindow
 
                 self.manejar_apertura(v_id, NominasPersonalesWindow, **kwargs)
@@ -2046,8 +2068,8 @@ class MenuPrincipal(QWidget):
 
                 self.manejar_apertura(v_id, AprobacionesWindow, **kwargs)
             elif v_id == "registro_temperatura":
-                if self.perfil not in ("OPERARIO", "ADMINISTRADOR"):
-                    return
+                # Petición explícita (revierte la exclusión anterior): SUPERADMIN ahora ve TODOS
+                # los módulos de la app, incluido este — ya no se oculta a ningún perfil.
                 from src.gui.registro_temperatura_gui import RegistroTemperaturaWindow
 
                 self.manejar_apertura(v_id, RegistroTemperaturaWindow, **kwargs)
@@ -2108,13 +2130,8 @@ class MenuPrincipal(QWidget):
 
                 self.manejar_apertura(v_id, GMAODashboardWindow, **kwargs)
             elif v_id == "sat":
-                # Posventa: disponible EXCLUSIVAMENTE para OPERARIO/ADMINISTRADOR (excepción
-                # INVERSA — se oculta al perfil de MÁS privilegio, no al de menos). La tarjeta ya
-                # no se crea para SUPERADMIN (ver el gate justo antes de `crear_tarjeta_menu("Posventa"...)`
-                # más arriba), pero esta ruta también es alcanzable sin pasar por la tarjeta, p. ej.
-                # comando de voz de SOMA.
-                if self.perfil == "SUPERADMIN":
-                    return
+                # Petición explícita (revierte la exclusión anterior): SUPERADMIN ahora ve TODOS
+                # los módulos de la app, incluido este — ya no se oculta a ningún perfil.
                 from src.gui.sat_dashboard import SATDashboardWindow
 
                 self.manejar_apertura(v_id, SATDashboardWindow, **kwargs)
@@ -2781,7 +2798,7 @@ class MenuPrincipal(QWidget):
         acceso rápido desde el TPV (`TPVWindow._ir_gestion_caja`) pasa uno propio para volver al TPV
         en vez de al menú (antes siempre volvía al menú, aunque se hubiera entrado desde el TPV)."""
         try:
-            from src.gui.gestion_usuarios import GestionCajaWindow
+            from src.gui.configuracion import GestionCajaWindow
 
             kwargs = {
                 "callback_vuelta": callback_vuelta or self.mostrar_menu_principal,
@@ -2796,7 +2813,7 @@ class MenuPrincipal(QWidget):
 
     def abrir_modulo_configuracion(self, tab_inicial=None, accion_inicial=None):
         try:
-            from src.gui.gestion_usuarios import ConfiguracionWindow
+            from src.gui.configuracion import ConfiguracionWindow
 
             kwargs = {
                 "callback_vuelta": self.mostrar_menu_principal,
@@ -3030,9 +3047,19 @@ class MenuPrincipal(QWidget):
         self._cerrar_notif_citas()
 
     def _notif_ver_cita(self):
-        """VER CITA: abre Configuración directamente en PLANIFICAR CITAS (índice 6)."""
+        """VER CITA: abre el módulo Eventos (antes pestaña "PLANIFICAR CITAS" de Configuración).
+        Deep-link directo (no vía `abrir_ventana_por_id`): el aviso de citas de hoy es para
+        CUALQUIER rol (sin gate — ver `_comprobar_citas_hoy`) y es una funcionalidad previa sin
+        relación con la restricción a SOLO SUPERADMIN pedida para la tarjeta/ruta del módulo
+        "Eventos" en el menú; no se restringe retroactivamente."""
         self._cerrar_notif_citas()
-        self.abrir_modulo_configuracion(tab_inicial=6)
+        from src.gui.eventos_gui import EventosWindow
+
+        self.manejar_apertura(
+            "eventos", EventosWindow,
+            callback_vuelta=self.mostrar_menu_principal,
+            usuario=sesion_global.usuario_actual,
+        )
 
     def _cerrar_notif_citas(self):
         card = getattr(self, "_notif_cita_widget", None)
@@ -3059,14 +3086,14 @@ class MenuPrincipal(QWidget):
     def _precargar_modulos_pesados(self):
         """Pre-importa los módulos pesados en un hilo de fondo durante el reposo
         del menú, para que su primera apertura no pague el coste de import
-        (gestion_usuarios ~450 ms, recepcion_pale ~1200 ms por cv2/reportlab/etc.).
+        (configuracion ~450 ms, recepcion_pale ~1200 ms por cv2/reportlab/etc.).
         Estos módulos solo definen clases e importan librerías (no crean objetos
         Qt a nivel de módulo), por lo que es seguro importarlos fuera del hilo
         principal; el import nativo libera el GIL y la UI sigue fluida."""
         import threading
 
         def _worker():
-            for mod in ("src.gui.gestion_usuarios", "src.gui.recepcion_pale"):
+            for mod in ("src.gui.configuracion", "src.gui.recepcion_pale"):
                 try:
                     __import__(mod)
                 except Exception as e:

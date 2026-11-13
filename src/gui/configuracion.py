@@ -101,7 +101,6 @@ _VENTAS_SIDEBAR = "#111418"
 _VENTAS_TEXTO = "#E6EDF3"
 _BORDE = "#30363D"
 
-_EVENTS_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "documentos", "eventos_citas.json")
 _LOGO_PATH   = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "documentos", "logo_corporativo.png"))
 _CAJA_STATE_FILE = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "documentos", "estado_caja.json"))
 
@@ -4039,9 +4038,6 @@ class ConfiguracionWindow(QWidget):
         self.setWindowTitle(tr("cfg.window_title", default="CONFIGURACIÓN DEL SISTEMA"))
         self.resize(1200, 800)
         self.setStyleSheet(f"background-color: {_FONDO};")
-        # Inicializado aquí porque la página de citas se crea de forma diferida
-        # (lazy load) y _cerrar_cal_popup puede llamarse antes de visitarla.
-        self._cal_popup = None
         self.setup_ui()
         # Abrir directamente en una pestaña concreta (p. ej. desde "VER CITA").
         ti = kwargs.get("tab_inicial")
@@ -4131,11 +4127,13 @@ class ConfiguracionWindow(QWidget):
             # P4.1: GESTIÓN CAJA (índice 0) ya NO es una pestaña de Configuración;
             # vive en su propia ventana (GestionCajaWindow). Mantenemos un placeholder
             # en self.btns para no re-indexar el resto de pestañas ni su lógica.
-            if i in (0, 3, 4, 7, 8):
+            if i in (0, 3, 4, 6, 7, 8):
                 # 0 = GESTIÓN CAJA (ventana propia). 3 = HORARIO EMPLEADOS y 4 = FICHAJES
                 # (restructuración 2026-09: extraídas a ventanas propias del menú principal —
                 # `HorariosWindow` en horarios_gui.py y `FichajesWindow` en fichajes_gui.py — ya
-                # NO son pestañas de Configuración). 7 = FISCALIDAD (migrada a RRHH/Contabilidad).
+                # NO son pestañas de Configuración). 6 = PLANIFICAR CITAS, extraída al módulo
+                # propio "Eventos" del menú principal (EventosWindow en eventos_gui.py), SOLO
+                # SUPERADMIN — petición explícita. 7 = FISCALIDAD (migrada a RRHH/Contabilidad).
                 # 8 = ASIGNAR REFERENCIA (RETIRADA — sustituida por Identidad Operativa/IOC).
                 # Placeholder para no re-indexar el resto de pestañas.
                 self.btns.append(None)
@@ -4207,7 +4205,7 @@ class ConfiguracionWindow(QWidget):
             3: QWidget,  # HORARIO EMPLEADOS extraída a HorariosWindow (horarios_gui.py). Placeholder.
             4: QWidget,  # FICHAJES extraída a FichajesWindow (fichajes_gui.py). Placeholder.
             5: self._crear_page_logo,
-            6: self._crear_page_citas,
+            6: QWidget,  # PLANIFICAR CITAS extraída a EventosWindow (eventos_gui.py). Placeholder.
             7: QWidget,  # FISCALIDAD migrada (LABORAL→RRHH, FISCAL→Contabilidad). Placeholder.
             8: QWidget,  # ASIGNAR REFERENCIA RETIRADA (deprecada → Identidad Operativa/IOC). Placeholder.
             9: self._crear_page_datos_empresa,
@@ -4456,14 +4454,9 @@ class ConfiguracionWindow(QWidget):
                 )
                 return
         self._ensure_page(index)
-        if index != self.stack.currentIndex() and hasattr(self, "_cerrar_cal_popup"):
-            self._cerrar_cal_popup()
         self.stack.setCurrentIndex(index)
         if index == 2:  # Perfiles
             self.refrescar_datos_usuarios()
-        elif index == 6:  # Citas — refresh calendar markers
-            if hasattr(self, "_cal_widget"):
-                self._cal_widget.update()
 
     # ============================================================
     # PESTAÑA 10: DATOS DE EMPRESA (fuente única de datos corporativos)
@@ -4500,6 +4493,21 @@ class ConfiguracionWindow(QWidget):
         ("codigo_cuenta_cotizacion", "Cuenta de cotización (CCC)"),
         ("actividad_economica", "Actividad económica"),
         ("cod_actividad", "Cód. actividad económica"),
+    ]
+
+    # Agregador logístico del centro (Fase etiquetas de transporte, migración 0328) — formulario
+    # SEPARADO de los datos corporativos del centro (arriba): credenciales/remitente, no datos
+    # fiscales/laborales. `api_key`/`api_secret` son WRITE-ONLY a propósito (nunca se precargan con
+    # el valor real, mismo criterio que el resto de "secretos" del proyecto) — dejarlos en blanco al
+    # editar conserva las credenciales ya guardadas tal cual, sin pedir volver a escribirlas.
+    _CAMPOS_AGG = [
+        ("id_agregador", "Agregador", ("sendcloud", "packlink", "shipmondo")),
+        ("api_key", "API Key (déjalo en blanco para no cambiarla)"),
+        ("api_secret", "API Secret (déjalo en blanco para no cambiarla)"),
+        ("nombre_remitente", "Nombre remitente"), ("direccion_remitente", "Dirección remitente"),
+        ("codigo_postal_remitente", "Código postal remitente"),
+        ("telefono_remitente", "Teléfono remitente"),
+        ("email_remitente", "Correo electrónico remitente"),
     ]
 
     def _de_lbl(self, t):
@@ -4712,6 +4720,17 @@ class ConfiguracionWindow(QWidget):
         il.addLayout(hc)
         self._tabla_cts = self._de_tabla(
             ["TIPO", "CÓDIGO", "NOMBRE", "MUNICIPIO", "CCC", "PRINCIPAL", "ACCIONES"])
+        # Anchura fija por columna (en vez de Stretch, heredado de `_de_tabla`): con 5 botones en
+        # ACCIONES (★/✎/🏷/🔑/🗑) el modo Stretch los apretaba hasta solaparse al reducir la ventana.
+        # Columnas con ancho propio + scrollbar horizontal cuando no caben (pedido explícito).
+        _h_cts = self._tabla_cts.horizontalHeader()
+        for _c in range(6):
+            _h_cts.setSectionResizeMode(_c, QHeaderView.ResizeMode.Interactive)
+        _h_cts.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+        for _c, _w in enumerate([90, 110, 230, 150, 160, 100, 230]):
+            self._tabla_cts.setColumnWidth(_c, _w)
+        self._tabla_cts.setMinimumWidth(1070)
+        self._tabla_cts.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         il.addWidget(self._de_wrap(self._tabla_cts))
 
         il.addStretch()
@@ -4791,6 +4810,10 @@ class ConfiguracionWindow(QWidget):
                     hl.addWidget(self._de_mini("★", "#D29922",
                         lambda _=0, i=ct.get("id_centro"): self._de_principal_centro(i)))
                 hl.addWidget(self._de_mini("✎", _CIAN, lambda _=0, d=ct: self._de_edit_centro(d)))
+                hl.addWidget(self._de_mini("🏷", "#3FB950",
+                    lambda _=0, d=ct: self._de_config_agregador(d)))
+                hl.addWidget(self._de_mini("🔑", "#D29922",
+                    lambda _=0, d=ct: self._de_generar_codigo_instalacion(d)))
                 hl.addWidget(self._de_mini("🗑", "#F85149",
                     lambda _=0, i=ct.get("id_centro"): self._de_baja_centro(i)))
             t.setCellWidget(r, 6, cont)
@@ -4860,6 +4883,85 @@ class ConfiguracionWindow(QWidget):
         if dlg.exec():
             self._de_cts_mod.actualizar_centro(ct.get("id_centro"), **dlg.valores())
             self._de_refrescar_centros()
+
+    def _de_config_agregador(self, ct):
+        """Configura el agregador logístico (etiquetas de transporte) de un centro — formulario
+        SEPARADO de "Editar centro" (arriba): credenciales/remitente, no datos corporativos.
+        Precarga el remitente con los datos del propio centro la primera vez (editable)."""
+        if not self._de_admin:
+            return
+        id_centro = ct.get("id_centro")
+        from src.services.logistica import envios as _env_mod
+        actual = _env_mod.config_centro(id_centro) or {}
+        # Fallback telefono/email: si el propio centro no los tiene rellenos (campo opcional en
+        # "Editar centro"), se usan los de la EMPRESA (pestaña DATOS DE EMPRESA) — mismo criterio
+        # ya aplicado al resto de campos de remitente, nunca se deja el campo vacío si hay un dato
+        # razonable disponible.
+        emp_actual = self._de_emp_mod.obtener_empresa() or {}
+        valores = {
+            "id_agregador": actual.get("id_agregador") or "sendcloud",
+            "nombre_remitente": actual.get("nombre_remitente") or ct.get("nombre_centro"),
+            "direccion_remitente": actual.get("direccion_remitente") or ct.get("direccion"),
+            "codigo_postal_remitente": actual.get("codigo_postal_remitente") or ct.get("codigo_postal"),
+            "telefono_remitente": (actual.get("telefono_remitente") or ct.get("telefono")
+                                   or emp_actual.get("telefono")),
+            "email_remitente": (actual.get("email_remitente") or ct.get("email")
+                                or emp_actual.get("email_principal")),
+        }
+        dlg = _FormDialogCorp(tr("cfg.de_config_agregador", default="AGREGADOR LOGÍSTICO DEL CENTRO"),
+                              self._CAMPOS_AGG, valores, self, sin_cancelar=True)
+        if dlg.exec():
+            v = dlg.valores()
+            id_empresa = self._de_emp_mod.empresa_actual_id()
+            r = _env_mod.guardar_config_centro(
+                id_centro, id_agregador=v.get("id_agregador"), id_empresa=id_empresa,
+                nombre_remitente=v.get("nombre_remitente") or None,
+                direccion_remitente=v.get("direccion_remitente") or None,
+                codigo_postal_remitente=v.get("codigo_postal_remitente") or None,
+                telefono_remitente=v.get("telefono_remitente") or None,
+                email_remitente=v.get("email_remitente") or None,
+                api_key=v.get("api_key") or None, api_secret=v.get("api_secret") or None)
+            if r.get("ok"):
+                msg = tr("cfg.agregador_guardado", default="Configuración guardada.")
+                if r.get("aviso_persistencia"):
+                    msg += "\n\n" + r["aviso_persistencia"]
+                mostrar_mensaje(self, tr("cfg.agregador_title", default="Agregador logístico"),
+                               msg, "success")
+            else:
+                mostrar_mensaje(self, tr("cfg.agregador_title", default="Agregador logístico"),
+                               tr("cfg.agregador_error", default="No se pudo guardar: {e}",
+                                  e=r.get("mensaje") or ""), "error")
+
+    def _de_generar_codigo_instalacion(self, ct):
+        """Código de un solo uso (caduca en 30 min) para dar de alta automáticamente el ordenador
+        de este centro: el instalador lo introduce en la pantalla de primer arranque de Smart
+        Manager y recibe su `.env` completo (credenciales de BD compartidas de la empresa,
+        código de centro, CA de TLS) sin tener que copiar nada a mano. Ver `services.provisioning`."""
+        if not self._de_admin:
+            return
+        id_centro = ct.get("id_centro")
+        from src.services import provisioning as _prov
+        id_empresa = self._de_emp_mod.empresa_actual_id()
+        creador_id = None
+        try:
+            creador_id = (sesion_global.usuario_actual or {}).get("id")
+        except Exception:
+            pass
+        r = _prov.generar_codigo(id_centro, id_empresa, creado_por=creador_id)
+        if r.get("ok"):
+            mostrar_mensaje(
+                self, tr("cfg.aprov_title", default="Código de instalación"),
+                tr("cfg.aprov_ok_msg",
+                   default="Código para {nombre} (válido 30 minutos, un solo uso):\n\n{codigo}"
+                           "\n\nIntrodúcelo en la pantalla de primer arranque de Smart Manager "
+                           "en el ordenador de esta tienda.",
+                   nombre=ct.get("nombre_centro") or "", codigo=r["codigo"]),
+                "success")
+        else:
+            mostrar_mensaje(
+                self, tr("cfg.aprov_title", default="Código de instalación"),
+                tr("cfg.aprov_error", default="No se pudo generar el código: {e}",
+                   e=r.get("error") or ""), "error")
 
     def _de_principal_centro(self, i):
         self._de_cts_mod.marcar_principal(i); self._de_refrescar_centros()
@@ -5948,514 +6050,6 @@ class ConfiguracionWindow(QWidget):
         except Exception as exc:
             mostrar_mensaje(self, tr("cfg.error_title", default="Error"), tr("cfg.logo_delete_err", default="No se pudo eliminar el logo: {exc}", exc=exc), "error")
 
-    def _load_eventos(self):
-        """Agenda UNIFICADA desde services/calendario (BD): incluye las citas del usuario Y los eventos
-        generados por CRM/SAT (misma agenda, sin módulos paralelos). Migra una sola vez las citas del
-        JSON legado. Devuelve {yyyy-mm-dd: [ {_id, asunto, hora_inicio, hora_fin, tipo}, ... ]}."""
-        self._migrar_json_citas()
-        out = {}
-        try:
-            import datetime as _dt
-
-            from src.services import calendario
-            hoy = _dt.date.today()
-            desde = f"{hoy.year - 1}-01-01 00:00:00"
-            hasta = f"{hoy.year + 2}-12-31 23:59:59"
-            for e in calendario.eventos_rango(desde, hasta):
-                fecha_str, hi = self._fmt_fecha_hora(e.get("inicio"))
-                _, hf = self._fmt_fecha_hora(e.get("fin")) if e.get("fin") else (None, hi)
-                if not fecha_str:
-                    continue
-                out.setdefault(fecha_str, []).append({
-                    "_id": e.get("id"),
-                    "asunto": e.get("titulo") or e.get("descripcion") or "Evento",
-                    "hora_inicio": hi, "hora_fin": hf or hi,
-                    "tipo": e.get("tipo") or "evento",
-                })
-        except Exception:
-            pass
-        return out
-
-    def _save_eventos(self):
-        # La persistencia de la agenda ahora vive en services/calendario (BD). Se conserva el método por
-        # compatibilidad, pero es un no-op: guardar/editar/borrar operan directamente contra el servicio.
-        return
-
-    # ── Helpers de agenda (services/calendario) ──────────────────────────────
-    def _usuario_id(self):
-        try:
-            return (sesion_global.usuario_actual or {}).get("id") if sesion_global else None
-        except Exception:
-            return None
-
-    def _fmt_fecha_hora(self, valor):
-        """(yyyy-mm-dd, 'Hh MMmin') desde un datetime/str de BD, o (None, '0h 00min')."""
-        import datetime as _dt
-        if valor is None:
-            return None, "0h 00min"
-        try:
-            if isinstance(valor, str):
-                valor = _dt.datetime.fromisoformat(valor.replace("T", " ").split(".")[0])
-            return valor.strftime("%Y-%m-%d"), f"{valor.hour}h {valor.minute:02d}min"
-        except Exception:
-            return None, "0h 00min"
-
-    def _hora_a_dt(self, fecha_str, hora_txt):
-        """'yyyy-mm-dd' + 'Hh MMmin' → 'yyyy-mm-dd HH:MM:00'."""
-        h = m = 0
-        try:
-            toks = (hora_txt or "").split()
-            if toks:
-                h = int(toks[0].rstrip("h") or 0)
-            if len(toks) > 1:
-                m = int(toks[1].rstrip("min") or 0)
-        except Exception:
-            h = m = 0
-        return f"{fecha_str} {h:02d}:{m:02d}:00"
-
-    def _migrar_json_citas(self):
-        """Importa UNA sola vez las citas del JSON legado (documentos/eventos_citas.json) a
-        services/calendario y archiva el fichero, para no perder las citas previas del usuario."""
-        if getattr(self, "_json_migrado", False):
-            return
-        self._json_migrado = True
-        try:
-            path = os.path.normpath(_EVENTS_FILE)
-            if not os.path.exists(path):
-                return
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f) or {}
-            if data:
-                from src.services import calendario
-                for fecha_str, evs in data.items():
-                    for ev in (evs or []):
-                        calendario.crear_evento(
-                            ev.get("asunto") or "Cita",
-                            self._hora_a_dt(fecha_str, ev.get("hora_inicio", "0h 00min")),
-                            fin=self._hora_a_dt(fecha_str, ev.get("hora_fin", "0h 00min")),
-                            tipo="cita", creado_por=self._usuario_id())
-            os.replace(path, path + ".migrado.bak")
-        except Exception:
-            pass
-
-    def _recargar_eventos(self):
-        self._eventos = self._load_eventos()
-        if getattr(self, "_cal_widget", None):
-            self._cal_widget.set_events(self._eventos)
-            self._cal_widget.update()
-
-    # --- PESTAÑA 7: PLANIFICAR CITAS ---
-    def _crear_page_citas(self):
-        self._eventos = self._load_eventos()
-        self._cal_popup = None
-        page = QWidget()
-        self._citas_page = page
-        ly = QHBoxLayout(page)
-        ly.setContentsMargins(30, 30, 30, 30)
-        ly.setSpacing(20)
-
-        # Calendar wrapped in neon border frame
-        self._cal_widget = _VentasCalendarWidget()
-        self._cal_widget.set_events(self._eventos)
-        self._cal_widget.clicked.connect(self._on_calendar_clicked)
-
-        cal_frame = QFrame()
-        cal_frame.setStyleSheet(f"""
-            QFrame {{
-                background: {_VENTAS_SIDEBAR};
-                border: 2px solid {_CIAN};
-                border-radius: 14px;
-            }}
-        """)
-        cal_frame_ly = QVBoxLayout(cal_frame)
-        cal_frame_ly.setContentsMargins(12, 12, 12, 12)
-        cal_frame_ly.addWidget(self._cal_widget)
-        ly.addWidget(cal_frame, 2)
-
-        form = QFrame()
-        form.setStyleSheet(f"background: {_VENTAS_BG}; padding: 20px;")
-        fl = QVBoxLayout(form)
-        fl.setSpacing(15)
-        fl.addWidget(
-            QLabel(
-                tr("cfg.detalles_del_evento", default="DETALLES DEL EVENTO"),
-                styleSheet=f"color: {_CIAN}; font-weight: 900; font-family: 'Segoe UI';",
-            )
-        )
-
-        fl.addWidget(QLabel(tr("cfg.asunto_lbl", default="ASUNTO:"), styleSheet="color: white; font-weight: bold;"))
-        self._cal_asunto = QLineEdit()
-        self._cal_asunto.setPlaceholderText(tr("cfg.asunto_ph", default="Introduzca el nombre del asunto"))
-        self._cal_asunto.setStyleSheet(f"""
-            QLineEdit {{
-                background: #161B22; color: white; border: 2px solid {_CIAN};
-                border-radius: 12px; padding: 10px 14px;
-                font-family: 'Segoe UI'; font-size: 14px;
-            }}
-            QLineEdit::placeholder {{
-                color: #6B737E;
-            }}
-        """)
-        fl.addWidget(self._cal_asunto)
-
-        fl.addWidget(QLabel(tr("cfg.hora_inicio", default="HORA INICIO:"), styleSheet="color: white; font-weight: bold;"))
-        ly_inicio, self._inicio_h, self._inicio_m = self._crear_selector_tiempo_windows()
-        fl.addLayout(ly_inicio)
-
-        fl.addWidget(QLabel(tr("cfg.hora_fin", default="HORA FIN:"), styleSheet="color: white; font-weight: bold;"))
-        ly_fin, self._fin_h, self._fin_m = self._crear_selector_tiempo_windows()
-        fl.addLayout(ly_fin)
-
-        fl.addStretch()
-        btn_save = QPushButton(tr("cfg.save_event", default="Guardar evento"))
-        btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_save.setStyleSheet("""
-            QPushButton {
-                background: #0E1117; color: #238636; border: 2px solid #238636; border-radius: 10px;
-                padding: 12px; font-weight: 900;
-            }
-            QPushButton:hover {
-                background: #238636; color: #0E1117;
-            }
-        """)
-        btn_save.clicked.connect(self._guardar_evento)
-
-        btn_sync_google = QPushButton("🔄  " + tr("cfg.sync_google", default="SINCRONIZAR CON GOOGLE"))
-        btn_sync_google.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_sync_google.setStyleSheet(f"""
-            QPushButton {{
-                background: #0E1117; color: {_CIAN}; border: 2px solid {_CIAN}; border-radius: 10px;
-                padding: 12px; font-weight: 900;
-            }}
-            QPushButton:hover {{
-                background: {_CIAN}; color: #0E1117;
-            }}
-        """)
-        btn_sync_google.clicked.connect(self._sincronizar_google_calendar)
-
-        fila_btns = QHBoxLayout(); fila_btns.setSpacing(10)
-        fila_btns.addWidget(btn_save)
-        fila_btns.addWidget(btn_sync_google)
-        fl.addLayout(fila_btns)
-
-        ly.addWidget(form, 1)
-        return page
-
-    def _sincronizar_google_calendar(self):
-        """Trae los eventos reales de Google Calendar (solo lectura) de los buzones Google
-        conectados de la empresa hacia la agenda única (services.calendario). Si no hay ningún
-        buzón Google conectado, avisa apuntando a Correo → Buzones (mismo patrón que
-        `_mostrar_cita_dialogo`); si hay varios, se sincronizan todos y se suma el total."""
-        from src.db import correo as correo_db
-        from src.services import calendario
-        from src.services.correo import servicio as correo_svc
-
-        buzones = [c for c in correo_db.listar_correos()
-                  if c.get("proveedor") == "google"
-                  and correo_svc.estado_oauth(c["id_correo"]).get("conectado")]
-        if not buzones:
-            self._mostrar_cita_dialogo(
-                "SIN CUENTA DE GOOGLE CONECTADA",
-                "No hay ninguna cuenta de Google conectada. Ve a Correo → Buzones y pulsa "
-                "«CONECTAR (OAuth)» sobre un buzón de proveedor Google.",
-                es_error=True,
-                btn_texto="ENTENDIDO",
-            )
-            return
-
-        total = 0
-        mensajes = []
-        hubo_error_scope = False
-        for b in buzones:
-            n, msg = calendario.sincronizar_google(b["id_correo"])
-            total += n
-            mensajes.append(msg)
-            if "reconectarse" in msg.lower():
-                hubo_error_scope = True
-        self._recargar_eventos()
-        self._mostrar_cita_dialogo(
-            "SINCRONIZACIÓN CON GOOGLE",
-            f"{total} evento(s) sincronizado(s) en total.\n\n" + "\n".join(mensajes),
-            es_error=hubo_error_scope,
-            btn_texto="ACEPTAR",
-        )
-
-    def _mostrar_cita_dialogo(self, titulo, mensaje, es_error, btn_texto):
-        """Dialog estilizado con texto de botón garantizado visible."""
-        accent = "#E3B341" if es_error else "#238636"
-        icono = "!" if es_error else "✓"
-
-        from PyQt6.QtWidgets import QDialog
-        dlg = QDialog(self)
-        dlg.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
-        dlg.setModal(True)
-        dlg.setMinimumWidth(380)
-
-        outer = QVBoxLayout(dlg)
-        outer.setContentsMargins(0, 0, 0, 0)
-
-        panel = QFrame(dlg)
-        panel.setStyleSheet(f"""
-            QFrame {{
-                background: #0D1117;
-                border: 2px solid {accent};
-                border-radius: 14px;
-            }}
-        """)
-        p_ly = QVBoxLayout(panel)
-        p_ly.setContentsMargins(24, 20, 24, 20)
-        p_ly.setSpacing(14)
-
-        h_ly = QHBoxLayout()
-        h_ly.setSpacing(14)
-        icon_lbl = QLabel(icono)
-        icon_lbl.setFixedSize(42, 42)
-        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_lbl.setStyleSheet(f"""
-            QLabel {{
-                background: {accent}; color: #0D1117;
-                border-radius: 21px; font-size: 22px; font-weight: 900;
-                font-family: 'Segoe UI'; border: none;
-            }}
-        """)
-        title_lbl = QLabel(titulo)
-        title_lbl.setStyleSheet(
-            f"color: {accent}; font-weight: 900; font-size: 15px;"
-            " background: transparent; border: none; font-family: 'Segoe UI';"
-        )
-        h_ly.addWidget(icon_lbl)
-        h_ly.addWidget(title_lbl, 1)
-        p_ly.addLayout(h_ly)
-
-        msg_lbl = QLabel(mensaje)
-        msg_lbl.setWordWrap(True)
-        msg_lbl.setStyleSheet(
-            "color: #E6EDF3; font-size: 13px; background: transparent;"
-            " border: none; font-family: 'Segoe UI';"
-        )
-        p_ly.addWidget(msg_lbl)
-
-        btn = QPushButton(btn_texto)
-        btn.setFixedHeight(44)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background: #0D1117; color: {accent};
-                border-radius: 10px; font-weight: 900; font-size: 13px;
-                font-family: 'Segoe UI'; border: 2px solid {accent};
-            }}
-            QPushButton:hover {{
-                background: {accent}; color: #0D1117;
-            }}
-        """)
-        btn.clicked.connect(dlg.accept)
-        p_ly.addWidget(btn)
-
-        outer.addWidget(panel)
-        dlg.exec()
-
-    def _guardar_evento(self):
-        # Cerrar popup de evento si estuviera abierto
-        self._cerrar_cal_popup()
-
-        asunto = self._cal_asunto.text().strip()
-        if not asunto:
-            self._mostrar_cita_dialogo(
-                "INFORMACIÓN INCOMPLETA",
-                "Para guardar un evento es necesario completar toda la información antes de guardarlo.",
-                es_error=True,
-                btn_texto="ENTENDIDO",
-            )
-            return
-
-        fecha = self._cal_widget.selectedDate()
-        fecha_str = fecha.toString("yyyy-MM-dd")
-        hora_inicio = f"{self._inicio_h.currentText()} {self._inicio_m.currentText()}"
-        hora_fin = f"{self._fin_h.currentText()} {self._fin_m.currentText()}"
-
-        # Persistencia en la agenda ÚNICA (services/calendario, BD).
-        from src.services import calendario
-        eid = calendario.crear_evento(
-            asunto, self._hora_a_dt(fecha_str, hora_inicio),
-            fin=self._hora_a_dt(fecha_str, hora_fin), tipo="cita", creado_por=self._usuario_id())
-        self._recargar_eventos()
-        self._cal_asunto.clear()
-
-        if eid:
-            self._mostrar_cita_dialogo(
-                "EVENTO GUARDADO",
-                f"El evento '{asunto}' se ha guardado para el {fecha.toString('dd/MM/yyyy')}.",
-                es_error=False,
-                btn_texto="ACEPTAR",
-            )
-        else:
-            self._mostrar_cita_dialogo(
-                "NO SE PUDO GUARDAR",
-                "No se pudo guardar el evento en la agenda. Inténtalo de nuevo.",
-                es_error=True,
-                btn_texto="ENTENDIDO",
-            )
-
-    def _cerrar_cal_popup(self):
-        if self._cal_popup is not None:
-            try:
-                self._cal_popup.hide()
-                self._cal_popup.deleteLater()
-            except Exception:
-                pass
-            self._cal_popup = None
-
-    def _on_calendar_clicked(self, qdate):
-        self._cerrar_cal_popup()
-        fecha_str = qdate.toString("yyyy-MM-dd")
-        eventos = self._eventos.get(fecha_str, [])
-        if not eventos:
-            return
-
-        popup = QFrame(self._citas_page)
-        popup.setMinimumWidth(240)
-        popup.setStyleSheet(f"""
-            QFrame {{
-                background: #0D1117;
-                border: 2px solid {_CIAN};
-                border-radius: 14px;
-            }}
-        """)
-        self._cal_popup = popup
-
-        outer_ly = QVBoxLayout(popup)
-        outer_ly.setContentsMargins(14, 12, 14, 18)
-        outer_ly.setSpacing(8)
-
-        # Header: date + close button
-        hdr = QHBoxLayout()
-        title = QLabel(f"📅  {qdate.toString('dd/MM/yyyy')}")
-        title.setStyleSheet(
-            f"color: {_CIAN}; font-weight: 900; font-size: 13px; background: transparent; border: none;"
-        )
-        btn_x = _CloseCircleBtn(self._cerrar_cal_popup)
-        hdr.addWidget(title, 1)
-        hdr.addWidget(btn_x)
-        outer_ly.addLayout(hdr)
-
-        sep = QFrame()
-        sep.setFixedHeight(1)
-        sep.setStyleSheet(f"background: {_CIAN}; border: none;")
-        outer_ly.addWidget(sep)
-
-        def _hacer_editar(idx, pop):
-            ev = self._eventos[fecha_str][idx]
-            self._cal_asunto.setText(ev["asunto"])
-            self._inicio_h._valor = ev["hora_inicio"].split()[0]
-            self._inicio_h._refresh_btn()
-            self._inicio_m._valor = ev["hora_inicio"].split()[1]
-            self._inicio_m._refresh_btn()
-            self._fin_h._valor = ev["hora_fin"].split()[0]
-            self._fin_h._refresh_btn()
-            self._fin_m._valor = ev["hora_fin"].split()[1]
-            self._fin_m._refresh_btn()
-            # Editar = eliminar el original (BD) y dejar el formulario listo para volver a guardar.
-            if ev.get("_id"):
-                from src.services import calendario
-                calendario.eliminar_evento(ev["_id"])
-            self._recargar_eventos()
-            self._cerrar_cal_popup()
-
-        def _hacer_borrar(idx):
-            ev = self._eventos[fecha_str][idx]
-            if ev.get("_id"):
-                from src.services import calendario
-                calendario.eliminar_evento(ev["_id"])
-            self._recargar_eventos()
-            self._cerrar_cal_popup()
-
-        for i, ev in enumerate(list(eventos)):
-            ev_frame = QFrame()
-            ev_frame.setStyleSheet(
-                "QFrame { background: #161B22; border-radius: 10px; border: none; }"
-            )
-            ev_ly = QVBoxLayout(ev_frame)
-            ev_ly.setContentsMargins(12, 8, 12, 12)
-            ev_ly.setSpacing(6)
-
-            lbl_asunto = QLabel(ev["asunto"])
-            lbl_asunto.setStyleSheet(
-                "color: white; font-weight: 900; font-size: 12px; background: transparent; border: none;"
-            )
-            lbl_asunto.setWordWrap(True)
-
-            lbl_tiempo = QLabel(f"⏰  {ev['hora_inicio']} — {ev['hora_fin']}")
-            lbl_tiempo.setStyleSheet(
-                f"color: {_CIAN}; font-size: 11px; background: transparent; border: none;"
-            )
-
-            btn_row = QHBoxLayout()
-            btn_row.setSpacing(6)
-
-            btn_edit = QPushButton("✏  " + tr("cfg.edit", default="EDITAR"))
-            btn_edit.setFixedHeight(34)
-            btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_edit.setStyleSheet(f"""
-                QPushButton {{
-                    background: #1A2230; color: {_CIAN}; border: 1px solid {_CIAN};
-                    border-radius: 6px; font-size: 11px; font-weight: 900;
-                }}
-                QPushButton:hover {{ background: {_CIAN}; color: #0E1117; }}
-            """)
-            btn_edit.clicked.connect(lambda _c=False, idx=i: _hacer_editar(idx, popup))
-
-            btn_del = QPushButton("🗑  " + tr("cfg.borrar", default="BORRAR"))
-            btn_del.setFixedHeight(34)
-            btn_del.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_del.setStyleSheet("""
-                QPushButton {
-                    background: #1A2230; color: #F85149; border: 1px solid #F85149;
-                    border-radius: 6px; font-size: 11px; font-weight: 900;
-                }
-                QPushButton:hover { background: #F85149; color: #0E1117; border: 1px solid #F85149; }
-            """)
-            btn_del.clicked.connect(lambda _c=False, idx=i: _hacer_borrar(idx))
-
-            btn_row.addWidget(btn_edit)
-            btn_row.addWidget(btn_del)
-
-            ev_ly.addWidget(lbl_asunto)
-            ev_ly.addWidget(lbl_tiempo)
-            ev_ly.addLayout(btn_row)
-            outer_ly.addWidget(ev_frame)
-
-        # Show first so Qt can compute correct size, then reposition
-        popup.show()
-        popup.adjustSize()
-        cur = self._citas_page.mapFromGlobal(QCursor.pos())
-        pw, ph = popup.width(), popup.height()
-        pr = self._citas_page.rect()
-        x = min(cur.x() + 12, pr.width() - pw - 4)
-        y = min(cur.y() + 12, pr.height() - ph - 4)
-        popup.move(max(4, x), max(4, y))
-        popup.raise_()
-
-    def _crear_selector_tiempo_windows(self):
-        """Crea un par de _TimeDropdown (Horas y Minutos) con estilo neón y scroll."""
-        h_ly = QHBoxLayout()
-        h_ly.setSpacing(10)
-
-        combo_h = _TimeDropdown([f"{i}h" for i in range(24)], max_visible=5)
-        combo_h.setFixedWidth(110)
-        combo_h._btn.setFixedHeight(44)
-
-        # Minutos en pasos de 5 (00,05,…,55) y máx. 5 visibles para que el
-        # desplegable no sea demasiado largo.
-        combo_m = _TimeDropdown(
-            [f"{i:02}min" for i in range(0, 60, 5)], max_visible=5
-        )
-        combo_m.setFixedWidth(120)
-        combo_m._btn.setFixedHeight(44)
-
-        h_ly.addWidget(combo_h)
-        h_ly.addWidget(combo_m)
-        h_ly.addStretch()
-        return h_ly, combo_h, combo_m
 
     # --- PESTAÑA 2: PLAZO DEVOLUCIÓN ---
     def _crear_page_plazo_devolucion(self):
@@ -6533,7 +6127,7 @@ class ConfiguracionWindow(QWidget):
                 texto_legal=self.text_ticket.toPlainText().strip(),
                 devol_dias=int(dias) or 30)
         except Exception as e:
-            logging.getLogger("gestion_usuarios").warning("No se pudo guardar config_ticket: %s", e)
+            logging.getLogger("configuracion").warning("No se pudo guardar config_ticket: %s", e)
         if mostrar_mensaje:
             mostrar_mensaje(self, tr("cfg.guardado_t", default="Guardado"),
                             tr("cfg.guardado_msg", default="Cambios guardados correctamente."), "info")
@@ -6789,7 +6383,7 @@ class ConfiguracionWindow(QWidget):
             ok = guardar_config_ticket(descuento_min_bloqueo=float(umbral))
         except Exception as e:
             ok = False
-            logging.getLogger("gestion_usuarios").warning("No se pudo guardar descuento_min_bloqueo: %s", e)
+            logging.getLogger("configuracion").warning("No se pudo guardar descuento_min_bloqueo: %s", e)
         if ok:
             self._refrescar_estado_descuento_bloqueo()
             mostrar_mensaje(self, tr("cfg.guardado_t", default="Guardado"),
@@ -6821,7 +6415,7 @@ class ConfiguracionWindow(QWidget):
             ok = guardar_config_ticket(descuento_min_bloqueo=None)
         except Exception as e:
             ok = False
-            logging.getLogger("gestion_usuarios").warning("No se pudo desactivar descuento_min_bloqueo: %s", e)
+            logging.getLogger("configuracion").warning("No se pudo desactivar descuento_min_bloqueo: %s", e)
         if ok:
             self._refrescar_estado_descuento_bloqueo()
             mostrar_mensaje(self, tr("cfg.desc_desact_ok_t", default="Bloqueo desactivado"),

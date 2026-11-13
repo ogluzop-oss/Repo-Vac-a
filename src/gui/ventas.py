@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QStackedWidget,
+    QStyledItemDelegate,
     QStyleFactory,
     QTableWidget,
     QTableWidgetItem,
@@ -51,7 +52,7 @@ from PyQt6.QtWidgets import (
 
 from assets.estilo_global import instalar_corner_cover, mostrar_mensaje
 from src.gui.components.completer_articulos import instalar_sugerencias_articulo
-from src.utils import divisas, i18n
+from src.utils import divisas, i18n, tema
 from src.utils.i18n import tr
 
 logger = logging.getLogger(__name__)
@@ -318,7 +319,7 @@ QHeaderView::section {{
     border: none;
     border-bottom: 1.5px solid {CIAN};
     font-family: 'Segoe UI';
-    font-size: 14px;
+    font-size: 13px;
     text-align: center;
 }}
 QHeaderView::section:first {{
@@ -344,12 +345,55 @@ QScrollBar::handle:vertical {{
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; width: 0; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 16px;
+    margin: 3px 16px 3px 16px;
+}}
+QScrollBar::handle:horizontal {{
+    background: {CIAN};
+    border-radius: 5px;
+    min-width: 30px;
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ height: 0; width: 0; }}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: transparent; }}
 """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper classes
 # ─────────────────────────────────────────────────────────────────────────────
+
+class _DelegadoResaltadoFila(QStyledItemDelegate):
+    """Pinta a mano (fondo Y texto) las celdas con `BackgroundRole` propio, SIN pasar por
+    `super().paint()` (petición explícita, bug real comprobado con captura de píxel): una tabla
+    con hoja de estilos propia en `QTableWidget::item` IGNORA el `BackgroundRole` fijado vía
+    `item.setBackground(...)` — `QStyleSheetStyle` repinta el fondo él mismo encima de CUALQUIER
+    relleno manual previo (comprobado: ni siquiera rellenar antes de delegar al `super().paint()`
+    basta, porque este TAMBIÉN vuelve a pintar su propio fondo justo después, tapando el relleno).
+    La única forma fiable es no delegar nada en absoluto para estas celdas: fondo + texto 100% a
+    mano aquí; el resto de celdas (sin `BackgroundRole`) sigue su camino normal sin tocar."""
+
+    def paint(self, painter, option, index):
+        brocha = index.data(Qt.ItemDataRole.BackgroundRole)
+        if brocha is None:
+            super().paint(painter, option, index)
+            return
+        painter.save()
+        painter.fillRect(option.rect, brocha)
+        color_texto = index.data(Qt.ItemDataRole.ForegroundRole)
+        # `QPainter.setPen` no tiene sobrecarga para QBrush (petición explícita, crash real
+        # reproducido: un QBrush ahí no lanza un TypeError normal de Python, sino que aborta el
+        # evento de pintado sin traza, porque la excepción no puede cruzar la frontera con C++
+        # en mitad de un paintEvent) — hace falta su `.color()`.
+        painter.setPen(color_texto.color() if color_texto is not None else option.palette.text().color())
+        painter.setFont(option.font)
+        texto = index.data(Qt.ItemDataRole.DisplayRole)
+        alineacion = index.data(Qt.ItemDataRole.TextAlignmentRole)
+        painter.drawText(option.rect, int(alineacion) if alineacion is not None
+                         else Qt.AlignmentFlag.AlignCenter, str(texto) if texto is not None else "")
+        painter.restore()
+
 
 class _PopupBorderOverlay(QWidget):
     """Capa transparente sobre el popup del calendario para dibujar el borde neón.
@@ -2195,6 +2239,21 @@ _SS_PROD_BARRA = (
     f"color:{TEXTO};text-align:center;font-family:'Segoe UI';font-weight:bold;font-size:13px;}}"
     f"QProgressBar::chunk{{background:{CIAN};border-radius:8px;}}"
 )
+_VERDE_PROD = "#3FB950"
+_ROJO_PROD = "#F85149"
+
+
+def _estilo_barra_prod(superado: bool | None) -> str:
+    """Variante de `_SS_PROD_BARRA` con el relleno coloreado según el objetivo (petición
+    explícita): verde si ya se ha SUPERADO (real >= objetivo), rojo si todavía no se ha llegado.
+    `superado=None` (sin objetivo fijado todavía, nada que comparar) mantiene el cian neutro de
+    siempre — nunca se pinta en rojo/verde una barra sin objetivo real que la respalde."""
+    color = _VERDE_PROD if superado is True else _ROJO_PROD if superado is False else CIAN
+    return (
+        f"QProgressBar{{background:#11181D;border:1px solid {BORDE};border-radius:8px;"
+        f"color:{TEXTO};text-align:center;font-family:'Segoe UI';font-weight:bold;font-size:13px;}}"
+        f"QProgressBar::chunk{{background:{color};border-radius:8px;}}"
+    )
 
 
 def _date_neon_campana(qdate) -> "_NeonDateEdit":
@@ -2232,6 +2291,17 @@ def _combo_periodos() -> QComboBox:
     idx = cb.findData("mensual")
     if idx >= 0:
         cb.setCurrentIndex(idx)
+    return cb
+
+
+def _combo_metrica() -> QComboBox:
+    """Tipo de objetivo a fijar/mostrar (petición explícita, ver `services.productividad.objetivos.
+    METRICAS`): importe de facturación (comportamiento de siempre) o Nº de visitas — lo que antes
+    solo ofrecía "Objetivos" del CRM (retirado como pestaña, unificado aquí)."""
+    cb = QComboBox()
+    cb.setStyleSheet("font-family:'Segoe UI';font-weight:700;font-size:13px;")
+    cb.addItem(tr("vta.prod_metrica_eur", default="Facturación (€)"), "eur")
+    cb.addItem(tr("vta.prod_metrica_visitas", default="Nº de visitas"), "visitas")
     return cb
 
 
@@ -2303,6 +2373,10 @@ class _ProdCentroTab(QWidget):
             or tr("vta.prod_sin_centro", default="Sin centro conectado"),
             bold=True, size=13, color=CIAN if self._centro else "#8B949E")
         fila_sel.addWidget(self.lbl_centro, 1)
+        fila_sel.addWidget(_lbl(tr("vta.prod_tipo_lbl", default="Tipo:"), bold=True, size=13))
+        self.cb_tipo_metrica = _combo_metrica()
+        self.cb_tipo_metrica.currentIndexChanged.connect(self._on_tipo_changed)
+        fila_sel.addWidget(self.cb_tipo_metrica)
         fila_sel.addWidget(_lbl(tr("vta.prod_periodo_lbl", default="Periodo:"), bold=True,
                                size=13))
         self.cb_periodo = _combo_periodos()
@@ -2345,6 +2419,13 @@ class _ProdCentroTab(QWidget):
         root.addWidget(self.lbl_obligatorios)
         root.addStretch()
 
+    def _on_tipo_changed(self):
+        metrica = self.cb_tipo_metrica.currentData()
+        self.ed_objetivo.setPlaceholderText(
+            tr("vta.prod_objetivo_visitas_ph", default="Objetivo de visitas") if metrica == "visitas"
+            else tr("vta.prod_objetivo_ph", default="Objetivo fijo (€)"))
+        self._refrescar()
+
     def _on_periodo_changed(self):
         self._cursor_fecha = datetime.now().date()
         self._refrescar()
@@ -2374,6 +2455,7 @@ class _ProdCentroTab(QWidget):
         from src.services.productividad import objetivos as O
         from src.services.productividad import periodos as P
 
+        metrica = self.cb_tipo_metrica.currentData()
         periodo = self.cb_periodo.currentData()
         desde, hasta = P.limites_periodo(periodo, self._cursor_fecha)
         self.lbl_periodo.setText(f"{desde.strftime('%d/%m/%Y')} – {hasta.strftime('%d/%m/%Y')}")
@@ -2382,12 +2464,19 @@ class _ProdCentroTab(QWidget):
 
         codigo_centro = self._centro.get("codigo_centro")
         obj = O.objetivo_en_fecha("centro", periodo, self._id_empresa, desde,
-                                   centro_codigo=codigo_centro)
+                                   centro_codigo=codigo_centro, metrica=metrica)
         objetivo_valor = obj["valor"] if obj else 0.0
-        facturado = F.facturado_centro(self._centro.get("id_tienda"), desde, hasta, self._id_empresa)
-        pct = 0 if objetivo_valor <= 0 else max(0, min(100, round(facturado / objetivo_valor * 100)))
+        if metrica == "visitas":
+            real = float(O.visitas_realizadas_centro(codigo_centro, desde, hasta, self._id_empresa))
+            texto = tr("vta.prod_fmt_visitas", default="{r:.0f} / {o:.0f} visitas", r=real, o=objetivo_valor)
+        else:
+            real = F.facturado_centro(self._centro.get("id_tienda"), desde, hasta, self._id_empresa)
+            texto = f"{divisas.formatear(real)} / {divisas.formatear(objetivo_valor)}"
+        pct = 0 if objetivo_valor <= 0 else max(0, min(100, round(real / objetivo_valor * 100)))
         self.barra.setValue(pct)
-        self.barra.setFormat(f"{divisas.formatear(facturado)} / {divisas.formatear(objetivo_valor)}")
+        self.barra.setFormat(texto)
+        self.barra.setStyleSheet(_estilo_barra_prod(
+            (real >= objetivo_valor) if objetivo_valor > 0 else None))
         self.ed_objetivo.setText(f"{objetivo_valor:.2f}" if objetivo_valor else "")
 
         completos = O.objetivos_obligatorios_completos("centro", self._id_empresa, desde,
@@ -2417,8 +2506,12 @@ class _ProdCentroTab(QWidget):
         from src.services.productividad import objetivos as O
         periodo = self.cb_periodo.currentData()
         uid = (self._usuario or {}).get("id")
-        oid = O.fijar_objetivo_centro(self._centro.get("codigo_centro"), periodo, valor,
-                                       self._id_empresa, creado_por_id=uid)
+        if self.cb_tipo_metrica.currentData() == "visitas":
+            oid = O.fijar_objetivo_visitas_centro(self._centro.get("codigo_centro"), periodo, valor,
+                                                  self._id_empresa, creado_por_id=uid)
+        else:
+            oid = O.fijar_objetivo_centro(self._centro.get("codigo_centro"), periodo, valor,
+                                          self._id_empresa, creado_por_id=uid)
         if oid is None:
             mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
                             tr("vta.prod_err_guardar", default="No se pudo guardar el objetivo."),
@@ -2468,6 +2561,10 @@ class _ProdEmpleadoTab(QWidget):
         self.cb_empleado.setStyleSheet("font-family:'Segoe UI';font-weight:700;font-size:13px;")
         self.cb_empleado.currentIndexChanged.connect(self._refrescar)
         fila_emp.addWidget(self.cb_empleado, 1)
+        fila_emp.addWidget(_lbl(tr("vta.prod_tipo_lbl", default="Tipo:"), bold=True, size=13))
+        self.cb_tipo_metrica = _combo_metrica()
+        self.cb_tipo_metrica.currentIndexChanged.connect(self._on_tipo_changed)
+        fila_emp.addWidget(self.cb_tipo_metrica)
         fila_emp.addWidget(_lbl(tr("vta.prod_periodo_lbl", default="Periodo:"), bold=True,
                                size=13))
         self.cb_periodo = _combo_periodos()
@@ -2523,6 +2620,13 @@ class _ProdEmpleadoTab(QWidget):
             self.cb_empleado.addItem((e.get("nombre") or f"Usuario {e.get('id')}").upper(), e.get("id"))
         self._refrescar()
 
+    def _on_tipo_changed(self):
+        metrica = self.cb_tipo_metrica.currentData()
+        self.ed_valor_hora.setPlaceholderText(
+            tr("vta.prod_objetivo_visitas_ph", default="Objetivo de visitas") if metrica == "visitas"
+            else tr("vta.prod_valor_hora_ph", default="Tarifa/hora (€)"))
+        self._refrescar()
+
     def _on_periodo_changed(self):
         self._cursor_fecha = datetime.now().date()
         self._refrescar()
@@ -2564,17 +2668,32 @@ class _ProdEmpleadoTab(QWidget):
         from src.services.productividad import facturacion as F
         from src.services.productividad import objetivos as O
 
-        dyn = O.objetivo_dinamico_empleado(usuario_id, periodo, self._id_empresa, self._cursor_fecha)
-        desde, hasta = dyn["desde"], dyn["hasta"]
-        facturado = F.facturado_empleado(usuario_id, desde, hasta, self._id_empresa)
-        objetivo_valor = dyn["objetivo_calculado"]
-        pct = 0 if objetivo_valor <= 0 else max(0, min(100, round(facturado / objetivo_valor * 100)))
+        metrica = self.cb_tipo_metrica.currentData()
+        if metrica == "visitas":
+            # Objetivo de visitas: FIJO (no dinámico como la tarifa/hora) — mismo criterio que
+            # "Objetivos" del CRM, que tampoco derivaba un objetivo de visitas de nada más.
+            obj = O.objetivo_en_fecha("empleado", periodo, self._id_empresa, desde,
+                                      usuario_id=usuario_id, metrica="visitas")
+            objetivo_valor = obj["valor"] if obj else 0.0
+            real = float(O.visitas_realizadas_empleado(usuario_id, desde, hasta, self._id_empresa))
+            texto = tr("vta.prod_fmt_visitas", default="{r:.0f} / {o:.0f} visitas", r=real, o=objetivo_valor)
+            self.lbl_horas.setText("")
+            self.ed_valor_hora.setText(f"{objetivo_valor:.0f}" if objetivo_valor else "")
+        else:
+            dyn = O.objetivo_dinamico_empleado(usuario_id, periodo, self._id_empresa, self._cursor_fecha)
+            desde, hasta = dyn["desde"], dyn["hasta"]
+            real = F.facturado_empleado(usuario_id, desde, hasta, self._id_empresa)
+            objetivo_valor = dyn["objetivo_calculado"]
+            texto = f"{divisas.formatear(real)} / {divisas.formatear(objetivo_valor)}"
+            self.lbl_horas.setText(
+                tr("vta.prod_horas_trabajadas", default="Horas trabajadas: {h} h · Tarifa: {t}")
+                .format(h=f"{dyn['horas_trabajadas']:.2f}", t=divisas.formatear(dyn["valor_hora"])))
+            self.ed_valor_hora.setText(f"{dyn['valor_hora']:.2f}" if dyn["valor_hora"] else "")
+        pct = 0 if objetivo_valor <= 0 else max(0, min(100, round(real / objetivo_valor * 100)))
         self.barra.setValue(pct)
-        self.barra.setFormat(f"{divisas.formatear(facturado)} / {divisas.formatear(objetivo_valor)}")
-        self.lbl_horas.setText(
-            tr("vta.prod_horas_trabajadas", default="Horas trabajadas: {h} h · Tarifa: {t}")
-            .format(h=f"{dyn['horas_trabajadas']:.2f}", t=divisas.formatear(dyn["valor_hora"])))
-        self.ed_valor_hora.setText(f"{dyn['valor_hora']:.2f}" if dyn["valor_hora"] else "")
+        self.barra.setFormat(texto)
+        self.barra.setStyleSheet(_estilo_barra_prod(
+            (real >= objetivo_valor) if objetivo_valor > 0 else None))
 
         completos = O.objetivos_obligatorios_completos("empleado", self._id_empresa, desde,
                                                          usuario_id=usuario_id)
@@ -2604,7 +2723,11 @@ class _ProdEmpleadoTab(QWidget):
         from src.services.productividad import objetivos as O
         periodo = self.cb_periodo.currentData()
         uid = (self._usuario or {}).get("id")
-        oid = O.fijar_objetivo_empleado(usuario_id, periodo, valor, self._id_empresa, creado_por_id=uid)
+        if self.cb_tipo_metrica.currentData() == "visitas":
+            oid = O.fijar_objetivo_visitas_empleado(usuario_id, periodo, valor, self._id_empresa,
+                                                    creado_por_id=uid)
+        else:
+            oid = O.fijar_objetivo_empleado(usuario_id, periodo, valor, self._id_empresa, creado_por_id=uid)
         if oid is None:
             mostrar_mensaje(self, tr("vta.prod_err_title", default="Valor inválido"),
                             tr("vta.prod_err_guardar", default="No se pudo guardar el objetivo."),
@@ -2762,6 +2885,8 @@ class _ProdCampanaCentroTab(QWidget):
         pct = 0 if objetivo <= 0 else max(0, min(100, round(facturado / objetivo * 100)))
         self.barra.setValue(pct)
         self.barra.setFormat(f"{divisas.formatear(facturado)} / {divisas.formatear(objetivo)}")
+        self.barra.setStyleSheet(_estilo_barra_prod(
+            (facturado >= objetivo) if objetivo > 0 else None))
         if r.get("desde"):
             self.lbl_fechas.setText(f"{r['desde']} – {r['hasta']}")
         self.ed_objetivo.setText(f"{objetivo:.2f}" if objetivo else "")
@@ -2963,6 +3088,8 @@ class _ProdCampanaEmpleadoTab(QWidget):
         pct = 0 if objetivo <= 0 else max(0, min(100, round(facturado / objetivo * 100)))
         self.barra.setValue(pct)
         self.barra.setFormat(f"{divisas.formatear(facturado)} / {divisas.formatear(objetivo)}")
+        self.barra.setStyleSheet(_estilo_barra_prod(
+            (facturado >= objetivo) if objetivo > 0 else None))
         if r.get("desde"):
             self.lbl_fechas.setText(f"{r['desde']} – {r['hasta']}")
         self.lbl_horas.setText(
@@ -3126,8 +3253,12 @@ class VentasAnaliticaWindow(QWidget):
         self.stack.setCurrentIndex(idx)
         for i, btn in enumerate(self._sidebar_btns):
             btn.setStyleSheet(_SS_SIDEBAR_BTN_ACTIVE if i == idx else _SS_SIDEBAR_BTN)
-        # Pestaña RENDIMIENTO (ahora idx 2): refresca al mes actual.
-        if idx == 2 and hasattr(self, "tbl_rend"):
+        # Pestaña RENDIMIENTO (idx 1 — `_panel_factories` = [resumen, rendimiento, productividad]):
+        # refresca al mes actual. Antes comparaba contra idx==2 (resto de una reordenación de
+        # pestañas sin actualizar), así que la 1ª visita a Rendimiento nunca disparaba esta carga
+        # — la tabla se veía vacía hasta visitar Productividad (idx 2) y volver, momento en el que
+        # esta rama SÍ saltaba (para el idx equivocado) y la rellenaba ya fuera de pantalla.
+        if idx == 1 and hasattr(self, "tbl_rend"):
             import datetime as _now_dt
             _hoy = _now_dt.date.today()
             if (getattr(self, "_rend_anio", None), getattr(self, "_rend_mes", None)) != (_hoy.year, _hoy.month):
@@ -3231,6 +3362,10 @@ class VentasAnaliticaWindow(QWidget):
         self._kpi_ly = QHBoxLayout(self.kpi_frame)
         self._kpi_ly.setContentsMargins(14, 10, 14, 10)
         self._kpi_ly.setSpacing(18)
+        # Oculta hasta que haya un resumen generado (petición explícita): antes se veía como una
+        # barra vacía (solo el contorno, sin ningún KPI dentro) entre los filtros y la gráfica,
+        # desde el primer instante — `_actualizar_kpis` la vuelve a mostrar en cuanto la rellena.
+        self.kpi_frame.hide()
         root.addWidget(self.kpi_frame)
 
         # Área de gráfica
@@ -3370,6 +3505,7 @@ class VentasAnaliticaWindow(QWidget):
         self._kpi_ly.addWidget(self._kpi_badge(tr("vta.kpi_tasa_conversion", default="Tasa de conversión"), tc_txt))
 
         self._kpi_ly.addStretch()
+        self.kpi_frame.show()
 
     def _dibujar_grafica(self, datos, top10, desde, hasta, es_hora=False):
         # Clear old chart
@@ -3657,18 +3793,24 @@ class VentasAnaliticaWindow(QWidget):
         root.addWidget(self._rend_mes_lbl)
 
         # Tabla única: rendimiento + previsión IA (última columna, a la derecha).
+        # Texto COMPLETO, sin abreviar (petición explícita): antes "Fact. día"/"Prod. acum." etc.
+        # se cortaban porque las columnas se repartían el ancho por Stretch — ahora la tabla tiene
+        # ancho propio por columna + scrollbar horizontal (ver `_hh` más abajo), así que ya hay
+        # sitio para el texto real.
         self._rend_cols = [
             tr("vta.perf_c_dia", default="Día"),
-            tr("vta.perf_c_fact", default="Fact. día"),
-            tr("vta.perf_c_factac", default="Fact. acum."),
+            tr("vta.perf_c_fact", default="Facturación del día"),
+            tr("vta.perf_c_factac", default="Facturación acumulada"),
             tr("vta.perf_c_cli", default="Nº clientes"),
             tr("vta.perf_c_tm", default="Ticket medio"),
-            tr("vta.perf_c_horas", default="Horas día"),
-            tr("vta.perf_c_horasac", default="Horas acum."),
-            tr("vta.perf_c_prod", default="Prod. día"),
-            tr("vta.perf_c_prodac", default="Prod. acum."),
-            tr("vta.perf_c_prev", default="Prev. Fact."),
+            tr("vta.perf_c_horas", default="Horas del día"),
+            tr("vta.perf_c_horasac", default="Horas acumuladas"),
+            tr("vta.perf_c_prod", default="Producción del día"),
+            tr("vta.perf_c_prodac", default="Producción acumulada"),
+            tr("vta.perf_c_prev", default="Previsión de facturación"),
         ]
+        # Ancho propio por columna, generoso para el texto completo de su cabecera.
+        self._rend_col_widths = (55, 170, 185, 110, 120, 130, 155, 170, 185, 195)
         t = QTableWidget(0, len(self._rend_cols))
         t.setHorizontalHeaderLabels(self._rend_cols)
         t.setStyleSheet(_SS_TABLE)
@@ -3680,16 +3822,34 @@ class VentasAnaliticaWindow(QWidget):
             | QAbstractItemView.EditTrigger.EditKeyPressed
             | QAbstractItemView.EditTrigger.AnyKeyPressed
         )
+        # Ancho FIJO por columna (ya no Stretch, petición explícita) para que el texto completo de
+        # cada cabecera quepa sin cortarse; cuando la suma supera el ancho visible, Qt muestra solo
+        # la scrollbar horizontal (ver `QScrollBar:horizontal` en `_SS_TABLE`) en vez de comprimir
+        # columnas — nunca las dos cosas a la vez.
         _hh = t.horizontalHeader()
-        _hh.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)   # resto equitativo
-        _hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # "Día" a la mitad
-        t.setColumnWidth(0, 55)
+        _hh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        for _c, _w in enumerate(self._rend_col_widths):
+            t.setColumnWidth(_c, _w)
+        t.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        t.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        # Pinta a mano el resaltado del día en curso (ver `_DelegadoResaltadoFila`): la hoja de
+        # estilos de esta tabla ignora el `BackgroundRole` puesto vía `item.setBackground(...)`.
+        t.setItemDelegate(_DelegadoResaltadoFila(t))
         # Esquinas limpias (como Documentos): overlay que repinta esquinas + contorno.
         if instalar_corner_cover is not None:
             instalar_corner_cover(t, 8, bg=BG)
         else:
             _RoundTableCorners(t)
         self.tbl_rend = t
+        # 1 clic selecciona la FILA completa; doble clic selecciona SOLO esa celda (y abre su
+        # edición, vía los EditTrigger de arriba) — petición explícita. `SelectItems` se mantiene
+        # como comportamiento de base (necesario para que la edición de una única celda funcione);
+        # la selección de fila al clic simple se fuerza a mano porque `SelectRows` no permite luego
+        # reducir la selección a una sola celda con el doble clic (Qt lo bloquea a nivel de vista).
+        t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        t.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        t.cellClicked.connect(self._rend_seleccionar_fila)
+        t.cellDoubleClicked.connect(self._rend_seleccionar_celda)
         root.addLayout(self._rend_acciones_row())   # imprimir / compartir
         root.addWidget(t, 1)
 
@@ -3702,7 +3862,7 @@ class VentasAnaliticaWindow(QWidget):
         self.btn_rend_guardar.clicked.connect(self._guardar_rendimiento)
         br.addWidget(self.btn_rend_guardar); root.addLayout(br)
 
-        # La carga inicial la dispara `_cambiar_tab` (idx==2) justo después de construir esta
+        # La carga inicial la dispara `_cambiar_tab` (idx==1) justo después de construir esta
         # pestaña por primera vez (lazy loading) — no se duplica aquí.
         t.cellChanged.connect(self._rend_on_edit)
         return page
@@ -4031,6 +4191,15 @@ class VentasAnaliticaWindow(QWidget):
             t.setRowCount(len(dias))
             ncols = len(self._rend_cols)
             editables = {1, 3, 5, 9}  # facturación, clientes, horas, previsión
+            # Resalta la fila del DÍA EN CURSO (petición explícita, aplica solo si el mes/año que
+            # se está mostrando es el actual — nunca en meses pasados/futuros). Color calculado
+            # (`tema.color_resaltado_fila_actual`) para que se distinga SIEMPRE de los colores que
+            # el usuario tenga elegidos en Personalización, nunca un tono fijo que pudiera coincidir.
+            _hoy = datetime.now()
+            _dia_hoy = _hoy.day if (self._rend_anio, self._rend_mes) == (_hoy.year, _hoy.month) else None
+            _color_hoy = QColor(tema.color_resaltado_fila_actual()) if _dia_hoy is not None else None
+            _texto_hoy = QColor("#0D1117") if _color_hoy is not None and _color_hoy.lightnessF() > 0.5 \
+                else QColor("#FFFFFF")
             for r, d in enumerate(dias):
                 base = ["" for _ in range(ncols)]
                 base[0] = str(d)
@@ -4038,11 +4207,15 @@ class VentasAnaliticaWindow(QWidget):
                 base[3] = str(int(data[d]['clientes']))
                 base[5] = f"{data[d]['horas']:.2f}"
                 base[9] = f"{data[d]['prev']:.2f}"   # previsión IA (editable)
+                es_hoy = (d == _dia_hoy)
                 for c in range(ncols):
                     it = QTableWidgetItem(base[c])
                     it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     if c not in editables:
                         it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    if es_hoy:
+                        it.setBackground(_color_hoy)
+                        it.setForeground(_texto_hoy)
                     t.setItem(r, c, it)
             self._rend_recalcular()
         finally:
@@ -4084,6 +4257,29 @@ class VentasAnaliticaWindow(QWidget):
         if col in (1, 3, 5):
             self._rend_recalcular()
 
+    def _rend_seleccionar_fila(self, row, _col):
+        """1 clic sobre cualquier celda selecciona TODA la fila (petición explícita)."""
+        t = self.tbl_rend
+        t.clearSelection()
+        for c in range(t.columnCount()):
+            it = t.item(row, c)
+            if it is not None:
+                it.setSelected(True)
+
+    def _rend_seleccionar_celda(self, row, col):
+        """Doble clic reduce la selección a SOLO esa celda (petición explícita) — se dispara
+        DESPUÉS del clic simple (Qt siempre emite `cellClicked` antes de `cellDoubleClicked` en la
+        misma secuencia), así que esto es lo último en aplicarse y queda como estado final.
+        `setCurrentCell` ANTES de `setSelected` (no después): `setCurrentCell` limpia la
+        selección como efecto secundario al cambiar la celda "actual", así que si se llama
+        DESPUÉS deshace la propia selección que se acaba de fijar."""
+        t = self.tbl_rend
+        t.clearSelection()
+        t.setCurrentCell(row, col)
+        it = t.item(row, col)
+        if it is not None:
+            it.setSelected(True)
+
     def _guardar_rendimiento(self):
         import datetime as _d
         try:
@@ -4114,10 +4310,18 @@ class VentasAnaliticaWindow(QWidget):
     def _rend_acciones_row(self):
         row = QHBoxLayout(); row.addStretch()
         b_imp = QPushButton(tr("vta.perf_print", default="🖨  IMPRIMIR"))
-        b_sh = QPushButton(tr("vta.perf_share", default="📧  COMPARTIR"))
+        # Icono de "compartir" vectorial, el MISMO que ya usa la tabla de Documentos
+        # centralizados (petición explícita: nada de PNG estático — este sí tiene hover-swap real,
+        # igual que el resto de botones). Ver `_neon_ui.BotonCompartir`.
+        from src.gui._neon_ui import BotonCompartir
+        b_sh = BotonCompartir(tr("vta.perf_share", default="COMPARTIR"),
+                              color_normal=CIAN, color_hover=BG)
+        # Mismo diseño que `_SS_BTN_CIAN`, con un poco más de hueco a la izquierda para el icono.
+        b_sh.setStyleSheet(_SS_BTN_CIAN.replace("padding: 8px 20px;", "padding: 8px 20px 8px 32px;"))
+        b_sh.setFixedHeight(34)
         for b in (b_imp, b_sh):
-            b.setStyleSheet(_SS_BTN_CIAN); b.setFixedHeight(34)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b_imp.setStyleSheet(_SS_BTN_CIAN); b_imp.setFixedHeight(34)
         b_imp.clicked.connect(self._imprimir_tabla)
         b_sh.clicked.connect(self._compartir_tabla)
         row.addWidget(b_imp); row.addWidget(b_sh)

@@ -4,10 +4,17 @@ Fase Productividad · Objetivos VERSIONADOS por centro (fijo) y por empleado (di
 Nunca se actualiza un objetivo "en sitio": fijar uno nuevo CIERRA la versión anterior
 (`vigente_hasta`) e inserta una fila nueva — así una barra de progreso de un periodo ya pasado
 sigue mostrando el objetivo que estaba vigente ENTONCES, nunca el que el superadmin puso después.
-`valor` significa cosas distintas según `tipo_objetivo`: para "centro" es el importe FIJO del
-periodo; para "empleado" es la TARIFA POR HORA — el objetivo real se calcula multiplicando por las
-horas trabajadas (ver `objetivo_dinamico_empleado`, que lee de Fichajes vía
-`src.db.usuario.horas_trabajadas_rango`).
+`valor` significa cosas distintas según `tipo_objetivo` Y `metrica`: para "centro"+"eur" es el
+importe FIJO del periodo; para "empleado"+"eur" es la TARIFA POR HORA — el objetivo real se calcula
+multiplicando por las horas trabajadas (ver `objetivo_dinamico_empleado`, que lee de Fichajes vía
+`src.db.usuario.horas_trabajadas_rango`). Con `metrica="visitas"`, `valor` es directamente el
+Nº de visitas objetivo del periodo (mismo campo versionado, independiente del de "eur" — un mismo
+centro/empleado puede tener ambos vigentes a la vez).
+
+`metrica` (migración 0335, petición explícita): unifica aquí lo que antes vivía por separado en
+"Objetivos" del CRM (`services.crm.objetivos`, retirado como pestaña — ver `crm_dashboard.py`),
+que sí admitía objetivos de Nº de visitas. El "real" de visitas se cuenta sobre `crm_actividades`
+(mismo origen de datos que usaba el CRM, ver `visitas_realizadas_centro`/`_empleado`).
 """
 
 import datetime
@@ -16,6 +23,7 @@ from src.db.conexion import obtener_conexion
 from src.services.productividad import periodos as P
 
 TIPOS_OBJETIVO = ("centro", "empleado")
+METRICAS = ("eur", "visitas")
 
 
 def _hoy() -> datetime.date:
@@ -23,16 +31,19 @@ def _hoy() -> datetime.date:
 
 
 def _fijar(tipo_objetivo, periodo, valor, id_empresa, *, centro_codigo=None, usuario_id=None,
-           creado_por_id=None, vigente_desde=None) -> int | None:
+           creado_por_id=None, vigente_desde=None, metrica="eur") -> int | None:
     if tipo_objetivo not in TIPOS_OBJETIVO:
         raise ValueError(f"tipo_objetivo inválido: {tipo_objetivo!r}")
     if periodo not in P.TIPOS:
         raise ValueError(f"periodo inválido: {periodo!r}")
+    if metrica not in METRICAS:
+        raise ValueError(f"metrica inválida: {metrica!r}")
     desde = vigente_desde or _hoy()
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cond = "id_empresa=%s AND tipo_objetivo=%s AND periodo=%s AND vigente_hasta IS NULL"
-            params = [id_empresa, tipo_objetivo, periodo]
+            cond = ("id_empresa=%s AND tipo_objetivo=%s AND periodo=%s AND metrica=%s "
+                    "AND vigente_hasta IS NULL")
+            params = [id_empresa, tipo_objetivo, periodo, metrica]
             if tipo_objetivo == "centro":
                 cond += " AND centro_codigo=%s"
                 params.append(centro_codigo)
@@ -46,9 +57,9 @@ def _fijar(tipo_objetivo, periodo, valor, id_empresa, *, centro_codigo=None, usu
             cur.execute(
                 "INSERT INTO productividad_objetivos "
                 "(id_empresa, tipo_objetivo, centro_codigo, usuario_id, periodo, valor, "
-                " vigente_desde, creado_por_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                " vigente_desde, creado_por_id, metrica) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (id_empresa, tipo_objetivo, centro_codigo, usuario_id, periodo,
-                 round(float(valor or 0), 2), desde, creado_por_id))
+                 round(float(valor or 0), 2), desde, creado_por_id, metrica))
             conn.commit()
             return cur.lastrowid
     except Exception:
@@ -67,16 +78,30 @@ def fijar_objetivo_empleado(usuario_id, periodo, valor_hora, id_empresa, creado_
                    creado_por_id=creado_por_id, vigente_desde=vigente_desde)
 
 
+def fijar_objetivo_visitas_centro(centro_codigo, periodo, n_visitas, id_empresa, creado_por_id=None,
+                                   vigente_desde=None) -> int | None:
+    """Objetivo de Nº de visitas del centro (petición explícita, ver docstring del módulo)."""
+    return _fijar("centro", periodo, n_visitas, id_empresa, centro_codigo=centro_codigo,
+                   creado_por_id=creado_por_id, vigente_desde=vigente_desde, metrica="visitas")
+
+
+def fijar_objetivo_visitas_empleado(usuario_id, periodo, n_visitas, id_empresa, creado_por_id=None,
+                                     vigente_desde=None) -> int | None:
+    """Objetivo de Nº de visitas de un empleado (petición explícita, ver docstring del módulo)."""
+    return _fijar("empleado", periodo, n_visitas, id_empresa, usuario_id=usuario_id,
+                   creado_por_id=creado_por_id, vigente_desde=vigente_desde, metrica="visitas")
+
+
 def objetivo_en_fecha(tipo_objetivo, periodo, id_empresa, fecha_referencia=None, *,
-                       centro_codigo=None, usuario_id=None) -> dict | None:
+                       centro_codigo=None, usuario_id=None, metrica="eur") -> dict | None:
     """Versión del objetivo vigente EN `fecha_referencia` (hoy si se omite) — la que corresponde
     mostrar en una barra de progreso de un periodo que contenga esa fecha, pasado o presente."""
     fecha_referencia = fecha_referencia or _hoy()
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            cond = ("id_empresa=%s AND tipo_objetivo=%s AND periodo=%s AND vigente_desde<=%s "
-                    "AND (vigente_hasta IS NULL OR vigente_hasta>=%s)")
-            params = [id_empresa, tipo_objetivo, periodo, fecha_referencia, fecha_referencia]
+            cond = ("id_empresa=%s AND tipo_objetivo=%s AND periodo=%s AND metrica=%s "
+                    "AND vigente_desde<=%s AND (vigente_hasta IS NULL OR vigente_hasta>=%s)")
+            params = [id_empresa, tipo_objetivo, periodo, metrica, fecha_referencia, fecha_referencia]
             if tipo_objetivo == "centro":
                 cond += " AND centro_codigo=%s"
                 params.append(centro_codigo)
@@ -102,12 +127,53 @@ def objetivo_en_fecha(tipo_objetivo, periodo, id_empresa, fecha_referencia=None,
 def objetivos_obligatorios_completos(tipo_objetivo, id_empresa, fecha_referencia=None, *,
                                       centro_codigo=None, usuario_id=None) -> dict:
     """{periodo: bool} para los 3 periodos OBLIGATORIOS (mensual/semestral/anual) — indica si cada
-    uno ya tiene un objetivo vigente definido en `fecha_referencia`."""
+    uno ya tiene un objetivo de FACTURACIÓN (€) vigente definido en `fecha_referencia`. Los
+    objetivos de visitas son siempre opcionales, nunca obligatorios (mismo criterio que tenían en
+    el CRM)."""
     return {
         periodo: objetivo_en_fecha(tipo_objetivo, periodo, id_empresa, fecha_referencia,
                                     centro_codigo=centro_codigo, usuario_id=usuario_id) is not None
         for periodo in P.OBLIGATORIOS
     }
+
+
+def visitas_realizadas_centro(centro_codigo, desde, hasta, id_empresa) -> int:
+    """Nº de visitas (`crm_actividades.tipo='visita'`) registradas por CUALQUIER empleado del
+    centro en el rango — mismo origen de datos que usaba "Objetivos" del CRM, agregado a nivel de
+    centro (el CRM solo lo tenía por responsable individual). `crm_actividades.responsable` es el
+    ID de usuario (INT), no un nombre — igual que `crm_oportunidades.responsable`."""
+    try:
+        from src.db.usuario import listar_usuarios_empresa
+        ids = [u.get("id") for u in
+              (listar_usuarios_empresa(id_empresa, centro_codigo=centro_codigo) or [])
+              if u.get("id")]
+        if not ids:
+            return 0
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            marcadores = ",".join(["%s"] * len(ids))
+            cur.execute(
+                f"SELECT COUNT(*) FROM crm_actividades WHERE id_empresa<=>%s AND tipo='visita' "
+                f"AND responsable IN ({marcadores}) AND DATE(fecha_creacion) BETWEEN %s AND %s",
+                tuple([id_empresa] + ids + [desde, hasta]))
+            r = cur.fetchone()
+            return int((r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0)
+    except Exception:
+        return 0
+
+
+def visitas_realizadas_empleado(usuario_id, desde, hasta, id_empresa) -> int:
+    """Nº de visitas (`crm_actividades.tipo='visita'`) registradas por ESE empleado en el rango
+    (`responsable` = su ID de usuario)."""
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM crm_actividades WHERE id_empresa<=>%s AND tipo='visita' "
+                "AND responsable=%s AND DATE(fecha_creacion) BETWEEN %s AND %s",
+                (id_empresa, usuario_id, desde, hasta))
+            r = cur.fetchone()
+            return int((r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0)
+    except Exception:
+        return 0
 
 
 def objetivo_dinamico_empleado(usuario_id, periodo, id_empresa, fecha_referencia=None) -> dict:

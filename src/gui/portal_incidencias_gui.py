@@ -14,7 +14,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QPushButton, QTableWidgetItem,
                              QTextEdit, QVBoxLayout, QWidget)
 
-from src.gui.catalogo_gestion import _BG, _BORDE, _CIAN, _DIM, _btn, _btn_x, _inp, _tabla
+from src.gui.catalogo_gestion import (_BG, _BG2, _BORDE, _CIAN, _DIM, _FONT, _TEXT, _btn,
+                                       _btn_x, _inp, _tabla)
 from src.services.incidencias_internas import tickets as T
 
 logger = logging.getLogger("gui.portal_incidencias")
@@ -149,7 +150,7 @@ class PortalIncidenciasWindow(QWidget):
             self.cb_filtro_estado.addItem(et, k)
         self.cb_filtro_estado.currentIndexChanged.connect(lambda *_: self._refrescar_todas())
         filtros.addWidget(self.cb_filtro_estado)
-        filtros.addWidget(_btn("🔄 Actualizar", self._refrescar_todas))
+        filtros.addWidget(_btn("🔄 Actualizar", self._refrescar_todas, primary=True))
         filtros.addStretch()
         ly.addLayout(filtros)
 
@@ -158,23 +159,29 @@ class PortalIncidenciasWindow(QWidget):
         self.tbl_todas.cellClicked.connect(self._seleccionar_ticket)
         ly.addWidget(self.tbl_todas, 2)
 
-        # Panel de detalle: hilo de comentarios + respuesta + cambio de estado.
-        self.detalle_card = QWidget(); self.detalle_card.setStyleSheet(
-            f"background:#161B22;border:1px solid {_BORDE};border-radius:10px;")
+        # Panel de detalle: hilo de comentarios + respuesta + cambio de estado. Sin tarjeta
+        # envolvente (petición explícita: fuera el rectángulo gris que envolvía "Selecciona una
+        # incidencia…") — el texto de estado y el hilo van sueltos sobre el fondo de la ventana.
+        self.detalle_card = QWidget(); self.detalle_card.setStyleSheet("background:transparent;border:none;")
         dly = QVBoxLayout(self.detalle_card)
         self.lbl_detalle = QLabel("Selecciona una incidencia en la tabla.", styleSheet=f"color:{_DIM};")
         dly.addWidget(self.lbl_detalle)
         self.lbl_hilo = QLabel(""); self.lbl_hilo.setWordWrap(True)
         self.lbl_hilo.setStyleSheet(f"color:{_DIM};")
         dly.addWidget(self.lbl_hilo)
+        # Caja de respuesta: antes sin estilo propio (se veía como un segundo rectángulo gris
+        # vacío, sin relación visual con el resto de la app) — ahora ocupa el espacio liberado al
+        # quitar la tarjeta envolvente y lleva el mismo borde turquesa que el resto de inputs.
         self.in_respuesta = QTextEdit(); self.in_respuesta.setPlaceholderText("Responder / nota de resolución…")
-        self.in_respuesta.setFixedHeight(70)
-        dly.addWidget(self.in_respuesta)
+        self.in_respuesta.setStyleSheet(
+            f"QTextEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_CIAN};"
+            f"border-radius:8px;padding:8px;font-size:12px;font-family:'{_FONT}';}}")
+        dly.addWidget(self.in_respuesta, 1)
         acc = QHBoxLayout()
-        acc.addWidget(_btn("Comentar", self._comentar))
-        acc.addWidget(_btn("En proceso", lambda: self._cambiar_estado("en_proceso")))
+        acc.addWidget(_btn("Comentar", self._comentar, primary=True))
+        acc.addWidget(_btn("En proceso", lambda: self._cambiar_estado("en_proceso"), primary=True))
         acc.addWidget(_btn("Resuelto", lambda: self._cambiar_estado("resuelto"), primary=True))
-        acc.addWidget(_btn("Cerrar", lambda: self._cambiar_estado("cerrado")))
+        acc.addWidget(_btn("Cerrar", lambda: self._cambiar_estado("cerrado"), danger=True))
         acc.addStretch()
         dly.addLayout(acc)
         ly.addWidget(self.detalle_card, 1)

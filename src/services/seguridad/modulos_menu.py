@@ -21,11 +21,13 @@ MODULOS = [   # (v_id, etiqueta) — mismo orden/contenido que _MODULOS_MENU ten
     ("registro_temperatura", "Temperaturas"), ("saas", "SaaS"),
     ("rrhh", "RRHH"), ("proyectos", "Proyectos"), ("portal", "Portal del empleado"),
     ("incidencias", "Incidencias"),
-    ("almacenes", "Almacenes"), ("migracion", "Migrar datos"), ("camaras", "Cámaras"),
+    ("almacenes", "Almacenes"), ("migracion", "Migrar datos"),
+    ("camaras", "Seguridad"),  # v_id histórico "camaras" — ahora incluye la pestaña EAS
     ("recetas", "Recetas"), ("obrador", "Obrador"),
     ("transporte", "Reparto"), ("distribucion", "Distribución"), ("mrp", "Producción"),
     ("gmao", "Mantenimiento"), ("fichajes", "Fichajes"), ("horarios", "Horarios"),
     ("sat", "Posventa"), ("redes_sociales", "RRSS"), ("nominas", "Nóminas"),
+    ("eventos", "Eventos"),
 ]
 
 # v_id de módulo → clave de función segmentable (`services.verticales.FUNCIONES`) para los módulos
@@ -45,6 +47,8 @@ MODULOS_EDICION = {
 # aprobaciones, rrhh, proyectos, transporte, distribucion, saas → SUPERADMIN-only hoy).
 # "redes_sociales" (petición explícita): EXCLUSIVO de SUPERADMIN, ausente a propósito de ambos
 # conjuntos — ver también el doble gate explícito en `menu_principal.py`.
+# "eventos" (petición explícita, módulo "Eventos" — antes pestaña "PLANIFICAR CITAS" de
+# Configuración): EXCLUSIVO de SUPERADMIN, mismo criterio que "redes_sociales".
 DEFAULT_ADMINISTRADOR = frozenset({
     "tpv", "logistica", "stock", "ubicacion", "info", "documentos", "correo", "mermas",
     "etiquetas", "reposicion", "ventas", "catalogo", "gestion_caja", "workflow",

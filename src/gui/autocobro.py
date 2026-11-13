@@ -161,8 +161,14 @@ class AutocobroWindow(QWidget):
         v.setContentsMargins(24, 20, 24, 20)
         v.setSpacing(10)
         nombre = autorizador.get("nombre", "—") if isinstance(autorizador, dict) else str(autorizador)
-        v.addWidget(_lbl(tr("autocobro.asist_title", default="🔧  ASISTENCIA DE PERSONAL"),
-                         bold=True, size=20, color=_CIAN))
+        from src.gui.tpv import _BotonCerrarX
+        cab = QHBoxLayout()
+        cab.addWidget(_lbl(tr("autocobro.asist_title", default="🔧  ASISTENCIA DE PERSONAL"),
+                           bold=True, size=20, color=_CIAN), 1)
+        bx = _BotonCerrarX(32)
+        bx.clicked.connect(dlg.reject)
+        cab.addWidget(bx)
+        v.addLayout(cab)
         v.addWidget(_lbl(tr("autocobro.asist_auth", default="Autorizado por: {n}", n=nombre),
                          bold=True, size=12, color=_TEXT2))
         v.addSpacing(6)
@@ -183,19 +189,23 @@ class AutocobroWindow(QWidget):
         _accion(tr("autocobro.asist_void", default="🗑  Anular línea seleccionada"), _AMBAR,
                 lambda: self._asist_anular_linea(autorizador))
         _accion(tr("autocobro.asist_clear", default="✖  Vaciar compra"), _AMBAR, self._asist_vaciar)
-        _accion(tr("autocobro.asist_close", default="⏻  Cerrar terminal"), _ROJO, self.close)
-        v.addSpacing(4)
-        b_cerrar = QPushButton(tr("autocobro.asist_dismiss", default="Cerrar menú"))
-        b_cerrar.setFixedHeight(48)
-        b_cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
-        b_cerrar.setStyleSheet(
-            f"QPushButton{{background:transparent;color:{_TEXT2};border:1px solid {_BORDE};"
-            f"border-radius:12px;font-family:'{_FONT}';font-weight:700;font-size:15px;}}"
-            f"QPushButton:hover{{border-color:{_TEXT};color:{_TEXT};}}")
-        b_cerrar.clicked.connect(dlg.reject)
-        v.addWidget(b_cerrar)
+        _accion(tr("autocobro.asist_datafono", default="💳  Configurar datáfono"), _CIAN,
+                self._asist_config_datafono)
+        # "🔌" en vez de "⏻" (petición explícita, bug real): ese glifo de apagado no tiene icono en
+        # la fuente de Windows y se mostraba como un cuadro vacío delante del texto.
+        _accion(tr("autocobro.asist_close", default="🔌  Cerrar terminal"), _ROJO, self.close)
         dlg.exec()
         self.inp_scan.setFocus()
+
+    def _asist_config_datafono(self):
+        """Emparejamiento del datáfono de ESTA tienda (petición explícita: un local que solo tenga
+        autocobro, sin TPV de caja, debe poder dejarlo listo igualmente) — MISMA config por
+        tienda que usa el TPV (`services.tpv.datafono`/`db.datafono`): emparejar aquí o desde el
+        TPV es el MISMO dato, lo que se haga en un sitio se ve también en el otro. Ya detrás del
+        gate de ADMINISTRADOR de esta zona de asistencia (igual de sensible que cualquier otra
+        acción de aquí); el guardado real exige además el mismo step-up MFA que en el TPV."""
+        from src.gui.datafono_pairing_dialog import DatafonoPairingDialog
+        DatafonoPairingDialog(parent=self).exec()
 
     def _asist_desbloquear_peso(self):
         """Desbloquea la zona de embolsado (reutiliza BaggingAreaController.desbloquear del motor)."""
@@ -358,7 +368,22 @@ class AutocobroWindow(QWidget):
         card_total.setStyleSheet(f"QFrame{{background:transparent;border:none;}}")
         ct = QVBoxLayout(card_total)
         ct.setContentsMargins(24, 18, 24, 18)
-        ct.addWidget(_lbl("TOTAL A PAGAR", bold=True, size=18, color=_TEXT2))
+        fila_total = QHBoxLayout()
+        fila_total.addWidget(_lbl("TOTAL A PAGAR", bold=True, size=18, color=_TEXT2))
+        fila_total.addStretch()
+        # Botón de engranaje (petición explícita): alternativa al triple-toque de la esquina para
+        # abrir la asistencia de personal — el triple-toque ha fallado un par de veces seguidas al
+        # usuario; este botón visible es más fiable sin dejar de exigir la MISMA autorización.
+        self.btn_config_staff = QPushButton("⚙")
+        self.btn_config_staff.setFixedSize(40, 40)
+        self.btn_config_staff.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_config_staff.setStyleSheet(
+            f"QPushButton{{background:{_BG2};color:{_TEXT2};border:2px solid {_BORDE};"
+            f"border-radius:20px;font-size:18px;}}"
+            f"QPushButton:hover{{border-color:{_CIAN};color:{_CIAN};}}")
+        self.btn_config_staff.clicked.connect(self._abrir_asistencia)
+        fila_total.addWidget(self.btn_config_staff)
+        ct.addLayout(fila_total)
         self.lbl_total = _lbl(divisas.formatear(0), bold=True, size=48, color=_VERDE)
         self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignRight)
         ct.addWidget(self.lbl_total)
