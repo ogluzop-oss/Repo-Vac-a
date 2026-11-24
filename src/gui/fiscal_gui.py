@@ -24,13 +24,13 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_cargando, _chk,
                                       _dialogo_frameless, _inp, _lbl, _tabla)
+from src.gui.components import EnterpriseTabs
 
 logger = logging.getLogger("gui.fiscal")
 
@@ -452,7 +452,7 @@ class FiscalWindow(QWidget):
             cab.addWidget(_btn("Volver", self._volver))
         root.addLayout(cab)
         self.panels = FiscalPanels(usuario=self.usuario, host=self)
-        self.tabs = QTabWidget()
+        self.tabs = EnterpriseTabs()
         self.tabs.addTab(self.panels.pagina_certificados, "Certificados")
         self.tabs.addTab(self.panels.pagina_verifactu, "Registros Verifactu")
         self.tabs.addTab(self.panels.pagina_facturae, "Facturae (FACe)")

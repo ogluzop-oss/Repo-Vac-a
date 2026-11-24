@@ -98,7 +98,7 @@ from PyQt6.QtWidgets import (
 
 # Importaciones internas
 from src.db.conexion import init_db, obtener_conexion
-from src.db.usuario import puede_iniciar_sesion, sesion_global, validar_login_usuario
+from src.db.usuario import sesion_global
 from src.gui.login import LoginWindow
 from src.gui.menu_principal import MenuPrincipal
 from src.utils.i18n import tr
@@ -708,9 +708,18 @@ class SmartManagerApp(QStackedWidget):
     # ============================================================
     def setup_spinner(self):
         """Capa de carga que bloquea la interacción durante el login."""
-        self.overlay = QWidget(self.ventana_login)
+        # Padre = `self` (el propio QStackedWidget de la app), NO `self.ventana_login` (petición
+        # explícita, fix de corte de animación): antes, al ser hijo de la página de login,
+        # `self.setCurrentIndex(...)` hacia el Menú Principal (dentro de `abrir_menu_principal`)
+        # ocultaba la página de login — y con ella, A LA VEZ, este overlay (por ser su hijo),
+        # cortando la animación de golpe en mitad de la reproducción, ANTES incluso de que se
+        # llegara a ejecutar el `overlay.hide()` explícito de más abajo. Siendo hijo directo de
+        # `self`, el overlay sobrevive al cambio de página del stack y se queda tapando lo que
+        # haya debajo (login o ya el Menú Principal) hasta que se oculta EXPLÍCITAMENTE — ver
+        # `_ocultar_overlay_cuando_termine_animacion`.
+        self.overlay = QWidget(self)
         self.overlay.hide()
-        self.overlay.setGeometry(self.ventana_login.rect())
+        self.overlay.setGeometry(self.rect())
         self.overlay.setStyleSheet("background-color: rgba(14, 17, 23, 200);")
 
         layout = QVBoxLayout(self.overlay)
@@ -927,6 +936,52 @@ class SmartManagerApp(QStackedWidget):
         except Exception:
             pass
 
+    def _ocultar_overlay_cuando_termine_animacion(self, callback=None):
+        """Oculta el overlay de carga SOLO cuando la animación haya terminado su pasada completa
+        (petición explícita), y entonces — nunca antes — llama a `callback` si se indica.
+
+        Rediseño (petición explícita, "más simple"): la versión anterior dejaba que el Menú
+        Principal se CONSTRUYERA EN PARALELO con la animación (bloqueando el avance de fotogramas
+        del `QMovie` mientras tanto, porque esa construcción es síncrona) y solo esperaba a que la
+        animación terminara para OCULTAR el overlay — la animación en sí seguía viéndose "trabada"
+        durante ese tramo, aunque ya no se cortara de golpe al final. Ahora NADA de trabajo pesado
+        (`callback`, que construye el menú) empieza hasta que la animación ha terminado DE VERDAD
+        su pasada — así el bucle de eventos queda libre para el `QMovie` durante TODA la
+        animación, de principio a fin, sin competir con nada. Si la animación ya había terminado
+        al llamar aquí (p. ej. una segunda llamada), `callback` se ejecuta de inmediato. Al
+        pararse justo al llegar al último fotograma (nunca se deja dar una segunda vuelta), la
+        animación corre como mucho una vez por inicio de sesión."""
+        try:
+            self.overlay.raise_()
+        except Exception:
+            pass
+        mov = getattr(self, "_loading_movie", None)
+        if mov is None or mov.frameCount() <= 1 or mov.currentFrameNumber() >= mov.frameCount() - 1:
+            self.overlay.hide()
+            self._detener_clip_carga()
+            if callback is not None:
+                callback()
+            return
+
+        def _al_llegar_al_final(_n=None):
+            if mov.currentFrameNumber() >= mov.frameCount() - 1:
+                try:
+                    mov.frameChanged.disconnect(_al_llegar_al_final)
+                except Exception:
+                    pass
+                self.overlay.hide()
+                self._detener_clip_carga()
+                if callback is not None:
+                    callback()
+
+        try:
+            mov.frameChanged.connect(_al_llegar_al_final)
+        except Exception:
+            self.overlay.hide()
+            self._detener_clip_carga()
+            if callback is not None:
+                callback()
+
     def _ajustar_tamano_clip(self):
         """Escala la animación de carga. Dos criterios DISTINTOS a propósito, según el tipo de
         clip:
@@ -1012,7 +1067,7 @@ class SmartManagerApp(QStackedWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, "overlay") and self.overlay is not None:
-            self.overlay.setGeometry(self.ventana_login.rect())
+            self.overlay.setGeometry(self.rect())
             self._ajustar_tamano_clip()   # mantener la animación de carga a pantalla completa
 
     def _latido_sesion_desktop(self):
@@ -1120,7 +1175,9 @@ class SmartManagerApp(QStackedWidget):
     # BLOQUE LOGIN
     # ============================================================
     def iniciar_proceso_login(self):
-        """Activa el spinner y valida tras un delay."""
+        """Activa el spinner y valida EN PARALELO con la animación (petición explícita: "que la
+        animación se reproduzca mientras, de manera simultánea, se carga el menú principal... sin
+        que se trabe ni un segundo")."""
         # La animación de carga SIEMPRE arranca desde el principio (frame 0), nunca se reanuda desde el
         # último punto: se detiene, se rebobina y se vuelve a lanzar cada vez que aparece la pantalla.
         try:
@@ -1136,29 +1193,68 @@ class SmartManagerApp(QStackedWidget):
                 vid.play()
         except Exception:
             pass
-        self.overlay.setGeometry(self.ventana_login.rect())
+        self.overlay.setGeometry(self.rect())
         self._ajustar_tamano_clip()   # animación de carga a pantalla completa (tamaño real ya conocido)
         self.overlay.show()
         self.overlay.raise_()
         self.configurar_monitorizacion_rfid()
         QApplication.processEvents()
-        QTimer.singleShot(800, self.ejecutar_login)
+        # Validación de credenciales en un HILO aparte (`LoginValidationWorker`, mismo patrón que
+        # `RFIDWorker`/`SomaWorker`: solo toca BD, nunca un widget) — arranca YA, sin esperar a que
+        # la animación termine, para que se solape con ella de verdad (antes: `QTimer.singleShot(
+        # 800, ...)` primero, y más tarde esperar al fin de la animación, metían esa validación
+        # SÍNCRONA en el hilo principal, compitiendo con el avance de fotogramas del `QMovie` — se
+        # veía como un corte). Con la validación en su propio hilo, el hilo principal queda LIBRE
+        # para el `QMovie` durante TODA la animación, sin que nada compita con ella. El menú solo
+        # se revela cuando AMBAS cosas han terminado — animación Y validación —, lo que tarde más
+        # de las dos (`_intentar_continuar_login`), así que nunca se adelanta a medio reproducir.
+        self._login_anim_lista = False
+        self._login_resultado = None
+        self._login_nombre_intentado = self.ventana_login.txt_nombre.text().strip()
+        password = self.ventana_login.txt_password.text()
+        from PyQt6.QtCore import QThread
+
+        from src.utils.login_worker import LoginValidationWorker
+        self._login_worker = LoginValidationWorker(self._login_nombre_intentado, password)
+        self._login_thread = QThread(self)
+        self._login_worker.moveToThread(self._login_thread)
+        self._login_thread.started.connect(self._login_worker.run)
+        self._login_worker.terminado.connect(self._on_login_validado)
+        self._login_thread.start()
+        self._ocultar_overlay_cuando_termine_animacion(callback=self._on_login_animacion_lista)
 
     # NOTA: la verificación en dos pasos (MFA/TOTP) fue RETIRADA del login por decisión de producto.
     # Los antiguos helpers de reto (`_reto_mfa`) y de enrolamiento obligatorio (`_enrolar_mfa_obligatorio`)
     # se eliminaron: el login ya no exige ni fuerza 2º factor. El subsistema MFA sigue intacto para el
     # step-up de acciones críticas y para la gestión desde Configuración.
 
-    def ejecutar_login(self):
-        """Procesa las credenciales y gestiona el cambio de pantalla."""
-        nombre = self.ventana_login.txt_nombre.text().strip()
-        password = self.ventana_login.txt_password.text()
-        # E1.2: login OFICIAL nominal por usuario (nombre o email), con Argon2id,
-        # lockout y trazabilidad individual. (El login por perfil compartido queda
-        # como modo legacy desactivado por defecto.)
-        user_data = validar_login_usuario(nombre, password)
+    def _on_login_animacion_lista(self):
+        self._login_anim_lista = True
+        self._intentar_continuar_login()
 
-        if user_data and not puede_iniciar_sesion(user_data.get("id"), user_data.get("perfil")):
+    def _on_login_validado(self, user_data, bloqueado_multisesion):
+        try:
+            self._login_thread.quit()
+            self._login_thread.wait(2000)
+        except Exception:
+            pass
+        self._login_resultado = (user_data, bloqueado_multisesion)
+        self._intentar_continuar_login()
+
+    def _intentar_continuar_login(self):
+        """Revela el resultado del login solo cuando AMBAS cosas están listas (animación Y
+        validación) — lo que tarde más de las dos marca el ritmo; nunca se adelanta."""
+        if not self._login_anim_lista or self._login_resultado is None:
+            return
+        user_data, bloqueado_multisesion = self._login_resultado
+        self._login_anim_lista = False
+        self._login_resultado = None
+        self._procesar_resultado_login(user_data, bloqueado_multisesion)
+
+    def _procesar_resultado_login(self, user_data, bloqueado_multisesion):
+        """Gestiona el cambio de pantalla con el resultado YA validado (en paralelo, ver
+        `iniciar_proceso_login`) y la animación YA terminada."""
+        if user_data and bloqueado_multisesion:
             self.overlay.hide()
             self._detener_clip_carga()
             mostrar_mensaje(
@@ -1199,42 +1295,18 @@ class SmartManagerApp(QStackedWidget):
                 aplicar_estilo_app(QApplication.instance())
             except Exception:
                 pass
-            self.abrir_menu_principal()
             self.ventana_login.txt_password.clear()
-            self.overlay.hide()
-            self._detener_clip_carga()
-            # Reproducir el tono al iniciar la sesión
-            # stop()+setPosition(0) ensures clean replay after a previous login
-            self.intro_player.stop()
-            self.intro_player.setPosition(0)
-            if self.intro_player.source().isValid():
-                self.intro_player.play()
-            # Arrancar SOMA DIFERIDO: dejamos que el menú principal se pinte y sea
-            # interactivo ANTES de inicializar el asistente de voz. Antes se
-            # llamaba aquí en línea y el arranque de SOMA congelaba los botones del
-            # menú durante 1-3 s. Con el retardo, la UI responde de inmediato.
-            QTimer.singleShot(350, self._iniciar_soma)
-            # Centro OBLIGATORIO para SUPERADMIN (pedido explícito), SIN bloquear el login: antes el
-            # diálogo modal se abría ANTES de ocultar el overlay de carga, solapándose con su
-            # animación. Ahora el SUPERADMIN entra directo al Menú Principal y, una vez pintado, se
-            # abre solo (diferido, mismo criterio que SOMA arriba) el selector "Cambiar de Centro"
-            # si todavía no hay un centro activo — ver `_abrir_selector_centro_tras_login`.
-            if (user_data.get("perfil") or "").upper() == "SUPERADMIN":
-                QTimer.singleShot(
-                    400, lambda ud=user_data: self._abrir_selector_centro_tras_login(ud))
-            # Licenciamiento central (Fase 3, ver plan): primera verificación diferida (mismo
-            # motivo que SOMA arriba) + repetición cada 24h mientras la app esté abierta. Nunca
-            # bloquea el login ni el arranque — sin servidor configurado o sin conexión, es un
-            # no-op silencioso (ver `services.licencia_central.sincronizacion`).
-            QTimer.singleShot(1500, self._verificar_licencia_central)
-            if not hasattr(self, "_timer_licencia_central"):
-                self._timer_licencia_central = QTimer(self)
-                self._timer_licencia_central.timeout.connect(self._verificar_licencia_central)
-                self._timer_licencia_central.start(24 * 60 * 60 * 1000)
+            # Llegados aquí la animación YA terminó su única pasada (y el overlay ya está oculto):
+            # no hay nada que esperar, se construye el menú directamente (bug real de una versión
+            # anterior: volver a invocar `_ocultar_overlay_cuando_termine_animacion` aquí esperaba
+            # OTRA VEZ a un `frameChanged` que ya no llegaba, con el QMovie parado en el frame 0 —
+            # el menú no se abría pese a credenciales correctas en el 1er intento).
+            self._al_terminar_animacion_login(user_data)
         else:
             try:
                 from src.utils.observabilidad import registrar_evento
-                registrar_evento("login", "acceso denegado", nivel="warning", usuario=nombre)
+                registrar_evento("login", "acceso denegado", nivel="warning",
+                                 usuario=self._login_nombre_intentado)
             except Exception:
                 pass
             self.overlay.hide()
@@ -1248,6 +1320,40 @@ class SmartManagerApp(QStackedWidget):
             self.ventana_login.txt_password.clear()
             self.ventana_login.txt_password.setFocus()
 
+    def _al_terminar_animacion_login(self, user_data):
+        """Construye y muestra el Menú Principal — y programa todo lo que va detrás (tono de
+        entrada, SOMA, selector de centro, licencia) — SOLO cuando la animación de carga ya ha
+        terminado su pasada completa (ver `_ocultar_overlay_cuando_termine_animacion`, que llama
+        aquí como `callback`). Antes esto vivía en línea dentro de `ejecutar_login`, arrancando EN
+        PARALELO con la animación."""
+        self.abrir_menu_principal()
+        # Reproducir el tono al iniciar la sesión
+        # stop()+setPosition(0) ensures clean replay after a previous login
+        self.intro_player.stop()
+        self.intro_player.setPosition(0)
+        if self.intro_player.source().isValid():
+            self.intro_player.play()
+        # Arrancar SOMA DIFERIDO: dejamos que el menú principal se pinte y sea
+        # interactivo ANTES de inicializar el asistente de voz. Antes se
+        # llamaba aquí en línea y el arranque de SOMA congelaba los botones del
+        # menú durante 1-3 s. Con el retardo, la UI responde de inmediato.
+        QTimer.singleShot(350, self._iniciar_soma)
+        # Centro OBLIGATORIO para SUPERADMIN (pedido explícito): una vez el Menú Principal está
+        # pintado, se abre solo (diferido, mismo criterio que SOMA arriba) el selector "Cambiar de
+        # Centro" si todavía no hay un centro activo — ver `_abrir_selector_centro_tras_login`.
+        if (user_data.get("perfil") or "").upper() == "SUPERADMIN":
+            QTimer.singleShot(
+                400, lambda ud=user_data: self._abrir_selector_centro_tras_login(ud))
+        # Licenciamiento central (Fase 3, ver plan): primera verificación diferida (mismo
+        # motivo que SOMA arriba) + repetición cada 24h mientras la app esté abierta. Nunca
+        # bloquea el login ni el arranque — sin servidor configurado o sin conexión, es un
+        # no-op silencioso (ver `services.licencia_central.sincronizacion`).
+        QTimer.singleShot(1500, self._verificar_licencia_central)
+        if not hasattr(self, "_timer_licencia_central"):
+            self._timer_licencia_central = QTimer(self)
+            self._timer_licencia_central.timeout.connect(self._verificar_licencia_central)
+            self._timer_licencia_central.start(24 * 60 * 60 * 1000)
+
     def _abrir_selector_centro_tras_login(self, user_data):
         """Centro OBLIGATORIO para SUPERADMIN (pedido explícito) — SIN bloquear el login ni tapar
         la animación de carga del overlay (el diálogo modal antiguo se abría ANTES de ocultarlo).
@@ -1256,7 +1362,13 @@ class SmartManagerApp(QStackedWidget):
         Centro" del chip de la esquina superior izquierda (`MenuPrincipal._abrir_selector_centro`,
         reutilizado con `es_login=True` para que cerrarlo sin elegir redirija al selector de
         perfil — ver `menu_principal.py`). Degradación honesta: instalación nueva sin NINGÚN
-        centro dado de alta → no se exige nada (sería una elección imposible)."""
+        centro dado de alta → no se exige nada (sería una elección imposible).
+
+        Petición explícita, 2026-11-20: con un ÚNICO centro dado de alta no hay nada que elegir
+        de verdad — se activa directamente (`selector_tienda.elegir_centro`, la MISMA lógica que
+        al elegirlo a mano en el diálogo) sin desplegar ningún selector. Si la activación
+        automática fallara (p. ej. una tienda vinculada que ya no existe), se cae al diálogo de
+        siempre como red de seguridad, en vez de dejar al SUPERADMIN sin centro y sin aviso."""
         try:
             from src.db.empresa import empresa_actual_id, tienda_actual_id
             if tienda_actual_id():
@@ -1264,10 +1376,17 @@ class SmartManagerApp(QStackedWidget):
             from src.db import centros as centros_db
             id_empresa = empresa_actual_id()
             uid = user_data.get("id")
-            if not centros_db.listar_centros(id_empresa, creado_por_id=uid):
+            centros = centros_db.listar_centros(id_empresa, creado_por_id=uid)
+            if not centros:
                 return
-            if self.menu_principal is not None:
-                self.menu_principal._abrir_selector_centro(es_login=True)
+            if self.menu_principal is None:
+                return
+            if len(centros) == 1:
+                from src.gui.selector_tienda import elegir_centro
+                if elegir_centro(centros[0]) is not None:
+                    self.menu_principal._recargar_contexto_tienda()
+                    return
+            self.menu_principal._abrir_selector_centro(es_login=True)
         except Exception as e:
             logger.error(f"Error abriendo selector de centro tras login: {e}")
 
@@ -1515,6 +1634,15 @@ class SmartManagerApp(QStackedWidget):
                     except Exception as _eick:
                         logger.debug(f"ic_sync_canales tick: {_eick}")
                     try:
+                        # Sondeo automático de pedidos entrantes (petición explícita, 2026-11-24):
+                        # antes, ningún canal (WooCommerce/Shopify/Amazon/...) importaba pedidos sin
+                        # que un humano pulsara "Sincronizar" en la GUI. Mismo latido de 2 min que
+                        # ic_sync_canales, sin crear un QTimer nuevo.
+                        from src.services import scheduler as _sch
+                        _sch.ejecutar_job("ic_importar_pedidos")
+                    except Exception as _eicip:
+                        logger.debug(f"ic_importar_pedidos tick: {_eicip}")
+                    try:
                         from src.services import scheduler as _sch
                         _sch.ejecutar_job("b2b_carrito_abandono")
                     except Exception as _eicab2:
@@ -1529,6 +1657,35 @@ class SmartManagerApp(QStackedWidget):
                         _cdpk2.expirar_vencidas()
                     except Exception as _ecdpk2:
                         logger.debug(f"cd_pickup_expirar tick: {_ecdpk2}")
+                    try:
+                        # Resiliencia (venta offline del TPV, Bloque 7): ni
+                        # `scheduler.ejecutar_pendientes()` ni el job `resiliencia_sync`
+                        # registrado vía `scheduler_registry` se disparan solos (confirmado —
+                        # nada los invoca), así que sin este tick la sincronización offline->
+                        # central seguiría siendo 100% manual (solo el botón del panel de
+                        # Resiliencia). Reutiliza el MISMO latido de 2 min, mismo criterio que
+                        # los bloques de arriba. En modo "offline" reintenta la reconexión
+                        # (y si procede, vuelca todo lo pendiente); en modo "online" refresca
+                        # el caché local (artículos/clientes/stock/precios) para que, si la
+                        # conexión cae de golpe, el TPV no arranque el modo offline con datos
+                        # obsoletos desde el inicio de la sesión.
+                        from src.db.conexion import hay_conexion
+                        from src.db.empresa import empresa_actual_id, tienda_actual_id
+                        from src.services.resiliencia import edge_node, sync_engine
+                        _eid_res = empresa_actual_id()
+                        _tid_res = tienda_actual_id() or 0
+                        if _eid_res:
+                            _estado_res = edge_node.estado(_eid_res, _tid_res)
+                            _conectado_res = hay_conexion()
+                            if _estado_res.get("modo") == "offline":
+                                if _conectado_res:
+                                    edge_node.reconectar(_eid_res, _tid_res)
+                            elif _conectado_res:
+                                sync_engine.pull_central_a_offline(id_empresa=_eid_res, id_tienda=_tid_res)
+                            else:
+                                edge_node.entrar_offline(_eid_res, _tid_res)
+                    except Exception as _eres:
+                        logger.debug(f"resiliencia tick: {_eres}")
 
                 self._timer_ic_sync_canales = QTimer(self)
                 self._timer_ic_sync_canales.timeout.connect(_tick_ic_sync_canales)
@@ -2120,11 +2277,146 @@ class SmartManagerApp(QStackedWidget):
         QApplication.processEvents()
 
 
+def _necesita_aprovisionamiento() -> bool:
+    """True si este equipo no tiene todavía credenciales de base de datos configuradas (primer
+    arranque tras una instalación nueva) — en ese caso se muestra la pantalla de emparejamiento
+    ANTES de intentar nada que dependa de BD (`iniciar_backend`/`init_db`), en vez de dejar que
+    fallen con un error de conexión críptico."""
+    return not (os.getenv("DB_HOST") and os.getenv("DB_PASSWORD"))
+
+
+def _pantalla_primer_arranque() -> bool:
+    """Pantalla mínima de alta automática de un ordenador nuevo (Parte B del aprovisionamiento,
+    `services.provisioning`/`api.routers.provisioning`): pide el código generado desde
+    Configuración → Datos de empresa → Centros, lo canjea contra el backend y escribe el `.env`
+    local — sin tener que copiar credenciales a mano. Devuelve True si quedó emparejado (hay que
+    reiniciar la app para que recargue el `.env`); False si el usuario canceló.
+
+    Usa su PROPIO QApplication temporal — se llama ANTES de `iniciar_backend()`/`init_db()` y
+    ANTES del QApplication principal (creado más abajo, con su propia configuración de estilo/
+    paleta/high-DPI cuidadosamente ordenada); en caso de éxito el proceso termina limpiamente
+    (`sys.exit`) y nunca llega a crear ese segundo QApplication en la misma ejecución."""
+    import sys as _sys
+
+    from PyQt6.QtWidgets import (QApplication, QDialog, QLabel, QLineEdit, QMessageBox,
+                                 QPushButton, QVBoxLayout)
+
+    app = QApplication.instance() or QApplication(_sys.argv)
+
+    dlg = QDialog()
+    dlg.setWindowTitle("Smart Manager — Configuración inicial")
+    dlg.setFixedWidth(420)
+    lay = QVBoxLayout(dlg)
+    lay.addWidget(QLabel("Este ordenador todavía no está configurado.\n"
+                         "Introduce el código de instalación de tu tienda\n"
+                         "(generado por el superadministrador en Configuración\n"
+                         "→ Datos de empresa → Centros):"))
+    campo_codigo = QLineEdit()
+    campo_codigo.setPlaceholderText("Código de instalación")
+    lay.addWidget(campo_codigo)
+    lay.addWidget(QLabel("Servidor:"))
+    campo_servidor = QLineEdit(os.getenv("SMART_MANAGER_SERVIDOR", "admin.smartmanager-app.com"))
+    lay.addWidget(campo_servidor)
+    btn = QPushButton("Configurar este ordenador")
+    lay.addWidget(btn)
+
+    resultado = {"ok": False}
+
+    def _confirmar():
+        codigo = campo_codigo.text().strip()
+        servidor = campo_servidor.text().strip().rstrip("/")
+        if not codigo or not servidor:
+            QMessageBox.warning(dlg, "Falta un dato", "Indica el código y el servidor.")
+            return
+        try:
+            import requests
+            resp = requests.post(f"https://{servidor}/api/v1/provisioning/emparejar",
+                                 json={"codigo": codigo}, timeout=10)
+            datos = resp.json()
+        except Exception as e:
+            QMessageBox.critical(dlg, "Error de conexión",
+                                 f"No se pudo contactar con el servidor:\n{e}")
+            return
+        if not datos.get("ok"):
+            errores = {"no_encontrado": "El código no existe.",
+                      "caducado": "El código ha caducado (30 min). Pide uno nuevo.",
+                      "ya_usado": "Este código ya se usó. Pide uno nuevo."}
+            QMessageBox.critical(dlg, "Código no válido",
+                                 errores.get(datos.get("error"), "Código no válido."))
+            return
+        try:
+            _escribir_env_aprovisionado(datos)
+        except Exception as e:
+            QMessageBox.critical(dlg, "Error al guardar",
+                                 f"No se pudo escribir la configuración local:\n{e}")
+            return
+        resultado["ok"] = True
+        dlg.accept()
+
+    btn.clicked.connect(_confirmar)
+    campo_codigo.returnPressed.connect(_confirmar)
+    dlg.exec()
+
+    if resultado["ok"]:
+        QMessageBox.information(
+            None, "Configuración completada",
+            "Este ordenador ha quedado configurado.\nVuelve a abrir Smart Manager para continuar.")
+    return resultado["ok"]
+
+
+def _escribir_env_aprovisionado(datos: dict) -> None:
+    """Escribe/actualiza el `.env` local con la respuesta del endpoint de emparejamiento — mismas
+    claves que lee `src.db.conexion` (`DB_HOST`/`DB_USER`/`DB_PASSWORD`/.../`DB_SSL_CA`) más
+    `PORTAL_EMPLEADO_URL` y el `centro_codigo` asignado. El PEM de la CA se guarda en un fichero
+    aparte junto al `.env` (no inline: `DB_SSL_CA` es una RUTA, ver `db.conexion`)."""
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ruta_env = os.path.join(base, ".env")
+    valores = {
+        "DB_HOST": datos["db_host"], "DB_PORT": str(datos["db_port"]),
+        "DB_USER": datos["db_user"], "DB_PASSWORD": datos["db_password"],
+        "DB_NAME": datos["db_name"], "PORTAL_EMPLEADO_URL": datos["portal_empleado_url"],
+    }
+    # `centro_codigo` NO se escribe como variable de entorno a propósito: el centro de un
+    # terminal se resuelve hoy por SESIÓN (login → `usuarios.centro_codigo`/selector "Selecciona
+    # un centro"), nunca por configuración de máquina — escribirlo aquí sería un dato muerto que
+    # nada lee.
+    if datos.get("db_ssl_ca_pem"):
+        ruta_ca = os.path.join(base, "db_remote_ca.pem")
+        with open(ruta_ca, "w", encoding="utf-8") as fh:
+            fh.write(datos["db_ssl_ca_pem"])
+        valores["DB_SSL_CA"] = ruta_ca
+
+    lineas = []
+    if os.path.isfile(ruta_env):
+        with open(ruta_env, encoding="utf-8") as fh:
+            lineas = fh.readlines()
+    vistas = set()
+    salida = []
+    for linea in lineas:
+        clave = linea.split("=", 1)[0] if "=" in linea else None
+        if clave in valores:
+            salida.append(f"{clave}={valores[clave]}\n")
+            vistas.add(clave)
+        else:
+            salida.append(linea)
+    for clave, valor in valores.items():
+        if clave not in vistas:
+            salida.append(f"{clave}={valor}\n")
+    with open(ruta_env, "w", encoding="utf-8", newline="\n") as fh:
+        fh.writelines(salida)
+
+
 if __name__ == "__main__":
     # Obligatorio en apps congeladas (PyInstaller): evita que cualquier subproceso
     # creado por multiprocessing (p. ej. Prophet/cmdstanpy) relance la GUI completa.
     import multiprocessing
     multiprocessing.freeze_support()
+
+    # Primer arranque (sin DB_HOST/DB_PASSWORD configurados todavía): pantalla de
+    # aprovisionamiento ANTES de tocar nada que dependa de BD — ver `_necesita_aprovisionamiento`.
+    if _necesita_aprovisionamiento():
+        _pantalla_primer_arranque()
+        sys.exit(0)
 
     # Windows: identidad explícita de la app para que la barra de tareas use
     # NUESTRO icono (y no el del intérprete de Python) y agrupe las ventanas.

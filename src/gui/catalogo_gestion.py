@@ -16,13 +16,15 @@ import logging
 from PyQt6.QtCore import QEvent, QObject, QRect, Qt, QTimer
 from PyQt6.QtGui import QBitmap, QIntValidator, QPainter, QRegion
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
-                             QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                             QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
                              QPlainTextEdit, QPushButton, QStackedWidget,
-                             QTableWidget, QTableWidgetItem, QTabWidget,
+                             QTableWidget, QTableWidgetItem,
                              QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from src.db import articulos as art_db
 from src.db import catalogo as cat
+from src.gui._neon_ui import instalar_columnas_equitativas
+from src.gui.components import EnterpriseTabs
 from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.utils.i18n import tr
 
@@ -313,12 +315,13 @@ def _tabla(cols) -> QTableWidget:
     t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     t.verticalHeader().setVisible(False)
     t.verticalHeader().setDefaultSectionSize(40)
-    t.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-    # Diseño estándar de la app: anchura equitativa (ocupa todo el ancho), contorno neón,
-    # esquinas redondeadas y hover swap en las cabeceras.
+    # Reparto EQUITATIVO del ancho visible entre columnas por defecto; una columna solo crece más
+    # que su reparto si su cabecera/celda no cabe, y eso ensancha la TABLA (scrollbar horizontal)
+    # en vez de robarle espacio a las demás (petición explícita, app-wide — ver `_neon_ui`).
+    t.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    # Diseño estándar de la app: contorno neón, esquinas redondeadas y hover swap en las cabeceras.
     hh = t.horizontalHeader()
-    for c in range(len(cols)):
-        hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
+    instalar_columnas_equitativas(t)
     hh.setHighlightSections(False)
     t.setStyleSheet(f"""
         QTableWidget{{background:{_BG};color:{_TEXT};border:2px solid {_CIAN};border-radius:12px;
@@ -333,7 +336,11 @@ def _tabla(cols) -> QTableWidget:
         QScrollBar:vertical{{background:transparent;width:16px;margin:0;}}
         QScrollBar::handle:vertical{{background:{_CIAN};min-height:36px;border-radius:5px;margin:3px;}}
         QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;width:0;}}
-        QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{{background:transparent;}}""")
+        QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{{background:transparent;}}
+        QScrollBar:horizontal{{background:transparent;height:16px;margin:0;}}
+        QScrollBar::handle:horizontal{{background:{_CIAN};min-width:36px;border-radius:5px;margin:3px;}}
+        QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{{height:0;width:0;}}
+        QScrollBar::add-page:horizontal,QScrollBar::sub-page:horizontal{{background:transparent;}}""")
     # Esquinas limpias (como Documentos): overlay que repinta esquinas + contorno encima
     # del sangrado de la scrollbar. Fallback a la máscara si el helper no está.
     if instalar_corner_cover is not None:
@@ -476,7 +483,6 @@ class _MatrizVariantesDialog(QDialog):
         v.addLayout(fila_btns)
 
         self.tbl_preview = _tabla(["Atributos", "SKU", tr("cat.precio_dif", default="Precio dif.")])
-        self.tbl_preview.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tbl_preview.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
                                          | QAbstractItemView.EditTrigger.EditKeyPressed)
         v.addWidget(_wrap_tabla(self.tbl_preview), 1)
@@ -600,12 +606,7 @@ class _ProductoEditor(QDialog):
         bx.clicked.connect(self.reject); hdr.addWidget(bx)
         v.addLayout(hdr)
 
-        tabs = QTabWidget()
-        tabs.setStyleSheet(
-            f"QTabWidget::pane{{border:1px solid {_BORDE};border-radius:8px;}}"
-            f"QTabBar::tab{{background:{_BG2};color:{_DIM};padding:8px 14px;font-family:'{_FONT}';"
-            f"font-weight:900;font-size:11px;border:1px solid {_BORDE};border-bottom:none;}}"
-            f"QTabBar::tab:selected{{background:{_CIAN};color:{_BG};}}")
+        tabs = EnterpriseTabs()
         tabs.addTab(self._tab_ficha(), tr("cat.tab_ficha", default="Ficha"))
         tabs.addTab(self._tab_galeria(), tr("cat.tab_galeria", default="Galería"))
         tabs.addTab(self._tab_atributos(), tr("cat.tab_atributos", default="Atributos"))
@@ -726,7 +727,6 @@ class _ProductoEditor(QDialog):
         fila.addWidget(_btn(tr("cat.add", default="Añadir"), self._add_imagen, primary=True))
         ly.addLayout(fila)
         self.tbl_img = _tabla([tr("cat.img", default="Imagen"), tr("cat.portada", default="Portada"), ""])
-        self.tbl_img.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tbl_img.setColumnWidth(1, 90); self.tbl_img.setColumnWidth(2, 90)
         ly.addWidget(_wrap_tabla(self.tbl_img), 1)
         self._recargar_imagenes()
@@ -767,8 +767,6 @@ class _ProductoEditor(QDialog):
         fila.addWidget(_btn(tr("cat.add", default="Añadir"), self._add_attr, primary=True))
         ly.addLayout(fila)
         self.tbl_attr = _tabla([tr("cat.attr", default="Atributo"), tr("cat.valor", default="Valor"), ""])
-        self.tbl_attr.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tbl_attr.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.tbl_attr.setColumnWidth(2, 60)
         ly.addWidget(_wrap_tabla(self.tbl_attr), 1)
         self._recargar_attr()
@@ -804,8 +802,6 @@ class _ProductoEditor(QDialog):
                 "SKU", tr("cat.precio_dif", default="Precio dif."), tr("cat.stock", default="Stock"),
                 tr("cat.visible", default="Visible"), ""]
         self.tbl_var = _tabla(cols)
-        self.tbl_var.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tbl_var.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         for c, wdt in ((2, 120), (3, 90), (4, 70), (5, 60), (6, 50)):
             self.tbl_var.setColumnWidth(c, wdt)
         ly.addWidget(_wrap_tabla(self.tbl_var), 1)
@@ -884,9 +880,10 @@ class _ProductoEditor(QDialog):
             precio_oferta = float(self.inp_precio_oferta.text().replace(",", ".") or 0)
         except ValueError:
             precio_oferta = 0.0
+        from src.db.usuario import sesion_global
         art_db.actualizar_articulo(
             self._cod, promo_activa=1 if self.ck_oferta.isChecked() else 0,
-            precio_promo=precio_oferta)
+            precio_promo=precio_oferta, usuario=sesion_global.usuario_actual)
         self.accept()
 
     def _eliminar(self):
@@ -1027,7 +1024,6 @@ class CatalogoWindow(QWidget):
         self.tbl_prod = _tabla([tr("cat.col_codigo", default="Código"), tr("cat.col_articulo", default="Artículo"),
                                 tr("cat.col_encat", default="En catálogo"), tr("cat.col_dest", default="Dest."),
                                 tr("cat.col_reco", default="Reco."), tr("cat.col_vis", default="Visible")])
-        self.tbl_prod.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         for c in (0, 2, 3, 4, 5):
             self.tbl_prod.setColumnWidth(c, 110)
         self.tbl_prod.doubleClicked.connect(lambda *_: self._editar_producto())
@@ -1147,7 +1143,6 @@ class CatalogoWindow(QWidget):
         fila.addWidget(_btn(tr("cat.eliminar", default="ELIMINAR"), self._eliminar_marca, danger=True))
         ly.addLayout(fila)
         self.tbl_marca = _tabla([tr("cat.col_marca", default="Marca")])
-        self.tbl_marca.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         ly.addWidget(_wrap_tabla(self.tbl_marca), 1)
         return w
 
@@ -1188,7 +1183,6 @@ class CatalogoWindow(QWidget):
         fila.addWidget(_btn(tr("cat.eliminar", default="ELIMINAR"), self._eliminar_etiqueta, danger=True))
         ly.addLayout(fila)
         self.tbl_etq = _tabla([tr("cat.col_etq", default="Tags")])
-        self.tbl_etq.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         ly.addWidget(_wrap_tabla(self.tbl_etq), 1)
         return w
 
@@ -1270,7 +1264,6 @@ class CatalogoWindow(QWidget):
                 tr("cat.desc_valor", default="Valor"), tr("cat.desc_usos", default="Usos"),
                 tr("cat.desc_vigencia", default="Vigencia"), tr("cat.desc_estado", default="Estado"), ""]
         self.tbl_cup = _tabla(cols)
-        self.tbl_cup.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         ly.addWidget(_wrap_tabla(self.tbl_cup), 1)
         return w
 
@@ -1418,7 +1411,6 @@ class CatalogoWindow(QWidget):
                 tr("cat.env_base", default="Base €"), tr("cat.env_kg", default="€/kg"),
                 tr("cat.env_umbral", default="Gratis desde"), tr("cat.desc_estado", default="Estado"), ""]
         self.tbl_env = _tabla(cols)
-        self.tbl_env.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         ly.addWidget(_wrap_tabla(self.tbl_env), 1)
         return w
 

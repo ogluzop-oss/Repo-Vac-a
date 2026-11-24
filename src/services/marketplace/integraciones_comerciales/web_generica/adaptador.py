@@ -142,7 +142,7 @@ class WebRestAdapter(AdaptadorConector):
         for o in (self._req("GET", "pedidos", id_empresa) or []):
             ref = f"WEB-{o.get('id')}"
             existe = any(str(p.get("referencia_externa")) == ref
-                         for p in (OS.listar_pedidos_online(texto=ref) or []))
+                         for p in (OS.listar_pedidos_online(id_empresa=id_empresa, texto=ref) or []))
             if existe:
                 duplicados += 1
                 continue
@@ -161,7 +161,8 @@ class WebRestAdapter(AdaptadorConector):
             cp = cli.get("codigo_postal") or o.get("codigo_postal")
             try:
                 OS.crear_pedido_canal_externo(cliente, lineas, plataforma="web_rest", referencia_externa=ref,
-                                              direccion_envio=direccion_envio, cp_cliente=cp)
+                                              direccion_envio=direccion_envio, cp_cliente=cp,
+                                              id_empresa=id_empresa)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido web %s: %s", ref, e)

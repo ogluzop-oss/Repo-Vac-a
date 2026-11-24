@@ -8,11 +8,12 @@ vivo. Solo orquesta: toda la lógica vive en `services/proyectos`. RBAC `proyect
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QScrollArea, QTabWidget,
+from PyQt6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QScrollArea,
                              QVBoxLayout, QWidget)
 
 from src.gui.catalogo_gestion import (_BG, _BG2, _BORDE, _CIAN, _DIM, _TEXT, _btn, _btn_x, _combo, _inp,
                                       _tabla)
+from src.gui.components import EnterpriseTabs
 from src.gui.proyectos_carteles_gui import CartelesTab
 from src.services.proyectos import proyectos as P
 from src.services.proyectos import seguimiento as S
@@ -135,8 +136,7 @@ class ProyectosWindow(QWidget):
         self.lbl_rent.setStyleSheet(f"color:{_DIM};font-weight:bold;")
         root.addWidget(self.lbl_rent)
 
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
+        self.tabs = EnterpriseTabs()
         # El botón "Nueva tarea" vive en una barra PROPIA del tablero (fuera de las cabeceras de
         # columna, que antes lo llevaban solo en "Pendiente" y descuadraba su altura frente a las
         # otras 3) y fuera de `_kanban_host`, que `_pintar_kanban` vacía y repinta por completo en

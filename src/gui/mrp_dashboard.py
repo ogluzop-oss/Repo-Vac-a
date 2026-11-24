@@ -23,13 +23,13 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn as _btn_base, _btn_cargando as _btn_cargando_base, _btn_x,
                                       _dialogo_frameless, _tabla)
+from src.gui.components import EnterpriseTabs
 from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.gui.components.completer_centros import instalar_sugerencias_centro, resolver_id_centro
 
@@ -187,8 +187,7 @@ class MRPDashboardWindow(QWidget):
         root.addLayout(cab)
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("QTabWidget::pane{border:none;}")
+        self.tabs = EnterpriseTabs()
 
         # ── Órdenes de Fabricación: barra de acciones OPERATIVAS + tabla ──
         of_page = QWidget(); of_l = QVBoxLayout(of_page)

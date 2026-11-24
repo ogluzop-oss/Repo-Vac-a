@@ -90,7 +90,7 @@ def test_autenticar_y_validar():
 
 
 # ── 3 · Importación reutilizando motores ERP (mismo pedido online_orders) ─────
-def test_importaciones_reutilizan_motor():
+def test_importaciones_reutilizan_motor(db):
     _conf()
     ft = _FakeShop()
     T.set_transporte(ft)
@@ -108,7 +108,7 @@ def test_importaciones_reutilizan_motor():
 
 
 # ── 4 · Idempotencia / sin duplicados ─────────────────────────────────────────
-def test_idempotencia():
+def test_idempotencia(db):
     _conf()
     T.set_transporte(_FakeShop())
     a = ic.motor.adaptador("shopify")

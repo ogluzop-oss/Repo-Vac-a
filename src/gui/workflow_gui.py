@@ -18,9 +18,10 @@ distinto del Programador (que planifica jobs de sistema, no encargos para una pe
 
 import logging
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from src.gui.catalogo_gestion import _BG, _CIAN, _btn_x
+from src.gui.components import EnterpriseTabs
 from src.gui.foundation import tokens as T
 
 logger = logging.getLogger("workflow.gui")
@@ -40,8 +41,7 @@ class WorkflowWindow(QWidget):
         if callback_vuelta:
             cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet(T.qss_tabs())
+        self.tabs = EnterpriseTabs()
         root.addWidget(self.tabs)
         self._tab_tareas_tienda()
         # Programador de Jobs (tareas de FONDO internas de la app): SOLO SUPERADMIN.

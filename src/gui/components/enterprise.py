@@ -5,7 +5,7 @@ datos ya calculados por los servicios.
 
 Componentes: EnterpriseCard · EnterpriseStatusBadge · EnterpriseRiskIndicator · EnterpriseSearch ·
 EnterpriseFilter · EnterpriseToolbar · EnterpriseTable · EnterpriseDashboardGrid · EnterpriseTimeline ·
-EnterpriseInlineBanner · EnterpriseHelpTooltip.
+EnterpriseInlineBanner · EnterpriseHelpTooltip · EnterpriseTabs.
 """
 
 import logging
@@ -16,9 +16,12 @@ from PyQt6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel
                              QLineEdit, QMenu, QPushButton, QScrollArea,
                              QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
+from src.gui._neon_ui import instalar_columnas_equitativas
 from src.gui.foundation import export as _export
 from src.gui.foundation import icons as _icons
 from src.gui.foundation import tokens as T
+from src.gui.transiciones import TabsActual as _TabsActual
+from src.gui.transiciones import instalar_transicion_tabs as _instalar_transicion_tabs
 
 try:
     # Repinta las esquinas + redibuja el contorno neón encima → la scrollbar y las cabeceras dejan
@@ -284,14 +287,14 @@ class EnterpriseTable(QWidget):
         self.tabla.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tabla.customContextMenuRequested.connect(self._menu_contextual)
         # Diseño ESTÁNDAR de la app: contorno neón + hover swap en cabeceras + esquinas redondeadas +
-        # anchura equitativa (columnas Stretch → ocupa todo el ancho).
+        # anchura equitativa por defecto — una columna solo crece más que su reparto si su
+        # cabecera/celda no cabe, y entonces aparece scrollbar horizontal (nunca roba espacio a
+        # las demás ni abrevia texto; petición explícita, ver `_neon_ui._ColumnasEquitativas`).
         self.tabla.verticalHeader().setVisible(False)
         self.tabla.setStyleSheet(T.qss_tabla())
-        from PyQt6.QtWidgets import QHeaderView
         hh = self.tabla.horizontalHeader()
         hh.setHighlightSections(False)
-        for c in range(len(self._cols)):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
+        instalar_columnas_equitativas(self.tabla)
         lay.addWidget(self.tabla, 1)
         # Tapa de esquinas: evita que la scrollbar y las cabeceras corten el contorno neón.
         if _corner_cover is not None:
@@ -336,13 +339,12 @@ class EnterpriseTable(QWidget):
         b.clicked.connect(slot); return b
 
     def set_columnas(self, columnas):
+        # El reparto equitativo (`instalar_columnas_equitativas`, instalado en `_build`) se
+        # reajusta solo: cambiar `columnCount` dispara `modelReset`/`layoutChanged`, a los que
+        # ya está conectado.
         self._cols = list(columnas)
         self.tabla.setColumnCount(len(self._cols))
         self.tabla.setHorizontalHeaderLabels(self._cols)
-        from PyQt6.QtWidgets import QHeaderView
-        hh = self.tabla.horizontalHeader()
-        for c in range(len(self._cols)):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Stretch)
 
     def set_datos(self, filas):
         """filas: lista de dicts (usa columnas) o lista de listas/tuplas."""
@@ -657,3 +659,26 @@ class EnterpriseHelpTooltip(QWidget):
 
     def set_texto(self, texto_o_partes):
         self._texto = _ensamblar_texto_ayuda(texto_o_partes)
+
+
+# ── EnterpriseTabs — subpestañas ÚNICAS (petición explícita, 2026-11-23) ─────────────────────────
+class EnterpriseTabs(_TabsActual):
+    """`QTabWidget` con el aspecto ESTÁNDAR de subpestañas de la app (subrayado cian en la pestaña
+    activa, sin relleno — el mismo que ya tenía el Centro de Inteligencia Empresarial/CCP) y la
+    transición de deslizamiento al cambiar de pestaña ya instalada. Sustituye a cualquier
+    `QTabWidget()` "pelado" o con una hoja de estilos local copiada a mano — mismo API exacto
+    (`addTab`, `setCurrentIndex`, etc.), cero lógica añadida: solo fija el estilo una vez, en vez de
+    que cada pantalla lo repita o se olvide de hacerlo (hallazgo real, 2026-11-23: antes de este
+    componente había 4 aspectos distintos de subpestañas conviviendo en la app, varias docenas de
+    ventanas sin ningún estilo propio).
+
+    Extiende `transiciones.TabsActual` (no `QTabWidget` directamente) para heredar TAMBIÉN su
+    corrección de `sizeHint`/`minimumSizeHint` (toma el tamaño de la pestaña VISIBLE, no el máximo
+    de todas — imprescindible en ventanas con pestañas de anchos muy distintos, como el propio
+    Enterprise Shell) — hallazgo real al migrar `foundation/shell.py`/`ventas.py`: sustituirlos por
+    un `QTabWidget` liso habría reintroducido ese bug de tamaño."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(T.qss_tabs())
+        _instalar_transicion_tabs(self)

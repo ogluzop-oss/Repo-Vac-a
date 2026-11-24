@@ -70,7 +70,7 @@ from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QPushButton,     # noqa: E402
                              QVBoxLayout, QWidget)
 
 from assets.estilo_global import _blindar_tamano_fijo               # noqa: E402
-from src.gui.transiciones import TabsActual                         # noqa: E402
+from src.gui.components import EnterpriseTabs                       # noqa: E402
 
 
 def _titulo_label(texto, acento=T.INFO):
@@ -179,11 +179,12 @@ class QtEnterpriseWindow(QWidget, BaseEnterpriseWindow):
             header.addWidget(_boton_x(callback_vuelta))
         root.addLayout(header)
 
-        # Tabs (lazy). TabsActual (no QTabWidget "a pelo"): evita que una pestaña ancha deje
-        # abultado para siempre el ancho mínimo del contenedor y recorte el resto de pestañas
-        # (mismo bug de Qt ya resuelto en `contabilidad_gestion.py`/`calculadora_fiscal_wizard.py`).
-        self.tabs = TabsActual()
-        self.tabs.setStyleSheet(T.qss_tabs())
+        # Tabs (lazy). EnterpriseTabs (ni QTabWidget "a pelo" ni TabsActual suelto): aporta el
+        # mismo arreglo de ancho (evita que una pestaña ancha deje abultado para siempre el ancho
+        # mínimo del contenedor y recorte el resto de pestañas — mismo bug de Qt ya resuelto en
+        # `contabilidad_gestion.py`/`calculadora_fiscal_wizard.py`) Y el aspecto estándar de
+        # subpestañas de toda la app en una sola pieza (petición explícita, 2026-11-23).
+        self.tabs = EnterpriseTabs()
         self.tabs.currentChanged.connect(self._on_tab_changed)
         root.addWidget(self.tabs, 1)
 

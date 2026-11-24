@@ -20,11 +20,12 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QMessageBox,
-                             QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                             QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.db import compras as C, proveedores as P
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_cargando, _btn_x, _combo,
                                       _dialogo_frameless, _inp, _tabla)
+from src.gui.components import EnterpriseTabs
 
 try:
     from assets.estilo_global import mostrar_mensaje
@@ -89,9 +90,7 @@ class ComprasAvanzadoWindow(QWidget):
             cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
-        tabs = QTabWidget()
-        # Sin línea alrededor del contenido de cada sub-pestaña (el contorno turquesa lo pone la tabla).
-        tabs.setStyleSheet("QTabWidget::pane{border:none;}")
+        tabs = EnterpriseTabs()
         # "Proveedores / Homologación" renombrada a "Homologar Proveedor" (unificación en Proveedores).
         tabs.addTab(self._tab_proveedores(), "Homologar Proveedor")
         tabs.addTab(self._tab_devoluciones(), "Devoluciones")

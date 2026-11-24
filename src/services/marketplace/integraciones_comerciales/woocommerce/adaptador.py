@@ -206,7 +206,7 @@ class WooCommerceAdapter(_WooPreparado):
                 ref = f"WOO-{o.get('id')}"
                 # Idempotencia: no reimportar un pedido ya existente (por referencia externa).
                 existe = any(str(p.get("referencia_externa")) == ref
-                             for p in (OS.listar_pedidos_online(texto=ref) or []))
+                             for p in (OS.listar_pedidos_online(id_empresa=id_empresa, texto=ref) or []))
                 if existe:
                     duplicados += 1
                     continue
@@ -231,7 +231,7 @@ class WooCommerceAdapter(_WooPreparado):
                     # MISMO motor de pedidos que TPV/Portal Web/Canal Web.
                     OS.crear_pedido_canal_externo(cliente, lineas, plataforma="woocommerce",
                                            referencia_externa=ref, direccion_envio=direccion_envio,
-                                           cp_cliente=cp)
+                                           cp_cliente=cp, id_empresa=id_empresa)
                     creados += 1
                 except Exception as e:
                     logger.debug("crear pedido woo %s: %s", ref, e)

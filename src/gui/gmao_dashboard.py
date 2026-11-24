@@ -23,13 +23,13 @@ from PyQt6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn as _btn_base, _btn_cargando as _btn_cargando_base, _btn_x,
                                       _dialogo_frameless, _tabla)
+from src.gui.components import EnterpriseTabs
 from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 
 logger = logging.getLogger("gui.gmao")
@@ -146,8 +146,7 @@ class GMAODashboardWindow(QWidget):
         root.addLayout(cab)
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("QTabWidget::pane{border:none;}")
+        self.tabs = EnterpriseTabs()
 
         self.tbl_act = _tabla(["ID", "Código", "Nombre", "Tipo", "Estado", "Criticidad"])
         self.tbl_ot = _tabla(["ID", "Código", "Tipo", "Activo", "Estado", "Prioridad"])
@@ -827,10 +826,7 @@ class _FichaActivoDialog(QDialog):
         self.setWindowTitle(f"Ficha · {activo.get('codigo')}")
         body = _dialogo_frameless(self, f"Ficha del activo · {activo.get('codigo')} — {activo.get('nombre')}",
                                   ancho=680)
-        tabs = QTabWidget()
-        tabs.setStyleSheet(f"QTabBar::tab{{background:{_BG};color:{_DIM};padding:8px 14px;}}"
-                           f"QTabBar::tab:selected{{color:{_CIAN};}}"
-                           f"QTabWidget::pane{{border:1px solid #30363D;}}")
+        tabs = EnterpriseTabs()
 
         w_hist = QWidget(); l_hist = QVBoxLayout(w_hist)
         self.tbl_hist = _tabla(["Fecha", "Tipo", "Detalle"])

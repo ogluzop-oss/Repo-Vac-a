@@ -204,7 +204,7 @@ class ShopifyAdapter(_ShopifyPreparado):
         for o in self._paginar("orders", id_empresa, extra=extra):
             ref = f"SHOPIFY-{o.get('id')}"
             existe = any(str(p.get("referencia_externa")) == ref
-                         for p in (OS.listar_pedidos_online(texto=ref) or []))
+                         for p in (OS.listar_pedidos_online(id_empresa=id_empresa, texto=ref) or []))
             if existe:
                 duplicados += 1
                 continue
@@ -226,7 +226,8 @@ class ShopifyAdapter(_ShopifyPreparado):
                 sa.get("province"), cp, sa.get("country")) if x)
             try:
                 OS.crear_pedido_canal_externo(cliente, lineas, plataforma="shopify", referencia_externa=ref,
-                                              direccion_envio=direccion_envio, cp_cliente=cp)
+                                              direccion_envio=direccion_envio, cp_cliente=cp,
+                                              id_empresa=id_empresa)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido shopify %s: %s", ref, e)

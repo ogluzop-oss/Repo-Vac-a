@@ -458,60 +458,10 @@ def _icono_papelera(color: str, size: int = 22) -> QIcon:
     )
 
 
-def _icono_lapiz(color: str, size: int = 22) -> QIcon:
-    """Icono de lápiz vectorial, estilo 'line icon' limpio (4x supersampling)."""
-    S = 4
-    W = size * S
-    pm = QPixmap(W, W)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    c = QColor(color)
-    pen = QPen(c)
-    pen.setWidthF(W * 0.075)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    p.setPen(pen)
-    p.setBrush(Qt.BrushStyle.NoBrush)
-
-    def X(f):
-        return W * f
-
-    # Lápiz diagonal centrado en el cuadro (centro ~0.50, 0.50).
-    # Cuerpo (rectángulo girado 45°)
-    body = QPainterPath()
-    body.moveTo(X(0.28), X(0.62))  # esquina interior junto a la punta
-    body.lineTo(X(0.64), X(0.26))  # hacia el cabezal
-    body.lineTo(X(0.76), X(0.38))  # ancho del lápiz en el cabezal
-    body.lineTo(X(0.40), X(0.74))  # vuelta a la zona de la punta
-    body.closeSubpath()
-    p.drawPath(body)
-    # Banda que separa cuerpo y cabezal
-    p.drawLine(QPointF(X(0.56), X(0.34)), QPointF(X(0.68), X(0.46)))
-    # Punta de la mina (triángulo lleno en la esquina inferior-izquierda)
-    tip = QPainterPath()
-    tip.moveTo(X(0.28), X(0.62))
-    tip.lineTo(X(0.40), X(0.74))
-    tip.lineTo(X(0.20), X(0.82))  # vértice de la punta
-    tip.closeSubpath()
-    p.setBrush(c)
-    p.drawPath(tip)
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    p.end()
-    return QIcon(
-        pm.scaled(
-            size,
-            size,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-    )
-
-
 def _icono_borrar(color: str, size: int = 22) -> QIcon:
     """Icono de borrado (tecla ⌫) vectorial, estilo 'line icon' limpio (4x supersampling):
     silueta de tecla retroceso (rectángulo con la punta hacia la izquierda) + aspa interior.
-    Grosor generoso (más que `_icono_papelera`/`_icono_lapiz`, a petición expresa) pero con
+    Grosor generoso (más que `_icono_papelera`, a petición expresa) pero con
     margen suficiente entre el aspa y el contorno para que los trazos NUNCA se sobrepongan."""
     S = 4
     W = size * S
@@ -578,6 +528,21 @@ class _IconButton(QPushButton):
     def leaveEvent(self, event):
         self._set_icon(self._color_base)
         super().leaveEvent(event)
+
+
+def _boton_redondo_icono(draw_fn, color: str, size: int = 36, icon_px: int = 18) -> QPushButton:
+    """Botón REDONDO de icono único (petición explícita, 2026-11-16) — `border-radius` = mitad
+    del lado para que sea un círculo de verdad. Reutilizado por la barra de acciones expandida de
+    la tabla del TPV (`TPVWindow._boton_accion_redondo`) y por el botón de borrar el importe en
+    efectivo de `_PagoDialog` (`_boton_accion_redondo_pago`) — mismo diseño en ambos sitios."""
+    b = _IconButton(draw_fn, color, "#0D1117", icon_px=icon_px)
+    b.setFixedSize(size, size)
+    b.setCursor(Qt.CursorShape.PointingHandCursor)
+    b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    b.setStyleSheet(
+        f"QPushButton{{background:{_BG2};border:2px solid {color};border-radius:{size // 2}px;padding:0;}}"
+        f"QPushButton:hover{{background:{color};}}")
+    return b
 
 
 def _confirmar(
@@ -791,18 +756,44 @@ def _guardar_estado_caja(est: dict):
         logger.error(f"Error guardando estado caja: {e}")
 
 
+def _ajustar_fondo_caja(id_caja, importe: float):
+    """Ajusta (+/-) el fondo de efectivo de una caja activa en el estado persistido
+    (`_CAJA_STATE_FILE`) — función de MÓDULO (no depende de una instancia de `TPVWindow`) para que
+    tanto una venta nueva (`TPVWindow._actualizar_fondo_caja`) como una devolución en efectivo
+    (`_DevolucionDialog._procesar`, petición explícita 2026-11-16) puedan usarla igual. Sin esto,
+    una devolución en efectivo NUNCA restaba del fondo esperado de esa caja — el cierre de caja
+    registradora comparaba el recuento real contra un "esperado" inflado, que no reflejaba el
+    dinero realmente entregado al cliente."""
+    try:
+        est = _leer_estado_caja()
+        for c in est.get("cajas_activas", []):
+            if c.get("id") == id_caja:
+                c["fondo"] = round(c.get("fondo", 0.0) + importe, 2)
+                break
+        _guardar_estado_caja(est)
+    except Exception as e:
+        logger.error(f"Error ajustando fondo caja: {e}")
+
+
 def _norm_nombre(s) -> str:
     """Normaliza un nombre para comparar (sin distinción de may/min ni espacios)."""
     return str(s or "").strip().casefold()
 
 
 def _caja_pertenece(caja: dict, nombre_empleado: str = "", id_empleado=None) -> bool:
-    """Una caja registradora es INTRANSFERIBLE: solo pertenece al cajero
-    responsable durante su turno. Se casa preferentemente por id de empleado y,
-    como respaldo (cajas antiguas sin id), por nombre normalizado.
+    """Una caja registradora pertenece a su responsable principal Y a cualquier otro empleado
+    del centro autorizado explícitamente al habilitarla (petición explícita, 2026-11-16 —
+    `responsables_id`, ver `configuracion._EmpleadosAutorizadosCajaDialog`/`_fn_habilitar_caja`;
+    útil para tiendas con una sola caja que se comparte entre varios empleados). Se casa
+    preferentemente por id de empleado y, como respaldo (cajas antiguas sin id, o abiertas ANTES
+    de este cambio — sin `responsables_id` todavía), por el `responsable_id`/nombre singular de
+    siempre.
 
     NUNCA devuelve True por defecto: si no hay coincidencia, no pertenece.
     """
+    responsables_id = caja.get("responsables_id")
+    if id_empleado is not None and responsables_id:
+        return any(str(rid) == str(id_empleado) for rid in responsables_id)
     rid = caja.get("responsable_id")
     if id_empleado is not None and rid is not None:
         return str(rid) == str(id_empleado)
@@ -919,15 +910,28 @@ class _SeleccionCajaDialog(QDialog):
         ly.setContentsMargins(32, 24, 32, 24)
         ly.setSpacing(12)
 
+        # Petición explícita, 2026-11-16: sin la línea gris bajo el título, y la X roja
+        # (esquina superior derecha) sustituye al botón "Cancelar" de abajo.
+        hdr = QHBoxLayout()
         h = QLabel(tr("sel_caja.header"))
         h.setStyleSheet(
             f"color:{_CIAN};font-family:'{_FONT}';font-weight:900;font-size:18px;"
             f"background:transparent;"
         )
-        h.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ly.addWidget(h)
-
-        ly.addWidget(_sep())
+        hdr.addWidget(h)
+        hdr.addStretch()
+        bx = QPushButton("✕")
+        bx.setFixedSize(36, 36)
+        bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(
+            f"QPushButton{{background:transparent;color:{_ROJO};border:none;border-radius:18px;"
+            f"padding:0;font-weight:900;font-size:18px;}}"
+            f"QPushButton:hover{{background:{_ROJO};color:#0D1117;}}")
+        bx.setProperty("sin_glow", True)
+        _blindar_tamano_fijo(bx, 36, 36)
+        bx.clicked.connect(self.reject)
+        hdr.addWidget(bx)
+        ly.addLayout(hdr)
 
         _btn_caja_ss = (
             f"QPushButton{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
@@ -952,18 +956,6 @@ class _SeleccionCajaDialog(QDialog):
             btn.setStyleSheet(_btn_caja_ss)
             btn.clicked.connect(lambda checked, c=caja: self._seleccionar(c))
             ly.addWidget(btn)
-
-        ly.addSpacing(4)
-        btn_cancel = QPushButton(tr("common.cancel"))
-        btn_cancel.setFixedHeight(40)
-        btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_cancel.setStyleSheet(
-            f"QPushButton{{background:{_BG2};color:{_TEXT2};border:2px solid {_BORDE};"
-            f"border-radius:10px;font-family:'{_FONT}';font-weight:700;font-size:13px;}}"
-            f"QPushButton:hover{{background:#30363D;color:{_TEXT};}}"
-        )
-        btn_cancel.clicked.connect(self.reject)
-        ly.addWidget(btn_cancel)
 
     def _seleccionar(self, caja: dict):
         self._caja_sel = caja
@@ -997,11 +989,16 @@ class _LoginTPVDialog(QDialog):
         # Columna izquierda con los perfiles del centro (petición explícita, revierte una
         # simplificación anterior): en una tienda con una sola caja, forzar a cerrar sesión
         # COMPLETA de la app de escritorio cada vez que cambia el cajero era un lastre — ahora
-        # cualquier empleado del mismo centro puede elegir su propio perfil aquí y teclear SU PIN,
-        # sin tocar la sesión de escritorio (`sesion_global.usuario_actual`), que solo se usa como
-        # preselección por defecto (lo normal: quien abre el TPV es quien ya inició sesión).
-        _u = sesion_global.usuario_actual or {}
-        self._nombre_empleado: str = (_u.get("nombre") or _u.get("usuario") or "").upper()
+        # cualquier empleado del mismo centro puede elegir su propio perfil aquí y teclear SU PIN.
+        # Petición explícita, 2026-11-16 — bug real corregido: antes se PRESELECCIONABA el usuario
+        # de la sesión de escritorio (`sesion_global.usuario_actual`) sin que hubiera ningún botón
+        # resaltado/visible que lo mostrara (la lista de la izquierda podía salir vacía, ver
+        # `_cargar_empleados_centro`), así que quien tecleaba SU PROPIO PIN lo hacía sin saber que
+        # se estaba validando contra OTRO nombre distinto — "PIN incorrecto" siempre, sin
+        # explicación. Ahora empieza SIN preseleccionar a nadie: hay que elegir explícitamente el
+        # propio perfil de la lista antes de poder teclear el PIN (`_tecla` ya bloqueaba esto con
+        # "selecciona primero", solo que antes nunca se disparaba por la preselección fantasma).
+        self._nombre_empleado: str = ""
         self._id_empleado = None
         self._pin: str = ""
         self._botones_perfil: dict[str, QPushButton] = {}
@@ -1209,7 +1206,15 @@ class _LoginTPVDialog(QDialog):
     def _cargar_empleados_centro(self) -> list[dict]:
         """Empleados del MISMO centro que esta caja — mismo criterio de resolución que
         `_AutorizacionDialog._cargar_empleados_centro` (autocobro): vía el contexto operativo
-        activo (`tienda_actual_id()` → centro), no elegible a mano."""
+        activo (`tienda_actual_id()` → centro), no elegible a mano.
+
+        Fallback (hallazgo real, 2026-11-16 — bug confirmado contra datos reales): en la práctica
+        `usuarios.centro_codigo` casi nunca está relleno (de hecho los 3 usuarios de prueba reales
+        de esta sesión lo tienen NULL o con un valor que no coincide con ningún `codigo_centro`
+        real), así que filtrar estrictamente por centro deja la columna "EMPLEADOS DEL CENTRO"
+        VACÍA aunque la empresa sí tenga empleados — el usuario no podía ni siquiera seleccionarse
+        a sí mismo. Si el filtrado por centro no devuelve nada, se cae a TODOS los empleados de la
+        empresa (mejor mostrar de más que dejar una lista vacía e inutilizable)."""
         try:
             from src.db import centros as centros_db
             from src.db.empresa import empresa_actual_id, tienda_actual_id
@@ -1222,9 +1227,11 @@ class _LoginTPVDialog(QDialog):
                     if c.get("id_tienda") == id_tienda:
                         codigo_centro = c.get("codigo_centro")
                         break
-            if not codigo_centro:
-                return []
-            return listar_usuarios_empresa(id_empresa, centro_codigo=codigo_centro)
+            empleados = (listar_usuarios_empresa(id_empresa, centro_codigo=codigo_centro)
+                        if codigo_centro else [])
+            if empleados:
+                return empleados
+            return listar_usuarios_empresa(id_empresa)
         except Exception as e:
             logger.debug("_LoginTPVDialog: no se pudo cargar empleados del centro: %s", e)
             return []
@@ -1241,15 +1248,18 @@ class _LoginTPVDialog(QDialog):
         self._refrescar_estilo_perfiles()
 
     def _refrescar_estilo_perfiles(self):
+        # Petición explícita, 2026-11-16: TODOS los perfiles (seleccionado o no) en Segoe UI
+        # Bold (antes el no-seleccionado iba en `font-weight:700`, semibold) y un punto más de
+        # tamaño (12px → 13px).
         _ss_normal = (
             f"QPushButton{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
-            f"border-radius:10px;font-family:'{_FONT}';font-weight:700;font-size:12px;"
+            f"border-radius:10px;font-family:'{_FONT}';font-weight:900;font-size:13px;"
             f"text-align:left;padding:0 12px;}}"
             f"QPushButton:hover{{border-color:{_CIAN};color:{_CIAN};}}"
         )
         _ss_sel = (
             f"QPushButton{{background:{_CIAN};color:#0D1117;border:2px solid {_CIAN};"
-            f"border-radius:10px;font-family:'{_FONT}';font-weight:900;font-size:12px;"
+            f"border-radius:10px;font-family:'{_FONT}';font-weight:900;font-size:13px;"
             f"text-align:left;padding:0 12px;}}"
         )
         for nombre, btn in self._botones_perfil.items():
@@ -1997,6 +2007,11 @@ class _PagoDialog(QDialog):
         # `TPVWindow._realizar_pago` lo reabre de cero con el total ya actualizado (mismo `_lineas`,
         # mutado in-place, así que no se pierde nada del carrito).
         self.vale_pendiente_reapertura = False
+        # Petición explícita, 2026-11-16: en un pago MIXTO, el efectivo se da por pagado ANTES
+        # de cobrar la tarjeta — ver `_cobrar`. True una vez que el primer clic en "COBRAR" ya
+        # confirmó/bloqueó el importe en efectivo; se resetea al cambiar de pestaña o al borrar
+        # el efectivo (`_borrar_efectivo_pagado`).
+        self._mixto_confirmado = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -2114,6 +2129,24 @@ class _PagoDialog(QDialog):
         br.addWidget(self.btn_cobrar)
         lay.addLayout(br)
 
+        # Petición explícita, 2026-11-16: siempre que se use efectivo (total o parcial, pestañas
+        # "Efectivo"/"Mixto"), justo debajo del botón COBRAR se muestra el importe en efectivo
+        # introducido, con un botón redondo de papelera para borrarlo/corregirlo sin tener que
+        # usar el teclado numérico tecla a tecla. Oculta por defecto (pestaña "Tarjeta", o
+        # efectivo en 0) — ver `_actualizar_fila_efectivo_pagado`.
+        self.row_efectivo_pagado = QWidget()
+        self.row_efectivo_pagado.setVisible(False)
+        fila_ef = QHBoxLayout(self.row_efectivo_pagado)
+        fila_ef.setContentsMargins(0, 0, 0, 0)
+        fila_ef.setSpacing(10)
+        self.lbl_efectivo_pagado = _lbl("", size=13, bold=True, color=_VERDE)
+        fila_ef.addWidget(self.lbl_efectivo_pagado)
+        self.btn_borrar_efectivo = _boton_redondo_icono(_icono_papelera, _ROJO)
+        self.btn_borrar_efectivo.clicked.connect(self._borrar_efectivo_pagado)
+        fila_ef.addWidget(self.btn_borrar_efectivo)
+        fila_ef.addStretch()
+        lay.addWidget(self.row_efectivo_pagado)
+
         # Fila inferior: "Cambio" (izquierda) y "Total a cobrar" (esquina inferior derecha) a la
         # MISMA altura — el título baja desde arriba y "Cambio" sube desde donde estaba antes
         # Cancelar/COBRAR: ambos intercambian su posición vertical original.
@@ -2207,6 +2240,13 @@ class _PagoDialog(QDialog):
         ACTIVA usa el estado 'relleno' (igual que el hover de 'Canjear vale') y las inactivas, el
         estado 'contorno' (igual que su reposo); ambas comparten color/borde/radio/tipografía."""
         self._stack.setCurrentIndex(idx)
+        if idx != 2 and self._mixto_confirmado:
+            # Salir de la pestaña "Mixto" con el efectivo ya confirmado deshace esa confirmación
+            # (petición explícita, 2026-11-16): al volver, empieza de cero (campo desbloqueado,
+            # botón COBRAR con su texto normal) — evita un estado "a medias" inconsistente.
+            self._mixto_confirmado = False
+            self.inp_mx_ef.setEnabled(True)
+            self.btn_cobrar.setText(tr("pago.charge"))
         for i, b in enumerate(self._tab_btns):
             if i == idx:
                 b.setStyleSheet(
@@ -2220,6 +2260,7 @@ class _PagoDialog(QDialog):
                     f"border-radius:10px;font-family:'{_FONT}';font-weight:900;font-size:13px;padding:0 12px;}}"
                     f"QPushButton:hover{{background:{_CIAN};color:#0D1117;}}"
                 )
+        self._actualizar_fila_efectivo_pagado()
 
     # --- panel efectivo ---
 
@@ -2473,7 +2514,10 @@ class _PagoDialog(QDialog):
 
     def _num_pago(self, tecla: str):
         inp = self._active_input()
-        if inp is None:
+        # Petición explícita, 2026-11-16: con el efectivo del pago mixto ya confirmado, el campo
+        # queda bloqueado de verdad (ni siquiera el teclado numérico lo toca) — hay que pasar por
+        # el botón papelera (`_borrar_efectivo_pagado`) para poder corregirlo.
+        if inp is None or not inp.isEnabled():
             return
         cur = inp.text().strip()
         if tecla == "⌫":
@@ -2500,6 +2544,45 @@ class _PagoDialog(QDialog):
             )
         except ValueError:
             self.lbl_cambio.setText(tr("pago.change_dash"))
+        self._actualizar_fila_efectivo_pagado()
+
+    def _actualizar_fila_efectivo_pagado(self):
+        """Petición explícita, 2026-11-16: fila 'Efectivo: X' + botón de borrar bajo COBRAR,
+        visible siempre que la pestaña activa use efectivo (total o parcial) y el importe
+        introducido sea > 0 — oculta en la pestaña 'Tarjeta' o con el campo a 0. Guard de
+        construcción: las pestañas se inicializan (y llaman a este método) antes de que esta fila
+        exista todavía (se crea más abajo en `__init__`)."""
+        if not hasattr(self, "row_efectivo_pagado"):
+            return
+        idx = self._stack.currentIndex()
+        inp = self.inp_ef if idx == 0 else (getattr(self, "inp_mx_ef", None) if idx == 2 else None)
+        if inp is None:
+            self.row_efectivo_pagado.setVisible(False)
+            return
+        try:
+            importe = float(inp.text().replace(",", "."))
+        except ValueError:
+            importe = 0.0
+        if importe <= 0:
+            self.row_efectivo_pagado.setVisible(False)
+            return
+        self.lbl_efectivo_pagado.setText(
+            tr("pago.cash_paid", default="Efectivo: {x}", x=divisas.formatear(importe)))
+        self.row_efectivo_pagado.setVisible(True)
+
+    def _borrar_efectivo_pagado(self):
+        """Botón papelera de la fila 'Efectivo pagado' (petición explícita, 2026-11-16): pone a 0
+        el campo de efectivo de la pestaña activa y, si el pago mixto ya estaba confirmado (ver
+        `_cobrar`), lo desbloquea para poder corregir el importe."""
+        idx = self._stack.currentIndex()
+        inp = self.inp_ef if idx == 0 else (getattr(self, "inp_mx_ef", None) if idx == 2 else None)
+        if inp is None:
+            return
+        inp.setText("0.00")
+        if idx == 2 and self._mixto_confirmado:
+            self._mixto_confirmado = False
+            self.inp_mx_ef.setEnabled(True)
+            self.btn_cobrar.setText(tr("pago.charge"))
 
     # --- panel tarjeta ---
 
@@ -2567,6 +2650,7 @@ class _PagoDialog(QDialog):
             )
         except ValueError:
             pass
+        self._actualizar_fila_efectivo_pagado()
 
     # --- cobrar ---
 
@@ -2632,6 +2716,20 @@ class _PagoDialog(QDialog):
                 return
             tj = round(max(0.0, self._total - ef), 2)
             cambio = round(max(0.0, ef - self._total), 2)
+            # Petición explícita, 2026-11-16: en un pago mixto el efectivo se cobra SIEMPRE antes
+            # que la tarjeta — el primer clic en "COBRAR" (con efectivo > 0) solo confirma/bloquea
+            # el importe en efectivo (ya "pagado", ver `_actualizar_fila_efectivo_pagado`/
+            # `_borrar_efectivo_pagado` para corregirlo) y deja el botón listo para cobrar la
+            # tarjeta por el resto en un SEGUNDO clic. Sin efectivo (ef==0, tarjeta pura dentro de
+            # esta pestaña) no hay nada que ordenar: se cobra la tarjeta directamente.
+            if ef > 0 and not self._mixto_confirmado:
+                self._mixto_confirmado = True
+                self.inp_mx_ef.setEnabled(False)
+                self._actualizar_fila_efectivo_pagado()
+                self.btn_cobrar.setText(
+                    tr("pago.charge_card_pending", default="COBRAR TARJETA ({x})",
+                       x=divisas.formatear(tj)) if tj > 0 else tr("pago.charge"))
+                return
             if tj > 0 and not self._cobrar_con_datafono(tj):
                 return
             self._resultado = {
@@ -2653,7 +2751,24 @@ class _PagoDialog(QDialog):
         criterio ya usado en `autocobro.py`): cambia el texto del botón a "esperando" (mismo
         patrón que `_btn_actualizar` en otras pantallas) para que el cajero sepa que debe esperar
         al terminal, sin un modal extra que añadiría un clic de más sobre la confirmación que ya
-        acaba de dar al pulsar «Cobrar»."""
+        acaba de dar al pulsar «Cobrar».
+
+        Importe mínimo con tarjeta (petición explícita, 2026-11-23, configurable desde Acciones
+        avanzadas → "Importe mínimo con tarjeta"): único punto de paso de TODO cobro con tarjeta
+        (100% tarjeta o la parte de tarjeta de un pago mixto), así que la comprobación va aquí y
+        solo aquí — nunca se llega a invocar el datáfono real por debajo del mínimo."""
+        try:
+            from src.db import datafono as _DF
+            minimo = _DF.obtener_config().get("importe_minimo_tarjeta")
+            if minimo and importe < float(minimo) - 0.005:
+                self._advertir(
+                    tr("pago.datafono_minimo_title", default="Importe mínimo no alcanzado"),
+                    tr("pago.datafono_minimo_msg",
+                      default="El importe mínimo para pagar con tarjeta en esta tienda es {m}.",
+                      m=divisas.formatear(float(minimo))))
+                return False
+        except Exception:
+            logger.exception("Comprobando importe mínimo de tarjeta")
         texto_original = self.btn_cobrar.text()
         self.btn_cobrar.setText(tr("pago.datafono_esperando", default="⏳ Esperando datáfono…"))
         self.btn_cobrar.setEnabled(False)
@@ -4898,8 +5013,12 @@ class _AutorizacionDialog(QDialog):
                     if c.get("id_tienda") == id_tienda:
                         codigo_centro = c.get("codigo_centro")
                         break
-            empleados = listar_usuarios_empresa(id_empresa, centro_codigo=codigo_centro) \
-                if codigo_centro else []
+            # Mismo fallback que `_LoginTPVDialog._cargar_empleados_centro` (hallazgo real,
+            # 2026-11-16): `usuarios.centro_codigo` casi nunca está relleno de verdad.
+            empleados = (listar_usuarios_empresa(id_empresa, centro_codigo=codigo_centro)
+                        if codigo_centro else [])
+            if not empleados:
+                empleados = listar_usuarios_empresa(id_empresa)
             for e in empleados:
                 nombre = e.get("nombre")
                 if nombre:
@@ -5479,6 +5598,13 @@ class _DevolucionDialog(QDialog):
                     )
                 except Exception:
                     pass
+            # Petición explícita, 2026-11-16: un reembolso en EFECTIVO saca dinero real del cajón
+            # — hay que restarlo del fondo de ESTA caja para que el cierre de caja registradora
+            # (y el cierre diario) comparen el recuento real contra el importe correcto. Tarjeta
+            # ya se netea aparte en `cierre_z.resumen_dia` (vía la tabla `devoluciones`); un vale
+            # no saca nada del cajón (es un papel, no efectivo).
+            if forma_reembolso.lower() == "efectivo":
+                _ajustar_fondo_caja(self._id_caja, -total)
             # Política de empresa "solo vale, nunca dinero": emite el vale descuento (código único,
             # no caduca, canjeable en CUALQUIER tienda) e imprime su ticket automáticamente — la
             # devolución YA quedó registrada arriba, esto es un paso adicional, nunca bloqueante.
@@ -5983,7 +6109,14 @@ class _FechaFilter(QWidget):
         cal = _VentasCalendarWidget(fr)
         cal.setSelectedDate(self._date)
         v.addWidget(cal)
-        cal.clicked.connect(lambda qd: (self.setDate(qd), self._close()))
+        def _on_calendar_clicked(qd):
+            # Corrige "TypeError: invalid argument to sipBadCatcherResult()" (hallazgo real,
+            # 2026-11-16): la lambda anterior `lambda qd: (self.setDate(qd), self._close())`
+            # devolvía una TUPLA (operador coma) al slot `clicked` de QCalendarWidget, que en
+            # PyQt6 espera `void` — una función normal sin `return` evita el retorno no-None.
+            self.setDate(qd)
+            self._close()
+        cal.clicked.connect(_on_calendar_clicked)
         fr.setFixedSize(cal.minimumWidth() + 22, cal.minimumHeight() + 22)
         tl = self.mapTo(win, QPoint(0, self.height()))
         x = max(6, min(tl.x(), win.width() - fr.width() - 6))
@@ -6132,7 +6265,7 @@ class _BuscarTicketDialog(QDialog):
         bx.clicked.connect(self._cerrar)
         hdr.addWidget(bx)
         ly.addLayout(hdr)
-        ly.addWidget(_sep())
+        # Petición explícita, 2026-11-16: sin la línea gris separadora bajo el título.
 
         from PyQt6.QtCore import QDate
 
@@ -6159,9 +6292,12 @@ class _BuscarTicketDialog(QDialog):
         ly.addLayout(r1)
 
         # Fila 2: Fechas (calendario) + Horas
+        # Petición explícita, 2026-11-16: por defecto (antes de cualquier búsqueda) se muestran
+        # los últimos 4 MESES (antes 30 días), de más reciente a más antiguo (`buscar_ventas` ya
+        # ordena DESC por fecha — sin cambios ahí).
         r2 = QHBoxLayout()
         r2.setSpacing(8)
-        self.fecha_desde = _FechaFilter(hoy.addDays(-30))
+        self.fecha_desde = _FechaFilter(hoy.addMonths(-4))
         self.fecha_hasta = _FechaFilter(hoy)
         self.hora_desde = self._inp(
             tr("vta.ph_time_from", default="Hora desde (HH:MM)")
@@ -6223,6 +6359,25 @@ class _BuscarTicketDialog(QDialog):
         r3.addWidget(self.inp_pmax)
         ly.addLayout(r3)
 
+        # Fila 3b: filtro "Solo devoluciones" (petición explícita, 2026-11-16) — desmarcado por
+        # defecto, muestra únicamente las filas de devolución (importe negativo) de la tabla.
+        from PyQt6.QtWidgets import QCheckBox
+
+        r3b = QHBoxLayout()
+        self.chk_solo_devoluciones = QCheckBox(
+            tr("tpv.find_solo_devoluciones", default="Solo devoluciones"))
+        self.chk_solo_devoluciones.setChecked(False)
+        # Petición explícita, 2026-11-16: Segoe UI Bold (antes 700, semibold) y +1pt (12→13px).
+        self.chk_solo_devoluciones.setStyleSheet(
+            f"QCheckBox{{color:{_TEXT};font-family:'{_FONT}';font-weight:900;font-size:13px;}}"
+            f"QCheckBox::indicator{{width:18px;height:18px;border:2px solid {_BORDE};border-radius:4px;"
+            f"background:{_BG2};}}"
+            f"QCheckBox::indicator:checked{{background:{_CIAN};border-color:{_CIAN};}}")
+        self.chk_solo_devoluciones.toggled.connect(self._buscar)
+        r3b.addWidget(self.chk_solo_devoluciones)
+        r3b.addStretch()
+        ly.addLayout(r3b)
+
         # Botonera
         bb = QHBoxLayout()
         bb.setSpacing(10)
@@ -6273,13 +6428,12 @@ class _BuscarTicketDialog(QDialog):
         br = QHBoxLayout()
         br.addWidget(self.lbl_info)
         br.addStretch()
+        # Petición explícita, 2026-11-16: mismo diseño EXACTO que el resto de botones turquesas
+        # de la app (fondo oscuro, borde/texto turquesa en reposo, relleno turquesa en hover).
         b_re = _btn(
             "🖨  " + tr("tpv.find_reprint", default="REIMPRIMIR"),
-            color_bg=_CIAN,
-            color_fg="#0D1117",
+            color_fg=_CIAN,
             color_border=_CIAN,
-            hover_bg="#FFF",
-            hover_fg="#0D1117",
             h=42,
         )
         b_re.clicked.connect(lambda: self._emitir(regalo=False))
@@ -6312,14 +6466,15 @@ class _BuscarTicketDialog(QDialog):
             self.inp_pmax,
         ):
             w.clear()
-        self.fecha_desde.setDate(hoy.addDays(-30))
+        self.fecha_desde.setDate(hoy.addMonths(-4))
         self.fecha_hasta.setDate(hoy)
         for cb in (self.cmb_emp, self.cmb_caja, self.cmb_pago):
             cb.setCurrentIndex(0)
+        self.chk_solo_devoluciones.setChecked(False)
         self._buscar()
 
     def _buscar(self):
-        from src.db.ventas_busqueda import buscar_ventas
+        from src.db.ventas_busqueda import buscar_ventas_y_devoluciones
 
         idemp = None
         try:
@@ -6328,7 +6483,7 @@ class _BuscarTicketDialog(QDialog):
             idemp = empresa_actual_id()
         except Exception:
             pass
-        filas = buscar_ventas(
+        filas = buscar_ventas_y_devoluciones(
             ticket=self.inp_ticket.text().strip() or None,
             articulo=self.inp_articulo.text().strip() or None,
             fecha_desde=self.fecha_desde.date().toString("yyyy-MM-dd"),
@@ -6341,6 +6496,7 @@ class _BuscarTicketDialog(QDialog):
             precio_min=self.inp_pmin.text().strip() or None,
             precio_max=self.inp_pmax.text().strip() or None,
             id_empresa=idemp,
+            solo_devoluciones=self.chk_solo_devoluciones.isChecked(),
         )
         self.tabla.setRowCount(len(filas))
         for r, v in enumerate(filas):
@@ -6350,8 +6506,13 @@ class _BuscarTicketDialog(QDialog):
                 if hasattr(fecha, "strftime")
                 else str(fecha or "")
             )
+            # Petición explícita, 2026-11-16: cada devolución aparece como una venta más, pero
+            # marcada como devolución (prefijo "DEV-" + importe negativo en rojo).
+            es_dev = bool(v.get("es_devolucion"))
+            ticket_txt = (f"DEV-{int(v.get('id') or 0):06d}" if es_dev
+                         else f"T-{int(v.get('id') or 0):06d}")
             vals = [
-                f"T-{int(v.get('id') or 0):06d}",
+                ticket_txt,
                 fecha_txt,
                 str(v.get("empleado") or "—"),
                 f"CAJA-{int(v.get('numero_caja') or 1):02d}",
@@ -6364,7 +6525,7 @@ class _BuscarTicketDialog(QDialog):
                 it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 it.setData(Qt.ItemDataRole.UserRole, v.get("id"))
                 if c == 6:
-                    it.setForeground(QColor(_CIAN))
+                    it.setForeground(QColor(_ROJO if es_dev else _CIAN))
                 self.tabla.setItem(r, c, it)
         self.lbl_info.setText(
             tr("tpv.find_count", default="{n} resultado(s)", n=len(filas))
@@ -6433,9 +6594,23 @@ class _EscanearTarjetaDialog(QDialog):
             f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};border-radius:10px;"
             f"padding:0 14px;font-size:18px;font-family:'{_FONT}';}}QLineEdit:focus{{border-color:{_CIAN};}}")
         self.inp.returnPressed.connect(self._aceptar)
+        self.inp.textChanged.connect(self._al_cambiar_codigo)
         v.addWidget(self.inp)
         self.lbl_err = _lbl("", bold=True, size=12, color=_ROJO)
         v.addWidget(self.lbl_err)
+        # Petición explícita, 2026-11-16: "Consultar saldo" — oculto hasta que haya un código
+        # escaneado/tecleado (nada que consultar antes de eso). NO sustituye el flujo de venta
+        # (escanear → "Continuar" sigue abriendo el importe a cargar, sin cambios): es una
+        # consulta aparte, inline, que no cierra este diálogo — útil para comprobar el saldo de
+        # una tarjeta YA vendida sin tener que pasar por "Continuar"/cargar un importe nuevo.
+        self.btn_saldo = _btn("💳  " + tr("tpv.gift_check_balance", default="Consultar saldo"),
+                              color_fg=_CIAN, color_border=_CIAN, hover_bg=_CIAN, hover_fg="#0D1117", h=42)
+        self.btn_saldo.setVisible(False)
+        self.btn_saldo.clicked.connect(self._consultar_saldo)
+        v.addWidget(self.btn_saldo)
+        self.lbl_saldo = _lbl("", bold=True, size=13, color=_VERDE)
+        self.lbl_saldo.setWordWrap(True)
+        v.addWidget(self.lbl_saldo)
         fila = QHBoxLayout()
         b_cancel = _btn(tr("common.cancel", default="Cancelar"), color_fg=_ROJO, color_border=_ROJO,
                         hover_bg=_ROJO, hover_fg="#FFF", h=46)
@@ -6447,6 +6622,31 @@ class _EscanearTarjetaDialog(QDialog):
         fila.addWidget(b_ok)
         v.addLayout(fila)
         QTimer.singleShot(0, self.inp.setFocus)
+
+    def _al_cambiar_codigo(self, texto: str):
+        self.btn_saldo.setVisible(bool((texto or "").strip()))
+        self.lbl_saldo.setText("")
+
+    def _consultar_saldo(self):
+        cod = self.inp.text().strip()
+        if not cod:
+            return
+        try:
+            from src.services.tpv import tarjeta_regalo
+            info = tarjeta_regalo.consultar_saldo(cod)
+        except Exception as e:
+            logger.error("_EscanearTarjetaDialog._consultar_saldo: %s", e)
+            info = None
+        if not info:
+            self.lbl_saldo.setStyleSheet(f"color:{_ROJO};font-weight:900;font-size:13px;")
+            self.lbl_saldo.setText(
+                tr("tpv.gift_balance_not_found", default="No se encuentra ninguna tarjeta con ese código."))
+            return
+        color = _VERDE if info.get("estado") == "activa" and float(info.get("saldo", 0)) > 0 else _ROJO
+        self.lbl_saldo.setStyleSheet(f"color:{color};font-weight:900;font-size:13px;")
+        self.lbl_saldo.setText(
+            tr("tpv.gift_balance_value", default="Saldo disponible: {x}",
+               x=divisas.formatear(float(info.get("saldo", 0)))))
 
     def _aceptar(self):
         cod = self.inp.text().strip()
@@ -6843,6 +7043,102 @@ class _PinEmpleadoDialog(QDialog):
         self.inp_pin.setFocus()
 
 
+class _PinAdminEdicionDialog(QDialog):
+    """Petición explícita, 2026-11-16: EDITAR un artículo de la cesta en TPV requiere PIN de
+    ADMINISTRADOR o SUPERADMIN (un OPERARIO ve el botón/opción, pero necesita este paso previo
+    para poder usarla) — SOLO afecta a la edición; ELIMINAR queda abierto a todos los roles sin
+    ningún paso adicional (excepción explícita del usuario, no tocar). Clonado de
+    `_PinEmpleadoDialog` (mismo patrón visual/feedback inline), validando contra
+    `usuario.validar_pin_por_rol` en vez de `validar_pin_fichaje`."""
+
+    _ROLES_OK = ("ADMINISTRADOR", "SUPERADMIN", "SUPER_ADMIN")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.autorizado = False
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(430)
+        main = QVBoxLayout(self); main.setContentsMargins(0, 0, 0, 0)
+        cont = QFrame()
+        cont.setStyleSheet(f"QFrame{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
+        main.addWidget(cont)
+        ly = QVBoxLayout(cont); ly.setContentsMargins(24, 20, 24, 20); ly.setSpacing(10)
+        ly.addWidget(_lbl("🔒  " + tr("tpv.pin_edit_title", default="Editar artículo"), bold=True,
+                          size=16, color=_CIAN))
+        sub = _lbl(tr("tpv.pin_edit_sub",
+                      default="Se requiere PIN de administrador para editar artículos de la venta."),
+                   size=11, color=_TEXT2)
+        sub.setWordWrap(True)
+        ly.addWidget(sub)
+        self.inp_pin = QLineEdit()
+        self.inp_pin.setEchoMode(QLineEdit.EchoMode.Password)
+        self.inp_pin.setMaxLength(4)
+        from PyQt6.QtGui import QIntValidator
+        self.inp_pin.setValidator(QIntValidator(0, 9999, self))
+        self.inp_pin.setPlaceholderText(tr("tpv.staff_pin_ph", default="PIN (4 dígitos)"))
+        self.inp_pin.setStyleSheet(
+            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};border-radius:8px;"
+            f"padding:10px;font-size:16px;}}QLineEdit:focus{{border-color:{_CIAN};}}")
+        self.inp_pin.returnPressed.connect(self._validar)
+        ly.addWidget(self.inp_pin)
+        self.lbl_err = _lbl("", size=11, color=_ROJO); self.lbl_err.setWordWrap(True)
+        ly.addWidget(self.lbl_err)
+        bl = QHBoxLayout()
+        b_cancel = _btn(tr("common.cancel", default="Cancelar"), color_fg=_ROJO, color_border=_ROJO,
+                        hover_bg=_ROJO, hover_fg="#FFF")
+        b_cancel.clicked.connect(self.reject)
+        b_ok = _btn(tr("tpv.apply", default="Aplicar"), color_bg=_BG2, color_fg=_VERDE,
+                    color_border=_VERDE, hover_bg=_VERDE, hover_fg="#0D1117")
+        b_ok.clicked.connect(self._validar)
+        bl.addWidget(b_cancel); bl.addWidget(b_ok)
+        ly.addLayout(bl)
+
+    def _validar(self):
+        pin = (self.inp_pin.text() or "").strip()
+        if len(pin) != 4:
+            self.lbl_err.setText(tr("tpv.staff_pin_len", default="El PIN debe tener 4 dígitos."))
+            return
+        try:
+            from src.db.usuario import validar_pin_por_rol
+            autorizador = validar_pin_por_rol(pin, self._ROLES_OK)
+        except Exception:
+            autorizador = None
+        if not autorizador:
+            _msg = tr("tpv.staff_pin_bad", default="PIN no válido.")
+            self.lbl_err.setText(_msg)
+            from assets.estilo_global import mostrar_mensaje as _mm
+            _mm(self, tr("cfg.pin_wrong_title", default="PIN incorrecto"), _msg, "error")
+            return
+        self.autorizado = True
+        self.accept()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self.inp_pin.setFocus()
+
+
+def _requiere_pin_admin_edicion(tpv_widget) -> bool:
+    """¿Esta edición necesita el PIN de `_PinAdminEdicionDialog`? Solo si el perfil de sesión es
+    OPERARIO (ADMINISTRADOR/SUPERADMIN ya lo son, sin paso adicional). Si no hay perfil de sesión
+    resoluble, no bloquea (degradable, mismo criterio que el resto de gates best-effort de TPV)."""
+    try:
+        perfil = ((sesion_global.usuario_actual or {}).get("perfil") or "").upper()
+    except Exception:
+        return False
+    return perfil == "OPERARIO"
+
+
+def _autorizar_edicion_articulo(tpv_widget) -> bool:
+    """Punto único de entrada para gatear la EDICIÓN de artículos (nunca la eliminación, petición
+    explícita) — pide el PIN de admin solo si hace falta (`_requiere_pin_admin_edicion`)."""
+    if not _requiere_pin_admin_edicion(tpv_widget):
+        return True
+    dlg = _PinAdminEdicionDialog(tpv_widget)
+    return dlg.exec() == QDialog.DialogCode.Accepted and dlg.autorizado
+
+
 class _EtiquetaX(QLabel):
     """'✕' clicable implementada sobre QLabel, NO QPushButton — workaround puntual para un bug real
     y reproducido de Qt/Windows: en `_AplicarDescuentoDialog` (diálogo FRAMELESS+WA_TranslucentBackground
@@ -7107,6 +7403,8 @@ class _AccionesAvanzadasDialog(QDialog):
                              tpv._abrir_config_pasarela))
             acciones.append(("💳", tr("tpv.acc_config_datafono", default="Datáfono de esta tienda"),
                              tpv._abrir_config_datafono))
+            acciones.append(("💶", tr("tpv.acc_minimo_tarjeta", default="Importe mínimo con tarjeta"),
+                             tpv._abrir_config_minimo_tarjeta))
         for i, (icono, txt, fn) in enumerate(acciones):
             btn, _ = tpv._btn_accion_card(icono, txt, _CIAN, lambda _=False, f=fn: self._lanzar(f))
             btn.setMinimumHeight(72)
@@ -7155,6 +7453,91 @@ _EMOJIS_COMIDA = [
     # Bebidas
     "☕", "🍵", "🧃", "🥤", "🍶", "🍾", "🍷", "🍸", "🍹", "🍺", "🍻", "🥂", "🥃", "🍼", "🥛", "💧",
 ]
+
+
+class _ImporteMinimoTarjetaDialog(QDialog):
+    """Ventana pequeña (petición explícita, 2026-11-23) para fijar el importe MÍNIMO que esta
+    tienda acepta cobrar con tarjeta — una barra de texto + un botón de guardar, igual que pide el
+    usuario. Vacío/0 = sin mínimo (se acepta cualquier importe con tarjeta, comportamiento de
+    siempre). Se aplica en `_PagoDialog._cobrar_con_datafono`, el único punto de paso de todo cobro
+    con tarjeta (100% tarjeta o la parte de tarjeta de un pago mixto)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setModal(True)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedWidth(400)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        body = QFrame()
+        body.setObjectName("minbody")
+        body.setStyleSheet(f"QFrame#minbody{{background:{_BG};border:2px solid {_CIAN};border-radius:16px;}}")
+        outer.addWidget(body)
+        v = QVBoxLayout(body)
+        v.setContentsMargins(22, 18, 22, 18)
+        v.setSpacing(12)
+        v.addWidget(_lbl("💶  " + tr("tpv.minimo_tarjeta_titulo", default="IMPORTE MÍNIMO CON TARJETA"),
+                         bold=True, size=17, color=_CIAN))
+        v.addWidget(_lbl(
+            tr("tpv.minimo_tarjeta_desc",
+              default="Por debajo de este importe, esta tienda no acepta cobros con tarjeta. "
+                      "Déjalo vacío o en 0 para no exigir ningún mínimo."),
+            size=12, color=_TEXT2))
+        from src.db import datafono as _DF
+        actual = _DF.obtener_config().get("importe_minimo_tarjeta")
+        self.inp = QLineEdit()
+        self.inp.setPlaceholderText(tr("tpv.minimo_tarjeta_placeholder", default="Sin mínimo"))
+        if actual:
+            self.inp.setText(f"{float(actual):.2f}")
+        self.inp.setFixedHeight(54)
+        self.inp.setStyleSheet(
+            f"QLineEdit{{background:{_BG2};color:{_TEXT};border:2px solid {_BORDE};"
+            f"border-radius:10px;font-family:'{_FONT}';font-weight:900;font-size:24px;padding:4px 12px;}}"
+            f"QLineEdit:focus{{border-color:{_CIAN};}}")
+        v.addWidget(self.inp)
+        self.lbl_error = _lbl("", size=11, color=_ROJO)
+        self.lbl_error.hide()
+        v.addWidget(self.lbl_error)
+        fila = QHBoxLayout()
+        b_cancel = _btn(tr("common.cancel", default="Cancelar"), color_fg=_ROJO, color_border=_ROJO,
+                        hover_bg=_ROJO, hover_fg="#FFF", h=46)
+        b_cancel.clicked.connect(self.reject)
+        b_ok = _btn("💾  " + tr("common.save", default="Guardar"), color_bg=_BG2, color_fg=_VERDE,
+                    color_border=_VERDE, hover_bg=_VERDE, h=46)
+        b_ok.clicked.connect(self._guardar)
+        fila.addWidget(b_cancel)
+        fila.addWidget(b_ok)
+        v.addLayout(fila)
+        QTimer.singleShot(0, self.inp.setFocus)
+
+    def _guardar(self):
+        texto = self.inp.text().strip().replace(",", ".")
+        if not texto:
+            valor = None
+        else:
+            try:
+                valor = round(float(texto), 2)
+                if valor < 0:
+                    raise ValueError
+            except ValueError:
+                self.lbl_error.setText(
+                    tr("tpv.minimo_tarjeta_err", default="Introduce un importe válido (0 o más)."))
+                self.lbl_error.show()
+                return
+            if valor == 0:
+                valor = None
+        from src.gui.mfa_gui import step_up_sesion
+        # Mismo gate que la pasarela/el datáfono (`pagos.pasarela.configurar`, ver CLAUDE.md): fijar
+        # un mínimo de cobro con tarjeta es una configuración de pago, no se crea un permiso nuevo.
+        if not step_up_sesion("pagos.pasarela.configurar", self):
+            return
+        from src.db import datafono as _DF
+        if not _DF.guardar_config(importe_minimo_tarjeta=valor):
+            self.lbl_error.setText(tr("tpv.minimo_tarjeta_err_guardar", default="No se pudo guardar."))
+            self.lbl_error.show()
+            return
+        self.accept()
 
 
 def _nombre_boton_producto(nombre: str) -> str:
@@ -7934,16 +8317,28 @@ class _CambioDialog(QDialog):
         lbl_importe.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(lbl_importe)
 
+        # Petición explícita, 2026-11-16: mismo diseño EXACTO que el resto de botones turquesas
+        # de la app (fondo oscuro, borde/texto turquesa en reposo, relleno turquesa en hover) —
+        # antes tenía un estilo "invertido" propio (relleno turquesa fijo, blanco en hover).
         btn_cerrar = _btn(
             tr("common.close", default="CERRAR"),
-            color_bg=_CIAN, color_fg="#0D1117", color_border=_CIAN,
-            hover_bg="#FFF", h=44,
+            color_fg=_CIAN, color_border=_CIAN, h=44,
         )
-        btn_cerrar.clicked.connect(self.close)
+        btn_cerrar.clicked.connect(self._cerrar)
         lay.addWidget(btn_cerrar)
 
         self.setFixedWidth(440)
         QTimer.singleShot(self._DURACION_MS, self.close)
+
+    def _cerrar(self):
+        # Petición explícita, 2026-11-16: vuelve EXPLÍCITAMENTE a la ventana principal del TPV
+        # (antes solo se cerraba este diálogo flotante; al no ser modal, el TPV ya estaba siempre
+        # detrás, pero sin garantía de que quedara enfocado/al frente).
+        self.close()
+        padre = self.parent()
+        if padre is not None:
+            padre.activateWindow()
+            padre.raise_()
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -7969,6 +8364,10 @@ class TPVWindow(QWidget):
         self.main_window = main
         self._callback_vuelta = callback_vuelta
         self._lineas: list[dict] = []
+        # Petición explícita, 2026-11-16: código de la línea con la barra de acciones (lápiz/
+        # papelera) EXPANDIDA bajo su fila (ver `_refresh_tabla`/`_toggle_fila_acciones`) — None
+        # si ninguna está expandida. Sustituye al botón "⋮" visible de siempre (ahora oculto).
+        self._fila_expandida_codigo: str | None = None
         # Caché codigo->ruta de imagen (o None si no tiene) para la columna "Imagen" del carrito
         # (ver `_refresh_tabla`): `_refresh_tabla()` se llama ~15 veces por venta, así que resolver
         # la ruta de disco en cada refresco (en vez de una sola vez por código) sería I/O
@@ -8467,6 +8866,17 @@ class TPVWindow(QWidget):
         body.addWidget(self._panel_der, 4)
         lay.addLayout(body, 1)  # stretch=1 → ocupa todo el alto disponible
 
+        # Insignia de pedidos online EN VIVO sobre "Acciones avanzadas" (petición explícita,
+        # 2026-11-23: antes solo se recalculaba al abrir ese popup — un pedido nuevo no se notaba
+        # hasta que el cajero lo abriera por casualidad). Mismo patrón de "latido" ya establecido
+        # en `main.py` para jobs que necesitan más frecuencia que horaria.
+        if hasattr(self, "btn_acciones_avz"):
+            self._set_badge_pedidos_online = _instalar_badge(self.btn_acciones_avz)
+            self._refrescar_badge_pedidos_online()
+            self._timer_pedidos_online = QTimer(self)
+            self._timer_pedidos_online.timeout.connect(self._refrescar_badge_pedidos_online)
+            self._timer_pedidos_online.start(60_000)
+
     def _build_topbar(self) -> QFrame:
         bar = QFrame()
         bar.setFixedHeight(54)
@@ -8877,6 +9287,7 @@ class TPVWindow(QWidget):
         hh.setMinimumSectionSize(40)
 
         self.tabla.doubleClicked.connect(self._editar_linea)
+        self.tabla.clicked.connect(self._toggle_fila_acciones)
         # Cabecera de la divisa en caliente: si un admin cambia la divisa de empresa (Gestión
         # Caja) mientras el TPV sigue abierto, la columna (símbolo) se actualiza sola. Conectado
         # a un MÉTODO de instancia (no un lambda): `divisas.senal()` es un singleton GLOBAL que
@@ -8941,9 +9352,19 @@ class TPVWindow(QWidget):
             f"QToolButton:hover{{background-color:{color};color:#0B1118;border:2px solid {color};}}"
             f"QToolButton:pressed{{background-color:{color};color:#0B1118;border:2px solid {color};}}"
         )
-        # Recolorea el icono al pasar el ratón (igual que MenuCardButton).
-        b.enterEvent = lambda e, _b=b: (_b.setIcon(_b._icono_hover), QToolButton.enterEvent(_b, e))
-        b.leaveEvent = lambda e, _b=b: (_b.setIcon(_b._icono_normal), QToolButton.leaveEvent(_b, e))
+        # Recolorea el icono al pasar el ratón (igual que MenuCardButton). Corrige "TypeError:
+        # invalid argument to sipBadCatcherResult()" (hallazgo real, 2026-11-16): las lambdas
+        # anteriores devolvían una TUPLA (operador coma) a `enterEvent`/`leaveEvent`, manejadores
+        # virtuales `void` de Qt — funciones normales sin `return` evitan el retorno no-None.
+        def _enter_event(e, _b=b):
+            _b.setIcon(_b._icono_hover)
+            QToolButton.enterEvent(_b, e)
+
+        def _leave_event(e, _b=b):
+            _b.setIcon(_b._icono_normal)
+            QToolButton.leaveEvent(_b, e)
+        b.enterEvent = _enter_event
+        b.leaveEvent = _leave_event
         if on_click:
             b.clicked.connect(on_click)
         return b
@@ -9365,6 +9786,17 @@ class TPVWindow(QWidget):
             # Código único por tarjeta → cada tarjeta es una línea independiente en el ticket.
             self._add_extra(f"TARJETA_REGALO-{scan.codigo}", nombre, dlg.importe, iva=0,
                             seccion="TARJETA_REGALO")
+            # Petición explícita, 2026-11-16: persiste el saldo real de la tarjeta (antes solo
+            # quedaba la línea del ticket, sin ningún saldo consultable — ver "Consultar saldo"
+            # en `_EscanearTarjetaDialog`). Best-effort: un fallo aquí no debe impedir la venta ya
+            # añadida al carrito (la línea del ticket es la fuente de verdad de lo cobrado).
+            try:
+                from src.db.empresa import tienda_actual_id
+                from src.services.tpv import tarjeta_regalo
+                tarjeta_regalo.registrar_tarjeta(scan.codigo, dlg.importe,
+                                                 id_tienda_emision=tienda_actual_id())
+            except Exception as e:
+                logger.error("_add_tarjeta_regalo: no se pudo registrar el saldo: %s", e)
 
     def _abrir_acciones_avanzadas(self):
         """Abre la ventana emergente de ACCIONES AVANZADAS y, tras cerrarla, ejecuta la acción elegida
@@ -9373,6 +9805,25 @@ class TPVWindow(QWidget):
         dlg.exec()
         if getattr(dlg, "accion_elegida", None):
             dlg.accion_elegida()
+        # Refresco inmediato (además del "latido" de 60s, petición explícita 2026-11-23): si el
+        # cajero acaba de cobrar/tramitar un pedido online desde este mismo popup, la insignia de
+        # la pantalla principal no debe esperar al siguiente tick para reflejarlo.
+        self._refrescar_badge_pedidos_online()
+
+    def _refrescar_badge_pedidos_online(self):
+        """Recalcula el nº de pedidos online pendientes de ESTA tienda y actualiza la insignia
+        visible en la pantalla principal del TPV (petición explícita, 2026-11-23 — "los datos
+        deben verse en tiempo real", no solo al abrir Acciones avanzadas). Degrada en silencio:
+        nunca debe interrumpir el cobro por un fallo de red/BD puntual."""
+        set_badge = getattr(self, "_set_badge_pedidos_online", None)
+        if not set_badge:
+            return
+        try:
+            from src.db.empresa import tienda_actual_id
+            from src.services.tpv import online_orders_service as _OS
+            set_badge(_OS.contar_pedidos_pendientes_tienda(id_tienda=tienda_actual_id()))
+        except Exception:
+            logger.debug("Refrescando insignia de pedidos online", exc_info=True)
 
     def _compra_personal(self):
         """Compra personal: valida el PIN de un empleado (distinto del cajero de esta caja) y aplica su
@@ -9540,15 +9991,21 @@ class TPVWindow(QWidget):
     def _refresh_tabla(self):
         """Petición explícita: cada línea de artículo es UNA fila; si tiene descuento aplicado,
         se añade justo debajo una fila roja, FINA, con el detalle del descuento + su propio botón
-        "⋮" (editar/quitar SOLO el descuento, sin tocar el artículo). `self._filas_render` mapea
-        cada fila VISIBLE de la tabla a (tipo, índice en `self._lineas`) — necesario porque, con
-        descuentos de por medio, el índice de fila deja de coincidir 1:1 con el índice de línea."""
+        "⋮" (editar/quitar SOLO el descuento, sin tocar el artículo). Petición explícita,
+        2026-11-16: el botón "⋮" de la fila de ARTÍCULO se retira de la vista (sustituido por una
+        barra de acciones que se EXPANDE justo debajo al pulsar la fila — ver
+        `_toggle_fila_acciones`); la fila de descuento conserva su "⋮" propio, sin cambios.
+        `self._filas_render` mapea cada fila VISIBLE de la tabla a (tipo, índice en
+        `self._lineas`) — necesario porque, con descuentos/barra de acciones de por medio, el
+        índice de fila deja de coincidir 1:1 con el índice de línea."""
         self.tabla.clearSpans()
         self._filas_render = []
         for idx, l in enumerate(self._lineas):
             self._filas_render.append(("linea", idx))
             if l.get("descuento_pct", 0) > 0:
                 self._filas_render.append(("descuento", idx))
+            if l.get("codigo") == self._fila_expandida_codigo:
+                self._filas_render.append(("acciones", idx))
         self.tabla.setRowCount(len(self._filas_render))
 
         center = Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter
@@ -9579,10 +10036,36 @@ class TPVWindow(QWidget):
                 self.tabla.setCellWidget(row, 0, self._celda_boton_texto(btn, texto, color=_ROJO))
                 continue
 
+            if tipo == "acciones":
+                # Barra expandida (petición explícita, 2026-11-16) con los botones redondos
+                # lápiz/papelera ANCLADOS AL BORDE DERECHO de la fila — sustituye al antiguo "⋮".
+                # Petición explícita posterior: fila más alta (56→64, igual que la de descuento)
+                # y margen superior menor que el inferior para que los botones queden más
+                # arriba dentro de la fila (antes se veían recortados por abajo), con alineación
+                # vertical centrada explícita.
+                self.tabla.setRowHeight(row, 64)
+                self.tabla.setSpan(row, 0, 1, 5)
+                barra = QWidget()
+                barra.setStyleSheet("background:transparent;")
+                hl = QHBoxLayout(barra)
+                hl.setContentsMargins(8, 4, 16, 14)
+                hl.setSpacing(10)
+                hl.addStretch()
+                btn_lapiz = self._boton_accion_redondo("✏️", _CIAN)
+                btn_lapiz.clicked.connect(lambda _=False, c=codigo_fila: self._accion_editar_fila(c))
+                btn_papelera = self._boton_accion_redondo("🗑️", _ROJO)
+                btn_papelera.clicked.connect(lambda _=False, c=codigo_fila: self._borrar_por_codigo(c))
+                hl.addWidget(btn_lapiz, 0, Qt.AlignmentFlag.AlignVCenter)
+                hl.addWidget(btn_papelera, 0, Qt.AlignmentFlag.AlignVCenter)
+                self.tabla.setCellWidget(row, 0, barra)
+                continue
+
             self.tabla.setRowHeight(row, 56)
-            btn = self._boton_puntos(_CIAN, "#0D1117")
-            btn.clicked.connect(lambda _=False, c=codigo_fila: self._abrir_acciones_articulo(c))
-            self.tabla.setCellWidget(row, 0, self._celda_boton_texto(btn, str(l["codigo"])))
+            # Petición explícita, 2026-11-16: sin botón "⋮" visible en la fila de artículo — la
+            # celda 0 vuelve a ser un ítem de texto normal (igual que Artículo/Cantidad/Precio),
+            # así que toda la fila (incluida esta columna) reacciona al clic de
+            # `_toggle_fila_acciones`.
+            self.tabla.setItem(row, 0, _cell(str(l["codigo"])))
             self.tabla.setItem(row, 1, _cell(l["nombre"], center))
             self.tabla.setItem(row, 2, _cell(str(l["cantidad"]), center))
             # Solo el número (sin símbolo): el símbolo de divisa ya va en la cabecera de la
@@ -9597,19 +10080,44 @@ class TPVWindow(QWidget):
     def _linea_por_codigo(self, codigo):
         return next((l for l in self._lineas if l.get("codigo") == codigo), None)
 
-    def _abrir_acciones_articulo(self, codigo):
-        l = self._linea_por_codigo(codigo)
-        if not l:
+    @staticmethod
+    def _boton_accion_redondo(emoji: str, color: str) -> QPushButton:
+        """Botón redondo lápiz/papelera de la barra de acciones expandida de la tabla (ver
+        `_toggle_fila_acciones`). Petición explícita, 2026-11-16: el glifo es el EMOJI tal cual
+        (✏️/🗑️), no un icono dibujado — evita el recorte inferior que tenían los iconos
+        vectoriales dentro de un botón tan pequeño."""
+        b = QPushButton(emoji)
+        b.setFixedSize(36, 36)
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        b.setStyleSheet(
+            f"QPushButton{{background:{_BG2};border:2px solid {color};border-radius:18px;"
+            f"font-size:15px;padding:0;}}"
+            f"QPushButton:hover{{background:{color};}}")
+        return b
+
+    def _toggle_fila_acciones(self, index):
+        """Clic en una fila de ARTÍCULO: expande/colapsa justo debajo la barra con los botones
+        redondos lápiz (editar) y papelera (eliminar) — petición explícita, sustituye al botón
+        "⋮" (ahora oculto). Clic sobre una fila ya expandida la colapsa; clic sobre otra fila
+        cambia la expansión a esa (solo una a la vez)."""
+        filas = getattr(self, "_filas_render", [])
+        row = index.row()
+        if not (0 <= row < len(filas)) or filas[row][0] != "linea":
             return
-        dlg = _AccionesLineaDialog(
-            tr("tpv.actions_article_title", default="Artículo"), l.get("nombre", codigo), _CIAN, self,
-            ean=codigo)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        idx = filas[row][1]
+        if not (0 <= idx < len(self._lineas)):
             return
-        if dlg.accion == _AccionesLineaDialog.ACCION_EDITAR:
+        codigo = self._lineas[idx]["codigo"]
+        self._fila_expandida_codigo = None if self._fila_expandida_codigo == codigo else codigo
+        self._refresh_tabla()
+
+    def _accion_editar_fila(self, codigo):
+        """Botón lápiz de la barra de acciones expandida: RBAC (petición explícita, 2026-11-16) —
+        editar exige PIN de admin para OPERARIO (`_autorizar_edicion_articulo`); eliminar
+        (`_borrar_por_codigo`, botón papelera) queda SIN gatear, excepción explícita del usuario."""
+        if _autorizar_edicion_articulo(self):
             self._editar_por_codigo(codigo)
-        elif dlg.accion == _AccionesLineaDialog.ACCION_ELIMINAR:
-            self._borrar_por_codigo(codigo)
 
     def _abrir_acciones_descuento(self, codigo):
         l = self._linea_por_codigo(codigo)
@@ -9739,6 +10247,11 @@ class TPVWindow(QWidget):
         # fusionadas para su texto en rojo), así que conserva el comportamiento de siempre.
         filas = getattr(self, "_filas_render", [])
         tipo = filas[index.row()][0] if 0 <= index.row() < len(filas) else "linea"
+        # RBAC (petición explícita, 2026-11-16): ambos caminos de edición por doble clic
+        # (cantidad inline y el diálogo completo precio/descuento) requieren el mismo PIN de
+        # admin que `_abrir_acciones_articulo` → `_editar_por_codigo`.
+        if not _autorizar_edicion_articulo(self):
+            return
         if tipo == "linea" and index.column() == 2:
             self._editar_cantidad_inline(idx)
             return
@@ -9976,6 +10489,11 @@ class TPVWindow(QWidget):
         pasarela; el guardado real exige el mismo step-up MFA (`pagos.pasarela.configurar`)."""
         from src.gui.datafono_pairing_dialog import DatafonoPairingDialog
         DatafonoPairingDialog(parent=self).exec()
+
+    def _abrir_config_minimo_tarjeta(self):
+        """Importe mínimo para aceptar cobros con tarjeta en ESTA tienda (petición explícita,
+        2026-11-23) — mismo gate de perfil que el datáfono/la pasarela."""
+        _ImporteMinimoTarjetaDialog(parent=self).exec()
 
     def _seleccionar_cliente(self):
         """Selecciona/da de alta el cliente de la venta (o genérico)."""
@@ -10387,14 +10905,9 @@ class TPVWindow(QWidget):
                          venta_id, e)
 
     def _actualizar_fondo_caja(self, importe: float):
+        _ajustar_fondo_caja(self._id_caja, importe)
         try:
-            est = _leer_estado_caja()
-            for c in est.get("cajas_activas", []):
-                if c.get("id") == self._id_caja:
-                    c["fondo"] = round(c.get("fondo", 0.0) + importe, 2)
-                    break
-            _guardar_estado_caja(est)
-            caja = _caja_activa(est)
+            caja = _caja_activa(_leer_estado_caja())
             if caja:
                 self._refresh_caja_info(caja)
         except Exception as e:
@@ -10425,6 +10938,18 @@ class TPVWindow(QWidget):
                 cliente=getattr(self, "_cliente", None),
             )
             generar_ticket_pdf(datos, archivo)
+            # Impresión automática (petición explícita, 2026-11-16: SIEMPRE activa por defecto
+            # para cualquier empresa, ya no es una casilla configurable en Gestión Caja — ver
+            # migración 0350): envía el ticket a la impresora PREDETERMINADA del SO, mismo
+            # mecanismo ya usado para el vale de devolución
+            # (`utils.plataforma.imprimir_archivo`) — nunca bloquea la venta si falla (sin
+            # impresora predeterminada real, el SO simplemente no hace nada o usa su propio
+            # diálogo, pero la venta ya quedó registrada con el PDF generado arriba).
+            try:
+                from src.utils import plataforma
+                plataforma.imprimir_archivo(archivo)
+            except Exception as _e:
+                logger.debug("No se pudo imprimir el ticket automáticamente: %s", _e)
             # Centro documental: registrar el ticket con metadatos completos.
             try:
                 from src.db import documentos as _docreg

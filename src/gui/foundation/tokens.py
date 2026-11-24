@@ -104,17 +104,24 @@ def qss_tabla() -> str:
 
 
 def qss_tabs() -> str:
-    """Estilo ESTÁNDAR de pestañas (el del Centro de Inteligencia Empresarial). Fuente única para
-    todas las ventanas con QTabWidget, para una experiencia homogénea."""
+    """Estilo ESTÁNDAR de subpestañas — petición explícita, 2026-11-23: unificado para que TODA la
+    app coincida con la referencia que el usuario señaló como correcta ("Plataforma Corporativa de
+    Comunicaciones" — Analítica/Cronología/Campañas, `gui/ccp_panel.py`). Antes esta función tenía
+    su PROPIO look (relleno+bordes redondeados en la pestaña activa), distinto incluso del de CCP —
+    ahora CCP y esta función comparten la MISMA hoja de estilos, fuente única real. Fuente única
+    para `components.EnterpriseTabs` y cualquier QTabWidget que la use directamente.
+
+    `padding-top` en el `pane` (petición explícita, 2026-11-24): tras migrar ~32 sitios a este
+    estilo, varias páginas (p. ej. "Periodo de devolución"/"Artículos baneados"/"Artículos con
+    descuento" en Configuración) quedaron con su contenido pegado justo debajo de la barra de
+    pestañas — sus propios layouts no traían margen superior propio (a diferencia de otras páginas,
+    donde un título/widget interno ya dejaba hueco de forma incidental). Separarlo aquí, en la
+    ÚNICA fuente de estilo, corrige TODAS las subpestañas migradas a la vez sin tocar cada página
+    una a una ni duplicar el ajuste."""
     return (
-        # Sin borde en el pane: se retiran las líneas grises finas que rodeaban el contenido de las
-        # subpestañas (Tesorería, Centro de Inteligencia, Seguridad/Gobierno, Almacenes, Aprobaciones).
-        f"QTabWidget::pane{{border:none;border-radius:{RADIO}px;background:{BG};}}"
-        f"QTabBar::tab{{background:{BG2};color:{DIM};padding:8px 16px;margin-right:2px;"
-        f"border-top-left-radius:8px;border-top-right-radius:8px;font-family:'{FONT}';font-weight:700;}}"
-        f"QTabBar::tab:selected{{background:{BG};color:{INFO};border:1px solid {BORDE};"
-        f"border-bottom:2px solid {INFO};}}"
-        f"QTabBar::tab:hover{{color:{INFO};}}")
+        f"QTabWidget::pane{{border:none;padding-top:14px;}}"
+        f"QTabBar::tab{{background:{BG2};color:{DIM};padding:8px 16px;}}"
+        f"QTabBar::tab:selected{{color:{INFO};border-bottom:2px solid {INFO};}}")
 
 
 def qss_boton(acento: str = INFO) -> str:

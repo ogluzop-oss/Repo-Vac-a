@@ -7,11 +7,11 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QStackedWidget, QTableWidgetItem,
-                             QTabWidget, QVBoxLayout, QWidget)
+                             QVBoxLayout, QWidget)
 
 from src.gui.catalogo_gestion import (_BG, _BG2, _BORDE, _CIAN, _DIM, _TEXT, _btn, _btn_cargando,
                                       _btn_x, _combo, _dialogo_frameless, _inp, _lbl, _tabla)
-from src.gui.components import EnterpriseKanbanBoard
+from src.gui.components import EnterpriseKanbanBoard, EnterpriseTabs
 from src.db import articulos as ART
 from src.db import clientes as CLIDB
 from src.db import ventas_comercial as VC
@@ -199,8 +199,7 @@ class CRMDashboardWindow(QWidget):
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
 
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
+        self.tabs = EnterpriseTabs()
         self.tbl_ops = _tabla(["ID", "Titulo", "Estado", "Valor", "Prob %", "Cierre prev.", "Doc.", "Proy."])
         # Enriquecimiento CRM (Módulo 1): campañas/marketing, objetivos comerciales y rutas comerciales.
         self.tbl_camp = _tabla(["ID", "Nombre", "Canal", "Segmento", "Estado", "Presupuesto"])

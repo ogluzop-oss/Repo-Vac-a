@@ -22,12 +22,12 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _dialogo_frameless, _tabla
+from src.gui.components import EnterpriseTabs
 from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 
 try:
@@ -108,9 +108,7 @@ class CalidadDashboardWindow(QWidget):
         root.addLayout(cab)
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
-        self.tabs = QTabWidget()
-        # Sin línea gris alrededor del contenido de cada sub-pestaña (el contorno lo pone la tabla).
-        self.tabs.setStyleSheet("QTabWidget::pane{border:none;}")
+        self.tabs = EnterpriseTabs()
         try:
             from src.gui.transiciones import instalar_transicion_tabs
             instalar_transicion_tabs(self.tabs)   # deslizamiento al cambiar de sub-pestaña

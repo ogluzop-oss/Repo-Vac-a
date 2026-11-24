@@ -163,6 +163,76 @@ def buscar_almacenes_con_stock(codigo_articulo: str, id_tienda_solicitante,
     return candidatos
 
 
+def buscar_almacenes_con_stock_tallas(codigo_padre: str, id_tienda_solicitante, id_empresa=None, *,
+                                      cp_referencia: str | None = None,
+                                      talla_filtro: str | None = None) -> dict:
+    """Como `buscar_almacenes_con_stock`, pero para un MODELO con variantes de talla (ver
+    `services.variantes`): un almacén por fila, una columna de stock POR TALLA — para el Portal
+    Pedidos Online, cuando el artículo buscado tiene más de una talla (Fase encargos multi-talla).
+
+    Si el modelo tiene varios COLORES por talla, la columna de cada talla es la SUMA de stock de
+    todos los colores en ese almacén (esta vista decide el ALMACÉN de origen por talla, no el
+    color — al añadir al carrito se resuelve la variante exacta de forma determinista, ver
+    `mejor_variante_talla`). `talla_filtro` (opcional): solo incluye esa talla (una columna).
+
+    Devuelve ``{tallas: [...], almacenes: [{id_almacen, nombre, tipo_almacen, distancia_km,
+    ubicacion_desconocida, tallas: {talla: cantidad}}]}`` — un almacén solo aparece si tiene
+    stock (>0) de AL MENOS una talla (mismo criterio de bloqueo por falta de stock que la vista
+    simple: nunca se puede "Añadir" una talla con cantidad 0 en un almacén, ver la plantilla)."""
+    from src.services import variantes as _VAR
+    vs = _VAR.listar_variantes(codigo_padre, id_empresa)
+    tallas = sorted({v["talla"] for v in vs}, key=lambda x: (len(str(x)), str(x)))
+    if talla_filtro:
+        tallas = [t for t in tallas if str(t) == str(talla_filtro)]
+    if not tallas:
+        return {"tallas": [], "almacenes": []}
+
+    por_almacen: dict[int, dict] = {}
+    for t in tallas:
+        skus = {v["codigo_variante"] for v in vs if v["talla"] == t}
+        for sku in skus:
+            try:
+                resultados = buscar_almacenes_con_stock(sku, id_tienda_solicitante, id_empresa,
+                                                         cp_referencia=cp_referencia)
+            except Exception as e:
+                logger.warning("buscar_almacenes_con_stock_tallas(%s/%s): %s", codigo_padre, sku, e)
+                continue
+            for a in resultados:
+                idalm = int(a["id_almacen"])
+                entry = por_almacen.setdefault(idalm, {
+                    "id_almacen": idalm, "nombre": a["nombre"], "tipo_almacen": a.get("tipo_almacen"),
+                    "id_tienda": a.get("id_tienda"), "distancia_km": a.get("distancia_km"),
+                    "ubicacion_desconocida": a.get("ubicacion_desconocida"), "tallas": {},
+                })
+                entry["tallas"][t] = entry["tallas"].get(t, 0) + int(a.get("cantidad") or 0)
+
+    almacenes = [a for a in por_almacen.values() if any(c > 0 for c in a["tallas"].values())]
+    almacenes.sort(key=lambda a: a["distancia_km"])
+    return {"tallas": tallas, "almacenes": almacenes}
+
+
+def mejor_variante_talla(codigo_padre: str, talla: str, id_almacen, id_empresa=None) -> str | None:
+    """Resuelve la variante EXACTA (SKU) a añadir al carrito cuando el empleado elige una talla en
+    la matriz de `buscar_almacenes_con_stock_tallas`: si varios colores comparten esa talla, se
+    elige el que tenga MÁS stock en `id_almacen` (decisión determinista y documentada — la matriz
+    no distingue color, ver su docstring). None si ninguna variante de esa talla tiene stock ahí."""
+    from src.services import variantes as _VAR
+    from src.db import stock_almacen as _SA
+    candidatos = [v["codigo_variante"] for v in _VAR.listar_variantes(codigo_padre, id_empresa)
+                 if str(v["talla"]) == str(talla)]
+    mejor, mejor_cant = None, 0
+    for sku in candidatos:
+        try:
+            det = _SA.obtener_stock_articulo(sku, id_empresa).get("detalle", [])
+            cant = next((int(d.get("cantidad") or 0) for d in det
+                        if int(d.get("id_almacen")) == int(id_almacen)), 0)
+        except Exception:
+            cant = 0
+        if cant > mejor_cant:
+            mejor, mejor_cant = sku, cant
+    return mejor
+
+
 # ── Reservas y solicitudes a otra tienda (TPV online) ────────────────────────
 def reservar_articulo(codigo: str, cantidad: int = 1, cliente: str = None,
                       caduca_horas: int = 48, observaciones: str = None) -> int | None:
@@ -225,7 +295,7 @@ def crear_pedido_online(cliente: dict, lineas: list[dict], direccion_envio: str 
     - direccion_facturacion: solo relevante con modo_entrega='domicilio' y distinta de la de
       envío (p. ej. empresa que factura a una sede distinta de donde recibe la mercancía).
     - contexto (opcional): {id_empresa, id_tienda, id_usuario, trabajador} — para invocar desde un
-      proceso SIN sesión de escritorio activa (p. ej. el Portal del Empleado, servido por el
+      proceso SIN sesión de escritorio activa (p. ej. el Portal Pedidos Online, servido por el
       backend Flask en su propio proceso, donde `_ctx()`/`sesion_global` no reflejan al empleado
       real). Si se omite (caso normal: GUI de escritorio, adaptadores de marketplace), se resuelve
       como siempre desde `_ctx()` — comportamiento sin cambios para el resto de llamadores.
@@ -332,7 +402,7 @@ def crear_encargo_almacen(cliente: dict, lineas: list[dict], direccion_envio: st
                           direccion_facturacion: str = "",
                           contexto: dict | None = None) -> str | None:
     """Crea un ENCARGO A ALMACÉN — la única vía de creación para este flujo concreto. Se construye
-    en el Portal del Empleado (`src/backend/portal_empleado_web.py`, ruta `/encargo`); el TPV solo
+    en el Portal Pedidos Online (`src/backend/portal_pedidos_online.py`, ruta `/encargo`); el TPV solo
     lo cobra después (`confirmar_pago_encargo`, ver `_VentaOnlineDialog` en `gui/tpv.py`).
 
     A diferencia de `crear_pedido_online` (genérico, usado también por Click&Collect y los
@@ -348,7 +418,7 @@ def crear_encargo_almacen(cliente: dict, lineas: list[dict], direccion_envio: st
       en `pedidos_online_items.id_almacen` (columna ya existente, migración 0166).
     - modo_entrega/direccion_facturacion: ver `crear_pedido_online` (migración 0310) — el cajero
       los elige en el propio formulario del Portal ("Nuevo pedido").
-    - contexto: ver `crear_pedido_online` (necesario al invocar desde el Portal del Empleado,
+    - contexto: ver `crear_pedido_online` (necesario al invocar desde el Portal Pedidos Online,
       que corre en el proceso del backend Flask, sin sesión de escritorio).
     Devuelve el id_pedido o None."""
     return crear_pedido_online(cliente, lineas, direccion_envio=direccion_envio,
@@ -536,7 +606,22 @@ def confirmar_pago_encargo(id_pedido: str, datos_pago: dict | None = None,
 
 
 def importar_pedidos_remotos(id_empresa=None, id_tienda="auto") -> dict:
-    """Trae los pedidos de la plataforma de e-commerce a la tabla local (espejo).
+    """@deprecated (hallazgo real, 2026-11-23): esta función no tiene NINGÚN llamador en toda la
+    app — ni botón de GUI, ni job programado, ni ruta de API (confirmado por búsqueda completa del
+    repositorio). Su diálogo de configuración (`gui.tpv._TiendaOnlineConfigDialog`) también está
+    marcado `@deprecated`, igualmente huérfano. Quedó atrás cuando se construyó el sistema real y
+    vivo de sincronización de marketplace — `services.marketplace.integraciones_comerciales.*`
+    (11 canales, incluidos WooCommerce/Shopify/Prestashop), alcanzable desde Catálogo → "Abrir
+    Canal Web" → Integraciones Comerciales → "Sincronizar" — que ya hace enrutamiento real por
+    stock (`crear_pedido_canal_externo`/`_rellenar_almacenes_cercanos`, más abajo en este mismo
+    módulo) y escribe en estas MISMAS tablas. Se conserva (Strangler, sin eliminar) por si algún
+    caso de uso la necesitara, pero NO usar en código nuevo — usar
+    `services.marketplace.integraciones_comerciales` en su lugar. (El resto de
+    `services.tpv.ecommerce.*` — `actualizar_articulo`/`sincronizar_catalogo`/`crear_pedido` — SÍ
+    sigue vivo, usado por `services.tpv.catalog_sync_service` desde Canal Web: esto NO los afecta,
+    es solo el lado de "traer pedidos" el que está huérfano.)
+
+    Trae los pedidos de la plataforma de e-commerce a la tabla local (espejo).
 
     Deduplica por ``referencia_externa`` (no reimporta lo ya traído). Es un espejo
     de solo lectura: NO vuelve a crear el pedido en la plataforma ni descuenta
@@ -1362,7 +1447,7 @@ def _on_pagado(id_pedido: str) -> None:
     Capa de seguridad adicional sobre el stock (petición explícita): al PAGAR el pedido NO se
     descuenta stock físico todavía — solo queda RESERVADO (ver la reserva creada en
     `crear_pedido_online`). El descuento real se produce al pasar a ENVIADO, una vez el empleado
-    termina la preparación y pulsa "Enviar" en el Portal del Empleado (ver `registrar_envio` →
+    termina la preparación y pulsa "Enviar" en el Portal Pedidos Online (ver `registrar_envio` →
     `_descontar_stock_pedido`). Así todas las tiendas ven el stock real menos lo ya reservado por
     pedidos pendientes, en vez de un stock ya fantasma-descontado antes de que el pedido exista
     físicamente preparado."""

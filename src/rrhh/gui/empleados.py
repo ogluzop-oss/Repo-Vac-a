@@ -1,7 +1,7 @@
 """
 Diálogos RRHH de empleados: identificación, PIN y asignación (F3.0.3).
 
-Clases EXTRAÍDAS VERBATIM desde gui/gestion_usuarios.py (mover + shim): mismo
+Clases EXTRAÍDAS VERBATIM desde gui/configuracion.py (mover + shim): mismo
 código, señales, estilos y nombres. Las dependencias compartidas del módulo
 original se importan de forma diferida al final (uso en runtime) para romper el
 ciclo de imports sin duplicar lógica (mismo patrón validado en F3.0.2).
@@ -113,11 +113,13 @@ class _PinDialog(QDialog):
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
         ly = QVBoxLayout(card); ly.setContentsMargins(32, 28, 32, 28); ly.setSpacing(14)
 
-        lbl_t = QLabel("🔐  " + tr("cfg.pin_auth_title", default="SE REQUIERE AUTORIZACIÓN DE {rol}", rol=self._roles_label))
+        lbl_t = QLabel("🔐  " + tr("cfg.pin_auth_title",
+                                  default="SE REQUIERE LA AUTORIZACIÓN DE UN RESPONSABLE"))
         lbl_t.setStyleSheet("color:#E3B341;font-family:'Segoe UI';font-weight:900;font-size:14px;")
         lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_t.setWordWrap(True)
-        lbl_m = QLabel(tr("cfg.pin_auth_msg", default="Introduzca el PIN de un {rol} para {motivo}.", rol=self._roles_label.lower(), motivo=motivo))
+        lbl_m = QLabel(tr("cfg.pin_auth_msg", default="Introduzca el PIN de un responsable para {motivo}.",
+                          motivo=motivo))
         lbl_m.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:12px;")
         lbl_m.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_m.setWordWrap(True)
@@ -465,8 +467,8 @@ class _IdentificacionEmpleadoDialog(QDialog):
 
 
 # ── Dependencias compartidas del módulo original (import diferido: runtime;
-# rompe el ciclo de imports con gui/gestion_usuarios sin duplicar). ──
-from src.gui.gestion_usuarios import (  # noqa: E402,F401
+# rompe el ciclo de imports con gui/configuracion sin duplicar). ──
+from src.gui.configuracion import (  # noqa: E402,F401
     _BORDE,
     _CIAN,
     _NeonComboBox,

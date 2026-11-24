@@ -6,9 +6,10 @@ Reutiliza el estilo global. Aditivo: NO sustituye BIDashboardWindow existente.
 
 import logging
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _tabla
+from src.gui.components import EnterpriseTabs
 
 logger = logging.getLogger("gui.bi_corp")
 
@@ -62,7 +63,7 @@ class BICorporativoWindow(QWidget):
         root.addLayout(cab)
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
-        self.tabs = QTabWidget()
+        self.tabs = EnterpriseTabs()
         self.tbl_kpi = _tabla(["KPI", "Valor", "Unidad"])
         self.tbl_sec = _tabla(["Seccion", "Metrica", "Valor"])
         self.tbl_alert = _tabla(["Tipo", "Severidad", "Mensaje"])

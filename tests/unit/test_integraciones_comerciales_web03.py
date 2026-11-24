@@ -8,7 +8,11 @@ import pytest
 
 
 @pytest.fixture()
-def reset_reg():
+def reset_reg(db):
+    # Depende de `db` (tests/conftest.py): desde que `servicio.py` persiste en `ic_integraciones`
+    # (2026-11-24), estos tests necesitan la BD de pruebas real — antes `_reset_para_tests()` solo
+    # vaciaba un diccionario en memoria. `db` construye/aplica el esquema una vez por sesión y omite
+    # (skip) estos tests si MariaDB no está disponible, en vez de fallar.
     from src.services.marketplace.integraciones_comerciales import servicio
     servicio._reset_para_tests()
     yield

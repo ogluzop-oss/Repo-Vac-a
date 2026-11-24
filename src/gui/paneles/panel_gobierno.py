@@ -9,11 +9,11 @@ Seguridad al shell (Strangler): solo añade esta pestaña, de forma aditiva y co
 
 import logging
 
-from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPushButton, QTabWidget,
+from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPushButton,
                              QVBoxLayout, QWidget)
 
 from src.gui.components import (EnterpriseCard, EnterpriseDashboardGrid,
-                                EnterpriseTable)
+                                EnterpriseTable, EnterpriseTabs)
 from src.gui.foundation import tokens as T
 
 logger = logging.getLogger("gui.paneles.gobierno")
@@ -76,8 +76,7 @@ class PanelGobierno(QWidget):
         self.grid = EnterpriseDashboardGrid(columnas=5)
         root.addWidget(self.grid)
 
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet(T.qss_tabs())   # mismo diseño de pestañas que el Centro de Inteligencia
+        self.tabs = EnterpriseTabs()
         root.addWidget(self.tabs, 1)
 
         # Cada tabla lleva su Actualizar (emoji) a la derecha de su barra de búsqueda.

@@ -18,10 +18,11 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QHBoxLayout, QInputDialog, QLabel, QMessageBox,
-                             QScrollArea, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                             QScrollArea, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.db import lotes
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _TEXT, _btn, _btn_cargando, _btn_x, _inp, _tabla)
+from src.gui.components import EnterpriseTabs
 from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 
 logger = logging.getLogger("inventario.lotes.gui")
@@ -47,11 +48,7 @@ class LotesWindow(QWidget):
             cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
-        tabs = QTabWidget()
-        # Visual: el borde gris fino del QSS global (`QTabWidget::pane{border:1px solid ...}`)
-        # envuelve todo el área de contenido de la pestaña activa — se anula SOLO en esta
-        # instancia (no se toca el QSS global, que usan el resto de pantallas de la app).
-        tabs.setStyleSheet("QTabWidget::pane{border:none;}")
+        tabs = EnterpriseTabs()
         tabs.addTab(self._tab_stock(), "Existencias por lote")
         tabs.addTab(self._tab_alertas(), "Alertas de caducidad")
         tabs.addTab(self._tab_rastreo(), "Rastreo")

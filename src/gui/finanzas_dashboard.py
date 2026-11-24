@@ -12,9 +12,10 @@ resto de la app (`services.finanzas.ia.registrar_en_automatizacion()` -> `servic
 
 import logging
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 
 from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _tabla
+from src.gui.components import EnterpriseTabs
 
 logger = logging.getLogger("gui.finanzas")
 
@@ -50,10 +51,7 @@ class FinanzasDashboardWindow(QWidget):
         root.addLayout(cab)
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet(f"QTabBar::tab{{background:{_BG};color:{_DIM};padding:8px 14px;}}"
-                                f"QTabBar::tab:selected{{color:{_CIAN};}}"
-                                f"QTabWidget::pane{{border:none;}}")
+        self.tabs = EnterpriseTabs()
         self.tbl_ratios = _tabla(["Ratio / KPI", "Valor"])
         self.tbl_fin = _tabla(["Indicador", "Valor"])
         self.tbl_alertas = _tabla(["Cliente", "Tipo", "Importe", "Estado"])

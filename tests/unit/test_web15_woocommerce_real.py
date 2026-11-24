@@ -96,7 +96,7 @@ def test_autenticar_y_validar():
 
 
 # ── 3 · Importación (productos/clientes/pedidos) reutilizando motores ERP ─────
-def test_importaciones_reutilizan_motor():
+def test_importaciones_reutilizan_motor(db):
     _conf()
     ft = _FakeWoo()
     T.set_transporte(ft)
@@ -116,7 +116,7 @@ def test_importaciones_reutilizan_motor():
 
 
 # ── 4 · Idempotencia / sin duplicados (re-import no crea copias) ──────────────
-def test_idempotencia_sin_duplicados():
+def test_idempotencia_sin_duplicados(db):
     _conf()
     T.set_transporte(_FakeWoo())
     a = ic.motor.adaptador("woocommerce")

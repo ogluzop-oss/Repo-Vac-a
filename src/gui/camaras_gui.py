@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.gui.catalogo_gestion import centrar_en_pantalla
+from src.gui.components import EnterpriseTabs
 from src.gui.transiciones import StackedActual
 from src.services import autorizacion
 from src.services import camaras as _cam
@@ -673,9 +674,7 @@ class CamarasWindow(QWidget):
         self._clip_ini = None
         self._live_workers = {}   # id_camara -> (worker, hilo), tiles de la rejilla
         self._live_full = None    # (worker, hilo) de la vista en pantalla completa
-        self._build()
-        if getattr(self, "stack", None) is not None:
-            self._cargar_departamentos()
+        self._build()   # `_cargar_departamentos()` ya se llama dentro de `_construir_tab_camaras`
 
     # ── Contexto ─────────────────────────────────────────────────────────────
     def _id_empresa(self):
@@ -699,18 +698,60 @@ class CamarasWindow(QWidget):
 
     # ── UI ───────────────────────────────────────────────────────────────────
     def _build(self):
+        # Petición explícita: módulo "Cámaras" renombrado a "Seguridad" con pestañas — "Cámaras"
+        # conserva TODA su funcionalidad tal cual, "Placas Antihurto (EAS)" es nueva. Cada pestaña
+        # se gata por SU PROPIO permiso (camaras.ver / eas.ver) de forma independiente — un usuario
+        # con uno solo de los dos sigue viendo esta ventana, con la pestaña que sí le corresponde.
         root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
-        if not self._puede("camaras.ver"):
-            lbl = QLabel("No tienes permiso para ver Videovigilancia.")
+        puede_camaras = self._puede("camaras.ver")
+        puede_eas = self._puede("eas.ver")
+        if not (puede_camaras or puede_eas):
+            lbl = QLabel("No tienes permiso para ver Seguridad.")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setStyleSheet(f"color:{_DIM};font-size:14px;")
             root.addWidget(lbl, 1)
             self.stack = None
             return
 
+        # Cabecera COMPARTIDA del módulo (antes vivía solo dentro de la pestaña Cámaras): título +
+        # cierre, por encima de las pestañas, igual en ambas.
+        cab = QHBoxLayout(); cab.setContentsMargins(18, 16, 18, 8)
+        tit = QLabel("🔒  SEGURIDAD")
+        tit.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:20px;")
+        cab.addWidget(tit); cab.addStretch()
+        if self._volver:
+            from src.gui.catalogo_gestion import _btn_x
+            cab.addWidget(_btn_x(self._volver))
+        root.addLayout(cab)
+
+        self.tabs = EnterpriseTabs()
+        root.addWidget(self.tabs, 1)
+
+        self.stack = None
+        if puede_camaras:
+            self.tabs.addTab(self._construir_tab_camaras(), "Cámaras")
+
+        entradas = []
+        if puede_eas:
+            entradas.append(("Placas Antihurto (EAS)", self._construir_tab_eas))
+        if entradas:
+            from src.gui.transiciones import instalar_pestanas_lazy
+            if not puede_camaras:
+                # Sin pestaña "Cámaras" (sin permiso): la primera pestaña disponible se construye
+                # también de forma eager (mismo criterio que `instalar_pestanas_lazy` exige para la
+                # pestaña 0 — ver su docstring).
+                titulo0, factory0 = entradas.pop(0)
+                self.tabs.addTab(factory0(), titulo0)
+            instalar_pestanas_lazy(self.tabs, entradas)
+
+    def _construir_tab_camaras(self) -> QWidget:
+        """Contenido ÍNTEGRO de la antigua ventana de Cámaras (sidebar + rejilla/reproductor/vivo),
+        sin ningún cambio de comportamiento — solo pasa a vivir dentro de una pestaña."""
+        tab = QWidget()
+        tl = QVBoxLayout(tab); tl.setContentsMargins(0, 0, 0, 0); tl.setSpacing(0)
         aviso = self._banner_prerrequisitos()
         if aviso is not None:
-            root.addWidget(aviso)
+            tl.addWidget(aviso)
 
         fila = QHBoxLayout(); fila.setContentsMargins(0, 0, 0, 0); fila.setSpacing(0)
         fila.addWidget(self._sidebar())
@@ -725,16 +766,15 @@ class CamarasWindow(QWidget):
         self.stack.addWidget(self._pagina_vivo())         # 2
         self.stack.currentChanged.connect(self._on_pagina_cambiada)
         cont = QWidget(); cl = QVBoxLayout(cont); cl.setContentsMargins(18, 16, 18, 16)
-        cab = QHBoxLayout()
-        tit = QLabel("📹  VIDEOVIGILANCIA")
-        tit.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:20px;")
-        cab.addWidget(tit); cab.addStretch()
-        if self._volver:
-            from src.gui.catalogo_gestion import _btn_x
-            cab.addWidget(_btn_x(self._volver))
-        cl.addLayout(cab); cl.addWidget(self.stack, 1)
+        cl.addWidget(self.stack, 1)
         fila.addWidget(cont, 1)
-        root.addLayout(fila, 1)
+        tl.addLayout(fila, 1)
+        self._cargar_departamentos()
+        return tab
+
+    def _construir_tab_eas(self) -> QWidget:
+        from src.gui.eas_gui import EASTabWidget
+        return EASTabWidget(usuario=self.usuario)
 
     def _banner_prerrequisitos(self):
         """Aviso VISIBLE (no degradación silenciosa) si falta ffmpeg y/o onvif-zeep."""

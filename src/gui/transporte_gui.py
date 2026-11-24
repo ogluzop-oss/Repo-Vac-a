@@ -10,10 +10,11 @@ import logging
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QDoubleValidator, QIntValidator
 from PyQt6.QtWidgets import (QComboBox, QDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                             QPushButton, QTableWidget, QTableWidgetItem, QTabWidget,
+                             QPushButton, QTableWidget, QTableWidgetItem,
                              QVBoxLayout, QWidget)
 
 from src.gui._neon_ui import _RoundTableCorners, _ss_tabla_neon
+from src.gui.components import EnterpriseTabs
 from src.gui.components.completer_articulos import instalar_sugerencias_articulo
 from src.gui.components.completer_centros import instalar_sugerencias_centro, resolver_id_centro
 from src.gui.foundation import tokens as T
@@ -116,12 +117,7 @@ class TransporteWindow(QWidget):
             cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
-        tabs = QTabWidget()
-        tabs.setStyleSheet(
-            f"QTabWidget::pane{{border:none;}}"
-            f"QTabBar::tab{{background:transparent;color:{T.TEXT};padding:8px 18px;font-weight:800;"
-            f"border:1px solid #30363D;border-bottom:none;border-top-left-radius:8px;border-top-right-radius:8px;}}"
-            f"QTabBar::tab:selected{{background:{T.INFO};color:{T.BG};}}")
+        tabs = EnterpriseTabs()
         tabs.addTab(self._tab_flota(), "Flota")
         tabs.addTab(self._tab_rutas(), "Rutas de reparto")
 

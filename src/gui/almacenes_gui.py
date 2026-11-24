@@ -9,11 +9,12 @@ existencias e histórico). Multiempresa por contexto activo.
 import logging
 
 from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QScrollArea,
-                             QTabWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                             QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.db import stock_almacen as SA
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_x, _combo, _dialogo_frameless,
                                       _inp, _tabla)
+from src.gui.components import EnterpriseTabs
 from src.gui.foundation import tokens as T
 
 logger = logging.getLogger("inventario.almacenes.gui")
@@ -102,8 +103,7 @@ class AlmacenesWindow(QWidget):
             cab.addWidget(_btn_x(self._volver))
         _outer.addLayout(cab)
 
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet(T.qss_tabs())
+        self.tabs = EnterpriseTabs()
         _outer.addWidget(self.tabs)
 
         _pagina = QWidget()
@@ -248,6 +248,11 @@ class AlmacenesWindow(QWidget):
         codigo = self.in_codigo.text().strip()
         if not nombre or not codigo:
             _info(self, "Almacenes", "Indica nombre y código."); return
+        # Hallazgo real, 2026-11-20: el alta de almacén no respetaba el límite del plan contratado
+        # (Basic: 1, Plus: 20, Pro: ilimitado) — se comprueba AQUÍ, antes de crear nada.
+        from src.gui._licencia_ui import verificar_limite_o_avisar
+        if not verificar_limite_o_avisar(self, "max_almacenes", self._id_empresa()):
+            return
         rid = SA.crear_almacen(nombre, codigo, self.cmb_tipo.currentData(),
                                id_empresa=self._id_empresa())
         if rid:

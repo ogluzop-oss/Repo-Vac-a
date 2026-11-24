@@ -3758,11 +3758,9 @@ class VentasAnaliticaWindow(QWidget):
         from src.db.empresa import empresa_actual_id
         id_empresa = empresa_actual_id()
 
-        from src.gui.foundation import tokens as _T
-        from src.gui.transiciones import TabsActual, instalar_transicion_tabs
+        from src.gui.components import EnterpriseTabs
 
-        tabs = TabsActual()
-        tabs.setStyleSheet(_T.qss_tabs())
+        tabs = EnterpriseTabs()
         tabs.addTab(_ProdCentroTab(self.usuario, id_empresa),
                     tr("vta.prod_tab_centro", default="FACTURACIÓN CENTRO"))
         tabs.addTab(_ProdEmpleadoTab(self.usuario, id_empresa),
@@ -3771,7 +3769,6 @@ class VentasAnaliticaWindow(QWidget):
                     tr("vta.prod_tab_camp_centro", default="FACTURACIÓN CAMPAÑA CENTRO"))
         tabs.addTab(_ProdCampanaEmpleadoTab(self.usuario, id_empresa),
                     tr("vta.prod_tab_camp_emp", default="FACTURACIÓN CAMPAÑA EMPLEADOS"))
-        instalar_transicion_tabs(tabs)
         root.addWidget(tabs, 1)
         return page
 

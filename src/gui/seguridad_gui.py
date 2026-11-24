@@ -10,12 +10,12 @@ import logging
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel, QTableWidgetItem,
-                             QTabWidget, QVBoxLayout, QWidget)
+                             QVBoxLayout, QWidget)
 
 from src.db import rbac as _R
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _ROJO, _TEXT, _btn, _btn_cargando, _btn_x,
                                       _chk, _combo, _dialogo_frameless, _inp, _tabla)
-from src.gui.foundation import tokens as T
+from src.gui.components import EnterpriseTabs
 from src.services.seguridad import catalogo as _cat
 from src.services.seguridad import modulos_menu as _mm
 from src.services.seguridad import pestanas_app as _pa
@@ -182,8 +182,7 @@ class SeguridadWindow(QWidget):
             cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet(T.qss_tabs())   # mismo diseño de pestañas que el Centro de Inteligencia
+        self.tabs = EnterpriseTabs()
         root.addWidget(self.tabs)
 
         # Lazy loading (init en primer acceso): Roles/Asignaciones/Reglas de acceso hacen su propia

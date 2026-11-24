@@ -29,7 +29,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -37,6 +36,7 @@ from PyQt6.QtWidgets import (
 
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _ROJO, _btn as _btn_base, _btn_cargando as _btn_cargando_base, _btn_x,
                                       _dialogo_frameless, _inp, _lbl, _tabla)
+from src.gui.components import EnterpriseTabs
 
 logger = logging.getLogger("gui.sat")
 
@@ -140,8 +140,7 @@ class SATDashboardWindow(QWidget):
         root.addLayout(cab)
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
+        self.tabs = EnterpriseTabs()
 
         self.tbl_tk = _tabla(["ID", "Código", "Asunto", "Prioridad", "Estado", "Técnico"])
         self.tbl_int = _tabla(["ID", "Ticket", "Tipo", "Técnico", "Horas", "Descripción"])

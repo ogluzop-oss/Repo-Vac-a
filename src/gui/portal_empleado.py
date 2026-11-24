@@ -11,11 +11,12 @@ import logging
 import os
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QTabWidget,
+from PyQt6.QtWidgets import (QHBoxLayout, QLabel,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.gui.catalogo_gestion import (_BG, _BORDE, _CIAN, _DIM, _SIDEBAR, _TEXT,
                                       _btn, _btn_x, _inp, _tabla)
+from src.gui.components import EnterpriseTabs
 
 logger = logging.getLogger("rrhh.portal.gui")
 
@@ -67,10 +68,7 @@ class PortalEmpleadoWindow(QWidget):
             return
 
         self._panel = self._cargar_panel()
-        tabs = QTabWidget()
-        tabs.setStyleSheet(f"QTabBar::tab{{background:{_SIDEBAR};color:{_DIM};padding:8px 14px;}}"
-                           f"QTabBar::tab:selected{{color:{_CIAN};}}"
-                           f"QTabWidget::pane{{border:1px solid {_BORDE};}}")
+        tabs = EnterpriseTabs()
         tabs.addTab(self._tab_personal(), "Mis datos")
         tabs.addTab(self._tab_contratos(), "Contratos")
         tabs.addTab(self._tab_nominas(), "Nóminas")

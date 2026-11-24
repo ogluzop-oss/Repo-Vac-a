@@ -11,13 +11,14 @@ import datetime as _dt
 import logging
 
 from PyQt6.QtWidgets import (QDialog, QFileDialog, QHBoxLayout, QLabel,
-                             QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                             QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.db import tesoreria as _T
 from src.db import vencimientos as _V
 from src.db import sepa as _S
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_cargando, _btn_x, _combo,
                                       _dialogo_frameless, _inp, _lbl, _tabla)
+from src.gui.components import EnterpriseTabs
 from src.gui.foundation import tokens as T
 from src.services.tesoreria import cashflow as _CF
 from src.services.tesoreria import conciliacion as _CC
@@ -204,8 +205,7 @@ class TesoreriaWindow(QWidget):
             cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
 
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet(T.qss_tabs())   # mismo diseño de pestañas que el Centro de Inteligencia
+        self.tabs = EnterpriseTabs()
         root.addWidget(self.tabs)
 
         self._tab_posicion()

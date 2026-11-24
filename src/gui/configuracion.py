@@ -64,8 +64,9 @@ from assets.estilo_global import (
     mostrar_confirmacion,
     mostrar_mensaje,
 )
+from src.gui.components import EnterpriseTabs
 from src.gui.components.completer_articulos import instalar_sugerencias_articulo
-from src.gui.transiciones import StackedActual
+from src.gui.transiciones import StackedActual, abrir_dialogo_deslizante
 from src.db.usuario import (
     actualizar_usuario,
     cambiar_password_usuario,
@@ -1660,14 +1661,190 @@ def _icono_denominacion(denom: dict) -> "QIcon":
     return QIcon(pm)
 
 
-class _ConteoEfectivoDialog(QDialog):
+class _DialogoPantallaCompleta(QDialog):
+    """Base para un QDialog que SIEMPRE se abre MAXIMIZADO de verdad — geometría explícita al
+    ÁREA DE TRABAJO del monitor (`availableGeometry()`: la pantalla completa MENOS la barra de
+    tareas, igual que cualquier ventana nativa maximizada — petición explícita, 2026-11-20, NO
+    debe tapar la barra de tareas), SIN pasar por ningún estado de ventana
+    (`showMaximized()`/`showFullScreen()`). El propio `card` de cada diálogo concreto ocupa TODO
+    el área de este diálogo (sin tamaño fijo ni centrado) — así el contenido se ve y se comporta
+    como una ventana de aplicación maximizada de verdad, no como una tarjeta pequeña flotando
+    sobre un fondo oscuro aparte.
+
+    Hallazgo real #1, 2026-11-20: combinar `showMaximized()`/`showFullScreen()` con geometría
+    reafirmada a mano NO se sostiene — el propio LOG en vivo lo probaba:
+    `maxSize=POINT(x=1366,y=728)`, el ÁREA DE TRABAJO del monitor, aunque se pidiera la pantalla
+    física entera (1366×768). Esos métodos marcan un ESTADO de ventana y Windows aplica sus
+    propias reglas de esa familia de estados (clamping al área de trabajo) sean cuales sean los
+    intentos de `setGeometry()` posteriores. La solución: NO cambiar el estado de la ventana en
+    absoluto — un `QDialog` frameless normal con `setGeometry()` explícito no está sujeto a esa
+    regla (mismo criterio que `tpv._BuscarTicketDialog`, que ya funciona así). Se reafirma en TRES
+    momentos (antes de `exec()`, en `showEvent()`, y diferido un ciclo de eventos después) porque
+    la secuencia interna de `QDialog.show()` SÍ reajusta la ventana a su `sizeHint()` después de
+    construirla — ese reajuste no está ligado a maximizar/fullscreen, así que sigue haciendo falta
+    reafirmar la geometría, solo que ahora sin ningún cambio de estado. Mismo patrón de 3 pasos ya
+    usado (y probado) en `circulares_gui._DialogoBase` para este mismo problema — la diferencia es
+    que aquí nunca se llama a `showMaximized()`/`showFullScreen()`, solo `setGeometry()`.
+
+    Se abre con `transiciones.abrir_dialogo_deslizante` (animación de entrada/salida, petición
+    explícita) — compatible con esta reafirmación porque, igual que en `_DialogoBase`, el
+    refuerzo de `exec()` solo reafirma una geometría que para entonces ya es correcta (el diálogo
+    ya se ha revelado en su sitio final antes de que `abrir_dialogo_deslizante` llegue a llamar a
+    `exec()`), no una que esté a medio animar."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+
+    def _forzar_pantalla_completa(self):
+        try:
+            pantalla = self.screen() or QApplication.primaryScreen()
+            if pantalla:
+                self.setGeometry(pantalla.availableGeometry())
+        except Exception:
+            pass
+
+    def exec(self):
+        self._forzar_pantalla_completa()
+        return super().exec()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._forzar_pantalla_completa()
+        QTimer.singleShot(0, self._forzar_pantalla_completa)
+
+    def _tamano_card(self, pct_ancho: float, pct_alto: float, min_ancho=560, min_alto=0) -> tuple:
+        """Tamaño de la tarjeta de contenido como PORCENTAJE de la pantalla disponible (petición
+        explícita, 2026-11-20: con la ventana ya a pantalla completa de verdad, una tarjeta de
+        tamaño fijo en píxeles se quedaba pequeña y desproporcionada en medio de todo ese espacio
+        — aquí se calcula relativa al tamaño real de la pantalla, con un mínimo para no encogerse
+        de más en monitores pequeños)."""
+        try:
+            pantalla = self.screen() or QApplication.primaryScreen()
+            # `.geometry()` (pantalla física entera), NO `.availableGeometry()`: esta propia
+            # ventana ya cubre también el área de la barra de tareas (ver `_forzar_pantalla_
+            # completa`), así que el contenido puede aprovechar ESE espacio igualmente.
+            geo = pantalla.geometry() if pantalla else None
+        except Exception:
+            geo = None
+        if geo is None:
+            return max(min_ancho, 900), max(min_alto, 650)
+        return (max(min_ancho, int(geo.width() * pct_ancho)),
+                max(min_alto, int(geo.height() * pct_alto)))
+
+    def exec(self):
+        self._forzar_pantalla_completa()
+        return super().exec()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._forzar_pantalla_completa()
+        QTimer.singleShot(0, self._forzar_pantalla_completa)
+
+
+class _PinEmpleadoDialog(QDialog):
+    """Verifica el PIN de 4 dígitos de UN empleado CONCRETO (por id) — a diferencia de `_PinDialog`
+    (rrhh.gui.empleados, verifica cualquier usuario dentro de un RANGO de perfiles, p. ej.
+    "cualquier ADMINISTRADOR"), este exige que el PIN pertenezca EXACTAMENTE al empleado indicado
+    (`db.usuario.validar_pin_de_usuario`, por id, no por rol). Petición explícita, 2026-11-20:
+    cuando una caja registradora está asignada a un ÚNICO empleado no hay ningún paso de selección
+    de perfil (a diferencia de una caja con varios empleados, donde elegir entre varios botones ya
+    sirve de identificación mínima) — sin esto, abrir/cerrar esa caja no exigía NINGUNA
+    verificación real de quién era de verdad el cajero. Mismo diseño visual (ámbar) que `_PinDialog`."""
+
+    def __init__(self, id_empleado, nombre_empleado, motivo, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._id_empleado = id_empleado
+        self._ok = False
+        self._build(nombre_empleado, motivo)
+
+    def _build(self, nombre_empleado, motivo):
+        card = QFrame(self); card.setObjectName("pce")
+        card.setStyleSheet("QFrame#pce{background:#0E1117;border:2px solid #E3B341;border-radius:18px;}")
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(32, 28, 32, 28); ly.setSpacing(14)
+
+        lbl_t = QLabel("🔐  " + tr("cfg.pin_emp_title", default="VERIFICACIÓN DE PIN"))
+        lbl_t.setStyleSheet("color:#E3B341;font-family:'Segoe UI';font-weight:900;font-size:14px;")
+        lbl_t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_m = QLabel(tr("cfg.pin_emp_msg", default="Introduce el PIN de {nombre} para {motivo}.",
+                          nombre=nombre_empleado, motivo=motivo))
+        lbl_m.setStyleSheet("color:#8B949E;font-family:'Segoe UI';font-size:12px;")
+        lbl_m.setWordWrap(True)
+        lbl_m.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ly.addWidget(lbl_t); ly.addWidget(lbl_m)
+
+        self._pin_inp = QLineEdit()
+        self._pin_inp.setEchoMode(QLineEdit.EchoMode.Password)
+        self._pin_inp.setPlaceholderText(tr("cfg.pin_ph4", default="PIN (4 dígitos)"))
+        self._pin_inp.setMaxLength(4)
+        self._pin_inp.setFixedHeight(52)
+        self._pin_inp.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._pin_inp.setStyleSheet(
+            "QLineEdit{background:#161B22;color:white;border:2px solid #E3B341;"
+            "border-radius:12px;font-family:'Segoe UI';font-weight:900;font-size:22px;}"
+        )
+        ly.addWidget(self._pin_inp)
+
+        self._lbl_err = QLabel("")
+        self._lbl_err.setStyleSheet("color:#F85149;font-family:'Segoe UI';font-size:11px;")
+        self._lbl_err.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._lbl_err.setWordWrap(True)
+        ly.addWidget(self._lbl_err)
+
+        br = QHBoxLayout(); br.setSpacing(16)
+        bc = QPushButton(tr("cfg.cancel", default="CANCELAR")); bc.setFixedHeight(40)
+        bc.setCursor(Qt.CursorShape.PointingHandCursor)
+        bc.setStyleSheet(
+            "QPushButton{background:#0D1117;color:#F85149;border:2px solid #F85149;"
+            "border-radius:8px;padding:0 20px;font-family:'Segoe UI';font-weight:900;}"
+            "QPushButton:hover{background:#F85149;color:#0D1117;}")
+        bc.clicked.connect(self.reject)
+        bk = QPushButton(tr("cfg.verify", default="VERIFICAR")); bk.setFixedHeight(40)
+        bk.setCursor(Qt.CursorShape.PointingHandCursor)
+        bk.setStyleSheet(
+            "QPushButton{background:#0D1117;color:#E3B341;border:2px solid #E3B341;"
+            "border-radius:8px;padding:0 20px;font-family:'Segoe UI';font-weight:900;}"
+            "QPushButton:hover{background:#E3B341;color:#0D1117;}")
+        bk.clicked.connect(self._verificar)
+        self._pin_inp.returnPressed.connect(self._verificar)
+        br.addWidget(bc); br.addStretch(1); br.addWidget(bk)
+        ly.addLayout(br)
+        self.setFixedSize(520, 300)
+        self._pin_inp.setFocus()
+
+    def _verificar(self):
+        pin = self._pin_inp.text().strip()
+        if len(pin) != 4 or not pin.isdigit():
+            self._lbl_err.setText(tr("cfg.pin_len_err", default="El PIN debe tener exactamente 4 dígitos."))
+            return
+        from src.db.usuario import validar_pin_de_usuario
+        try:
+            resp = validar_pin_de_usuario(self._id_empleado, pin)
+        except Exception:
+            resp = None
+        if resp:
+            self._ok = True
+            self.accept()
+            return
+        self._pin_inp.clear(); self._pin_inp.setFocus()
+        msg = tr("cfg.pin_wrong_auth", default="PIN incorrecto.")
+        self._lbl_err.setText(msg)
+        mostrar_mensaje(self, tr("cfg.pin_wrong_title", default="PIN incorrecto"), msg, "error")
+
+    def verificado(self) -> bool:
+        return self._ok
+
+
+class _ConteoEfectivoDialog(_DialogoPantallaCompleta):
     """Modal de arqueo de efectivo con tabla de denominaciones y totales en tiempo real.
     La tabla es DINÁMICA según la divisa de empresa: imagen | valor | cantidad | total."""
 
     def __init__(self, titulo="ARQUEO DE EFECTIVO", fondo_esperado=None, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._total = 0.0
         self._fondo_esperado = fondo_esperado
         self._spins: list = []
@@ -1676,6 +1853,10 @@ class _ConteoEfectivoDialog(QDialog):
         # cambia la divisa, el siguiente arqueo se construye con la nueva.
         self._denoms = divisas.denominaciones()
         self._build(titulo)
+        # Petición explícita, 2026-11-16: TODAS las ventanas de recuento de monedas/billetes, sea
+        # cual sea el flujo que las abra (apertura/cierre de caja registradora, cambio de cajero,
+        # caja fuerte...), a pantalla completa — las 5 reutilizan esta MISMA clase (que ya hereda
+        # de `_DialogoPantallaCompleta`), así que basta con heredar de ella una vez.
 
     @staticmethod
     def _btn_ss(bg, fg, border):
@@ -1685,9 +1866,21 @@ class _ConteoEfectivoDialog(QDialog):
                 f"QPushButton:hover{{background:{fg};color:{bg};}}")
 
     def _build(self, titulo):
+        # Fondo OPACO explícito del propio diálogo (hallazgo real, 2026-11-16: con
+        # `WA_TranslucentBackground` retirado por `asegurar_pantalla_completa`, el fondo de la
+        # ventana pasa a depender de esta hoja de estilos — selector con objectName, mismo
+        # criterio ya probado en `tpv._BuscarTicketDialog`).
+        self.setObjectName("dlg_conteo_efectivo")
+        self.setStyleSheet("#dlg_conteo_efectivo{background:#0E1117;border:none;}")
+        # Petición explícita, 2026-11-20: la ventana es ya una ventana maximizada de verdad — su
+        # CONTENIDO debe llenarla igual que cualquier app maximizada, no una tarjeta pequeña
+        # centrada sobre un fondo aparte. `card` ya no tiene tamaño fijo ni borde/radio propios
+        # (nada que la distinga visualmente de "ser la ventana"); se reserva `_card_h` solo como
+        # estimación inicial de la altura disponible para la tabla (ver más abajo).
+        _card_w, self._card_h = self._tamano_card(0.78, 0.92, min_ancho=720, min_alto=640)
         card = QFrame(self)
         card.setObjectName("cc")
-        card.setStyleSheet(f"QFrame#cc{{background:#0E1117;border:2px solid {_CIAN};border-radius:20px;}}")
+        card.setStyleSheet("QFrame#cc{background:#0E1117;border:none;}")
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.addWidget(card)
@@ -1702,6 +1895,20 @@ class _ConteoEfectivoDialog(QDialog):
         lbl_d = QLabel(datetime.now().strftime("  %d/%m/%Y  —  %H:%M"))
         lbl_d.setStyleSheet("color:#6E7681;font-family:'Segoe UI';font-size:13px;font-weight:bold;")
         hr.addWidget(lbl_t); hr.addStretch(); hr.addWidget(lbl_d)
+        # Petición explícita, 2026-11-16: el botón "CANCELAR" de abajo desaparece — su función
+        # pasa a la X roja de la esquina superior derecha, mismo diseño que el resto de la app.
+        hr.addSpacing(14)
+        bx = QPushButton("✕")
+        bx.setFixedSize(36, 36)
+        bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(
+            "QPushButton{background:transparent;color:#F85149;border:none;border-radius:18px;"
+            "padding:0;font-weight:900;font-size:18px;}"
+            "QPushButton:hover{background:#F85149;color:#0D1117;}")
+        bx.setProperty("sin_glow", True)
+        _blindar_tamano_fijo(bx, 36, 36)
+        bx.clicked.connect(self.reject)
+        hr.addWidget(bx)
         ly.addLayout(hr)
 
         tbl_wrap = QWidget()
@@ -1740,7 +1947,10 @@ class _ConteoEfectivoDialog(QDialog):
             QTableWidget::item:alternate:hover{{background:rgba(0,255,198,25);}}
             QTableWidget::item:selected{{background:#00FFC622;color:white;}}
         """)
-        tbl.setFixedHeight(360)
+        # Altura inicial de la tabla relativa al tamaño ya calculado de la tarjeta (reserva ~230px
+        # para cabecera/total/botonera) — `_apply_tbl_cover` (más abajo) la ajusta para encajar un
+        # nº entero de filas sin dejar tira vacía, partiendo de ESTE tamaño en vez de uno fijo.
+        tbl.setFixedHeight(max(300, self._card_h - 230))
         tbl.setIconSize(QSize(64, 64))
         tbl.verticalHeader().setDefaultSectionSize(68)
 
@@ -1870,11 +2080,11 @@ class _ConteoEfectivoDialog(QDialog):
         btn_dn.setStyleSheet(_nav_css)
         btn_dn.clicked.connect(lambda: _nav(1))
 
-        bc = QPushButton(tr("cfg.cancel", default="CANCELAR")); bc.setFixedSize(148, 44)
-        bc.setCursor(Qt.CursorShape.PointingHandCursor)
-        bc.setStyleSheet(self._btn_ss("#0D1117", "#F85149", "#F85149"))
-        bc.clicked.connect(self.reject)
-        bk = QPushButton("✔  " + tr("cfg.confirm_count", default="CONFIRMAR ARQUEO")); bk.setFixedSize(260, 44)
+        # Petición explícita, 2026-11-16: "CONFIRMAR ARQUEO" → "CONTINUAR" en las 5 ventanas de
+        # recuento que reutilizan esta clase (ver docstring de cabecera) — el resumen final con
+        # cuadre/descuadre que se muestra a continuación (`_ResumenArqueoDialog`) es ahora el
+        # paso que de verdad "confirma".
+        bk = QPushButton("✔  " + tr("cfg.arqueo_continuar", default="CONTINUAR")); bk.setFixedSize(260, 44)
         bk.setCursor(Qt.CursorShape.PointingHandCursor)
         bk.setStyleSheet(
             f"QPushButton{{background:#0D1117;color:{_CIAN};border:2px solid {_CIAN};"
@@ -1887,9 +2097,8 @@ class _ConteoEfectivoDialog(QDialog):
         br.addStretch()
         br.addWidget(btn_up); br.addWidget(btn_dn)
         br.addSpacing(12)
-        br.addWidget(bc); br.addWidget(bk)
+        br.addWidget(bk)
         ly.addLayout(br)
-        self.setFixedSize(720, 640)
 
     def _upd(self):
         total = 0.0
@@ -1983,6 +2192,419 @@ class _ConteoEfectivoDialog(QDialog):
         for valor, qty in self._spins:
             cantidad = int(recuento.get(valor, 0) or 0)
             qty._inp.setText(str(cantidad))
+
+
+class _ResumenArqueoDialog(_DialogoPantallaCompleta):
+    """Resumen final del recuento de monedas/billetes (petición explícita, 2026-11-16), mostrado
+    al pulsar "CONTINUAR" en `_ConteoEfectivoDialog` — ANTES de aplicar de verdad el arqueo (apertura/
+    cierre/cambio de cajero). Muestra el desglose contado, compara contra `fondo_esperado`
+    (cuadra/descuadra) si se conoce, el nº de devoluciones del día si se pasa, y dos acciones:
+    "VOLVER" (código propio `VOLVER` — el llamador debe reabrir el `_ConteoEfectivoDialog` original
+    para editar, SIN perder lo ya contado) o el botón de continuar (pide una confirmación final
+    antes de devolver `QDialog.DialogCode.Accepted`). `texto_continuar` permite fusionar esta
+    confirmación con una acción posterior (p. ej. "GENERAR CIERRE DIARIO" en el cierre de caja
+    fuerte, ver `ConfiguracionWindow._fn_cierre_fuerte`)."""
+
+    VOLVER = 2  # Accepted=1 y Rejected=0 ya los reserva Qt
+
+    def __init__(self, *, titulo, detalle, total, fondo_esperado=None, n_devoluciones=None,
+                 texto_continuar=None, parent=None):
+        super().__init__(parent)
+        self._titulo = titulo
+        self._detalle = detalle or []
+        self._total = total
+        self._fondo_esperado = fondo_esperado
+        self._n_devoluciones = n_devoluciones
+        self._texto_continuar = texto_continuar or tr("cfg.resumen_arqueo_continuar", default="CONTINUAR")
+        self._build()
+
+    def _build(self):
+        from src.gui._neon_ui import _RoundTableCorners, _ss_tabla_neon
+
+        # Fondo OPACO explícito del propio diálogo (petición explícita, 2026-11-16, hallazgo real:
+        # con `WA_TranslucentBackground` ya retirado por `_DialogoPantallaCompleta`, el fondo de
+        # la ventana pasa a depender de esta hoja de estilos — selector con objectName, mayor
+        # especificidad que el `QDialog{border:2px solid CIAN}` global, igual criterio ya probado
+        # en `tpv._BuscarTicketDialog`).
+        self.setObjectName("dlg_resumen_arqueo")
+        self.setStyleSheet("#dlg_resumen_arqueo{background:#0E1117;border:none;}")
+        card = QFrame(self); card.setObjectName("ra")
+        # Petición explícita, 2026-11-20: la ventana es ya una ventana maximizada de verdad — sin
+        # tamaño/borde propios en `card`, para que su contenido llene la ventana igual que
+        # cualquier app maximizada, en vez de una tarjeta flotando sobre un fondo aparte.
+        card.setStyleSheet("QFrame#ra{background:#0E1117;border:none;}")
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
+
+        ly = QVBoxLayout(card); ly.setContentsMargins(28, 22, 28, 22); ly.setSpacing(12)
+
+        # Petición explícita, 2026-11-16: el botón "VOLVER" de abajo desaparece — su función (volver
+        # a `_ConteoEfectivoDialog` para corregir el recuento) pasa a la X roja de la esquina
+        # superior derecha, mismo diseño que el resto de ventanas a pantalla completa de la app.
+        hdr = QHBoxLayout()
+        lbl_t = QLabel(tr("cfg.resumen_arqueo_titulo", default="RESUMEN DEL RECUENTO"))
+        lbl_t.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:15px;")
+        hdr.addWidget(lbl_t)
+        hdr.addStretch()
+        bx = QPushButton("✕")
+        bx.setFixedSize(36, 36)
+        bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(
+            "QPushButton{background:transparent;color:#F85149;border:none;border-radius:18px;"
+            "padding:0;font-weight:900;font-size:18px;}"
+            "QPushButton:hover{background:#F85149;color:#0D1117;}")
+        bx.setProperty("sin_glow", True)
+        # Blindaje de tamaño fijo (petición explícita: hover circular, no "píldora" — ver
+        # `assets/estilo_global._blindar_tamano_fijo`, mismo bug ya corregido en el resto de
+        # botones "✕" pequeños de diálogos frameless+translúcidos de la app).
+        _blindar_tamano_fijo(bx, 36, 36)
+        bx.clicked.connect(lambda: self.done(self.VOLVER))
+        hdr.addWidget(bx)
+        ly.addLayout(hdr)
+
+        lbl_sub = QLabel(self._titulo)
+        # Petición explícita: +1pt (12→13px) — este texto es el título pasado por el llamador
+        # (p. ej. "CIERRE CAJA-01 — ARQUEO FINAL").
+        lbl_sub.setStyleSheet("color:#6E7681;font-family:'Segoe UI';font-weight:bold;font-size:13px;")
+        ly.addWidget(lbl_sub)
+
+        tbl = QTableWidget(len(self._detalle), 3)
+        tbl.setHorizontalHeaderLabels([
+            tr("cfg.col_denominacion", default="DENOMINACIÓN"),
+            tr("cfg.col_qty", default="CANTIDAD"),
+            tr("cfg.col_total", default="TOTAL"),
+        ])
+        tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        tbl.setColumnWidth(1, 110); tbl.setColumnWidth(2, 130)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        tbl.setFrameShape(QFrame.Shape.NoFrame)
+        tbl.setAlternatingRowColors(True)
+        # Petición explícita: mismo diseño EXACTO que el resto de tablas de la app (contorno neón,
+        # cabeceras con hover swap, esquinas redondeadas) — antes llevaba una hoja de estilos
+        # propia distinta del resto. Petición explícita posterior, 2026-11-20: la scrollbar debe
+        # verse EXACTAMENTE igual que el resto de scrollbars genéricas de la app
+        # (`assets/estilo_global.QSS_SCROLLBARS` — turquesa sólido, extremos redondeados), solo
+        # un poco más gruesa — se REDEFINE por completo (groove + handle + add/sub-line/page), en
+        # vez de solo parchear el `::handle` encima de `_ss_tabla_neon()` (que dejaba el grosor y
+        # el margen asimétrico de la "groove" de esa función, pensados para su turquesa
+        # translúcido, no para este). El margen de verdad redondeado va en el PROPIO handle, no
+        # solo en la "groove" (si el handle llega a tocar sus bordes — barra corta, recuento con
+        # pocas filas, caso típico de esta tabla — Qt lo pinta cuadrado; mismo criterio ya
+        # documentado en `foundation.tokens.qss_scrollbar`). Se añade DESPUÉS de `_ss_tabla_neon()`
+        # para que gane por cascada, sin tocar esa función compartida (usada tal cual en el resto
+        # de la app).
+        tbl.setStyleSheet(_ss_tabla_neon() + (
+            f"QScrollBar:vertical{{background:transparent;width:10px;margin:0px;}}"
+            f"QScrollBar::handle:vertical{{background:{_CIAN};border-radius:5px;min-height:26px;margin:2px;}}"
+            f"QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;background:none;border:none;}}"
+            f"QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{{background:none;}}"
+            f"QScrollBar:horizontal{{background:transparent;height:10px;margin:0px;}}"
+            f"QScrollBar::handle:horizontal{{background:{_CIAN};border-radius:5px;min-width:26px;margin:2px;}}"
+            f"QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{{width:0;background:none;border:none;}}"
+            f"QScrollBar::add-page:horizontal,QScrollBar::sub-page:horizontal{{background:none;}}"
+        ))
+        self._round_tbl = _RoundTableCorners(tbl, radius=10)
+        for row, d in enumerate(self._detalle):
+            tbl.setItem(row, 0, QTableWidgetItem(str(d.get("denominacion", ""))))
+            it_q = QTableWidgetItem(str(d.get("cantidad", 0)))
+            it_q.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            tbl.setItem(row, 1, it_q)
+            it_s = QTableWidgetItem(divisas.formatear(d.get("subtotal", 0)))
+            it_s.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            tbl.setItem(row, 2, it_s)
+        tbl.setFixedHeight(min(260, 40 + 32 * max(1, len(self._detalle))))
+        if not self._detalle:
+            tbl.setVisible(False)
+        ly.addWidget(tbl)
+
+        tf = QFrame()
+        # Petición explícita, 2026-11-16: sin el contorno turquesa de este panel (Total contado/
+        # Esperado/Cuadra/Devoluciones hoy, incluidos los dos importes).
+        tf.setStyleSheet("QFrame{background:#161B22;border:none;border-radius:12px;}")
+        t_ly = QVBoxLayout(tf); t_ly.setContentsMargins(16, 10, 16, 10); t_ly.setSpacing(4)
+
+        fila_total = QHBoxLayout()
+        fila_total.addWidget(QLabel(tr("cfg.resumen_arqueo_contado", default="TOTAL CONTADO:"),
+                                    styleSheet="color:#6E7681;font-weight:900;font-size:13px;"))
+        fila_total.addStretch()
+        fila_total.addWidget(QLabel(divisas.formatear(self._total),
+                                    styleSheet=f"color:{_CIAN};font-weight:900;font-size:20px;"))
+        t_ly.addLayout(fila_total)
+
+        if self._fondo_esperado is not None and self._fondo_esperado > 0:
+            diff = round(self._total - self._fondo_esperado, 2)
+            cuadra = abs(diff) < 0.005
+            fila_esp = QHBoxLayout()
+            fila_esp.addWidget(QLabel(tr("cfg.resumen_arqueo_esperado", default="Esperado:"),
+                                      styleSheet="color:#6E7681;font-size:12px;"))
+            fila_esp.addStretch()
+            fila_esp.addWidget(QLabel(divisas.formatear(self._fondo_esperado),
+                                      styleSheet="color:#8B949E;font-size:12px;"))
+            t_ly.addLayout(fila_esp)
+            color_cuadre = "#3FB950" if cuadra else "#F85149"
+            texto_cuadre = (tr("cfg.resumen_arqueo_cuadra", default="✓ CUADRA")
+                           if cuadra else
+                           tr("cfg.resumen_arqueo_descuadra", default="⚠ DESCUADRE: {x}",
+                              x=f"{'+' if diff > 0 else ''}{divisas.formatear(diff)}"))
+            lbl_cuadre = QLabel(texto_cuadre)
+            lbl_cuadre.setStyleSheet(f"color:{color_cuadre};font-weight:900;font-size:14px;")
+            t_ly.addWidget(lbl_cuadre)
+
+        if self._n_devoluciones is not None:
+            lbl_dev = QLabel(tr("cfg.resumen_arqueo_devoluciones",
+                                default="Devoluciones hoy: {n}", n=self._n_devoluciones))
+            # Petición explícita: +1pt (12→13px).
+            lbl_dev.setStyleSheet("color:#8B949E;font-size:13px;font-weight:bold;margin-top:4px;")
+            t_ly.addWidget(lbl_dev)
+
+        ly.addWidget(tf)
+
+        br = QHBoxLayout(); br.setSpacing(8); br.addStretch()
+        bc = QPushButton("✔  " + self._texto_continuar); bc.setFixedSize(280, 44)
+        bc.setCursor(Qt.CursorShape.PointingHandCursor)
+        bc.setStyleSheet(
+            f"QPushButton{{background:#0D1117;color:{_CIAN};border:2px solid {_CIAN};"
+            f"border-radius:10px;font-family:'Segoe UI';font-weight:900;font-size:13px;padding:0 10px;}}"
+            f"QPushButton:hover{{background:{_CIAN};color:#0D1117;}}"
+        )
+        bc.clicked.connect(self._continuar)
+        br.addWidget(bc)
+        ly.addLayout(br)
+
+    def _continuar(self):
+        if not mostrar_confirmacion(
+                self, tr("cfg.resumen_arqueo_confirm_title", default="Confirmar"),
+                tr("cfg.resumen_arqueo_confirm_msg",
+                   default="¿Confirmas que estos datos son correctos y quieres continuar?")):
+            return
+        self.done(QDialog.DialogCode.Accepted)
+
+
+from src.gui.selector_perfil import _PerfilBoton as _PerfilBotonBase  # noqa: E402
+
+
+class _PerfilBotonCaja(_PerfilBotonBase):
+    """`selector_perfil._PerfilBoton` (mismo icono de persona + hover swap) + un estado MARCADO
+    persistente — necesario aquí (checkable) pero no en el selector de perfil original (ahí un
+    clic navega y el botón desaparece, nunca necesita "seguir marcado"). Sin este añadido, al
+    sacar el ratón de un botón ya marcado, `_PerfilBoton.leaveEvent` restauraría el icono turquesa
+    de reposo sobre el propio fondo turquesa del estado `:checked` — invisible."""
+
+    HOJA_ESTILOS = (
+        f"QToolButton{{background:#161B22;color:#FFFFFF;border:2px solid {_BORDE};"
+        f"border-radius:16px;font-family:'Segoe UI';font-size:13px;font-weight:700;padding:10px 6px;}}"
+        f"QToolButton:hover{{background:{_CIAN};color:#0E1117;border:2px solid {_CIAN};}}"
+        f"QToolButton:checked{{background:{_CIAN};color:#0E1117;border:2px solid {_CIAN};}}"
+        f"QToolButton:pressed{{background:#00C79A;color:#0E1117;}}"
+    )
+
+    def enterEvent(self, e):
+        if not self.isChecked():
+            super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        if not self.isChecked():
+            super().leaveEvent(e)
+
+
+class _SeleccionarEmpleadosCajaDialog(_DialogoPantallaCompleta):
+    """Selección de empleado(s) del centro mediante BOTONES DE PERFIL (mismo lenguaje visual que
+    el selector de perfil del login del TPV) — SIN PIN. Petición explícita, 2026-11-16: sustituye
+    tanto al desplegable+PIN de `_IdentificacionEmpleadoDialog` como al checklist de
+    `_EmpleadosAutorizadosCajaDialog` (retirada) para ASIGNAR (`multiple=True`, apertura de caja:
+    cualquier número de perfiles puede quedar marcado a la vez, con atajo "TODOS") y para
+    DESASIGNAR (`multiple=False`, cierre de caja: pulsar un perfil lo deja marcado en exclusiva —
+    un único empleado, el que está cerrando) una caja registradora. Ninguno de los dos casos pide
+    ya el PIN de 4 dígitos del empleado — la autorización real de acceso sigue viviendo en
+    `tpv._caja_pertenece`/`ConfiguracionWindow._caja_autoriza` contra la lista aquí elegida."""
+
+    def __init__(self, titulo, subtitulo, multiple: bool, parent=None, empleados=None):
+        super().__init__(parent)
+        self._multiple = multiple
+        # Petición explícita, 2026-11-16: `empleados` restringe la lista a un conjunto fijo (p. ej.
+        # cierre de caja — solo los empleados YA autorizados en esa caja, no todo el centro). None
+        # (por defecto, apertura) = todos los empleados del centro, como siempre.
+        self._empleados_fijos = empleados
+        self._botones: dict = {}
+        self._nombres: dict = {}
+        self._seleccionados: set = set()
+        self._build(titulo, subtitulo)
+
+    def _build(self, titulo, subtitulo):
+        from PyQt6.QtCore import QSize
+        from src.gui.selector_perfil import _icono_persona
+
+        # Fondo OPACO explícito del propio diálogo (petición explícita, 2026-11-16, hallazgo real:
+        # con `WA_TranslucentBackground` ya retirado por `asegurar_pantalla_completa`, el fondo de
+        # la ventana pasa a depender de esta hoja de estilos — selector con objectName, mayor
+        # especificidad que el `QDialog{border:2px solid CIAN}` global, igual criterio ya probado
+        # en `tpv._BuscarTicketDialog`).
+        self.setObjectName("dlg_sel_empleados_caja")
+        self.setStyleSheet("#dlg_sel_empleados_caja{background:#0E1117;border:none;}")
+        card = QFrame(self); card.setObjectName("sec")
+        # Petición explícita, 2026-11-20: la ventana es ya una ventana maximizada de verdad — sin
+        # tamaño/borde propios en `card`, para que su contenido llene la ventana igual que
+        # cualquier app maximizada, en vez de una tarjeta flotando sobre un fondo aparte.
+        card.setStyleSheet("QFrame#sec{background:#0E1117;border:none;}")
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(28, 22, 28, 22); ly.setSpacing(12)
+
+        # Petición explícita: el botón "CANCELAR" de abajo desaparece — su función pasa a la X
+        # roja de la esquina superior derecha, mismo diseño que el resto de la app.
+        hdr = QHBoxLayout()
+        lbl = QLabel(titulo)
+        lbl.setStyleSheet(f"color:{_CIAN};font-weight:900;font-size:15px;font-family:'Segoe UI';")
+        hdr.addWidget(lbl)
+        hdr.addStretch()
+        bx = QPushButton("✕")
+        bx.setFixedSize(36, 36)
+        bx.setCursor(Qt.CursorShape.PointingHandCursor)
+        bx.setStyleSheet(
+            "QPushButton{background:transparent;color:#F85149;border:none;border-radius:18px;"
+            "padding:0;font-weight:900;font-size:18px;}"
+            "QPushButton:hover{background:#F85149;color:#0D1117;}")
+        bx.setProperty("sin_glow", True)
+        _blindar_tamano_fijo(bx, 36, 36)
+        bx.clicked.connect(self.reject)
+        hdr.addWidget(bx)
+        ly.addLayout(hdr)
+
+        if subtitulo:
+            sub = QLabel(subtitulo)
+            sub.setWordWrap(True)
+            sub.setStyleSheet("color:#8B949E;font-size:12px;font-family:'Segoe UI';")
+            ly.addWidget(sub)
+
+        if self._multiple:
+            chk_todos = _NeonCheckBox(
+                tr("cfg.autorizados_caja_todos", default="TODOS los empleados del centro"))
+            chk_todos.toggled.connect(self._marcar_todos)
+            ly.addWidget(chk_todos)
+            self._chk_todos = chk_todos
+
+        empleados = (self._empleados_fijos if self._empleados_fijos is not None
+                    else self._empleados_del_centro())
+
+        # Petición explícita, 2026-11-16: MISMO diseño que los botones de perfil de "Selecciona tu
+        # perfil" (`selector_perfil._PerfilBoton`/`_icono_persona`) — tarjeta cuadrada con icono de
+        # persona + nombre debajo, en vez de la fila de texto plana de antes. `_PerfilBotonCaja`
+        # añade el estado MARCADO persistente (checkable) que ese botón original no necesitaba.
+        icono_normal = _icono_persona(_CIAN)
+        icono_hover = _icono_persona("#0E1117")
+        # Petición explícita, 2026-11-20: con la ventana ocupando de verdad todo el ancho (ya no
+        # hay una "tarjeta" de ancho fijo), el nº de columnas se calcula a partir del ancho real
+        # disponible (botón 150px + 12px de separación) en vez de un tope fijo de 5 — aprovecha
+        # el ancho real del monitor del usuario, sea cual sea.
+        _ancho_disp = self._tamano_card(1.0, 0.0, min_ancho=480)[0] - 2 * 28 - 2 * 14 - 4
+        ncols = min(max(1, len(empleados)), max(1, (_ancho_disp + 12) // (150 + 12)))
+
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setFixedHeight(min(520, 40 + 162 * -(-len(empleados) // ncols)))
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            f"QScrollArea{{background:#161B22;border:2px solid {_BORDE};border-radius:10px;}}")
+        host = QWidget(); host.setStyleSheet("background:transparent;")
+        grid = QGridLayout(host); grid.setContentsMargins(14, 14, 14, 14); grid.setSpacing(12)
+        for idx, e in enumerate(empleados):
+            eid, nombre = e.get("id"), (e.get("nombre") or "").strip()
+            if not nombre or eid is None:
+                continue
+            btn = _PerfilBotonCaja(icono_normal, icono_hover)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            btn.setIconSize(QSize(56, 56))
+            btn.setText(nombre.upper())
+            btn.setFixedSize(150, 150)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(_PerfilBotonCaja.HOJA_ESTILOS)
+            btn.clicked.connect(lambda _c=False, i=eid: self._alternar(i))
+            grid.addWidget(btn, idx // ncols, idx % ncols)
+            self._botones[eid] = btn
+            self._nombres[eid] = nombre
+        scroll.setWidget(host)
+        ly.addWidget(scroll)
+        self._refrescar_estilo()
+
+        self._lbl_err = QLabel("")
+        self._lbl_err.setStyleSheet("color:#F85149;font-size:11px;font-family:'Segoe UI';")
+        ly.addWidget(self._lbl_err)
+
+        br = QHBoxLayout(); br.setSpacing(16); br.addStretch()
+        bk = QPushButton(tr("cfg.arqueo_continuar", default="CONTINUAR")); bk.setFixedHeight(44)
+        bk.setCursor(Qt.CursorShape.PointingHandCursor)
+        bk.setStyleSheet(_ConteoEfectivoDialog._btn_ss("#0D1117", _CIAN, _CIAN))
+        bk.clicked.connect(self._confirmar)
+        br.addWidget(bk)
+        ly.addLayout(br)
+
+    def _empleados_del_centro(self) -> list:
+        # Mismo criterio de resolución (+ fallback) que `tpv._LoginTPVDialog._cargar_empleados_centro`
+        # (hallazgo real, 2026-11-16: `usuarios.centro_codigo` casi nunca está relleno de verdad).
+        try:
+            from src.db import centros as centros_db
+            from src.db.empresa import empresa_actual_id, tienda_actual_id
+            from src.db.usuario import listar_usuarios_empresa
+            id_empresa = empresa_actual_id()
+            id_tienda = tienda_actual_id()
+            codigo_centro = None
+            if id_tienda is not None:
+                for c in centros_db.listar_centros(id_empresa):
+                    if c.get("id_tienda") == id_tienda:
+                        codigo_centro = c.get("codigo_centro")
+                        break
+            empleados = (listar_usuarios_empresa(id_empresa, centro_codigo=codigo_centro)
+                        if codigo_centro else [])
+            return empleados or listar_usuarios_empresa(id_empresa)
+        except Exception:
+            return []
+
+    def _alternar(self, eid):
+        if self._multiple:
+            if eid in self._seleccionados:
+                self._seleccionados.discard(eid)
+            else:
+                self._seleccionados.add(eid)
+        else:
+            self._seleccionados = {eid}
+        self._refrescar_estilo()
+        self._lbl_err.setText("")
+
+    def _marcar_todos(self, activo):
+        self._seleccionados = set(self._botones.keys()) if activo else set()
+        self._refrescar_estilo()
+
+    def _refrescar_estilo(self):
+        """QSS (`QToolButton:checked`) ya pinta fondo/borde del estado marcado — aquí solo se fija
+        `setChecked` (dispara ese estado) y se fuerza el icono (turquesa↔oscuro), que la hoja de
+        estilos no puede tocar por sí sola."""
+        for eid, btn in self._botones.items():
+            marcado = eid in self._seleccionados
+            btn.setChecked(marcado)
+            btn.setIcon(btn._ic_hover if marcado else btn._ic_normal)
+
+    def _confirmar(self):
+        if not self._seleccionados:
+            self._lbl_err.setText(
+                tr("cfg.select_emp_err", default="Selecciona al menos un empleado."))
+            return
+        self.accept()
+
+    def get_seleccionados(self) -> list:
+        """[{id, nombre}] de todos los perfiles marcados, en el orden en que aparecen en la lista."""
+        return [{"id": eid, "nombre": self._nombres[eid]} for eid in self._botones
+                if eid in self._seleccionados]
+
+    # Compatibilidad con el uso single-select (cierre de caja, antes `_IdentificacionEmpleadoDialog`).
+    def get_empleado_id(self):
+        sel = self.get_seleccionados()
+        return sel[0]["id"] if sel else None
+
+    def get_empleado_nombre(self):
+        sel = self.get_seleccionados()
+        return sel[0]["nombre"] if sel else ""
 
 
 class _MotivoDialog(QDialog):
@@ -2197,6 +2819,96 @@ class _ConfirmarPerfilEmpleadoDialog(QDialog):
             f"color:{'#3FB950' if res.get('ok') else '#F85149'};font-family:'Segoe UI';"
             "font-size:11px;font-weight:bold;")
         self._lbl_error.setText(res.get("motivo") or "")
+
+
+class _SeleccionarCajaAperturaDialog(QDialog):
+    """Selección de CUÁL de las {N_CAJAS_MAX} cajas registradoras abrir (petición explícita,
+    2026-11-16) — sustituye la numeración incremental automática (CAJA-01, CAJA-02…), que podía
+    intentar reabrir una caja YA ACTIVA si se cerraba una que no fuera la última (hallazgo real:
+    con CAJA-01 y CAJA-02 abiertas, cerrar CAJA-01 y pedir abrir otra volvía a calcular "CAJA-02"
+    — la que seguía abierta — en vez de una libre). Las cajas YA ABIERTAS se EXCLUYEN aquí por
+    completo de la lista: bajo ningún concepto se ofrece como opción una que ya esté activa. Cada
+    opción muestra el último fondo con el que se cerró esa caja (`cajas_activas`/
+    `ultimos_cierres`), o "sin fondos registrados" si nunca se ha usado."""
+
+    N_CAJAS_MAX = 20
+
+    def __init__(self, ultimos_cierres: dict, ids_abiertas: set, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._caja_id = None
+        self._build(ultimos_cierres or {}, ids_abiertas or set())
+
+    def _build(self, ultimos_cierres: dict, ids_abiertas: set):
+        card = QFrame(self); card.setObjectName("sca")
+        card.setStyleSheet(f"QFrame#sca{{background:#0E1117;border:2px solid {_CIAN};border-radius:18px;}}")
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.addWidget(card)
+        ly = QVBoxLayout(card); ly.setContentsMargins(28, 24, 28, 24); ly.setSpacing(14)
+
+        lbl_t = QLabel(tr("cfg.select_caja_apertura_title", default="¿QUÉ CAJA REGISTRADORA QUIERES ABRIR?"))
+        lbl_t.setStyleSheet(f"color:{_CIAN};font-family:'Segoe UI';font-weight:900;font-size:14px;")
+        lbl_t.setWordWrap(True)
+        ly.addWidget(lbl_t)
+
+        self._combo = QComboBox()
+        self._combo.setFixedHeight(44)
+        self._combo.setStyleSheet(
+            f"QComboBox{{background:#161B22;color:white;border:2px solid {_CIAN};"
+            f"border-radius:10px;padding:8px 14px;font-family:'Segoe UI';font-weight:bold;font-size:13px;}}"
+            f"QComboBox QAbstractItemView{{background:#0D1117;color:#E6EDF3;border:2px solid {_CIAN};"
+            f"border-radius:10px;selection-background-color:{_CIAN};selection-color:#0D1117;outline:none;}}"
+            f"QComboBox QAbstractItemView::item{{min-height:34px;padding:0 14px;}}")
+        for n in range(1, self.N_CAJAS_MAX + 1):
+            cid = f"CAJA-{n:02d}"
+            if cid in ids_abiertas:
+                continue
+            fondo = ultimos_cierres.get(cid)
+            etiqueta = (tr("cfg.caja_fondo_conocido", default="{id}  (Último fondo: {x})",
+                           id=cid, x=divisas.formatear(fondo))
+                       if fondo is not None else
+                       tr("cfg.caja_sin_fondos", default="{id}  (Sin fondos registrados)", id=cid))
+            self._combo.addItem(etiqueta, cid)
+        ly.addWidget(self._combo)
+
+        self._lbl_err = QLabel("")
+        self._lbl_err.setStyleSheet("color:#F85149;font-size:11px;font-family:'Segoe UI';")
+        self._lbl_err.setWordWrap(True)
+        ly.addWidget(self._lbl_err)
+        if self._combo.count() == 0:
+            self._lbl_err.setText(
+                tr("cfg.todas_cajas_abiertas",
+                   default="Las {n} cajas registradoras ya están abiertas.", n=self.N_CAJAS_MAX))
+            self._combo.setEnabled(False)
+
+        br = QHBoxLayout(); br.setSpacing(16)
+        bc = QPushButton(tr("common.cancel", default="CANCELAR")); bc.setFixedHeight(40)
+        bc.setCursor(Qt.CursorShape.PointingHandCursor)
+        bc.setStyleSheet(
+            "QPushButton{background:#0D1117;color:#F85149;border:2px solid #F85149;"
+            "border-radius:8px;padding:0 20px;font-family:'Segoe UI';font-weight:900;}"
+            "QPushButton:hover{background:#F85149;color:#0D1117;}")
+        bc.clicked.connect(self.reject)
+        bk = QPushButton(tr("cfg.arqueo_continuar", default="CONTINUAR")); bk.setFixedHeight(40)
+        bk.setCursor(Qt.CursorShape.PointingHandCursor)
+        bk.setStyleSheet(
+            f"QPushButton{{background:#0D1117;color:{_CIAN};border:2px solid {_CIAN};"
+            f"border-radius:8px;padding:0 20px;font-family:'Segoe UI';font-weight:900;}}"
+            f"QPushButton:hover{{background:{_CIAN};color:#0D1117;}}")
+        bk.clicked.connect(self._confirmar)
+        br.addWidget(bc); br.addWidget(bk)
+        ly.addLayout(br)
+        self.setFixedWidth(460)
+
+    def _confirmar(self):
+        cid = self._combo.currentData()
+        if not cid:
+            return
+        self._caja_id = cid
+        self.accept()
+
+    def get_caja_id(self):
+        return self._caja_id
 
 
 class _SeleccionarCajaDialog(QDialog):
@@ -4587,7 +5299,12 @@ class ConfiguracionWindow(QWidget):
         root.addWidget(titulo)
 
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Petición explícita, 2026-11-20: el contenido de esta pestaña (p. ej. la tabla "Centros de
+        # empresa", con `setMinimumWidth(1070)` para sus 7 columnas) puede ser más ancho que la
+        # propia pestaña con ventanas/paneles estrechos — antes quedaba cortado sin forma de verlo
+        # (scrollbar horizontal desactivada). `AsNeeded` solo la muestra cuando de verdad hace
+        # falta, sin cambiar nada cuando el contenido ya cabe.
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
         inner = QWidget(); inner.setStyleSheet("background:transparent;")
         il = QVBoxLayout(inner); il.setContentsMargins(0, 0, 12, 0); il.setSpacing(10)
@@ -4842,6 +5559,15 @@ class ConfiguracionWindow(QWidget):
     def _de_add_centro(self):
         if not self._de_admin:
             return
+        id_empresa = self._de_emp_mod.empresa_actual_id()
+        # Hallazgo real, 2026-11-20: "Centros de empresa" creaba centros sin límite, sea cual sea
+        # el plan contratado — el chokepoint de licencias (`services.saas.licensing`) existía
+        # (recurso "max_tiendas", el límite de CENTROS de cara al cliente — ver su comentario en
+        # `_CONTADORES`) pero ningún punto de la GUI llegaba a invocarlo. Se comprueba AQUÍ, ANTES
+        # de abrir el formulario (para no hacer rellenar datos a un centro que luego se rechaza).
+        from src.gui._licencia_ui import verificar_limite_o_avisar
+        if not verificar_limite_o_avisar(self, "max_tiendas", id_empresa):
+            return
         dlg = _FormDialogCorp(tr("cfg.de_nuevo_ct", default="NUEVO CENTRO"), self._CAMPOS_CT, {},
                               self, sin_cancelar=True)
         if dlg.exec():
@@ -4850,7 +5576,6 @@ class ConfiguracionWindow(QWidget):
                 creador_id = (sesion_global.usuario_actual or {}).get("id")
             except Exception:
                 pass
-            id_empresa = self._de_emp_mod.empresa_actual_id()
             valores = dlg.valores()
             id_centro = self._de_cts_mod.crear_centro(
                 id_empresa=id_empresa, creado_por_id=creador_id, **valores)
@@ -5012,9 +5737,12 @@ class ConfiguracionWindow(QWidget):
             lambda _i, c=combo: self._cambiar_divisa(c.currentData())
         )
         self._combo_divisa = combo
+        # Petición explícita, 2026-11-16: el desplegable debe quedar JUNTO al texto de la
+        # etiqueta, no empujado al extremo derecho del marco — el `addStretch()` pasa a ir
+        # DESPUÉS del combo (ocupa el resto del ancho sobrante, sin separar visualmente ambos).
         ly.addWidget(lbl)
-        ly.addStretch()
         ly.addWidget(combo)
+        ly.addStretch()
         return frame
 
     def _cambiar_divisa(self, code):
@@ -5068,6 +5796,9 @@ class ConfiguracionWindow(QWidget):
         # ── Divisa de la empresa (independiente del idioma) ──────────────────
         outer.addWidget(self._crear_selector_divisa())
 
+        # Petición explícita, 2026-11-16: la impresión automática del ticket deja de ser una
+        # casilla aquí — pasa a estar SIEMPRE activa por defecto (ver `gui.tpv`, sin gate).
+
         # ── Grid de botones ──────────────────────────────────────────────────
         grid = QGridLayout(); grid.setSpacing(16)
         grid.setColumnStretch(0, 1); grid.setColumnStretch(1, 1)  # responsive: 2 col elásticas
@@ -5098,7 +5829,8 @@ class ConfiguracionWindow(QWidget):
         self.btn_cierre_fuerte = _mk_btn(tr("cfg.btn_cierre_fuerte", default="CERRAR CAJA FUERTE"),   "🔒")
         self.btn_movimiento  = _mk_btn(tr("cfg.btn_movimiento", default="TRANSFERIR EFECTIVO"),      "💸")
         self.btn_cambio_cajero = _mk_btn(tr("cfg.btn_cambio_cajero", default="CAMBIO DE CAJERO"),     "🔁")
-        self.btn_cierre_diario = _mk_btn(tr("cfg.btn_cierre_diario", default="CIERRE DIARIO"),         "🖨️")
+        # "CIERRE DIARIO" retirado de aquí (petición explícita, 2026-11-16) — migrado al resumen
+        # previo del cierre de caja fuerte, ver `_fn_cierre_fuerte`/`_ejecutar_cierre_diario`.
 
         self.btn_apertura.clicked.connect(self._fn_apertura)
         self.btn_habilitar.clicked.connect(self._fn_habilitar_caja)
@@ -5106,7 +5838,6 @@ class ConfiguracionWindow(QWidget):
         self.btn_cierre_fuerte.clicked.connect(self._fn_cierre_fuerte)
         self.btn_movimiento.clicked.connect(self._fn_movimiento)
         self.btn_cambio_cajero.clicked.connect(self._fn_cambio_cajero)
-        self.btn_cierre_diario.clicked.connect(self._fn_cierre_diario)
 
         grid.addWidget(self.btn_apertura,    0, 0)
         grid.addWidget(self.btn_habilitar,   0, 1)
@@ -5114,7 +5845,6 @@ class ConfiguracionWindow(QWidget):
         grid.addWidget(self.btn_cierre_fuerte, 1, 1)
         grid.addWidget(self.btn_movimiento,  2, 0)
         grid.addWidget(self.btn_cambio_cajero, 2, 1)
-        grid.addWidget(self.btn_cierre_diario, 3, 0, 1, 2)   # cierre diario de tienda (todas las cajas)
         outer.addLayout(grid)
         outer.addStretch()
 
@@ -5189,10 +5919,6 @@ class ConfiguracionWindow(QWidget):
         self._set_btn_state(self.btn_cierre_fuerte,(e == "CIERRE_COMPLETADO") or (e == "CAJA_FUERTE_ABIERTA" and n_cajas == 0))
         self._set_btn_state(self.btn_movimiento,   e in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA"))
         self._set_btn_state(self.btn_cambio_cajero, e in ("PRIMERA_CAJA_ABIERTA", "OPERATIVA") and n_cajas > 0)
-        # CIERRE DIARIO: inactivo SOLO mientras haya cajas registradoras activas; el resto del
-        # tiempo activo (independiente de si la caja fuerte está abierta), y reimprimible.
-        if hasattr(self, "btn_cierre_diario"):
-            self._set_btn_state(self.btn_cierre_diario, n_cajas == 0)
 
     def _usuario_actual(self) -> tuple:
         if not sesion_global or not sesion_global.usuario_actual:
@@ -5212,11 +5938,57 @@ class ConfiguracionWindow(QWidget):
 
     def _autorizar_admin(self, motivo: str):
         """Exige la verificación de un perfil ADMINISTRADOR (o superior).
-        Devuelve (ok: bool, nombre_usuario: str) del responsable que autoriza."""
-        dlg = _PinDialog("ADMINISTRADOR", motivo, parent=self,
+        Devuelve (ok: bool, nombre_usuario: str) del responsable que autoriza.
+
+        `motivo` llega ya traducido (`tr("cfg.auth_...")`) — `_frase()` (i18n) capitaliza SIEMPRE
+        la primera palabra de cualquier texto traducido, lo cual es correcto como frase suelta pero
+        incorrecto aquí, porque `_PinDialog` lo inserta en mitad de una oración ("...para {motivo}.":
+        petición explícita, 2026-11-24, tras ver "para Abrir la caja registradora" con mayúscula
+        indebida) — se baja la inicial de vuelta antes de pasarlo."""
+        motivo_frase = (motivo[:1].lower() + motivo[1:]) if motivo else motivo
+        dlg = _PinDialog("ADMINISTRADOR", motivo_frase, parent=self,
                          roles_label=tr("cfg.rol_ger_admin", default="ADMINISTRADOR"))
         dlg.exec()
         return dlg.verificado(), dlg.usuario_nombre()
+
+    def _confirmar_con_resumen(self, dlg, *, titulo, fondo_esperado=None, n_devoluciones=None,
+                               texto_continuar=None) -> bool:
+        """Envuelve un `_ConteoEfectivoDialog` YA aceptado (`dlg.exec()==Accepted`) con el resumen
+        de confirmación (petición explícita, 2026-11-16): si el usuario pulsa "Volver", reabre el
+        MISMO `dlg` (sin perder lo ya contado) y vuelve a mostrar el resumen. Devuelve True solo
+        si el usuario confirmó de verdad "CONTINUAR" en el resumen."""
+        while True:
+            resumen = _ResumenArqueoDialog(
+                titulo=titulo, detalle=dlg.get_detalle(), total=dlg.get_total(),
+                fondo_esperado=fondo_esperado, n_devoluciones=n_devoluciones,
+                texto_continuar=texto_continuar, parent=self)
+            # Petición explícita, 2026-11-20: animación de deslizamiento de entrada/salida — ver
+            # docstring de `_DialogoPantallaCompleta` sobre por qué ya es seguro combinarla con su
+            # propia reafirmación de geometría (antes no lo era, mientras esa reafirmación pasaba
+            # por `showMaximized()`/`showFullScreen()`).
+            resultado = abrir_dialogo_deslizante(resumen, self)
+            if resultado == QDialog.DialogCode.Accepted:
+                return True
+            if resultado == _ResumenArqueoDialog.VOLVER:
+                if abrir_dialogo_deslizante(dlg, self) != QDialog.DialogCode.Accepted:
+                    return False
+                continue
+            return False
+
+    def _devoluciones_hoy(self, caja: str | None = None) -> int:
+        """Nº de devoluciones de HOY — `caja` es el id visible ("CAJA-01"); se traduce al nº
+        entero que usa `devoluciones.numero_caja` (petición explícita, 2026-11-16)."""
+        try:
+            from src.services.tpv import cierre_z
+            num = None
+            if caja:
+                try:
+                    num = int(str(caja).split("-")[-1])
+                except (ValueError, IndexError):
+                    num = None
+            return cierre_z.contar_devoluciones_dia(datetime.now().strftime("%Y-%m-%d"), caja=num)
+        except Exception:
+            return 0
 
     # ── Caja: acciones ────────────────────────────────────────────────────────
 
@@ -5227,9 +5999,11 @@ class ConfiguracionWindow(QWidget):
             return
         est = self._get_caja_estado()
         ultimo = est.get("ultimos_cierres", {}).get("CAJA_FUERTE", 0.0)
-        dlg = _ConteoEfectivoDialog("🔓  " + tr("cfg.conteo_apertura_fuerte", default="APERTURA — ARQUEO CAJA FUERTE"),
-                                    fondo_esperado=ultimo, parent=self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        titulo_apertura_fuerte = "🔓  " + tr("cfg.conteo_apertura_fuerte", default="APERTURA — ARQUEO CAJA FUERTE")
+        dlg = _ConteoEfectivoDialog(titulo_apertura_fuerte, fondo_esperado=ultimo, parent=self)
+        if abrir_dialogo_deslizante(dlg, self) != QDialog.DialogCode.Accepted:
+            return
+        if not self._confirmar_con_resumen(dlg, titulo=titulo_apertura_fuerte, fondo_esperado=ultimo):
             return
         total = dlg.get_total()
         detalle = dlg.get_detalle()
@@ -5280,24 +6054,55 @@ class ConfiguracionWindow(QWidget):
 
     def _fn_habilitar_caja(self):
         est = self._get_caja_estado()
-        n = len(est.get("cajas_activas", [])) + 1
-        id_caja = f"CAJA-{n:02d}"
-        # 1. Autorización de ADMINISTRADOR
+        # 1. Qué caja registradora abrir — petición explícita, 2026-11-16: desplegable con las 20
+        # cajas posibles (CAJA-01..CAJA-20), cada una con su ÚLTIMO fondo conocido (o "sin fondos
+        # registrados"); las YA ABIERTAS se excluyen por completo — nunca se ofrece reabrir una
+        # activa. Sustituye la numeración incremental automática (bug real: cerrar una caja que
+        # no fuera la última podía volver a calcular el id de una que seguía abierta).
+        ids_abiertas = {c["id"] for c in est.get("cajas_activas", [])}
+        dlg_caja = _SeleccionarCajaAperturaDialog(est.get("ultimos_cierres", {}), ids_abiertas, self)
+        if dlg_caja.exec() != QDialog.DialogCode.Accepted:
+            return
+        id_caja = dlg_caja.get_caja_id()
+
+        # 2. Autorización de ADMINISTRADOR
         if not self._autorizar_admin(
                 tr("cfg.auth_abrir_caja", default="abrir la caja registradora {id}", id=id_caja))[0]:
             return
-        # 2. Identificación del empleado (operario) al que se le asigna la caja
-        dlg_id = _IdentificacionEmpleadoDialog(tr("cfg.id_apertura_caja", default="Apertura de {id}", id=id_caja), self)
-        if dlg_id.exec() != QDialog.DialogCode.Accepted:
+        # 3. Empleado(s) a los que se asigna la caja — petición explícita, 2026-11-16: botones de
+        # perfil (uno o varios a la vez, con atajo "TODOS"), sin PIN — sustituye tanto al
+        # desplegable+PIN de identificación como al checklist aparte de empleados adicionales.
+        dlg_sel = _SeleccionarEmpleadosCajaDialog(
+            tr("cfg.id_apertura_caja", default="Apertura de {id}", id=id_caja),
+            tr("cfg.autorizados_caja_desc_multi",
+               default="Marca a todos los empleados del centro que van a usar esta caja "
+                       "(puedes marcar más de uno)."),
+            multiple=True, parent=self)
+        if abrir_dialogo_deslizante(dlg_sel, self) != QDialog.DialogCode.Accepted:
             return
-        usuario = dlg_id.get_empleado_nombre()
-        usuario_id = dlg_id.get_empleado_id()
+        seleccionados = dlg_sel.get_seleccionados()
+        usuario = seleccionados[0]["nombre"]
+        usuario_id = seleccionados[0]["id"]
+        responsables_id = [e["id"] for e in seleccionados]
 
-        # Aviso NO bloqueante: si el empleado YA tiene otra caja registradora activa
-        # asignada, se confirma con el ADMINISTRADOR/SUPERADMIN si desea asignarle
-        # también esta (caja adicional) en vez de impedirlo silenciosamente.
+        # Petición explícita, 2026-11-20: cuando la caja queda asignada a UN SOLO empleado, elegir
+        # su perfil (botón) ya no basta como identificación — con varios empleados marcados, al
+        # menos hay un acto de SELECCIÓN entre varias opciones; con uno solo, el perfil ni siquiera
+        # se elige de verdad (es el único disponible), así que no había NINGUNA verificación real
+        # de quién estaba abriendo la caja. Se exige su PIN de 4 dígitos antes de continuar.
+        if len(seleccionados) == 1:
+            dlg_pin = _PinEmpleadoDialog(
+                usuario_id, usuario,
+                tr("cfg.pin_motivo_abrir_caja", default="abrir {id}", id=id_caja), self)
+            if dlg_pin.exec() != QDialog.DialogCode.Accepted or not dlg_pin.verificado():
+                return
+
+        # Aviso NO bloqueante: si alguno de los empleados elegidos YA tiene otra caja
+        # registradora activa asignada, se confirma con el ADMINISTRADOR/SUPERADMIN si desea
+        # asignarle también esta (caja adicional) en vez de impedirlo silenciosamente.
         caja_previa = next((c for c in est.get("cajas_activas", [])
-                            if c.get("responsable_id") == usuario_id), None)
+                            if any(rid in (c.get("responsables_id") or [c.get("responsable_id")])
+                                   for rid in responsables_id)), None)
         if caja_previa is not None:
             if not mostrar_confirmacion(
                 self,
@@ -5309,11 +6114,18 @@ class ConfiguracionWindow(QWidget):
             ):
                 return
 
+        # "Sin fondos registrados" (petición explícita, 2026-11-21): MISMO criterio exacto que ya
+        # usa `_SeleccionarCajaAperturaDialog` para esa misma etiqueta — la clave está AUSENTE del
+        # diccionario, no simplemente "vale 0" (una caja que de verdad se cerró alguna vez con
+        # 0,00 € tiene la clave presente, con ese valor — no es "sin fondos registrados").
+        sin_fondos_registrados = id_caja not in est.get("ultimos_cierres", {})
         ultimo = est.get("ultimos_cierres", {}).get(id_caja, 0.0)
 
-        dlg = _ConteoEfectivoDialog(tr("cfg.conteo_habilitar", default="HABILITAR {id} — ARQUEO INICIAL", id=id_caja),
-                                    fondo_esperado=ultimo, parent=self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        titulo_habilitar = tr("cfg.conteo_habilitar", default="HABILITAR {id} — ARQUEO INICIAL", id=id_caja)
+        dlg = _ConteoEfectivoDialog(titulo_habilitar, fondo_esperado=ultimo, parent=self)
+        if abrir_dialogo_deslizante(dlg, self) != QDialog.DialogCode.Accepted:
+            return
+        if not self._confirmar_con_resumen(dlg, titulo=titulo_habilitar, fondo_esperado=ultimo):
             return
         fondo = dlg.get_total()
         detalle = dlg.get_detalle()
@@ -5337,10 +6149,47 @@ class ConfiguracionWindow(QWidget):
                     "importe": diff, "motivo": dlg_m.get_motivo(),
                 })
 
+        # Petición explícita, 2026-11-21: el fondo inicial de una caja SIN fondos registrados
+        # (nunca usada antes) tiene que SALIR de algún sitio físico real — la caja fuerte — en vez
+        # de aparecer de la nada. Se descuenta automáticamente de `fondo_caja_fuerte` y se registra
+        # como una TRANSFERENCIA de efectivo más (mismo tipo de movimiento/ticket que genera
+        # `_fn_movimiento` a mano, con el mismo desglose de denominaciones ya contado aquí mismo —
+        # no hace falta volver a contarlo). Una caja que SÍ tiene fondo conocido se reabre con SU
+        # PROPIO fondo histórico (el efectivo ya existía, vuelve a circular, no es dinero nuevo
+        # saliendo de la caja fuerte) — ahí no se toca la caja fuerte, como hasta ahora.
+        transferencia_fuerte = None
+        if sin_fondos_registrados and fondo > 0:
+            disponible_fuerte = est.get("fondo_caja_fuerte", 0.0)
+            if fondo > disponible_fuerte:
+                mostrar_mensaje(
+                    self, tr("cfg.fondo_fuerte_insuficiente_title", default="Fondo insuficiente en caja fuerte"),
+                    tr("cfg.fondo_fuerte_insuficiente_msg",
+                       default="La caja fuerte solo tiene {d} € disponibles — no se puede completar "
+                               "la apertura de {id} con un fondo inicial de {f} €.",
+                       d=divisas.formatear(disponible_fuerte), id=id_caja, f=divisas.formatear(fondo)),
+                    "warning")
+                return
+            est["fondo_caja_fuerte"] = round(disponible_fuerte - fondo, 2)
+            transferencia_fuerte = disponible_fuerte
+            est.setdefault("historial", []).append({
+                "accion": "MOVIMIENTO TRANSFERENCIA", "usuario": usuario,
+                "origen": tr("cfg.tk_caja_fuerte_lbl", default="CAJA FUERTE"), "destino": id_caja,
+                "importe": fondo,
+                "motivo": tr("cfg.motivo_transferencia_apertura",
+                            default="Fondo inicial de apertura de {id}", id=id_caja),
+                "hora": datetime.now().strftime("%H:%M:%S"),
+            })
+
         responsable = usuario
 
         est["cajas_activas"].append({
             "id": id_caja, "responsable": responsable, "responsable_id": usuario_id,
+            # "responsables_id" (petición explícita, 2026-11-16): lista de TODOS los empleados
+            # autorizados a usar esta caja (siempre incluye a `responsable_id`) — `responsable`/
+            # `responsable_id` se conservan tal cual para no romper nada que ya los lea (tickets,
+            # historial, `_fn_cierre_reg`), pero el control de acceso real del TPV
+            # (`tpv._caja_pertenece`) ya comprueba contra esta lista.
+            "responsables_id": responsables_id,
             "hora_apertura": datetime.now().strftime("%H:%M"), "fondo": fondo,
         })
         estado_nuevo = "PRIMERA_CAJA_ABIERTA" if est["estado"] == "CAJA_FUERTE_ABIERTA" else "OPERATIVA"
@@ -5371,8 +6220,45 @@ class ConfiguracionWindow(QWidget):
                                      c=divisas.formatear(fondo), e=divisas.formatear(ultimo)) + "\n" + desc_line)
 
         self._generar_ticket_pdf(f"APERTURA {id_caja}", fondo, responsable, detalle, campos_extra=campos_extra)
+
+        transferencia_msg = ""
+        if transferencia_fuerte is not None:
+            # Ticket de TRANSFERENCIA aparte (petición explícita, 2026-11-21) — mismo tipo/formato
+            # que genera `_fn_movimiento` a mano (prefijo "MOV", tipo documental
+            # "transferencia_efectivo"), con el MISMO desglose de denominaciones ya contado arriba
+            # (nunca se vuelve a pedir recontar el mismo efectivo dos veces).
+            self._generar_ticket_pdf(
+                "MOVIMIENTO — TRANSFERENCIA", fondo, responsable, detalle,
+                subtitulo="TRANSFERENCIA",
+                campos_extra=[
+                    (tr("cfg.tk_tipo", default="Tipo"), tr("cfg.tipo_transferencia", default="TRANSFERENCIA")),
+                    (tr("cfg.tk_origen", default="Origen"), tr("cfg.tk_caja_fuerte_lbl", default="CAJA FUERTE")),
+                    (tr("cfg.tk_destino", default="Destino"), id_caja),
+                    (tr("cfg.tk_motivo", default="Motivo"),
+                     tr("cfg.motivo_transferencia_apertura",
+                        default="Fondo inicial de apertura de {id}", id=id_caja)),
+                ])
+            transferencia_msg = "\n\n" + tr(
+                "cfg.transferencia_fuerte_msg",
+                default="Se ha transferido {x} € desde la Caja Fuerte (quedan {r} €). Ticket de "
+                        "transferencia generado.",
+                x=divisas.formatear(fondo), r=divisas.formatear(est.get("fondo_caja_fuerte", 0.0)))
+
         mostrar_mensaje(self, tr("cfg.caja_habilitada_title", default="{id} habilitada", id=id_caja),
-                        tr("cfg.caja_habilitada_msg", default="{id} abierta con fondo de {x} €.\nResponsable: {resp}", id=id_caja, x=divisas.formatear(fondo), resp=responsable) + extra_msg, "success")
+                        tr("cfg.caja_habilitada_msg", default="{id} abierta con fondo de {x} €.\nResponsable: {resp}", id=id_caja, x=divisas.formatear(fondo), resp=responsable) + extra_msg + transferencia_msg, "success")
+
+    def _caja_autoriza(self, caja: dict, usuario_id) -> bool:
+        """¿Puede `usuario_id` operar/cerrar `caja`? Comprueba la lista `responsables_id`
+        (petición explícita, 2026-11-16 — varios empleados autorizados por caja) y, como
+        respaldo (cajas antiguas abiertas ANTES de este cambio, sin `responsables_id` todavía),
+        el `responsable_id` singular de siempre. Mismo criterio que `tpv._caja_pertenece`."""
+        if usuario_id is None:
+            return False
+        responsables_id = caja.get("responsables_id")
+        if responsables_id:
+            return any(str(rid) == str(usuario_id) for rid in responsables_id)
+        rid = caja.get("responsable_id")
+        return rid is not None and str(rid) == str(usuario_id)
 
     def _fn_cierre_reg(self):
         est = self._get_caja_estado()
@@ -5385,14 +6271,9 @@ class ConfiguracionWindow(QWidget):
                 tr("cfg.auth_cerrar_caja", default="cerrar una caja registradora"))[0]:
             return
 
-        # 2. Identificación del empleado (operario) responsable del cierre
-        dlg_id = _IdentificacionEmpleadoDialog(tr("cfg.id_cierre_reg", default="Cierre de caja registradora"), self)
-        if dlg_id.exec() != QDialog.DialogCode.Accepted:
-            return
-        usuario = dlg_id.get_empleado_nombre()
-        usuario_id = dlg_id.get_empleado_id()
-
-        # 2. Selección de caja (obligatoria si hay más de una; automática si solo hay una)
+        # 2. Selección de caja (obligatoria si hay más de una; automática si solo hay una) —
+        # petición explícita, 2026-11-16: se resuelve ANTES que el empleado (al revés que antes)
+        # porque ahora el paso de empleado depende de CUÁNTOS están asignados a ESTA caja.
         if len(cajas) == 1:
             caja_data = cajas[0]
         else:
@@ -5403,38 +6284,53 @@ class ConfiguracionWindow(QWidget):
 
         id_caja = caja_data["id"]
 
-        # Validación de asignación (seguridad): el empleado identificado por PIN DEBE ser
-        # el responsable realmente asignado a ESTA caja. Antes de esta comprobación, un
-        # empleado válido (PIN correcto) podía cerrar CUALQUIER caja registradora, incluida
-        # una que no tenía asignada o asignada a otro compañero — bug crítico de
-        # integridad/seguridad. Se bloquea aquí, ANTES de abrir el arqueo final.
-        if caja_data.get("responsable_id") != usuario_id:
-            caja_propia = next((c for c in cajas if c.get("responsable_id") == usuario_id), None)
-            if caja_propia is None:
-                mostrar_mensaje(
-                    self,
-                    tr("cfg.emp_sin_caja_title", default="Empleado sin caja asignada"),
-                    tr("cfg.emp_sin_caja_msg",
-                       default="El empleado seleccionado no tiene ninguna caja registradora asignada."),
-                    "error",
-                )
-            else:
-                mostrar_mensaje(
-                    self,
-                    tr("cfg.emp_caja_distinta_title", default="Caja no asignada a este empleado"),
-                    tr("cfg.emp_caja_distinta_msg",
-                       default="El empleado seleccionado no corresponde a la caja registradora seleccionada."),
-                    "error",
-                )
-            return
+        # 3. Empleado que cierra la caja — petición explícita, 2026-11-16: SOLO si esta caja tiene
+        # MÁS DE UN empleado asignado se pregunta (botones de perfil, uno a la vez, SIN PIN,
+        # restringidos a los empleados realmente autorizados en esta caja — no todo el centro).
+        # Con un único empleado asignado, su nombre ya es `caja_data["responsable"]` (no hay nada
+        # que elegir), pero SÍ se le exige el PIN (petición explícita, 2026-11-20 — ver más abajo).
+        responsables_id = caja_data.get("responsables_id") or [caja_data.get("responsable_id")]
+        if len(responsables_id) <= 1:
+            usuario = caja_data.get("responsable")
+            usuario_id = caja_data.get("responsable_id")
+            # Petición explícita, 2026-11-20: con un ÚNICO empleado asignado no hay paso de
+            # selección (se usa directamente, sin mostrar ningún diálogo — ver comentario de
+            # arriba) y por tanto tampoco ninguna verificación real de quién está cerrando la
+            # caja. Se exige su PIN de 4 dígitos antes de continuar al arqueo.
+            dlg_pin = _PinEmpleadoDialog(
+                usuario_id, usuario,
+                tr("cfg.pin_motivo_cerrar_caja", default="cerrar {id}", id=id_caja), self)
+            if dlg_pin.exec() != QDialog.DialogCode.Accepted or not dlg_pin.verificado():
+                return
+        else:
+            from src.db.usuario import obtener_usuario
+            empleados_caja = []
+            for rid in responsables_id:
+                u = obtener_usuario(rid)
+                empleados_caja.append({"id": rid, "nombre": (u or {}).get("nombre") or str(rid)})
+            dlg_emp = _SeleccionarEmpleadosCajaDialog(
+                tr("cfg.id_cierre_reg", default="Cierre de caja registradora"),
+                tr("cfg.cierre_quien_desc", default="Indica qué empleado está cerrando la caja."),
+                multiple=False, parent=self, empleados=empleados_caja)
+            if abrir_dialogo_deslizante(dlg_emp, self) != QDialog.DialogCode.Accepted:
+                return
+            usuario = dlg_emp.get_empleado_nombre()
+            usuario_id = dlg_emp.get_empleado_id()
 
-        # 3. Arqueo final
+        # 4. Arqueo final
+        titulo_cierre_reg = "🔒  " + tr("cfg.conteo_cierre_caja", default="CIERRE {id} — ARQUEO FINAL", id=id_caja)
         dlg = _ConteoEfectivoDialog(
-            "🔒  " + tr("cfg.conteo_cierre_caja", default="CIERRE {id} — ARQUEO FINAL", id=id_caja),
+            titulo_cierre_reg,
             fondo_esperado=caja_data.get("fondo", 0.0),
             parent=self
         )
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        if abrir_dialogo_deslizante(dlg, self) != QDialog.DialogCode.Accepted:
+            return
+        # Petición explícita, 2026-11-16: nº de devoluciones de HOY en ESTA caja, en el resumen
+        # previo al cierre de caja registradora.
+        if not self._confirmar_con_resumen(
+                dlg, titulo=titulo_cierre_reg, fondo_esperado=caja_data.get("fondo", 0.0),
+                n_devoluciones=self._devoluciones_hoy(id_caja)):
             return
 
         total_contado = dlg.get_total()
@@ -5461,17 +6357,17 @@ class ConfiguracionWindow(QWidget):
         estado_anterior = est.get("estado", "")
         est["cajas_activas"] = [c for c in cajas if c["id"] != id_caja]
         n_restantes = len(est["cajas_activas"])
+        # Hallazgo real, 2026-11-16 (bug confirmado): cerrar UNA caja registradora mientras quedan
+        # OTRAS abiertas forzaba el estado global a "CIERRE_CAJAS" — y ese estado deshabilita
+        # "Abrir caja registradora" (ver `_refresh_caja_ui`). Cerrar una caja (p. ej. fin de turno
+        # de un cajero) es una acción normal e independiente: NO implica que la tienda quiera
+        # cerrar todas las demás ni la caja fuerte. Con cajas restantes, el estado se queda TAL
+        # CUAL estaba (sigue operativa); solo al cerrar la ÚLTIMA se vuelve a CAJA_FUERTE_ABIERTA
+        # (habilita "Cerrar caja fuerte" sin tener que reabrirla).
         if n_restantes == 0:
-            # Solo marcar CIERRE_COMPLETADO si el operador ya había iniciado el proceso
-            # de cierre explícitamente (estado CIERRE_CAJAS). Si venía de un estado
-            # operativo y cierra la última caja, volver a CAJA_FUERTE_ABIERTA para
-            # permitir habilitar otra caja sin necesidad de reabrir la caja fuerte.
-            if estado_anterior == "CIERRE_CAJAS":
-                est["estado"] = "CIERRE_COMPLETADO"
-            else:
-                est["estado"] = "CAJA_FUERTE_ABIERTA"
+            est["estado"] = "CAJA_FUERTE_ABIERTA"
         else:
-            est["estado"] = "CIERRE_CAJAS"
+            est["estado"] = estado_anterior
         est.setdefault("ultimos_cierres", {})[id_caja] = total_contado
         est["historial"].append({
             "accion": f"CIERRE {id_caja}", "usuario": usuario,
@@ -5480,10 +6376,13 @@ class ConfiguracionWindow(QWidget):
         self._set_caja_estado(est)
         self._refresh_caja_ui()
         self._generar_ticket_pdf(f"CIERRE {id_caja}", total_contado, usuario, detalle)
-        if n_restantes == 0 and est["estado"] == "CIERRE_COMPLETADO":
-            msg = tr("cfg.cierre_msg_all", default="Todas las cajas cerradas. Ya puede realizar el cierre de caja fuerte.")
-        elif n_restantes == 0:
-            msg = tr("cfg.cierre_msg_zero", default="{id} cerrada. Puede habilitar una nueva caja registradora.", id=id_caja)
+        if n_restantes == 0:
+            # Ambos siguen siendo ciertos con el estado "CAJA_FUERTE_ABIERTA"/n_cajas==0: se puede
+            # tanto cerrar la caja fuerte como habilitar una nueva caja registradora (petición
+            # explícita, 2026-11-16 — cerrar la última caja no debe bloquear abrir otra). Mismos
+            # textos cataloged ya existentes (sin tocar sus claves), solo concatenados.
+            msg = (tr("cfg.cierre_msg_all", default="Todas las cajas cerradas. Ya puede realizar el cierre de caja fuerte.")
+                  + "\n" + tr("cfg.cierre_msg_zero", default="{id} cerrada. Puede habilitar una nueva caja registradora.", id=id_caja))
         else:
             msg = tr("cfg.cierre_msg_rest", default="{id} cerrada. Quedan {n} caja(s) activa(s).", id=id_caja, n=n_restantes)
         diff = total_contado - fondo_esperado
@@ -5549,10 +6448,13 @@ class ConfiguracionWindow(QWidget):
             return
 
         # 4. Arqueo — recuento de monedas y billetes en la divisa de la empresa
+        titulo_cambio_cajero = "🔁  " + tr("cfg.conteo_cambio_cajero", default="CAMBIO DE CAJERO {id} — ARQUEO", id=id_caja)
         dlg = _ConteoEfectivoDialog(
-            "🔁  " + tr("cfg.conteo_cambio_cajero", default="CAMBIO DE CAJERO {id} — ARQUEO", id=id_caja),
-            fondo_esperado=caja_data.get("fondo", 0.0), parent=self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+            titulo_cambio_cajero, fondo_esperado=caja_data.get("fondo", 0.0), parent=self)
+        if abrir_dialogo_deslizante(dlg, self) != QDialog.DialogCode.Accepted:
+            return
+        if not self._confirmar_con_resumen(
+                dlg, titulo=titulo_cambio_cajero, fondo_esperado=caja_data.get("fondo", 0.0)):
             return
         total_contado = dlg.get_total()
         detalle = dlg.get_detalle()
@@ -5582,8 +6484,21 @@ class ConfiguracionWindow(QWidget):
         #    efectivo contado como nuevo punto de partida (entrante empieza cuadrado).
         for c in est["cajas_activas"]:
             if c["id"] == id_caja:
+                # Hallazgo real, 2026-11-16: si el cajero ENTRANTE no estaba ya entre los
+                # `responsables_id` de esta caja (p. ej. era un refuerzo nuevo, no de los
+                # autorizados al abrirla), sin esto `_caja_pertenece`/`_caja_autoriza` lo
+                # rechazarían pese a que el sistema acaba de decirle que la caja ya es suya — el
+                # traspaso quedaría a medias (ticket/pantalla dicen una cosa, el acceso real
+                # otra). Se calcula ANTES de pisar `responsable_id` de abajo (si no hubiera
+                # `responsables_id` todavía, el respaldo debe ser el SALIENTE de antes del
+                # traspaso, no el entrante). Se AÑADE, nunca se quita a nadie (el saliente u
+                # otros autorizados conservan su acceso, tal como ya tenían).
+                responsables_id = list(c.get("responsables_id") or [c.get("responsable_id")])
+                if entrante_id is not None and entrante_id not in responsables_id:
+                    responsables_id.append(entrante_id)
                 c["responsable"] = entrante
                 c["responsable_id"] = entrante_id
+                c["responsables_id"] = responsables_id
                 c["fondo"] = total_contado
                 c["hora_apertura"] = datetime.now().strftime("%H:%M")
                 break
@@ -5627,11 +6542,14 @@ class ConfiguracionWindow(QWidget):
                         + "\n" + desc_line, "success")
 
     def _es_responsable(self, caja: dict, nombre, id_empleado=None) -> bool:
-        """True si el empleado identificado es el responsable de la caja (por id,
-        con respaldo a nombre normalizado). Garantiza la intransferibilidad."""
-        rid = caja.get("responsable_id")
-        if id_empleado is not None and rid is not None:
-            return str(rid) == str(id_empleado)
+        """True si el empleado identificado puede traspasar esta caja como cajero SALIENTE.
+        Hallazgo real, 2026-11-16: antes solo comprobaba el `responsable_id` SINGULAR —
+        inconsistente con el resto del sistema (venta/cierre) desde que una caja admite VARIOS
+        empleados autorizados (`responsables_id`, ver `_caja_autoriza`): un empleado legítimo de
+        esa caja que no fuera el primero en seleccionarse al abrirla se veía rechazado aquí. Ahora
+        delega en `_caja_autoriza` — cualquiera de los autorizados puede iniciar el traspaso."""
+        if id_empleado is not None:
+            return self._caja_autoriza(caja, id_empleado)
         a = str(caja.get("responsable") or "").strip().casefold()
         b = str(nombre or "").strip().casefold()
         return bool(b) and a == b
@@ -5643,12 +6561,24 @@ class ConfiguracionWindow(QWidget):
             return
         est = self._get_caja_estado()
 
+        titulo_cierre_fuerte = "🏦  " + tr("cfg.conteo_cierre_fuerte", default="CIERRE CAJA FUERTE — ARQUEO FINAL")
         dlg = _ConteoEfectivoDialog(
-            "🏦  " + tr("cfg.conteo_cierre_fuerte", default="CIERRE CAJA FUERTE — ARQUEO FINAL"),
+            titulo_cierre_fuerte,
             fondo_esperado=est.get("fondo_caja_fuerte", 0.0),
             parent=self
         )
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        if abrir_dialogo_deslizante(dlg, self) != QDialog.DialogCode.Accepted:
+            return
+        # Petición explícita, 2026-11-16: el botón independiente "CIERRE DIARIO" se retiró de la
+        # ventana principal — el resumen previo de ESTE cierre (el último paso antes del cierre
+        # diario) es ahora el que, al "continuar", dispara directamente el cierre diario
+        # (`_ejecutar_cierre_diario`, más abajo). También muestra el nº de devoluciones de HOY
+        # (todas las cajas).
+        if not self._confirmar_con_resumen(
+                dlg, titulo=titulo_cierre_fuerte, fondo_esperado=est.get("fondo_caja_fuerte", 0.0),
+                n_devoluciones=self._devoluciones_hoy(),
+                texto_continuar=tr("cfg.resumen_arqueo_generar_cierre_diario",
+                                   default="GENERAR CIERRE DIARIO")):
             return
 
         total = dlg.get_total()
@@ -5693,6 +6623,9 @@ class ConfiguracionWindow(QWidget):
                         tr("cfg.cierre_fuerte_msg", default="Caja fuerte cerrada. Total final: {x} €.", x=divisas.formatear(total)) + "\n\n"
                         + tr("cfg.contado_esperado", default="Contado: {c} €  ·  Esperado: {e} €", c=divisas.formatear(total), e=divisas.formatear(fondo_fuerte_esp)) + "\n" + desc_line_f,
                         "success")
+        # Petición explícita, 2026-11-16: el cierre diario se dispara aquí, fusionado con el
+        # cierre de caja fuerte (ya confirmado en el resumen de arriba — `confirmar=False`).
+        self._ejecutar_cierre_diario(confirmar=False)
 
     def _fn_movimiento(self):
         ok, usuario = self._autorizar_admin(
@@ -5833,16 +6766,22 @@ class ConfiguracionWindow(QWidget):
             pass
         return ruta
 
-    def _fn_cierre_diario(self):
+    def _ejecutar_cierre_diario(self, *, confirmar=True) -> bool:
         """CIERRE DIARIO — recopila los hechos económicos del día (todas las cajas), hace arqueo,
         persiste un Cierre Z inmutable/auditable, procesa la contabilidad y genera el ticket-resumen
-        PDF con la facturación del día. Reutiliza el MOTOR ÚNICO `services.tpv.cierre_z` (N7)."""
+        PDF con la facturación del día. Reutiliza el MOTOR ÚNICO `services.tpv.cierre_z` (N7).
+
+        Petición explícita, 2026-11-16: el botón independiente "CIERRE DIARIO" se retiró de la
+        ventana principal de Gestión caja — ahora se dispara SOLO desde el resumen previo del
+        cierre de caja fuerte (`_fn_cierre_fuerte`), que ya pidió su propia confirmación
+        ("GENERAR CIERRE DIARIO"); por eso `confirmar=False` en ese caso, para no pedir una
+        segunda confirmación redundante. Devuelve True si el cierre se generó correctamente."""
         try:
             from src.services.tpv import cierre_z
         except Exception as e:
             mostrar_mensaje(self, tr("cfg.cierre_diario", default="Cierre diario"),
                             tr("cfg.cierre_diario_no_disp", default="Módulo no disponible: {e}", e=str(e)), "error")
-            return
+            return False
 
         # Precondición: no puede haber cajas registradoras activas (el resto del tiempo está
         # disponible, incluso con la caja fuerte abierta, y es reimprimible por si hubo un error).
@@ -5853,7 +6792,7 @@ class ConfiguracionWindow(QWidget):
                 tr("cfg.cierre_diario_bloqueado",
                    default="Antes del cierre diario debe cerrar todas las cajas registradoras."),
                 "warning")
-            return
+            return False
 
         hoy = datetime.now().strftime("%Y-%m-%d")
         id_tienda = ""
@@ -5877,14 +6816,14 @@ class ConfiguracionWindow(QWidget):
         res = cierre_z.resumen_dia(hoy, caja=None)
         esperado = round(fondo_inicial + res.get("cobros", {}).get("efectivo", 0.0), 2)
 
-        if not mostrar_confirmacion(
+        if confirmar and not mostrar_confirmacion(
                 self, tr("cfg.cierre_diario", default="Cierre diario"),
                 tr("cfg.cierre_diario_confirm",
                    default=("¿Generar e imprimir el ticket de CIERRE DIARIO con todos los hechos "
                             "económicos de hoy?\n\nFacturación del día: {fact}\nNº de tickets: {tk}\n\n"
                             "Se contabilizarán los asientos del día en cola."),
                    fact=divisas.formatear(res.get("total_cobrado", 0)), tk=res.get("num_tickets", 0))):
-            return
+            return False
 
         # Sin nuevo arqueo: el efectivo declarado = esperado (ya conciliado en los cierres previos).
         cierre = cierre_z.generar_cierre_z(hoy, esperado, usuario=usuario, id_tienda=id_tienda,
@@ -5892,7 +6831,7 @@ class ConfiguracionWindow(QWidget):
         if not cierre:
             mostrar_mensaje(self, tr("cfg.cierre_diario", default="Cierre diario"),
                             tr("cfg.cierre_diario_err", default="No se pudo generar el cierre diario."), "error")
-            return
+            return False
 
         post = cierre.get("posting") or {}
         if cierre.get("duplicado"):
@@ -5929,6 +6868,7 @@ class ConfiguracionWindow(QWidget):
             except Exception:
                 pass
         self._refresh_caja_ui()
+        return True
 
     # --- PESTAÑAS 4/5 (HORARIO EMPLEADOS / FICHAJES) EXTRAÍDAS ---
     # Restructuración 2026-09: movidas a ventanas propias del menú principal —
@@ -6062,47 +7002,15 @@ class ConfiguracionWindow(QWidget):
         title.setStyleSheet(f"color: {_CIAN}; font-size: 22px; font-weight: 900;")
         ly.addWidget(title)
 
-        # Conmutador de módulos (justo debajo del título): separa "Periodo de
-        # devolución" de "Artículos baneados" para no saturar la pestaña.
-        toggle = QHBoxLayout(); toggle.setSpacing(12)
-        self._btn_mod_periodo = self._toggle_btn_devol(tr("cfg.mod_periodo", default="PERIODO DE DEVOLUCIÓN"))
-        self._btn_mod_baneados = self._toggle_btn_devol(tr("cfg.mod_baneados", default="ARTÍCULOS BANEADOS"))
-        self._btn_mod_descuento = self._toggle_btn_devol(tr("cfg.mod_descuento", default="ARTÍCULOS CON DESCUENTO"))
-        self._btn_mod_periodo.clicked.connect(lambda: self._cambiar_mod_devol(0))
-        self._btn_mod_baneados.clicked.connect(lambda: self._cambiar_mod_devol(1))
-        self._btn_mod_descuento.clicked.connect(lambda: self._cambiar_mod_devol(2))
-        toggle.addWidget(self._btn_mod_periodo)
-        toggle.addWidget(self._btn_mod_baneados)
-        toggle.addWidget(self._btn_mod_descuento)
-        toggle.addStretch()
-        ly.addLayout(toggle)
-
-        self._stack_devol = StackedActual()
-        self._stack_devol.addWidget(self._modulo_periodo())    # 0
-        self._stack_devol.addWidget(self._modulo_baneados())   # 1
-        self._stack_devol.addWidget(self._modulo_descuento())  # 2
-        ly.addWidget(self._stack_devol, 1)
-        self._cambiar_mod_devol(0)
+        # Subpestañas (petición explícita, 2026-11-23: unificar el aspecto con el resto de la app —
+        # antes era un trío de QPushButton a mano con relleno cian, distinto del estándar de
+        # subpestañas de CCP/EnterpriseTabs; ahora es el propio componente compartido).
+        tabs_devol = EnterpriseTabs()
+        tabs_devol.addTab(self._modulo_periodo(), tr("cfg.mod_periodo", default="PERIODO DE DEVOLUCIÓN"))
+        tabs_devol.addTab(self._modulo_baneados(), tr("cfg.mod_baneados", default="ARTÍCULOS BANEADOS"))
+        tabs_devol.addTab(self._modulo_descuento(), tr("cfg.mod_descuento", default="ARTÍCULOS CON DESCUENTO"))
+        ly.addWidget(tabs_devol, 1)
         return page
-
-    def _toggle_btn_devol(self, texto):
-        b = QPushButton(texto)
-        b.setCheckable(True); b.setFixedHeight(44); b.setMinimumWidth(240)
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        return b
-
-    def _cambiar_mod_devol(self, idx):
-        self._stack_devol.setCurrentIndex(idx)
-        for i, b in enumerate((self._btn_mod_periodo, self._btn_mod_baneados, self._btn_mod_descuento)):
-            if i == idx:
-                b.setChecked(True)
-                b.setStyleSheet(f"QPushButton{{background:{_CIAN};color:#0E1117;border:2px solid {_CIAN};"
-                                "border-radius:12px;font-family:'Segoe UI';font-weight:900;font-size:13px;padding:0 22px;}")
-            else:
-                b.setChecked(False)
-                b.setStyleSheet(f"QPushButton{{background:{_PANEL_BG};color:{_CIAN};border:2px solid {_BORDE};"
-                                "border-radius:12px;font-family:'Segoe UI';font-weight:900;font-size:13px;padding:0 22px;}"
-                                f"QPushButton:hover{{border-color:{_CIAN};}}")
 
     def _btn_guardar_verde(self, slot):
         b = QPushButton(tr("cfg.save_changes", default="Guardar cambios"))
@@ -6772,6 +7680,13 @@ class ConfiguracionWindow(QWidget):
                             tr("cfg.email_invalid_msg",
                                default="El email, si se indica, debe tener un formato válido."),
                             "warning")
+            return
+        # Hallazgo real, 2026-11-20: "Generar perfil empleado" daba de alta usuarios sin límite,
+        # sea cual sea el plan contratado (Basic: 3, Plus: 50, Pro: ilimitado) — se comprueba AQUÍ,
+        # ANTES de enviar el código de confirmación por email (para no hacer esperar un código a un
+        # alta que luego se va a rechazar).
+        from src.gui._licencia_ui import verificar_limite_o_avisar
+        if not verificar_limite_o_avisar(self, "max_usuarios"):
             return
         # El perfil YA NO se crea aquí directamente: se envía primero un código de 6 dígitos al
         # email indicado (`services.seguridad.confirmacion_perfil_empleado`) y solo se crea de

@@ -165,7 +165,7 @@ class _MetaShopBase:
         for o in (data.get("data") or []):
             ref = f"{self.plataforma.upper()}-{o.get('id')}"
             existe = any(str(p.get("referencia_externa")) == ref
-                        for p in (OS.listar_pedidos_online(texto=ref) or []))
+                        for p in (OS.listar_pedidos_online(id_empresa=id_empresa, texto=ref) or []))
             if existe:
                 duplicados += 1
                 continue
@@ -179,7 +179,7 @@ class _MetaShopBase:
                 continue
             try:
                 OS.crear_pedido_canal_externo(cliente, lineas, plataforma=self.plataforma,
-                                              referencia_externa=ref)
+                                              referencia_externa=ref, id_empresa=id_empresa)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido meta_shop %s: %s", ref, e)

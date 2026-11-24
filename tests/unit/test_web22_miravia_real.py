@@ -84,7 +84,7 @@ def test_autenticar_validar():
     assert a.obtener_version(id_empresa="E-MV")
 
 
-def test_importaciones_reutilizan_motor():
+def test_importaciones_reutilizan_motor(db):
     _conf()
     ft = _FakeMiravia()
     T.set_transporte(ft)
@@ -101,7 +101,7 @@ def test_importaciones_reutilizan_motor():
     assert len(OS.listar_pedidos_online() or []) == p0 + 1
 
 
-def test_idempotencia():
+def test_idempotencia(db):
     _conf()
     T.set_transporte(_FakeMiravia())
     a = ic.motor.adaptador("miravia")

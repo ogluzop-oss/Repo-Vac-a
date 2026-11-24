@@ -17,12 +17,13 @@ import os
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (QDialog, QFormLayout, QFrame, QHBoxLayout,
-                             QLabel, QPushButton, QStackedWidget, QTabWidget,
+                             QLabel, QPushButton, QStackedWidget,
                              QTableWidgetItem, QVBoxLayout, QWidget)
 
 from src.gui.catalogo_gestion import (_BG, _BG2, _BORDE, _CIAN, _DIM, _SIDEBAR, _TEXT,
                                       _btn, _btn_cargando, _btn_salir_sidebar, _btn_x, _combo,
                                       _dialogo_frameless, _inp, _tabla)
+from src.gui.components import EnterpriseTabs
 from src.gui.foundation.tab_badges import instalar_badges_sidebar
 from src.gui.transiciones import instalar_transicion_tabs
 
@@ -252,11 +253,7 @@ class EmpleadoFormDialog(QDialog):
 
     def _build(self):
         root = _dialogo_frameless(self, "Editar empleado" if self.empleado else "Nuevo empleado", ancho=560)
-        tabs = QTabWidget()
-        # Sin borde en el pane (se retiran las líneas grises que rodeaban Identificación/Contacto/Laboral).
-        tabs.setStyleSheet(f"QTabBar::tab{{background:{_SIDEBAR};color:{_DIM};padding:8px 14px;}}"
-                           f"QTabBar::tab:selected{{color:{_CIAN};}}"
-                           f"QTabWidget::pane{{border:none;}}")
+        tabs = EnterpriseTabs()
         e = self.empleado
         # Identificación
         self.in_nombre = _inp("Nombre", ); self.in_nombre.setText(e.get("nombre", ""))
@@ -475,10 +472,7 @@ class ExpedienteDialog(QDialog):
         exp = empleados.expediente(self.id_empleado, self.id_empresa) or {}
         self.exp = exp
         root = QVBoxLayout(self)
-        tabs = QTabWidget()
-        tabs.setStyleSheet(f"QTabBar::tab{{background:{_SIDEBAR};color:{_DIM};padding:8px 14px;}}"
-                           f"QTabBar::tab:selected{{color:{_CIAN};}}"
-                           f"QTabWidget::pane{{border:1px solid {_BORDE};}}")
+        tabs = EnterpriseTabs()
         emp = exp.get("empleado") or {}
         tabs.addTab(self._ficha(emp), "Ficha")
         tabs.addTab(self._tab_contratos(exp.get("contratos")), "Contratos")
@@ -981,7 +975,7 @@ class RRHHWindow(QWidget):
         import threading
 
         def _warm():
-            # "src.gui.gestion_usuarios" (Configuración) SE RETIRA de esta lista: es la MISMA
+            # "src.gui.configuracion" (Configuración) SE RETIRA de esta lista: es la MISMA
             # importación en segundo plano que YA hace `menu_principal._precargar_modulos_pesados`
             # — con las dos activas a la vez (se solapan si el usuario visita RRHH poco después de
             # abrir el menú), Configuración podía dejar de abrir con un crash nativo. Se deja SOLO
@@ -1375,7 +1369,7 @@ class RRHHWindow(QWidget):
     # ── Documentación LABORAL (migrada): reutiliza el wizard existente (lógica intacta) ──
     def _abrir_wizard_laboral(self, tipo, subtipo=None):
         try:
-            from src.gui.gestion_usuarios import _WizardDocumentoFiscal
+            from src.gui.configuracion import _WizardDocumentoFiscal
             _WizardDocumentoFiscal(tipo_inicial=tipo, parent=self,
                                    subtipo_inicial=subtipo).exec()
         except Exception as e:
@@ -1393,10 +1387,7 @@ class RRHHWindow(QWidget):
         # pestañas laborales, y ninguna genera un PDF que reabrir. Filtrar esas tablas al último
         # empleado tocado sería una regresión (dejarían de servir como panel de gestión conjunta).
         w = QWidget(); ly = QVBoxLayout(w); ly.setContentsMargins(0, 0, 0, 0)
-        tabs = QTabWidget()
-        tabs.setStyleSheet(f"QTabBar::tab{{background:{_SIDEBAR};color:{_DIM};padding:8px 14px;}}"
-                           f"QTabBar::tab:selected{{color:{_CIAN};}}"
-                           f"QTabWidget::pane{{border:none;}}")
+        tabs = EnterpriseTabs()
         tabs.addTab(self._tab_pro_evaluaciones(), "Evaluaciones")
         tabs.addTab(self._tab_pro_formacion(), "Formación")
         tabs.addTab(self._tab_pro_reclutamiento(), "Reclutamiento")
@@ -1971,12 +1962,7 @@ class GestionLaboralDialog(QDialog):
         root = _dialogo_frameless(self, "Vacaciones y ausencias", ancho=760)
         self.lbl_saldo = QLabel(""); self.lbl_saldo.setStyleSheet(f"color:{_CIAN};font-weight:700;")
         root.addWidget(self.lbl_saldo)
-        tabs = QTabWidget()
-        # Sin borde en el pane (se retiran las líneas grises que rodeaban Vacaciones/Ausencias/
-        # Calendario) — mismo criterio que `EmpleadoFormDialog`.
-        tabs.setStyleSheet(f"QTabBar::tab{{background:{_SIDEBAR};color:{_DIM};padding:8px 14px;}}"
-                           f"QTabBar::tab:selected{{color:{_CIAN};}}"
-                           f"QTabWidget::pane{{border:none;}}")
+        tabs = EnterpriseTabs()
         tabs.addTab(self._tab_vac(), "Vacaciones")
         tabs.addTab(self._tab_aus(), "Ausencias")
         tabs.addTab(self._tab_cal(), "Calendario")

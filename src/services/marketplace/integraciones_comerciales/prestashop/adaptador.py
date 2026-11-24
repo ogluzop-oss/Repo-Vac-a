@@ -202,7 +202,7 @@ class PrestaShopAdapter(_PrestaPreparado):
         for o in self._paginar("orders", id_empresa, extra=extra):
             ref = f"PRESTA-{o.get('id')}"
             existe = any(str(p.get("referencia_externa")) == ref
-                         for p in (OS.listar_pedidos_online(texto=ref) or []))
+                         for p in (OS.listar_pedidos_online(id_empresa=id_empresa, texto=ref) or []))
             if existe:
                 duplicados += 1
                 continue
@@ -234,7 +234,8 @@ class PrestaShopAdapter(_PrestaPreparado):
                     logger.debug("direccion presta %s: %s", id_addr, e)
             try:
                 OS.crear_pedido_canal_externo(cliente, lineas, plataforma="prestashop", referencia_externa=ref,
-                                              direccion_envio=direccion_envio, cp_cliente=cp)
+                                              direccion_envio=direccion_envio, cp_cliente=cp,
+                                              id_empresa=id_empresa)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido presta %s: %s", ref, e)

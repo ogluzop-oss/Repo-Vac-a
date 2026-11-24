@@ -15,10 +15,11 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QComboBox, QDateTimeEdit, QDialog, QFormLayout, QHBoxLayout, QLabel, QPlainTextEdit,
-    QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from src.gui.catalogo_gestion import _btn, _combo, _dialogo_frameless, _inp, _tabla
+from src.gui.components import EnterpriseTabs
 from src.services import autorizacion, eas
 
 try:
@@ -40,20 +41,6 @@ _TIPO_INTERVENCION_LABEL = {
     "preventivo": "Mantenimiento Preventivo", "calibracion": "Calibración de Umbral",
     "ruido": "Análisis de Ruido Ambiental", "diagnostico": "Diagnóstico de Hardware y Firmware",
 }
-
-
-def _qss_tabs() -> str:
-    """Mismo estilo de pestañas que `camaras_gui._qss_tabs()` (valores idénticos a
-    `foundation.tokens.qss_tabs()`) — duplicado localmente a propósito, mismo criterio que el resto
-    de constantes de color de este módulo, para no introducir una dependencia cruzada nueva."""
-    return (
-        f"QTabWidget::pane{{border:none;border-radius:10px;background:{_BG};}}"
-        f"QTabBar::tab{{background:{_BG2};color:{_DIM};padding:8px 16px;margin-right:2px;"
-        f"border-top-left-radius:8px;border-top-right-radius:8px;font-weight:700;}}"
-        f"QTabBar::tab:selected{{background:{_BG};color:{_CIAN};border:1px solid {_BORDE};"
-        f"border-bottom:2px solid {_CIAN};}}"
-        f"QTabBar::tab:hover{{color:{_CIAN};}}"
-    )
 
 
 def _it(v, color=None):
@@ -298,8 +285,7 @@ class EASTabWidget(QWidget):
             lbl.setStyleSheet(f"color:{_DIM};font-size:14px;")
             root.addWidget(lbl, 1)
             return
-        sub = QTabWidget()
-        sub.setStyleSheet(_qss_tabs())
+        sub = EnterpriseTabs()
         sub.addTab(self._tab_inventario(), "Inventario de antenas")
         sub.addTab(self._tab_mantenimiento(), "Mantenimiento técnico")
         sub.addTab(self._tab_historial(), "Historial de detecciones")

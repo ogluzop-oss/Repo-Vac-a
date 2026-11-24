@@ -2,15 +2,21 @@
 SaaS — Administración de tenants + Portal del cliente (FASE SAAS-H / SAAS-N).
 
 Panel de plataforma (SUPERADMIN): empresas, plan, estado, métricas SaaS (MRR/ARR/churn).
-Portal del cliente: plan actual, consumo, suscripción. Estilo dark+cian.
+Portal del cliente ("Mi plan", pestaña SUSCRIPCIÓN de Configuración): SOLO LECTURA — plan
+contratado, estado y consumo, con un único botón hacia la web oficial (petición explícita,
+2026-11-20: toda gestión de la suscripción — cambiar de plan, renovar, cancelar, facturación,
+domiciliación bancaria — pasa a vivir EXCLUSIVAMENTE ahí; se retiraron los controles de
+autoservicio que antes mutaban la suscripción localmente sin tocar Stripe de verdad). Estilo
+dark+cian.
 """
 
 import logging
 
 from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar,
-                             QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
+                             QTableWidgetItem, QVBoxLayout, QWidget)
 
-from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _btn_x, _combo, _dialogo_frameless, _tabla
+from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _btn_x, _dialogo_frameless, _tabla
+from src.gui.components import EnterpriseTabs
 from src.services.saas import ia_plan as _IA
 from src.services.saas import licensing as _L, metricas as _M, planes as _P, suscripciones as _S
 from src.services.saas import voz_plan as _VOZ
@@ -24,7 +30,7 @@ def _it(v):
 
 def _color_pct_ia(pct):
     """Umbral de color para el % de gasto diario de IA consumido — INVERTIDO respecto al patrón
-    de "% completado" de `gestion_usuarios.py` (ahí 100% es bueno/verde; aquí un % ALTO de un
+    de "% completado" de `configuracion.py` (ahí 100% es bueno/verde; aquí un % ALTO de un
     límite de GASTO es la zona de peligro): verde por debajo de 50%, ámbar 50-89%, rojo desde 90%."""
     if pct >= 90:
         return "#F85149"
@@ -89,12 +95,18 @@ class SaaSAdminWindow(QWidget):
         if callback_vuelta:
             cab.addWidget(_btn_x(self._volver))
         root.addLayout(cab)
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("QTabWidget::pane { border: none; }")
+        self.tabs = EnterpriseTabs()
         root.addWidget(self.tabs)
         self._tab_portal()
         self._tab_ia()
         self._tab_voz()
+        # Animación de deslizamiento al cambiar entre "Mi plan"/"Uso de IA"/"Uso de voz" (petición
+        # explícita) — mismo mecanismo ya usado en el resto de QTabWidget de la app (p. ej. CCP).
+        try:
+            from src.gui.transiciones import instalar_transicion_tabs
+            instalar_transicion_tabs(self.tabs)
+        except Exception:
+            pass
         # "Empresas (plataforma)" y "CRM SaaS (embudo)" (MRR/ARR/licencias de TODAS las empresas
         # cliente + embudo de ventas del propio Smart Manager) se retiraron de aquí: el gate por
         # perfil == "SUPERADMIN" NO distinguía "el fundador" de "el SUPERADMIN de cualquier empresa
@@ -106,48 +118,32 @@ class SaaSAdminWindow(QWidget):
 
     # ── Portal cliente (empresa activa) ───────────────────────────────────────
     def _tab_portal(self):
+        """Petición explícita, 2026-11-20: esta pestaña pasa a ser SOLO LECTURA — plan contratado,
+        estado y consumo — sin ningún control de autoservicio (antes "Cambiar plan"/"Renovar"/
+        "Suspender"/"Reactivar"/"Cancelar"/domiciliación bancaria/facturas, todos retirados). La
+        gestión real de la suscripción pasa a vivir EXCLUSIVAMENTE en la web oficial — el único
+        botón de esta pestaña lleva ahí (`_abrir_web_oficial`, ya existía para las empresas dadas
+        de alta vía Stripe; ahora es el único camino para TODAS)."""
         w = QWidget(); w.setStyleSheet(f"background:{_BG};"); lay = QVBoxLayout(w)
         self.lbl_plan = QLabel(""); self.lbl_plan.setStyleSheet(f"color:{_CIAN};font-size:15px;")
         lay.addWidget(self.lbl_plan)
         # Banner de aviso de vencimiento de la suscripción (oculto si no procede).
         self.lbl_aviso = QLabel(""); self.lbl_aviso.setWordWrap(True); self.lbl_aviso.setVisible(False)
         lay.addWidget(self.lbl_aviso)
-        bar = QHBoxLayout()
-        self.cmb_plan = _combo([(c, c) for c in _P.PLANES])
-        self.cmb_plan.setMinimumWidth(150)   # evita texto cortado en el desplegable
-        bar.addWidget(QLabel("Plan:")); bar.addWidget(self.cmb_plan)
-        bar.addWidget(_btn("Cambiar plan", self._cambiar_plan, primary=True))
-        bar.addWidget(_btn("Renovar", self._renovar, primary=True))
-        bar.addWidget(_btn("Descargar última factura", self._descargar_factura, primary=True))
-        bar.addWidget(_btn("Enviar factura por email", self._enviar_factura, primary=True))
-        bar.addStretch()
-        lay.addLayout(bar)
 
-        # Domiciliación bancaria del cobro mensual: el IBAN se guarda cifrado y NUNCA se
-        # vuelve a mostrar completo tras guardarlo — solo los 4 últimos dígitos.
-        bar_iban = QHBoxLayout()
-        bar_iban.addWidget(QLabel("Domiciliación bancaria:"))
-        self.inp_iban = QLineEdit()
-        self.inp_iban.setPlaceholderText("ES00 0000 0000 0000 0000 0000")
-        self.inp_iban.setMinimumWidth(260)
-        bar_iban.addWidget(self.inp_iban)
-        bar_iban.addWidget(_btn("Guardar cuenta bancaria", self._guardar_iban, primary=True))
-        self.lbl_iban = QLabel("")
-        self.lbl_iban.setStyleSheet(f"color:{_DIM};font-size:13px;")
-        bar_iban.addWidget(self.lbl_iban)
-        bar_iban.addStretch()
-        lay.addLayout(bar_iban)
-
-        # `cancelar`/`suspender`/`reactivar` (services.saas.suscripciones) no tenían ningún botón —
-        # mismo alcance que `cambiar_plan`/`renovar` (la suscripción de la EMPRESA ACTIVA, self-service;
-        # no confundir con gestión de OTROS tenants, retirada del escritorio — ver comentario más abajo).
-        bar_estado = QHBoxLayout()
-        bar_estado.addWidget(QLabel("Estado de la suscripción:"))
-        bar_estado.addWidget(_btn("Suspender", self._suspender_suscripcion, danger=True))
-        bar_estado.addWidget(_btn("Reactivar", self._reactivar_suscripcion, primary=True))
-        bar_estado.addWidget(_btn("Cancelar suscripción", self._cancelar_suscripcion, danger=True))
-        bar_estado.addStretch()
-        lay.addLayout(bar_estado)
+        aviso_web = QLabel(
+            "ℹ️  Tu suscripción se gestiona desde la web oficial de Smart Manager: cambiar de "
+            "plan, renovar, suspender, cancelar o actualizar el método de pago se hace allí.")
+        aviso_web.setWordWrap(True)
+        aviso_web.setStyleSheet(
+            f"color:{_CIAN};font-size:13px;font-weight:700;border:1px solid {_CIAN};"
+            "border-radius:10px;padding:10px 14px;background:rgba(0,255,198,0.06);")
+        lay.addWidget(aviso_web)
+        bar_web = QHBoxLayout()
+        bar_web.addWidget(_btn("Gestionar suscripción en la web oficial →",
+                               self._abrir_web_oficial, primary=True))
+        bar_web.addStretch()
+        lay.addLayout(bar_web)
 
         # "Actualizar" anclado a la esquina superior derecha de la TABLA (mismo criterio que
         # `EnterpriseTable(con_actualizar=..., actualizar_pos="derecha")` en `panel_prediccion.py`):
@@ -161,12 +157,28 @@ class SaaSAdminWindow(QWidget):
         self.tabs.addTab(w, "Mi plan")
         self._load_portal()
 
+    def _abrir_web_oficial(self):
+        import os
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        url = os.getenv("SITIO_OFICIAL_URL", "https://smartmanager-app.com").rstrip("/")
+        QDesktopServices.openUrl(QUrl(f"{url}/mi-cuenta"))
+
     def _load_portal(self):
         lic = _L.licencia_activa(_empresa())
         sus = _S.estado(_empresa())
-        self.lbl_plan.setText(f"Plan: {lic['codigo_plan'] if lic else '(sin licencia)'} · "
-                              f"Estado: {lic['estado'] if lic else 'sin_licencia'}"
-                              + (f" · Suscripción: {sus['estado']}" if sus else ""))
+        # Ciclo/Próximo cobro (petición explícita, 2026-11-16: paridad con `/mi-cuenta` de la web
+        # oficial, que ya los muestra — `sitio_oficial.py::_pagina_mi_cuenta`) — antes solo se veían
+        # de forma indirecta, embebidos en el aviso de vencimiento, y solo en los últimos 15 días.
+        ciclo_txt = {"mensual": "Mensual", "anual": "Anual"}.get(
+            (sus or {}).get("ciclo"), (sus or {}).get("ciclo") or "—")
+        cobro = (sus or {}).get("proximo_cobro")
+        cobro_txt = cobro.strftime("%d/%m/%Y") if hasattr(cobro, "strftime") else (cobro or "—")
+        self.lbl_plan.setText(
+            f"Plan: {lic['codigo_plan'] if lic else '(sin licencia)'} · "
+            f"Estado de acceso: {lic['estado'] if lic else 'sin_licencia'}"
+            + (f" · Estado de facturación: {sus['estado']} · Ciclo: {ciclo_txt} · "
+               f"Próximo cobro: {cobro_txt}" if sus else ""))
         # Aviso de vencimiento (banner): rojo si urgente/vencida, ámbar si próximo; oculto si no procede.
         try:
             av = _S.aviso_vencimiento(_empresa())
@@ -188,28 +200,6 @@ class SaaSAdminWindow(QWidget):
         self.tbl_consumo.setRowCount(len(cons))
         for i, (k, v) in enumerate(cons.items()):
             self.tbl_consumo.setItem(i, 0, _it(k)); self.tbl_consumo.setItem(i, 1, _it(v))
-        try:
-            enmascarado = _S.iban_enmascarado(_empresa())
-        except Exception:
-            enmascarado = None
-        self.lbl_iban.setText(f"Cuenta actual: {enmascarado}" if enmascarado else "Sin cuenta domiciliada.")
-        self.inp_iban.clear()
-
-    def _guardar_iban(self):
-        # Validación barata ANTES del step-up MFA: no tiene sentido pedirle al usuario una
-        # reautenticación para, después, decirle que se dejó el campo vacío.
-        if not self.inp_iban.text().strip():
-            self._aviso("Introduce primero el número de cuenta bancario.", "warning")
-            return
-        from src.gui.mfa_gui import step_up_sesion
-        if not step_up_sesion("saas.admin", self):
-            return
-        r = _S.guardar_iban(_empresa(), self.inp_iban.text())
-        if r.get("ok"):
-            self._aviso("Cuenta bancaria guardada correctamente.", "success")
-            self._load_portal()
-        else:
-            self._aviso(r.get("error") or "No se pudo guardar el IBAN.", "error")
 
     def _aviso(self, mensaje, nivel="info"):
         # `QMessageBox` nativo puede quedar sin handle correcto y no llegar a mostrarse sobre una
@@ -220,109 +210,6 @@ class SaaSAdminWindow(QWidget):
             mostrar_mensaje(self, "SaaS", mensaje, nivel)
         except Exception:
             QMessageBox.information(self, "SaaS", mensaje)
-
-    def _cambiar_plan(self):
-        from src.gui.mfa_gui import step_up_sesion
-        if not step_up_sesion("saas.admin", self):
-            return
-        try:
-            _S.cambiar_plan(_empresa(), self.cmb_plan.currentData())
-            self._load_portal()
-            self._aviso(f"Plan cambiado a «{self.cmb_plan.currentText()}».", "success")
-        except Exception as e:
-            self._aviso(str(e), "error")
-
-    def _renovar(self):
-        from src.gui.mfa_gui import step_up_sesion
-        if not step_up_sesion("saas.admin", self):
-            return
-        try:
-            _S.renovar(_empresa())
-            self._load_portal()
-            self._aviso("Suscripción renovada correctamente.", "success")
-        except Exception as e:
-            self._aviso(str(e), "error")
-
-    def _descargar_factura(self):
-        try:
-            from src.services.saas import facturas as _F
-            fs = _F.listar_facturas(_empresa())
-            if not fs:
-                self._aviso("No hay facturas.", "info"); return
-            ruta = _F.factura_pdf(fs[0]["id"], id_empresa=_empresa())
-            if ruta:
-                self._aviso(f"Factura generada: {ruta}", "success")
-            else:
-                self._aviso("No disponible (falta reportlab).", "warning")
-        except Exception as e:
-            self._aviso(str(e), "error")
-
-    def _enviar_factura(self):
-        try:
-            from src.db import correo as _CO
-            from src.services.saas import facturas as _F
-            cuentas = _CO.listar_correos(id_empresa=_empresa())
-            if not cuentas:
-                self._aviso("No hay ninguna cuenta de correo corporativa configurada.", "warning")
-                return
-            fs = _F.listar_facturas(_empresa())
-            if not fs:
-                self._aviso("No hay facturas.", "info")
-                return
-            destinatario, ok = _pedir_texto(self, "Enviar factura por email", "Correo del destinatario:")
-            destinatario = (destinatario or "").strip()
-            if not ok or not destinatario:
-                return
-            enviado = _F.enviar_factura(fs[0]["id"], cuentas[0]["id_correo"], destinatario, id_empresa=_empresa())
-            if enviado:
-                self._aviso(f"Factura enviada a {destinatario}.", "success")
-            else:
-                self._aviso("No se pudo enviar la factura.", "error")
-        except Exception as e:
-            self._aviso(str(e), "error")
-
-    def _suspender_suscripcion(self):
-        from assets.estilo_global import mostrar_confirmacion
-        if not mostrar_confirmacion(self, "Suspender suscripción",
-                                     "¿Seguro que quieres suspender la suscripción de tu empresa?\n"
-                                     "El acceso quedará bloqueado hasta reactivarla."):
-            return
-        from src.gui.mfa_gui import step_up_sesion
-        if not step_up_sesion("saas.admin", self):
-            return
-        try:
-            _S.suspender(_empresa())
-            self._aviso("Suscripción suspendida.", "success")
-            self._load_portal()
-        except Exception as e:
-            self._aviso(str(e), "error")
-
-    def _reactivar_suscripcion(self):
-        from src.gui.mfa_gui import step_up_sesion
-        if not step_up_sesion("saas.admin", self):
-            return
-        try:
-            _S.reactivar(_empresa())
-            self._aviso("Suscripción reactivada.", "success")
-            self._load_portal()
-        except Exception as e:
-            self._aviso(str(e), "error")
-
-    def _cancelar_suscripcion(self):
-        from assets.estilo_global import mostrar_confirmacion
-        if not mostrar_confirmacion(self, "Cancelar suscripción",
-                                     "¿Seguro que quieres CANCELAR la suscripción de tu empresa?\n"
-                                     "Esta acción bloquea el acceso y no es una simple pausa."):
-            return
-        from src.gui.mfa_gui import step_up_sesion
-        if not step_up_sesion("saas.admin", self):
-            return
-        try:
-            _S.cancelar(_empresa())
-            self._aviso("Suscripción cancelada.", "success")
-            self._load_portal()
-        except Exception as e:
-            self._aviso(str(e), "error")
 
     # ── Uso y coste de IA (Anthropic) — Fase C ────────────────────────────────
     def _tab_ia(self):

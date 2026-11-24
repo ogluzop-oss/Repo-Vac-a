@@ -6,9 +6,10 @@ Reutiliza el estilo global. Aditivo.
 
 import logging
 
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from src.gui.catalogo_gestion import _BG, _CIAN, _DIM, _btn, _btn_cargando, _info, _tabla
+from src.gui.components import EnterpriseTabs
 
 logger = logging.getLogger("gui.resiliencia")
 
@@ -46,7 +47,7 @@ class ResilienciaDashboardWindow(QWidget):
         root.addLayout(cab)
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
-        self.tabs = QTabWidget()
+        self.tabs = EnterpriseTabs()
         self.tbl_estado = _tabla(["Indicador", "Valor"])
         self.tbl_breakers = _tabla(["Servicio", "Estado", "Fallos"])
         self.tbl_edge = _tabla(["Tienda", "Modo", "Pendientes", "Salud"])

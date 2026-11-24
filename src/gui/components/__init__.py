@@ -9,7 +9,7 @@ reutiliza estos componentes.
 
 from src.gui.components.enterprise import (  # noqa: F401
     EnterpriseCard, EnterpriseDashboardGrid, EnterpriseFilter, EnterpriseRiskIndicator,
-    EnterpriseSearch, EnterpriseStatusBadge, EnterpriseTable, EnterpriseTimeline,
+    EnterpriseSearch, EnterpriseStatusBadge, EnterpriseTable, EnterpriseTabs, EnterpriseTimeline,
     EnterpriseToolbar)
 # Kanban vive en su propio módulo (no en enterprise.py): es un widget de arrastrar-y-soltar con
 # lógica de drag&drop propia, no una variante más de tarjeta/tabla — ver justificación en
@@ -19,6 +19,6 @@ from src.gui.components.kanban import EnterpriseKanbanBoard  # noqa: F401
 
 __all__ = [
     "EnterpriseCard", "EnterpriseDashboardGrid", "EnterpriseFilter", "EnterpriseRiskIndicator",
-    "EnterpriseSearch", "EnterpriseStatusBadge", "EnterpriseTable", "EnterpriseTimeline",
-    "EnterpriseToolbar", "EnterpriseKanbanBoard",
+    "EnterpriseSearch", "EnterpriseStatusBadge", "EnterpriseTable", "EnterpriseTabs",
+    "EnterpriseTimeline", "EnterpriseToolbar", "EnterpriseKanbanBoard",
 ]

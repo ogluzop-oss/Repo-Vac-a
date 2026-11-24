@@ -12,10 +12,11 @@ RBAC vía `services.autorizacion` (permisos `dr.ver`, `dr.snapshot`, `dr.restaur
 import logging
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QTabWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _btn, _btn_cargando, _combo, _dialogo_frameless,
                                       _info, _inp, _lbl, _tabla)
+from src.gui.components import EnterpriseTabs
 
 try:
     from assets.estilo_global import mostrar_confirmacion
@@ -101,7 +102,7 @@ class DRDashboardWindow(QWidget):
         self.lbl = QLabel(""); self.lbl.setStyleSheet(f"color:{_DIM};")
         root.addWidget(self.lbl)
 
-        self.tabs = QTabWidget()
+        self.tabs = EnterpriseTabs()
         self.tbl = _tabla(["Indicador", "Valor"])
         self.tabs.addTab(self._envolver(self.tbl), "Panel")
         self.tabs.addTab(self._tab_snapshots(), "Snapshots")

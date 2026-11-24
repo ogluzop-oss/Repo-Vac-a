@@ -75,7 +75,10 @@ def test_cola_trabajos():
 
 
 # ── 6 · GUI: panel profesional + reintento (degradable, sin crash) ────────────
-def test_panel_gui_reintento():
+def test_panel_gui_reintento(db):
+    # `db` (tests/conftest.py): `servicio.crear_integracion` persiste en `ic_integraciones` desde
+    # 2026-11-24 — construye/aplica el esquema de pruebas (u omite el test si MariaDB no está
+    # disponible).
     import pytest
     pytest.importorskip("PyQt6")
     _app()

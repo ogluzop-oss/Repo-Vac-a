@@ -119,6 +119,52 @@ def drenar_exportaciones(id_empresa=None) -> str:
     return f"trabajos procesados={len(hechos)} ok={ok} fallidos={len(hechos) - ok}"
 
 
+def importar_pedidos_canales_activos(id_empresa=None) -> str:
+    """Job del Scheduler (petición explícita, 2026-11-24): SONDEO AUTOMÁTICO de pedidos entrantes en
+    TODOS los canales conectados (de CUALQUIER empresa — transversal, como `b2b_carrito_abandono
+    ._job_detectar`). Hasta ahora, `importar_pedidos`/`sincronizacion_incremental` de cada adaptador
+    (WooCommerce/Shopify/Amazon/...) solo se disparaba cuando un humano pulsaba "↔️ Sincronizar" en
+    la GUI (`gui/integraciones_comerciales_gui.py`) — sin esto, ningún pedido de un canal externo
+    llegaba "en tiempo real" al TPV, por bien que estuviera enrutado por stock una vez creado.
+
+    Reutiliza el MISMO método que ya dispara ese botón (`sincronizacion_incremental`, con fallback a
+    `sincronizacion_inicial` — igual resolución que `ejecutar_trabajo` para `tipo="sincronizar"`),
+    sin duplicar lógica de importación. Un canal sin credenciales operativas (`disponible()` False) o
+    sin ninguno de los dos métodos (p. ej. `web_feed`: publicación de catálogo, sin pedidos por
+    diseño) se OMITE honestamente, nunca cuenta como fallo. Un canal que falla (p. ej. límite de API)
+    no bloquea los demás — cada uno en su propio try/except, auditado con `_audit`."""
+    from src.db import ic_integraciones as _ICDB
+    from src.services.marketplace.integraciones_comerciales import motor
+    procesados = omitidos = fallidos = 0
+    for fila in _ICDB.listar_activas_todas_empresas():
+        plataforma, emp = fila["plataforma"], fila["id_empresa"]
+        try:
+            adap = motor.adaptador(plataforma)
+        except Exception as e:
+            logger.debug("importar_pedidos_canales_activos: adaptador %s: %s", plataforma, e)
+            omitidos += 1
+            continue
+        if not _disponible(adap, emp):
+            omitidos += 1
+            continue
+        metodo = getattr(adap, "sincronizacion_incremental", None) or \
+            getattr(adap, "sincronizacion_inicial", None)
+        if not metodo:
+            omitidos += 1   # p. ej. web_feed: sin pedidos por diseño.
+            continue
+        try:
+            r = metodo(id_empresa=emp, usuario=None)
+            ok = bool(isinstance(r, dict) and r.get("ok"))
+        except Exception as e:
+            logger.warning("importar_pedidos_canales_activos %s emp=%s: %s", plataforma, emp, e)
+            ok, r = False, {"ok": False, "error": str(e)}
+        _audit(plataforma, ok, f"importar_pedidos emp={emp} resultado={r}")
+        procesados += 1
+        fallidos += (0 if ok else 1)
+    return (f"canales procesados={procesados} fallidos={fallidos} omitidos={omitidos}"
+           if (procesados or omitidos) else "sin canales activos")
+
+
 def registrar_jobs_sync_canales(id_empresa=None):
     """Registra el worker en el Scheduler (idempotente), mismo patrón exacto que
     `compras.b2b_rappels.registrar_jobs_rappels`. Degradable: si el Scheduler no está disponible, la
@@ -129,6 +175,11 @@ def registrar_jobs_sync_canales(id_empresa=None):
         scheduler.registrar_job("ic_sync_canales", intervalo_horas=1,
                                 descripcion="Integraciones comerciales: exportar stock a canales "
                                            "externos conectados tras cada venta (cola local)",
+                                id_empresa=id_empresa)
+        scheduler.registrar("ic_importar_pedidos", importar_pedidos_canales_activos)
+        scheduler.registrar_job("ic_importar_pedidos", intervalo_horas=1,
+                                descripcion="Integraciones comerciales: sondeo automático de "
+                                           "pedidos entrantes en todos los canales conectados",
                                 id_empresa=id_empresa)
     except Exception as e:
         logger.debug("registrar_jobs_sync_canales: %s", e)

@@ -66,7 +66,9 @@ def test_modo_a_feed_real(tmp_path, monkeypatch):
 
 
 # ── 3 · MODO B · REST real con transporte inyectado (sin HTTP) ────────────────
-def test_modo_b_rest_real_transporte_inyectado():
+def test_modo_b_rest_real_transporte_inyectado(db):
+    # `db` (tests/conftest.py): `servicio.py` persiste en `ic_integraciones` desde 2026-11-24 —
+    # construye/aplica el esquema de pruebas (u omite el test si MariaDB no está disponible).
     from src.services.marketplace import integraciones_comerciales as ic
     from src.services.marketplace.integraciones_comerciales import motor
     from src.services.marketplace.integraciones_comerciales.web_generica import (
@@ -113,7 +115,7 @@ def test_canal_web_tres_columnas_y_prefiltro():
 
 
 # ── 4b · La tabla filtra por tipo y muestra estado vacío para web propia ──────
-def test_tabla_filtra_por_tipo_y_estado_vacio():
+def test_tabla_filtra_por_tipo_y_estado_vacio(db):
     import pytest
     pytest.importorskip("PyQt6")
     _app()

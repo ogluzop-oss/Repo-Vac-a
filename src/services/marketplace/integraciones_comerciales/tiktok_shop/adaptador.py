@@ -212,7 +212,7 @@ class TikTokShopAdapter(_TikTokPreparado):
         for o in self._pedidos_raw(id_empresa, desde):
             ref = f"TIKTOK-{o.get('id') or o.get('order_id')}"
             existe = any(str(p.get("referencia_externa")) == ref
-                         for p in (OS.listar_pedidos_online(texto=ref) or []))
+                         for p in (OS.listar_pedidos_online(id_empresa=id_empresa, texto=ref) or []))
             if existe:
                 duplicados += 1
                 continue
@@ -235,7 +235,8 @@ class TikTokShopAdapter(_TikTokPreparado):
                 addr.get("district_info"), cp) if x)
             try:
                 OS.crear_pedido_canal_externo(cliente, lineas, plataforma="tiktok_shop", referencia_externa=ref,
-                                              direccion_envio=direccion_envio, cp_cliente=cp)
+                                              direccion_envio=direccion_envio, cp_cliente=cp,
+                                              id_empresa=id_empresa)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido tiktok %s: %s", ref, e)

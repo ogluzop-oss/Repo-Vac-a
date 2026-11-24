@@ -192,7 +192,7 @@ class MagentoAdapter(_MagentoPreparado):
         for o in self._paginar("orders", id_empresa, extra=self._incremental(desde)):
             ref = f"MAGENTO-{o.get('entity_id') or o.get('increment_id') or o.get('id')}"
             existe = any(str(p.get("referencia_externa")) == ref
-                         for p in (OS.listar_pedidos_online(texto=ref) or []))
+                         for p in (OS.listar_pedidos_online(id_empresa=id_empresa, texto=ref) or []))
             if existe:
                 duplicados += 1
                 continue
@@ -220,7 +220,8 @@ class MagentoAdapter(_MagentoPreparado):
                 logger.debug("direccion magento %s: %s", ref, e)
             try:
                 OS.crear_pedido_canal_externo(cliente, lineas, plataforma="magento", referencia_externa=ref,
-                                              direccion_envio=direccion_envio, cp_cliente=cp)
+                                              direccion_envio=direccion_envio, cp_cliente=cp,
+                                              id_empresa=id_empresa)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido magento %s: %s", ref, e)

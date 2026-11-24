@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
 
 from src.gui.catalogo_gestion import (_BG, _CIAN, _DIM, _SIDEBAR, _btn, _btn_cargando, _btn_salir_sidebar,
                                       _combo, _dialogo_frameless, _inp, _lbl, _tabla)
+from src.gui.components import EnterpriseTabs
 from src.gui.transiciones import StackedActual
 from src.services.seguridad import pestanas_app
 from src.services.contabilidad import asientos as A
@@ -337,9 +338,7 @@ class ContabilidadWindow(QWidget):
         Facturae (FACe). El módulo Fiscal del menú principal se MIGRA aquí reutilizando `FiscalPanels`
         (misma implementación que la ventana Fiscal; sin duplicar). Degradable: si algo falla, se
         muestra solo lo disponible."""
-        from PyQt6.QtWidgets import QTabWidget
-        tabs = QTabWidget()
-        tabs.setStyleSheet("QTabWidget::pane { border: none; }")   # sin líneas grises alrededor del contenido
+        tabs = EnterpriseTabs()
         # 1) Generar — modelos AEAT (303/390/111/190/347/349): el AEATWindow existente.
         try:
             from src.gui.aeat_gui import AEATWindow
@@ -915,7 +914,7 @@ class ContabilidadWindow(QWidget):
         try:
             # Reutiliza EXACTAMENTE la generación del asistente fiscal (no se duplica el PDF): se instancia
             # el wizard, se le inyectan los datos y se genera, SIN mostrarlo (los campos ya están en la pestaña).
-            from src.gui.gestion_usuarios import _WizardDocumentoFiscal
+            from src.gui.configuracion import _WizardDocumentoFiscal
             wiz = _WizardDocumentoFiscal(tipo_inicial=panel["tipo"], parent=self)
             wiz._tipo = panel["tipo"]
             wiz._datos.update(datos)

@@ -51,7 +51,9 @@ def test_canal_web_flujo_pregunta():
 
 
 # ── 2 · Servicio: validar/sincronizar simulados + estados + secretos por ref ──
-def test_servicio_validar_sincronizar_simulado():
+def test_servicio_validar_sincronizar_simulado(db):
+    # `db` (tests/conftest.py): `servicio.py` persiste en `ic_integraciones` desde 2026-11-24 —
+    # construye/aplica el esquema de pruebas (u omite el test si MariaDB no está disponible).
     from src.services.marketplace import integraciones_comerciales as ic
     ic.servicio._reset_para_tests()
     # Alta con REFERENCIA de credenciales (nunca el valor real).
@@ -69,7 +71,7 @@ def test_servicio_validar_sincronizar_simulado():
 
 
 # ── 3 · Multiempresa: aislamiento estricto ────────────────────────────────────
-def test_multiempresa_aislamiento():
+def test_multiempresa_aislamiento(db):
     from src.services.marketplace import integraciones_comerciales as ic
     ic.servicio._reset_para_tests()
     ic.crear_integracion("EMP_A", "woocommerce", credenciales_ref="a")
@@ -80,7 +82,7 @@ def test_multiempresa_aislamiento():
 
 
 # ── 4 · Centro operativo (GUI): lista plataformas y asistente de alta ─────────
-def test_integraciones_gui_operativa():
+def test_integraciones_gui_operativa(db):
     import pytest
     pytest.importorskip("PyQt6")
     _app()

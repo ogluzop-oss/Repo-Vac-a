@@ -197,7 +197,7 @@ class EbayAdapter(_EbayPreparado):
         for o in self._pedidos_raw(id_empresa, desde):
             ref = f"EBAY-{o.get('orderId') or o.get('id')}"
             existe = any(str(p.get("referencia_externa")) == ref
-                         for p in (OS.listar_pedidos_online(texto=ref) or []))
+                         for p in (OS.listar_pedidos_online(id_empresa=id_empresa, texto=ref) or []))
             if existe:
                 duplicados += 1
                 continue
@@ -225,7 +225,8 @@ class EbayAdapter(_EbayPreparado):
                 logger.debug("direccion ebay %s: %s", ref, e)
             try:
                 OS.crear_pedido_canal_externo(cliente, lineas, plataforma="ebay", referencia_externa=ref,
-                                              direccion_envio=direccion_envio, cp_cliente=cp)
+                                              direccion_envio=direccion_envio, cp_cliente=cp,
+                                              id_empresa=id_empresa)
                 creados += 1
             except Exception as e:
                 logger.debug("crear pedido ebay %s: %s", ref, e)
