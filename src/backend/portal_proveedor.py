@@ -15,7 +15,11 @@ from markupsafe import escape
 
 from src.backend.portal_empresa_b2b import (_CDATE_CSS, _CDATE_JS, _CFILE_CSS, _CFILE_JS,
                                              _CSEL_CSS, _CSEL_JS)
-from src.backend.portal_i18n import idioma_actual, registrar_selector_idioma, selector_idioma_html, t as _t
+from src.backend.portal_i18n import (FLAG_ICONS_LINK, idioma_actual, layout_publico,
+                                     marcar_origen_web, registrar_selector_idioma,
+                                     selector_idioma_html, t as _t, url_sitio_oficial,
+                                     viene_de_web_oficial)
+from src.backend.portal_theming import PALETA_PROVEEDOR as _PALETA_PROV
 
 logger = logging.getLogger("backend.portal_proveedor")
 
@@ -27,8 +31,10 @@ def _e(x):
 
 
 def _nav_html(token, activo, *, no_leidos=0):
-    """Nav del panel (Panel/Catálogo/Pedidos/Cerrar sesión), construida sin estado global — cada
-    página pasa su propio `token` de sesión y cuál de los enlaces está activo."""
+    """Nav del panel (Panel/Catálogo/Pedidos/…), construida sin estado global — cada página pasa
+    su propio `token` de sesión y cuál de los enlaces está activo. Devuelve SOLO los enlaces de
+    navegación — "Cerrar sesión"/"Volver a la web oficial"/selector de idioma los añade `_layout`
+    (grupo inferior único, también presente en páginas SIN sesión — ver su docstring)."""
     base = f"/portal/proveedor/{token}"
     badge = f' <span class="badge-alerta">{no_leidos}</span>' if no_leidos else ""
     enlaces = (("dashboard", f"{base}/dashboard", _t("portal_prov.nav_panel", "Panel")),
@@ -39,13 +45,10 @@ def _nav_html(token, activo, *, no_leidos=0):
               ("licitaciones", f"{base}/licitaciones", _t("portal_prov.nav_licitaciones", "Licitaciones")),
               ("abandonados", f"{base}/abandonados",
                _t("portal_prov.nav_abandonados", "Carritos abandonados")),
-              ("rma", f"{base}/rma", _t("portal_prov.nav_rma", "RMA pendientes")))
-    links = "".join(f'<a href="{href}"{" class=\"on\"" if activo == key else ""}>{label}</a>'
-                    for key, href, label in enlaces)
-    logout = (f'<form method="post" action="{base}/logout" style="margin-left:auto">'
-             f'<button type="submit" class="nav-logout">'
-             f'{_t("portal_prov.cerrar_sesion", "Cerrar sesión")}</button></form>')
-    return links + logout + selector_idioma_html(accion="/portal/proveedor/idioma")
+              ("rma", f"{base}/rma", _t("portal_prov.nav_rma", "RMA pendientes")),
+              ("plan", f"{base}/plan", _t("portal_prov.nav_plan", "Plan")))
+    return "".join(f'<a href="{href}"{" class=\"on\"" if activo == key else ""}>{label}</a>'
+                   for key, href, label in enlaces)
 
 
 _FLECHA_SVG = ("data:image/svg+xml;utf8,"
@@ -63,28 +66,38 @@ def _layout(titulo, contenido, nav="", *, token=None):
     Tema de color: SOLO LECTURA aquí a propósito — el proveedor es un tercero EXTERNO sin acceso a
     una empresa concreta de Smart Manager (su sesión no resuelve a un `id_empresa`, ver
     `suministradores.resolver_sesion`), así que nunca se le ofrece una página para EDITAR el color
-    (eso es cosa de la propia empresa, en el Portal Empleado o el Portal Empresa B2B) — solo
-    hereda, visualmente, la paleta por defecto/compartida (`portal_theming`, sin `id_empresa`)."""
+    (eso es cosa de la propia empresa, en el Portal Empleado o el Portal Empresa B2B). Usa la
+    paleta FIJA propia de este portal (`portal_theming.PALETA_PROVEEDOR` — petición explícita,
+    2026-11-21: cada portal con su propio color de acento, distinto de la web oficial y del Portal
+    Empresa B2B), nunca la compartida/personalizable por empresa.
+
+    "Cerrar sesión"/"Volver a la web oficial"/selector de idioma (petición explícita, 2026-11-16;
+    reubicados a esquinas fijas 2026-11-22 — ver `portal_theming.CSS_TOPNAV_SHELL`, antes le
+    quitaban sitio a las pestañas de la topbar y las empujaba a una segunda línea): "Cerrar sesión"
+    (si hay `token`) a la esquina inferior DERECHA, "Volver a la web oficial" (SOLO si
+    `portal_i18n.viene_de_web_oficial`) a la esquina inferior IZQUIERDA — visibles en TODAS las
+    pestañas por ser `position:fixed`. El selector de idioma se queda en la topbar."""
     from src.backend import portal_theming as _tema
+    base = f"/portal/proveedor/{token}" if token else None
+    logout_fixed = (f'<div class="sm-corner-logout"><form method="post" action="{base}/logout">'
+                    f'<button type="submit" class="nav-logout">'
+                    f'{_t("portal_prov.cerrar_sesion", "Cerrar sesión")}</button></form></div>'
+                   if token else "")
+    volver_fixed = (
+        f'<div class="sm-corner-volver"><a href="{_e(url_sitio_oficial())}" class="nav-volver-web">'
+        f'{_t("portal_prov.volver_web_oficial", "← Volver a la web")}</a></div>'
+        if viene_de_web_oficial() else "")
+    idioma_html = selector_idioma_html(accion="/portal/proveedor/idioma") if token else ""
+    grupo_wrap = f'<div class="toplinks-grupo">{idioma_html}</div>' if idioma_html else ""
     script = f"<script>{_CSEL_JS}</script><script>{_CFILE_JS}</script><script>{_CDATE_JS}</script>"
     return f"""<!doctype html><html lang="{_e(idioma_actual())}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{_e(titulo)} · Portal de Proveedores</title><style>
-:root{_tema.bloque_css_variables()}
+<title>{_e(titulo)} · Portal de Proveedores</title>
+{FLAG_ICONS_LINK}
+<style>
+:root{_tema.bloque_css_variables_fijo(_tema.PALETA_PROVEEDOR)}
 *{{box-sizing:border-box}}body{{margin:0;font-family:'Segoe UI',system-ui,sans-serif;font-weight:700;
 background:var(--bg);color:var(--text)}}
-header{{display:flex;align-items:center;gap:16px;padding:14px 24px;background:#111418;
-border-bottom:2px solid var(--ac)}}
-.logo{{font-weight:900;font-size:20px;color:var(--ac)}}
-nav{{display:flex;align-items:center;gap:8px;padding:12px 24px;background:var(--bg);
-border-bottom:1px solid #21262D}}
-nav a{{color:var(--text2);text-decoration:none;font-weight:700;font-size:13px;padding:6px 10px;
-border-radius:8px}}nav a.on,nav a:hover{{color:var(--bg);background:var(--ac)}}
-nav .nav-logout{{background:transparent;color:var(--err);border:2px solid var(--err);border-radius:8px;
-font-weight:700;font-size:13px;padding:6px 10px;cursor:pointer;margin-top:0;
-font-family:'Segoe UI',system-ui,sans-serif}}
-nav .nav-logout:hover{{background:var(--err);color:var(--bg)}}
-main{{max-width:900px;margin:0 auto;padding:24px}}
 h1,h2{{color:var(--ac);font-weight:900}}
 .card{{background:var(--bg2);border:1px solid var(--borde);border-radius:12px;padding:18px;margin-bottom:16px}}
 label{{display:block;font-size:14px;color:var(--text2);margin:10px 0 4px;font-weight:700}}
@@ -136,15 +149,31 @@ overflow:hidden;margin-top:8px}}
 {_CSEL_CSS}
 {_CFILE_CSS}
 {_CDATE_CSS}
-.sel-idioma{{margin-left:auto}}
-.sel-idioma select{{padding:5px 24px 5px 8px;font-size:12px;margin:0}}
 {_tema.CSS_POLISH}
+{_tema.CSS_SHELL_PRO}
+{_tema.CSS_TOPNAV_SHELL}
 </style></head><body>
-<header><span class="logo">📦 {_t("portal_prov.titulo_marca", "Portal de Proveedores")}</span></header>
-<nav>{nav}</nav>
-<main>{contenido}</main>
+<header class="sm-topbar"><div class="wrap">
+<a class="brand" href="{base + '/dashboard' if base else '/portal/proveedor/'}">{_t("portal_prov.titulo_marca", "Portal de Proveedores")}</a>
+<nav class="toplinks">{nav}</nav>
+{grupo_wrap}
+</div></header>
+<main class="sm-contenido">{contenido}</main>
+{logout_fixed}
+{volver_fixed}
 {script}
 </body></html>"""
+
+
+def _mensaje_error_catalogo(error):
+    """Traduce códigos de error de `b2b_catalogo.crear_articulo` a texto legible — en particular
+    `proveedor_sin_stripe_verificado` (petición explícita, 2026-11-15: sin Stripe Connect
+    verificado no se puede publicar catálogo), que sin esto se mostraría como el código en crudo."""
+    if error == "proveedor_sin_stripe_verificado":
+        return _t("portal_prov.sin_stripe_verificado",
+                  "Antes de publicar catálogo, tienes que vincular y verificar tu cuenta de "
+                  "Stripe para poder cobrar tus pedidos — hazlo desde tu Panel.")
+    return error
 
 
 def _pagina_error(titulo, mensaje):
@@ -179,15 +208,171 @@ def pagina_onboarding(token, *, sectores, error=None):
 </div>""")
 
 
-def pagina_onboarding_completado(url_dashboard):
-    return _layout(_t("portal_prov.alta_completada_titulo", "Alta completada"), f"""
-<div class="card"><h1 class="ok">✓ {_t("portal_prov.alta_completada_h1", "Alta completada")}</h1>
-<p>{_t("portal_prov.ya_puedes_acceder", "Ya puedes acceder a tu panel de proveedor.")}</p>
-<p><a class="enlace" href="{_e(url_dashboard)}">{_t("portal_prov.entrar_panel", "Entrar al panel →")}</a></p>
-<p>{_t("portal_prov.guarda_credenciales",
-      "Guarda tu email y contraseña: los necesitarás la próxima vez que quieras entrar, en")}
-<a class="enlace" href="/portal/proveedor/acceso">/portal/proveedor/acceso</a>.</p>
-</div>""")
+# Nombre de marca del portal — PLANO, sin pasar por `_t()` (mismo criterio que `sitio_oficial.py`,
+# que tampoco traduce "Smart Manager": `_frase()` normaliza TODO texto traducido a frase
+# — primera letra mayúscula, resto minúscula, salvo SIGLAS de `utils.texto.SIGLAS` — y un nombre
+# propio de marca no es un texto "traducible" al uso, es un literal que debe conservar su
+# capitalización exacta siempre, igual que ya ocurre en la web oficial).
+_MARCA_PORTAL = "Portal de Proveedores"
+
+
+# ── Página de inicio (home) ──────────────────────────────────────────────────
+def pagina_home_proveedor():
+    """Página de inicio PÚBLICA del Portal Proveedor (petición explícita, 2026-11-21): antes, el
+    enlace "Proveedores" de la web oficial llevaba DIRECTAMENTE al formulario de registro — sin
+    ninguna presentación ni la opción de iniciar sesión primero. Mismo lenguaje visual que la web
+    oficial (`layout_publico`): titular + CTA de "Iniciar sesión"/"Registrarme", franja de
+    confianza y tarjetas de beneficios con animación de entrada al hacer scroll.
+
+    "Smart Manager"/"B2B" se pasan como PARÁMETROS de formato (`{marca}`/`{b2b}`), nunca
+    incrustados en el texto por defecto: `_frase()` (ver `utils.i18n`) normaliza a frase CUALQUIER
+    texto que pase por `_t()`, excepto el contenido de los marcadores `{...}` — sin esto, el titular
+    se mostraba con la marca en minúsculas ("smart manager")."""
+    tarjetas = [
+        ("🛒", _t("portal_prov.home_card1_t", "Vende a toda la plataforma"),
+         _t("portal_prov.home_card1_d",
+            "Publica tu catálogo mayorista y llega a todas las empresas clientes de {marca} "
+            "sin coste de entrada.", marca="Smart Manager")),
+        ("💳", _t("portal_prov.home_card2_t", "0% de comisión, siempre"),
+         _t("portal_prov.home_card2_d",
+            "Cobra directamente a través de tu propia cuenta de {stripe}, sin ninguna comisión de "
+            "plataforma — tengas o no una suscripción activa a {marca}.",
+            stripe="Stripe", marca="Smart Manager")),
+        ("📦", _t("portal_prov.home_card3_t", "Pedidos, rappels y RMA en un solo sitio"),
+         _t("portal_prov.home_card3_d",
+            "Gestiona pedidos, precios por volumen, packs, consignación y devoluciones desde un "
+            "panel pensado para proveedores {b2b}.", b2b="B2B")),
+    ]
+    tarjetas_html = "".join(
+        f'<div class="card reveal" style="transition-delay:{i * 70}ms"><h3>{ico} {_e(tit)}</h3><p>{_e(desc)}</p></div>'
+        for i, (ico, tit, desc) in enumerate(tarjetas)
+    )
+    cuerpo = f"""
+<div class="wrap hero-glow">
+  <h1>{_t("portal_prov.home_h1_1", "El portal {b2b} para", b2b="B2B")}<br>
+  <span>{_t("portal_prov.home_h1_2", "proveedores de {marca}", marca="Smart Manager")}</span></h1>
+  <p class="sub">{_t("portal_prov.home_sub",
+      "Publica tu catálogo, recibe pedidos y cobra sin intermediarios — conectado en tiempo real "
+      "con todas las empresas que usan {marca}.", marca="Smart Manager")}</p>
+  <div class="trust-strip">
+    <span>🔒 {_t("portal_prov.home_trust1", "Cobros vía")} <b>Stripe</b></span>
+    <span>📦 <b>{_t("portal_prov.home_trust2", "Sin permanencia")}</b></span>
+    <span>🌍 {_t("portal_prov.home_trust3", "Disponible en varios idiomas")}</span>
+  </div>
+  <div class="grid3">{tarjetas_html}</div>
+</div>"""
+    return layout_publico(_MARCA_PORTAL, cuerpo, marca=_MARCA_PORTAL, icono="📦",
+                          url_home="/portal/proveedor/", paleta=_PALETA_PROV)
+
+
+def pagina_registro_publico(*, sectores, error=None):
+    """Alta PÚBLICA sin invitación (petición explícita, 2026-11-16): mismo formulario que
+    `pagina_onboarding`, pero sin token — coexiste con el alta por invitación, que sigue intacta
+    para cuando una empresa concreta invita a un proveedor ya conocido. Petición explícita,
+    2026-11-21: layout PÚBLICO (`layout_publico`, mismo lenguaje visual que la web oficial) en vez
+    del shell de sidebar interno — esta página se ve ANTES de tener sesión, igual que `/registro`
+    de `sitio_oficial.py`."""
+    opciones = "".join(f'<option value="{s["id"]}">{_e(s["nombre"])}</option>' for s in sectores)
+    aviso = f'<div class="msg-error">{_e(error)}</div>' if error else ""
+    cuerpo = f"""
+<div class="wrap">
+  <h2>{_t("portal_prov.registro_h1", "Date de alta como proveedor")}</h2>
+  <p class="sub" style="text-align:center;margin-left:auto;margin-right:auto">
+  {_t("portal_prov.registro_desc",
+      "Regístrate libremente, sin necesidad de invitación, para ofrecer tu catálogo a las empresas "
+      "de la plataforma. El sector es obligatorio: determina qué empresas podrán ver tus ofertas.")}</p>
+  <form class="panel" method="post" action="/portal/proveedor/registro">
+    {aviso}
+    <label>{_t("portal_prov.razon_social_lbl", "Razón social *")}</label><input name="razon_social" required>
+    <label>{_t("portal_prov.cif_lbl", "CIF *")}</label><input name="cif" required>
+    <label>{_t("portal_prov.sector_lbl", "Sector comercial *")}</label><select name="sector_id" required>
+    <option value="">{_t("portal_prov.selecciona_sector_ph", "Selecciona un sector…")}</option>{opciones}</select>
+    <label>{_t("portal_prov.contacto_lbl", "Persona de contacto")}</label><input name="contacto">
+    <label>{_t("portal_prov.telefono_lbl", "Teléfono")}</label><input name="telefono">
+    <label>{_t("portal_prov.email_acceso_lbl", "Email de acceso *")}</label><input name="email_login" type="email" required>
+    <label>{_t("portal_prov.password_lbl", "Contraseña *")}</label><input name="password" type="password" minlength="8" required>
+    <label>{_t("portal_prov.confirmar_password_lbl", "Confirmar contraseña *")}</label><input name="confirmar_password" type="password" minlength="8" required>
+    <button type="submit">{_t("portal_prov.registrarme_btn", "Registrarme")}</button>
+  </form>
+  <p class="vinculo-sec">{_t("portal_prov.ya_tienes_cuenta", "¿Ya tienes cuenta?")}
+  <a href="/portal/proveedor/acceso">{_t("portal_prov.inicia_sesion", "Inicia sesión")}</a>.</p>
+</div>"""
+    return layout_publico(_t("portal_prov.registro_titulo", "Registro de proveedor"), cuerpo,
+                          marca=_MARCA_PORTAL, icono="📦",
+                          url_home="/portal/proveedor/", paleta=_PALETA_PROV)
+
+
+def pagina_verificar_email_proveedor(*, email, error=None):
+    """Paso OBLIGATORIO antes de completar el alta pública (petición explícita, 2026-11-22): se
+    envía un código de 6 dígitos al email introducido y hay que confirmarlo aquí. Los datos ya
+    validados (y la contraseña YA hasheada, nunca en claro) viajan en la cookie de sesión firmada
+    de Flask (`session["pendiente_prov_registro"]`) hasta que se confirme."""
+    aviso = f'<div class="msg-error">{_e(error)}</div>' if error else ""
+    cuerpo = f"""
+<div class="wrap">
+  <h2>{_t("portal_prov.verifica_tu_email_h1", "Verifica tu email")}</h2>
+  <p class="sub" style="text-align:center;margin-left:auto;margin-right:auto">
+  {_t("portal_prov.verifica_tu_email_desc", "Te hemos enviado un código de 6 dígitos a {email}. Introdúcelo para completar tu registro.", email=f"<b>{_e(email)}</b>")}</p>
+  <form class="panel" method="post" action="/portal/proveedor/registro/verificar-email">
+    {aviso}
+    <label>{_t("portal_prov.codigo_verificacion_lbl", "Código de verificación")}</label>
+    <input name="codigo" required maxlength="6" minlength="6" inputmode="numeric" pattern="[0-9]{{6}}"
+      autocomplete="one-time-code" placeholder="123456" autofocus>
+    <button type="submit">{_t("portal_prov.verificar_y_continuar_btn", "Verificar y continuar")}</button>
+  </form>
+  <form method="post" action="/portal/proveedor/registro/reenviar-codigo" style="text-align:center;margin-top:14px">
+    <button type="submit" class="btn btn-ghost" style="padding:8px 18px;font-size:13px">{_t("portal_prov.reenviar_codigo_btn", "Reenviar código")}</button>
+  </form>
+</div>"""
+    return layout_publico(_t("portal_prov.verifica_tu_email_titulo", "Verifica tu email"), cuerpo,
+                          marca=_MARCA_PORTAL, icono="📦",
+                          url_home="/portal/proveedor/", paleta=_PALETA_PROV)
+
+
+# ── Elección de pasarela de cobro — paso OBLIGATORIO del propio registro ───────────────────────
+# (petición explícita, 2026-11-23: antes esta elección quedaba como un aviso dentro del panel,
+# alcanzable después de registrarse — ahora es el último paso del alta, antes de poder entrar al
+# panel de verdad. PayPal ya NO pasa por un onboarding tipo Partner Referral (ver
+# `suministradores.fijar_paypal_email`/el docstring de `tpv.pagos.paypal_connect`): solo hace falta
+# el email de PayPal del proveedor + una tarjeta Stripe normal para que Smart Manager le cobre su
+# comisión aparte (nunca por PayPal).
+def pagina_elegir_pasarela(token):
+    cuerpo = f"""
+<div class="wrap">
+  <h2>{_t("portal_prov.elige_pasarela_h1", "¿Cómo quieres cobrar tus ventas?")}</h2>
+  <p class="sub" style="text-align:center;margin-left:auto;margin-right:auto">
+  {_t("portal_prov.elige_pasarela_desc", "Elige una de las dos — es un paso obligatorio antes de poder publicar tu catálogo o recibir pedidos.")}</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;max-width:640px;margin:0 auto">
+    <div class="card">
+      <h3>Stripe</h3>
+      <p>{_t("portal_prov.opcion_stripe_desc", "Cobra directamente en tu cuenta bancaria, con la verificación de identidad de Stripe.")}</p>
+      <p><a class="enlace" href="/portal/proveedor/{_e(token)}/stripe/conectar" style="font-weight:900">{_t("portal_prov.elegir_stripe_btn", "Elegir {marca} →", marca="Stripe")}</a></p>
+    </div>
+    <div class="card">
+      <h3>PayPal</h3>
+      <p>{_t("portal_prov.opcion_paypal_desc", "Cobra en tu cuenta de PayPal — solo necesitas darnos tu email de PayPal, nada más.")}</p>
+      <p><a class="enlace" href="/portal/proveedor/{_e(token)}/paypal/email" style="font-weight:900">{_t("portal_prov.elegir_paypal_btn", "Elegir {marca} →", marca="PayPal")}</a></p>
+    </div>
+  </div>
+</div>"""
+    return _layout(_t("portal_prov.elige_pasarela_titulo", "Elige cómo cobrar"), cuerpo, token=token)
+
+
+def pagina_paypal_email(token, *, error=None):
+    aviso = f'<div class="msg-error">{_e(error)}</div>' if error else ""
+    cuerpo = f"""
+<div class="wrap">
+  <h2>{_t("portal_prov.paypal_email_h1", "Tu email de PayPal")}</h2>
+  <p class="sub" style="text-align:center;margin-left:auto;margin-right:auto">
+  {_t("portal_prov.paypal_email_desc", "El email de la cuenta de PayPal donde quieres recibir el pago de tus ventas.")}</p>
+  <form class="panel" method="post" action="/portal/proveedor/{_e(token)}/paypal/email">
+    {aviso}
+    <label>{_t("portal_prov.paypal_email_lbl", "Email de PayPal")}</label>
+    <input type="email" name="email" required placeholder="tu@email.com" autofocus>
+    <button type="submit">{_t("portal_prov.continuar_btn", "Continuar →")}</button>
+  </form>
+</div>"""
+    return _layout(_t("portal_prov.paypal_email_titulo", "Tu email de PayPal"), cuerpo, token=token)
 
 
 # ── Acceso (login email + contraseña) ─────────────────────────────────────────
@@ -197,22 +382,31 @@ def pagina_acceso(*, token=None, error=None, info=None):
     invitación o desde `/onboarding/<token>`), se muestra el enlace "¿Aún no te has registrado?"
     hacia el alta con ESE MISMO token (permanente, ver `invitaciones.resolver_token`); sin token
     (visita directa/bookmarked a `/acceso`) el formulario se muestra igual pero sin ese enlace, al no
-    haber token del que partir hacia el alta."""
-    aviso = f'<p class="error">{_e(error)}</p>' if error else (
-        f'<p class="ok">{_e(info)}</p>' if info else "")
+    haber token del que partir hacia el alta. Petición explícita, 2026-11-21: layout PÚBLICO
+    (`layout_publico`, mismo lenguaje visual que `/login` de la web oficial), con el texto
+    clicable hacia el registro justo debajo del formulario."""
+    aviso = f'<div class="msg-error">{_e(error)}</div>' if error else (
+        f'<div class="msg-ok">{_e(info)}</div>' if info else "")
     action = f"/portal/proveedor/acceso/{_e(token)}" if token else "/portal/proveedor/acceso"
-    enlace_alta = (f'<p>{_t("portal_prov.aun_no_registrado", "¿Aún no te has registrado?")} <a class="enlace" '
-                   f'href="/portal/proveedor/onboarding/{_e(token)}">{_t("portal_prov.completa_alta_aqui", "Completa tu alta aquí")}</a>.</p>'
-                   if token else "")
-    cuerpo = f"""<h1>{_t("portal_prov.acceder_panel_h1", "Acceder a tu panel")}</h1>
-{aviso}
-<form method="post" action="{action}">
-<label>{_t("portal_prov.email_acceso_lbl2", "Email de acceso")}</label><input name="email" type="email" required>
-<label>{_t("portal_prov.password_lbl2", "Contraseña")}</label><input name="password" type="password" required>
-<button type="submit">{_t("portal_prov.entrar_btn", "Entrar")}</button>
-</form>
-{enlace_alta}"""
-    return _layout(_t("portal_prov.acceso_proveedor_titulo", "Acceso proveedor"), f'<div class="card">{cuerpo}</div>')
+    enlace_alta = (f'<p class="vinculo-sec">{_t("portal_prov.aun_no_registrado", "¿Aún no te has registrado?")} '
+                   f'<a href="/portal/proveedor/onboarding/{_e(token)}">{_t("portal_prov.completa_alta_aqui", "Completa tu alta aquí")}</a>.</p>'
+                   if token else
+                   f'<p class="vinculo-sec">{_t("portal_prov.aun_no_registrado", "¿Aún no te has registrado?")} '
+                   f'<a href="/portal/proveedor/registro">{_t("portal_prov.registrate_aqui", "Regístrate aquí")}</a>.</p>')
+    cuerpo = f"""
+<div class="wrap">
+  <h2>{_t("portal_prov.acceder_panel_h1", "Acceder a tu panel")}</h2>
+  <form class="panel" method="post" action="{action}">
+    {aviso}
+    <label>{_t("portal_prov.email_acceso_lbl2", "Email de acceso")}</label><input name="email" type="email" required>
+    <label>{_t("portal_prov.password_lbl2", "Contraseña")}</label><input name="password" type="password" required>
+    <button type="submit">{_t("portal_prov.entrar_btn", "Entrar")}</button>
+  </form>
+  {enlace_alta}
+</div>"""
+    return layout_publico(_t("portal_prov.acceso_proveedor_titulo", "Acceso proveedor"), cuerpo,
+                          marca=_MARCA_PORTAL, icono="📦",
+                          url_home="/portal/proveedor/", paleta=_PALETA_PROV)
 
 
 def pagina_sesion_cerrada():
@@ -224,8 +418,138 @@ def pagina_sesion_cerrada():
 
 
 # ── Panel del proveedor ───────────────────────────────────────────────────────
-def pagina_dashboard(token, suministrador, *, metricas=None, no_leidos=0):
+def _banner_limite_portal_html(token, id_suministrador):
+    """Aviso preventivo de límite Freemium (petición explícita, 2026-11-27 — ver
+    `services/portal_plan.py`): discreto, solo cuando de verdad se acerca/alcanza el límite — con
+    ERP o Plan de Pago del Portal esta función ni siquiera consulta nada."""
+    from src.services import portal_plan as PP
+    catalogo = PP.limite("proveedor", "catalogo_items", "proveedor", id_suministrador)
+    if catalogo["tier"] != "freemium":
+        return ""
+    if not catalogo["ok"]:
+        texto = _t("portal_prov.limite_catalogo_agotado_aviso",
+                   "Has agotado tus {n} referencias activas del plan Freemium.", n=catalogo["limite"])
+    elif catalogo["aviso"]:
+        texto = _t("portal_prov.limite_catalogo_cerca_aviso",
+                   "Vas por {u} de {n} referencias activas en tu plan Freemium.",
+                   u=catalogo["usado"], n=catalogo["limite"])
+    else:
+        return ""
+    return (
+        f'<div class="card" style="border:2px solid var(--ac);background:color-mix(in srgb, var(--ac) 10%, var(--bg2))">'
+        f'<p style="font-weight:700;margin:0 0 8px 0">⏳ {_e(texto)}</p>'
+        f'<p style="margin:0"><a class="enlace" href="/portal/proveedor/{_e(token)}/plan" '
+        f'style="font-weight:900">{_t("portal_prov.mejorar_plan_cta", "Mejorar plan →")}</a></p>'
+        f'</div>')
+
+
+def pagina_plan(token, suministrador, *, mensaje=None, error=None, no_leidos=0):
+    """Plan Freemium / de Pago del Portal (petición explícita, 2026-11-27 — ver
+    `services/portal_plan.py`). Precio SIEMPRE calculado por `portal_plan.precio_mensual_portal`/
+    `precio_anual_portal`, nunca un número fijo en la plantilla."""
+    from src.services import portal_plan as PP
+    id_sup = suministrador.get("id")
+    tier = PP.tier_efectivo("proveedor", id_sup)
+    base = f"/portal/proveedor/{token}/plan"
+    aviso = f'<p class="ok">{_e(mensaje)}</p>' if mensaje else (
+        f'<p class="error">{_e(error)}</p>' if error else "")
+    if tier == "erp":
+        cuerpo_tier = (
+            f'<div class="card"><h2>★ {_t("portal_prov.plan_ya_erp_h2", "Ya tienes acceso completo")}</h2>'
+            f'<p>{_t("portal_prov.plan_ya_erp_desc", "Tu empresa tiene una suscripción activa a Smart Manager ERP: acceso completo al portal, sin límites ni coste adicional.")}</p></div>')
+    elif tier == "pago":
+        cuerpo_tier = (
+            f'<div class="card"><h2>★ {_t("portal_prov.plan_ya_pago_h2", "Plan de Pago del Portal activo")}</h2>'
+            f'<p>{_t("portal_prov.plan_ya_pago_desc", "Tienes acceso sin límites al Portal Proveedor. ¿Quieres todavía más? Smart Manager ERP añade TPV, stock, RRHH, facturación y mucho más.")}</p></div>')
+    else:
+        catalogo = PP.limite("proveedor", "catalogo_items", "proveedor", id_sup)
+        cuerpo_tier = (
+            f'<div class="card"><h2>{_t("portal_prov.plan_freemium_h2", "Tu plan actual: Freemium")}</h2>'
+            f'<p>{_t("portal_prov.plan_freemium_catalogo", "Referencias activas en catálogo:")} '
+            f'<b>{catalogo["usado"]}/{catalogo["limite"]}</b></p></div>')
+    mensual, anual, cuota = PP.precio_mensual_portal(), PP.precio_anual_portal(), PP.cuota_4_pagos()
+    oferta_html = "" if tier != "freemium" else f"""
+<div class="card">
+<h2>{_t("portal_prov.plan_pago_h2", "Plan de Pago del Portal")}</h2>
+<p>{_t("portal_prov.plan_pago_desc", "Sin límite de referencias en catálogo, más importación masiva.")}</p>
+<form method="post" action="{base}/checkout"><input type="hidden" name="ciclo" value="mensual">
+<button type="submit">{_t("portal_prov.plan_mensual_btn", "{p} €/mes", p=mensual)}</button></form>
+<form method="post" action="{base}/checkout"><input type="hidden" name="ciclo" value="anual">
+<button type="submit">{_t("portal_prov.plan_anual_btn", "{p} €/año (ahorra 16,7%)", p=anual)}</button></form>
+<form method="post" action="{base}/checkout-financiado">
+<button type="submit">{_t("portal_prov.plan_financiado_btn", "4 cuotas de {c} €/trimestre", c=cuota)}</button></form>
+</div>"""
+    return _layout(_t("portal_prov.nav_plan", "Plan"), f"""
+{aviso}
+{cuerpo_tier}
+{oferta_html}
+""", nav=_nav_html(token, "plan", no_leidos=no_leidos), token=token)
+
+
+def pagina_dashboard(token, suministrador, *, metricas=None, no_leidos=0, stripe=None, paypal=None,
+                     pasarela_cobro=None, mostrar_aviso_verificado=False):
     estado = suministrador.get("estado_kyb", "pendiente")
+    stripe = stripe or {}
+    paypal = paypal or {}
+    # Requisito OBLIGATORIO (petición explícita, 2026-11-15, reforzado en visibilidad el
+    # 2026-11-16): sin NINGUNA cuenta de cobro verificada (Stripe o PayPal, petición explícita
+    # 2026-11-22) no se puede publicar catálogo ni recibir pedidos (ver `b2b_catalogo.
+    # crear_articulo`/`b2b_pedidos.tramitar`). Mientras no haya ninguna, se muestra como un BANNER
+    # de alerta a todo ancho con AMBAS opciones ("elige una, nunca las dos a la vez" — ver
+    # `suministradores.iniciar_onboarding_stripe`/`fijar_paypal_email`); en cuanto se elige
+    # una, esta tarjeta deja de mencionar la otra (`pasarela_cobro` ya fijado). Ahora es el propio
+    # registro el que obliga a elegir (petición explícita, 2026-11-23, ver `/elegir-pasarela`) —
+    # este banner solo se ve si el proveedor abandonó ese paso antes de terminarlo.
+    #
+    # Una vez verificado, el aviso "Cobros ✓" es TEMPORAL (petición explícita, 2026-11-22): se
+    # muestra UNA sola vez — `mostrar_aviso_verificado` lo decide el llamador (ruta `dashboard`,
+    # ver `suministradores.aviso_stripe_ya_mostrado`/`marcar_aviso_stripe_mostrado`, y sus gemelas
+    # `aviso_paypal_*`) — y nunca más después, para no dejar un recordatorio permanente de algo que
+    # ya no hace falta recordar.
+    if pasarela_cobro == "paypal":
+        if paypal.get("verificada"):
+            tarjeta_stripe = (
+                f'<div class="card"><h2>{_t("portal_prov.cobros_h2", "Cobros")}</h2>'
+                f'<p class="ok">✓ {_t("portal_prov.paypal_verificada", "Tu cuenta de {marca} está verificada — ya puedes recibir pagos de pedidos B2B.", marca="PayPal")}</p></div>'
+                if mostrar_aviso_verificado else "")
+        else:
+            cuerpo_banner = (
+                f'<p>{_t("portal_prov.paypal_pendiente", "Todavía te falta un paso para verificar tu cobro por {marca}.", marca="PayPal")}</p>'
+                f'<p><a class="enlace" href="/portal/proveedor/{_e(token)}/elegir-pasarela" style="color:var(--err);font-weight:900">{_t("portal_prov.paypal_completar", "Completar verificación de {marca} →", marca="PayPal")}</a></p>')
+            tarjeta_stripe = (
+                f'<div class="card" style="border:2px solid var(--err);background:color-mix(in srgb, var(--err) 10%, var(--bg2))">'
+                f'<h2 style="color:var(--err);font-size:20px">⚠ {_t("portal_prov.requisito_obligatorio_paypal_h2", "REQUISITO OBLIGATORIO: verifica tu cuenta de PayPal")}</h2>'
+                f'<p style="font-weight:700">{_t("portal_prov.requisito_obligatorio_desc", "Sin esto, NO podrás publicar ningún artículo en tu catálogo ni recibir ningún pedido B2B.")}</p>'
+                f'{cuerpo_banner}</div>')
+    elif pasarela_cobro == "stripe":
+        if stripe.get("verificada"):
+            tarjeta_stripe = (
+                f'<div class="card"><h2>{_t("portal_prov.cobros_h2", "Cobros")}</h2>'
+                f'<p class="ok">✓ {_t("portal_prov.stripe_verificada", "Tu cuenta de {marca} está verificada — ya puedes recibir pagos de pedidos B2B.", marca="Stripe")}</p></div>'
+                if mostrar_aviso_verificado else "")
+        else:
+            if stripe.get("conectada"):
+                cuerpo_banner = (
+                    f'<p>{_t("portal_prov.stripe_pendiente", "Tu cuenta de {marca} está creada pero aún no está verificada.", marca="Stripe")}</p>'
+                    f'<p><a class="enlace" href="/portal/proveedor/{_e(token)}/stripe/conectar" style="color:var(--err);font-weight:900">{_t("portal_prov.stripe_completar", "Completar verificación de {marca} →", marca="Stripe")}</a></p>')
+            else:
+                cuerpo_banner = (
+                    f'<p>{_t("portal_prov.stripe_sin_conectar", "Todavía no has vinculado tu cuenta bancaria para cobrar tus pedidos B2B.")}</p>'
+                    f'<p><a class="enlace" href="/portal/proveedor/{_e(token)}/stripe/conectar" style="color:var(--err);font-weight:900">{_t("portal_prov.stripe_vincular", "Vincular cuenta de {marca} →", marca="Stripe")}</a></p>')
+            tarjeta_stripe = (
+                f'<div class="card" style="border:2px solid var(--err);background:color-mix(in srgb, var(--err) 10%, var(--bg2))">'
+                f'<h2 style="color:var(--err);font-size:20px">⚠ {_t("portal_prov.requisito_obligatorio_h2", "REQUISITO OBLIGATORIO: vincula y verifica tu cuenta de Stripe")}</h2>'
+                f'<p style="font-weight:700">{_t("portal_prov.requisito_obligatorio_desc", "Sin esto, NO podrás publicar ningún artículo en tu catálogo ni recibir ningún pedido B2B.")}</p>'
+                f'{cuerpo_banner}</div>')
+    else:
+        # Ninguna pasarela elegida todavía — se ofrecen las DOS, nunca se puede empezar las dos a
+        # la vez (lo impone `suministradores.iniciar_onboarding_stripe`/`_paypal`).
+        tarjeta_stripe = (
+            f'<div class="card" style="border:2px solid var(--err);background:color-mix(in srgb, var(--err) 10%, var(--bg2))">'
+            f'<h2 style="color:var(--err);font-size:20px">⚠ {_t("portal_prov.requisito_obligatorio_elige_h2", "REQUISITO OBLIGATORIO: vincula y verifica una cuenta de cobro")}</h2>'
+            f'<p style="font-weight:700">{_t("portal_prov.requisito_obligatorio_desc", "Sin esto, NO podrás publicar ningún artículo en tu catálogo ni recibir ningún pedido B2B.")}</p>'
+            f'<p><a class="enlace" href="/portal/proveedor/{_e(token)}/elegir-pasarela" style="color:var(--err);font-weight:900">{_t("portal_prov.elegir_pasarela_btn", "Elegir cómo cobrar →")}</a></p>'
+            f'</div>')
     panel_metricas = ""
     if metricas:
         filas_met = "".join(f"<tr><td>{_e(m['codigo'])}</td><td>{_e(m['nombre'])}</td>"
@@ -233,7 +557,10 @@ def pagina_dashboard(token, suministrador, *, metricas=None, no_leidos=0):
         panel_metricas = f"""<div class="card"><h2>{_t("portal_prov.visibilidad_catalogo", "Visibilidad de tu catálogo (últimos 30 días)")}</h2>
 <table><tr><th>{_t("portal_prov.col_codigo", "Código")}</th><th>{_t("portal_prov.col_nombre", "Nombre")}</th><th>{_t("portal_prov.col_vistas", "Vistas")}</th><th>{_t("portal_prov.col_clics", "Clics")}</th></tr>{filas_met}</table>
 </div>"""
+    limite_aviso = _banner_limite_portal_html(token, suministrador.get("id"))
     return _layout(_t("portal_prov.nav_panel", "Panel"), f"""
+{limite_aviso}
+{tarjeta_stripe}
 <div class="card">
 <h1>{_e(suministrador.get('razon_social'))}</h1>
 <p>{_t("portal_prov.cif_lbl2", "CIF:")} {_e(suministrador.get('cif'))} · {_t("portal_prov.estado_verificacion", "Estado de verificación:")}
@@ -480,10 +807,15 @@ def _etiqueta_estado_t(estado):
 def pagina_mis_pedidos(token, pedidos, *, no_leidos=0):
     base = f"/portal/proveedor/{token}"
     ver_chat = _t("portal_prov.ver_chat", "Ver / chat")
-    filas = "".join(f"""<tr><td><code>{_e(p['id_tx'])}</code></td>
+    # Columna "Comisión" retirada (petición explícita, 2026-11-27 — comisión de plataforma a 0%
+    # siempre, ver `comisiones_b2b.PCT_SIN_SUSCRIPCION`): mostrar una columna que siempre da "-0 €"
+    # no aporta nada y genera dudas; el proveedor ya ve el Total íntegro, que es lo que recibe.
+    def _fila_pedido(p):
+        return f"""<tr><td><code>{_e(p['id_tx'])}</code></td>
 <td>{_e(_etiqueta_estado_t(p['estado']))}</td>
 <td>{p['total']} €</td><td>{p['creada']}</td>
-<td><a class="enlace" href="{base}/pedido/{p['id_tx']}">{ver_chat}</a></td></tr>""" for p in pedidos)
+<td><a class="enlace" href="{base}/pedido/{p['id_tx']}">{ver_chat}</a></td></tr>"""
+    filas = "".join(_fila_pedido(p) for p in pedidos)
     tabla = (f'<table><tr><th>{_t("portal_prov.col_pedido", "Pedido")}</th>'
             f'<th>{_t("portal_prov.col_estado", "Estado")}</th>'
             f'<th>{_t("portal_prov.col_total", "Total")}</th>'
@@ -515,10 +847,18 @@ def pagina_pedido_detalle(token, tx, lineas, mensajes, *, no_leidos=0, tiene_alb
     chat = _burbujas_chat_html(mensajes, "proveedor")
     albaran_html = (f'<p><a href="{base}/pedido/{tx["id_tx"]}/albaran">📄 {_t("portal_prov.descargar_albaran", "Descargar albarán")}</a></p>'
                    if tiene_albaran else "")
+    # Comisión de plataforma retirada por completo (petición explícita, 2026-11-27 — ver
+    # `comisiones_b2b.PCT_SIN_SUSCRIPCION = 0.0`): el proveedor recibe siempre el Total íntegro,
+    # sin ningún desglose de deducción que mostrar.
+    desglose_html = (
+        f'<p>{_t("portal_prov.base_lbl", "Base:")} {tx.get("total")} € · '
+        f'{_t("portal_prov.recibiras_lbl", "Recibirás:")} <b>{tx.get("total")} €</b> '
+        f'({_t("portal_prov.sin_comision_lbl", "sin comisión de plataforma")})</p>')
     return _layout(_t("portal_prov.pedido_titulo", "Pedido {ref}", ref=tx['id_tx'][:8]), f"""
 <div class="card"><h1>{_t("portal_prov.pedido_h1", "Pedido")} <code>{_e(tx['id_tx'])}</code></h1>
 <p>{_t("portal_prov.estado_lbl", "Estado:")} <span class="badge">{_e(_etiqueta_estado_t(tx['estado']))}</span> ·
 {_t("portal_prov.total_lbl", "Total:")} <b>{tx['total']} €</b> · {_t("portal_prov.fecha_lbl", "Fecha:")} {tx['creada']}</p>
+{desglose_html}
 {albaran_html}
 <table><tr><th>{_t("portal_prov.col_articulo", "Artículo")}</th><th>{_t("portal_prov.col_cantidad", "Cantidad")}</th><th>{_t("portal_prov.col_precio", "Precio")}</th></tr>{filas_lineas}</table>
 </div>
@@ -810,10 +1150,14 @@ def pagina_carritos_abandonados(token, items, *, mensaje=None, error=None, no_le
 
 # ── Blueprint Flask (import perezoso) ────────────────────────────────────────
 def crear_blueprint():
-    from flask import Blueprint, redirect, request
+    from flask import Blueprint, redirect, request, session
 
     bp = Blueprint("portal_proveedor", __name__, url_prefix="/portal/proveedor")
     registrar_selector_idioma(bp, "")
+
+    @bp.after_request
+    def _tras_peticion(response):
+        return marcar_origen_web(response)
 
     def _suministrador_o_error(token):
         from src.services.compras import suministradores as S
@@ -823,6 +1167,13 @@ def crear_blueprint():
                           _t("portal_prov.enlace_caducado",
                              "Tu enlace de acceso ha caducado o no es válido.")), 401)
         return sup, None
+
+    # Página de inicio PÚBLICA (petición explícita, 2026-11-21): antes, visitar el portal llevaba
+    # directo a `/registro` — ahora se ve primero esta página (mismo lenguaje visual que la web
+    # oficial), con "Iniciar sesión"/"Registrarme" como las dos puertas de entrada reales.
+    @bp.get("/")
+    def home():
+        return pagina_home_proveedor()
 
     @bp.get("/onboarding/<token>")
     def onboarding(token):
@@ -848,7 +1199,104 @@ def crear_blueprint():
                 return redirect(f"/portal/proveedor/acceso/{token}?info=ya_registrado")
             return pagina_onboarding(token, sectores=sectores.listar(), error=r.get("error")), 400
         sesion = S.crear_sesion(r["id_suministrador"])
-        return pagina_onboarding_completado(f"/portal/proveedor/{sesion}/dashboard")
+        # Requisito obligatorio como parte del propio alta (petición explícita, 2026-11-23): antes
+        # de esto se aterrizaba directo en el panel y la elección de pasarela quedaba pendiente
+        # como un aviso — ahora es el último paso, antes de poder entrar de verdad.
+        return redirect(f"/portal/proveedor/{sesion}/elegir-pasarela")
+
+    @bp.get("/registro")
+    def registro_publico():
+        from src.services.compras import sectores
+        return pagina_registro_publico(sectores=sectores.listar())
+
+    @bp.post("/registro")
+    def registro_publico_post():
+        """Verificación de email OBLIGATORIA (petición explícita, 2026-11-22): antes de crear
+        nada, se valida la contraseña y se hashea YA (nunca se guarda en claro en la cookie de
+        sesión) y se envía un código de 6 dígitos — los datos pendientes viajan en
+        `session["pendiente_prov_registro"]` hasta confirmarse (ver `/registro/verificar-email`)."""
+        from src.services.compras import sectores, suministradores as S
+        d = request.form
+        razon_social = (d.get("razon_social") or "").strip()
+        cif = (d.get("cif") or "").strip()
+        sector_id = d.get("sector_id") or None
+        email_login = (d.get("email_login") or "").strip().lower()
+        if not razon_social or not cif or not sector_id:
+            return pagina_registro_publico(
+                sectores=sectores.listar(), error="razon_social_cif_y_sector_son_obligatorios"), 400
+        if not email_login or "@" not in email_login:
+            return pagina_registro_publico(
+                sectores=sectores.listar(), error="el_email_de_acceso_es_obligatorio"), 400
+        r_pass = S.validar_password_proveedor(d.get("password", ""), d.get("confirmar_password", ""))
+        if not r_pass.get("ok"):
+            return pagina_registro_publico(sectores=sectores.listar(), error=r_pass.get("error")), 400
+
+        from src.seguridad.passwords import hash_password
+        from src.services import verificacion_email as VE
+        r_envio = VE.generar_y_enviar(email_login)
+        if not r_envio.get("ok"):
+            return pagina_registro_publico(
+                sectores=sectores.listar(),
+                error=_t("portal_prov.error_envio_codigo", "No se pudo enviar el código de "
+                                                           "verificación. Inténtalo de nuevo en "
+                                                           "unos minutos.")), 502
+        session["pendiente_prov_registro"] = {
+            "razon_social": razon_social, "cif": cif, "sector_id": sector_id,
+            "contacto": d.get("contacto") or None, "telefono": d.get("telefono") or None,
+            "email_login": email_login, "password_hash": hash_password(d.get("password", "")),
+        }
+        return pagina_verificar_email_proveedor(email=email_login)
+
+    @bp.post("/registro/verificar-email")
+    def registro_verificar_email_post():
+        from src.services.compras import suministradores as S
+        pendiente = session.get("pendiente_prov_registro")
+        if not pendiente:
+            return redirect("/portal/proveedor/registro")
+        from src.services import verificacion_email as VE
+        codigo = (request.form.get("codigo") or "").strip()
+        r = VE.verificar(pendiente["email_login"], codigo)
+        if not r.get("ok"):
+            mensajes = {
+                "codigo_incorrecto": _t("portal_prov.codigo_incorrecto_err", "Código incorrecto. Revísalo e inténtalo de nuevo."),
+                "codigo_caducado": _t("portal_prov.codigo_caducado_err", "El código ha caducado — pulsa \"Reenviar código\"."),
+                "demasiados_intentos": _t("portal_prov.demasiados_intentos_err", "Demasiados intentos — pulsa \"Reenviar código\" para pedir uno nuevo."),
+                "sin_codigo_pendiente": _t("portal_prov.sin_codigo_pendiente_err", "No hay ningún código pendiente — pulsa \"Reenviar código\"."),
+            }
+            return pagina_verificar_email_proveedor(
+                email=pendiente["email_login"],
+                error=mensajes.get(r.get("error"), "No se pudo verificar el código.")), 400
+
+        r_reg = S.registrar_publico(
+            razon_social=pendiente["razon_social"], cif=pendiente["cif"],
+            sector_id=pendiente["sector_id"], contacto=pendiente.get("contacto"),
+            telefono=pendiente.get("telefono"), email_login=pendiente["email_login"],
+            password_hash=pendiente["password_hash"])
+        session.pop("pendiente_prov_registro", None)
+        if not r_reg.get("ok"):
+            if r_reg.get("error") == "cif_ya_registrado":
+                return redirect("/portal/proveedor/acceso?info=ya_registrado")
+            from src.services.compras import sectores
+            return pagina_registro_publico(sectores=sectores.listar(), error=r_reg.get("error")), 400
+        sesion = S.crear_sesion(r_reg["id_suministrador"])
+        # Requisito obligatorio como parte del propio alta (petición explícita, 2026-11-23): antes
+        # de esto se aterrizaba directo en el panel y la elección de pasarela quedaba pendiente
+        # como un aviso — ahora es el último paso, antes de poder entrar de verdad.
+        return redirect(f"/portal/proveedor/{sesion}/elegir-pasarela")
+
+    @bp.post("/registro/reenviar-codigo")
+    def registro_reenviar_codigo_post():
+        pendiente = session.get("pendiente_prov_registro")
+        if not pendiente:
+            return redirect("/portal/proveedor/registro")
+        from src.services import verificacion_email as VE
+        r = VE.generar_y_enviar(pendiente["email_login"])
+        if not r.get("ok"):
+            return pagina_verificar_email_proveedor(
+                email=pendiente["email_login"],
+                error=_t("portal_prov.error_reenvio_codigo", "No se pudo reenviar el código. "
+                                                             "Inténtalo de nuevo en unos minutos.")), 502
+        return pagina_verificar_email_proveedor(email=pendiente["email_login"])
 
     _MSG_YA_REGISTRADO = "Ya te has registrado con esa invitación: inicia sesión."
 
@@ -895,8 +1343,153 @@ def crear_blueprint():
         if err:
             return err
         from src.services.compras import b2b_catalogo as C
+        from src.services.compras import suministradores as S
+        pasarela_cobro = sup.get("pasarela_cobro")
+        stripe = S.estado_stripe(sup["id"]) if pasarela_cobro != "paypal" else {}
+        # PayPal sin Partner Program (petición explícita, 2026-11-23, simplificado el mismo día):
+        # ya no hay un estado "en vivo" que consultar (no hay cuenta conectada que verificar en
+        # PayPal, ni una segunda pieza en Stripe) — `paypal_verificado` se fija en el momento de
+        # guardar el email (`suministradores.fijar_paypal_email`).
+        paypal = ({"conectada": bool(sup.get("paypal_email")),
+                  "verificada": bool(sup.get("paypal_verificado"))}
+                 if pasarela_cobro == "paypal" else {})
+        mostrar_aviso = False
+        if pasarela_cobro == "paypal" and paypal.get("verificada") and not S.aviso_paypal_ya_mostrado(sup["id"]):
+            mostrar_aviso = True
+            S.marcar_aviso_paypal_mostrado(sup["id"])
+        elif pasarela_cobro == "stripe" and stripe.get("verificada") and not S.aviso_stripe_ya_mostrado(sup["id"]):
+            mostrar_aviso = True
+            S.marcar_aviso_stripe_mostrado(sup["id"])
         return pagina_dashboard(token, sup, metricas=C.metricas_de_suministrador(sup["id"]),
-                               no_leidos=_no_leidos(sup))
+                               no_leidos=_no_leidos(sup), stripe=stripe, paypal=paypal,
+                               pasarela_cobro=pasarela_cobro, mostrar_aviso_verificado=mostrar_aviso)
+
+    @bp.get("/<token>/plan")
+    def plan(token):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        return pagina_plan(token, sup, no_leidos=_no_leidos(sup),
+                           mensaje=request.args.get("mensaje"), error=request.args.get("error"))
+
+    @bp.post("/<token>/plan/checkout")
+    def plan_checkout(token):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        import os
+        from src.services import portal_plan as PP
+        ciclo = request.form.get("ciclo")
+        base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
+        r = PP.crear_checkout_session(
+            "proveedor", sup["id"], ciclo=ciclo, email=sup.get("email_login") or "",
+            success_url=f"{base_web}/portal/proveedor/{token}/plan/exito",
+            cancel_url=f"{base_web}/portal/proveedor/{token}/plan")
+        if not r.get("ok"):
+            from urllib.parse import quote
+            return redirect(f"/portal/proveedor/{token}/plan?error={quote(r.get('error', ''))}")
+        return redirect(r["url"], code=303)
+
+    @bp.post("/<token>/plan/checkout-financiado")
+    def plan_checkout_financiado(token):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        import os
+        from src.services import portal_plan as PP
+        base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
+        r = PP.crear_checkout_session_financiada(
+            "proveedor", sup["id"], email=sup.get("email_login") or "",
+            success_url=f"{base_web}/portal/proveedor/{token}/plan/exito",
+            cancel_url=f"{base_web}/portal/proveedor/{token}/plan")
+        if not r.get("ok"):
+            from urllib.parse import quote
+            return redirect(f"/portal/proveedor/{token}/plan?error={quote(r.get('error', ''))}")
+        return redirect(r["url"], code=303)
+
+    @bp.get("/<token>/plan/exito")
+    def plan_exito(token):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        session_id = request.args.get("session_id")
+        if not session_id:
+            return redirect(f"/portal/proveedor/{token}/plan")
+        from src.services import portal_plan as PP
+        r = PP.confirmar_checkout_generico(session_id)
+        from urllib.parse import quote
+        if not r.get("ok"):
+            return redirect(f"/portal/proveedor/{token}/plan?error={quote(r.get('error', ''))}")
+        return redirect(f"/portal/proveedor/{token}/plan?mensaje="
+                        f"{quote('¡Plan de Pago del Portal activado! Ya no tienes ningún límite.')}")
+
+    @bp.get("/<token>/stripe/conectar")
+    def stripe_conectar(token):
+        """Onboarding KYB de Stripe Connect (requisito previo a cobrar comisiones reales, ver
+        `suministradores.iniciar_onboarding_stripe`): redirige al enlace hospedado por Stripe."""
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        from src.services.compras import suministradores as S
+        r = S.iniciar_onboarding_stripe(sup["id"], token=token)
+        if not r.get("ok"):
+            mensaje = (_t("portal_prov.stripe_no_configurado",
+                          "Los cobros con Stripe todavía no están activados en la plataforma. "
+                          "Vuelve a intentarlo más tarde.")
+                      if r.get("error") == "stripe_no_configurado" else
+                      _t("portal_prov.stripe_error_generico",
+                        "No se pudo iniciar la conexión con Stripe. Inténtalo de nuevo."))
+            return _pagina_error(_t("portal_prov.stripe_error_titulo", "{marca} no disponible", marca="Stripe"),
+                                 mensaje), 502
+        return redirect(r["onboarding_url"])
+
+    @bp.get("/<token>/elegir-pasarela")
+    def elegir_pasarela(token):
+        """Reentrada única e idempotente del paso obligatorio de elección de pasarela (petición
+        explícita, 2026-11-23) — retoma exactamente donde se quedó el proveedor (nunca le hace
+        repetir un paso ya completado), tanto si viene recién registrado como si vuelve más tarde
+        desde el panel sin haber terminado."""
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        pasarela = sup.get("pasarela_cobro")
+        if pasarela == "paypal":
+            if not sup.get("paypal_email"):
+                return redirect(f"/portal/proveedor/{token}/paypal/email")
+            return redirect(f"/portal/proveedor/{token}/dashboard")
+        if pasarela == "stripe":
+            return redirect(f"/portal/proveedor/{token}/dashboard")
+        return pagina_elegir_pasarela(token)
+
+    @bp.get("/<token>/paypal/email")
+    def paypal_email_form(token):
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        return pagina_paypal_email(token)
+
+    @bp.post("/<token>/paypal/email")
+    def paypal_email_post(token):
+        """Único dato que necesita un proveedor para cobrar por PayPal (petición explícita,
+        2026-11-23, simplificado el mismo día: nunca se le pide una tarjeta de otra pasarela —
+        la comisión se retiene dentro de la propia custodia de PayPal, ver `tpv.pagos.
+        paypal_connect.liberar_fondos`)."""
+        sup, err = _suministrador_o_error(token)
+        if err:
+            return err
+        from src.services.compras import suministradores as S
+        r = S.fijar_paypal_email(sup["id"], request.form.get("email", ""))
+        if not r.get("ok"):
+            mensajes = {
+                "email_de_paypal_invalido": _t("portal_prov.paypal_email_invalido",
+                                              "Introduce un email válido."),
+                "ya_tienes_stripe_como_pasarela_de_cobro": _t(
+                    "portal_prov.ya_tienes_stripe", "Ya tienes Stripe como pasarela de cobro — no "
+                                                    "puedes tener las dos a la vez."),
+            }
+            return pagina_paypal_email(
+                token, error=mensajes.get(r.get("error"), "No se pudo guardar el email.")), 400
+        return redirect(f"/portal/proveedor/{token}/dashboard")
 
     @bp.get("/<token>/catalogo")
     def catalogo(token):
@@ -912,6 +1505,19 @@ def crear_blueprint():
         if err:
             return err
         from src.services.compras import b2b_catalogo as C
+        # Límite Freemium de referencias de catálogo (petición explícita, 2026-11-27 — ver
+        # `services/portal_plan.py`): proveedores sin ERP ni Plan de Pago del Portal tienen un
+        # tope de artículos activos en catálogo; con cualquiera de los dos, sin límite.
+        from src.services import portal_plan as PPLAN
+        info_limite = PPLAN.limite("proveedor", "catalogo_items", "proveedor", sup["id"])
+        if not info_limite["ok"]:
+            arts = C.listar_por_suministrador(sup["id"])
+            return pagina_catalogo(
+                token, arts, no_leidos=_no_leidos(sup),
+                error=_t("portal_prov.limite_catalogo_error",
+                        "Has alcanzado el límite de {n} referencias activas de tu plan Freemium. "
+                        "Mejora al Plan de Pago del Portal o contrata Smart Manager ERP para añadir "
+                        "sin límite.", n=info_limite["limite"])), 400
         d = request.form
         # Talla/Marca/Color obligatorios (petición explícita): son los 3 parámetros estructurados
         # (junto al Nombre) que `db.articulos.detectar_posible_duplicado` usa para la detección
@@ -942,7 +1548,8 @@ def crear_blueprint():
             talla=talla, marca=marca, color=color, exigir_atributos=True)
         arts = C.listar_por_suministrador(sup["id"])
         if not r.get("ok"):
-            return pagina_catalogo(token, arts, error=r.get("error"), no_leidos=_no_leidos(sup)), 400
+            return pagina_catalogo(token, arts, error=_mensaje_error_catalogo(r.get("error")),
+                                   no_leidos=_no_leidos(sup)), 400
         return redirect(f"/portal/proveedor/{token}/catalogo")
 
     @bp.get("/<token>/catalogo/<int:id_articulo>/escalones")
@@ -1105,6 +1712,19 @@ def crear_blueprint():
         if err:
             return err
         from src.services.compras import b2b_catalogo as C
+        # Importación masiva: función de automatización reservada a Plan de Pago del Portal/ERP
+        # (petición explícita, 2026-11-27 — "restringe en Freemium... importación masiva...
+        # mostrándolas como ganchos de conversión", ver `services/portal_plan.py`). A diferencia
+        # del límite de referencias (que SÍ se aplica en Freemium), aquí el gate es binario: nada
+        # de importar en lote sin Plan de Pago del Portal o ERP, sea cual sea el tamaño del lote.
+        from src.services import portal_plan as PPLAN
+        if PPLAN.tier_efectivo("proveedor", sup["id"]) == "freemium":
+            return pagina_catalogo(
+                token, C.listar_por_suministrador(sup["id"]), no_leidos=_no_leidos(sup),
+                error=_t("portal_prov.importacion_masiva_bloqueada",
+                        "La importación masiva de catálogo es una función del Plan de Pago del "
+                        "Portal o de Smart Manager ERP. Añade tus artículos manualmente o mejora "
+                        "tu plan.")), 400
         f = request.files.get("archivo")
         if not f or not f.filename:
             return pagina_catalogo(token, C.listar_por_suministrador(sup["id"]),
@@ -1197,7 +1817,8 @@ def crear_blueprint():
             for s in saldos:
                 por_empresa.setdefault(s["id_empresa"], []).append(s)
             bloques = [(_nombre_empresa(id_empresa), ss) for id_empresa, ss in por_empresa.items()]
-            return pagina_consignacion_proveedor(token, bloques, error=r.get("error"),
+            return pagina_consignacion_proveedor(token, bloques,
+                                                 error=_mensaje_error_catalogo(r.get("error")),
                                                  no_leidos=_no_leidos(sup)), 400
         return redirect(f"/portal/proveedor/{token}/consignacion")
 

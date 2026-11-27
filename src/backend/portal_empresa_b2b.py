@@ -10,11 +10,17 @@ los datos más recientes — no hay caché ni copia local que refrescar (nunca s
 que no ocurre).
 """
 
+import json
 import logging
+import os
 
 from markupsafe import escape
 
-from src.backend.portal_i18n import idioma_actual, registrar_selector_idioma, selector_idioma_html, t as _t
+from src.backend.portal_i18n import (FLAG_ICONS_LINK, idioma_actual, layout_publico,
+                                     marcar_origen_web, registrar_selector_idioma,
+                                     selector_idioma_html, t as _t, url_sitio_oficial,
+                                     viene_de_web_oficial)
+from src.backend.portal_theming import PALETA_EMPRESA_B2B as _PALETA_EMP
 
 logger = logging.getLogger("backend.portal_empresa_b2b")
 
@@ -23,6 +29,18 @@ _ETIQUETA_UNIDAD = {"kg": "Kilos", "unidad": "Unidades", "pale": "Palés", "caja
 
 def _e(x):
     return str(escape(x if x is not None else ""))
+
+
+def _aviso_html(mensaje=None, error=None):
+    """Hallazgo real (2026-11-27): esta función se llamaba ya en la línea ~752 sin estar nunca
+    definida ni importada en este fichero (`NameError` latente si esa ruta concreta llegaba a
+    pasar `mensaje`/`error` — nunca detectado porque esa página no solía recibir ninguno de los
+    dos). Misma implementación exacta que `portal_empresa_gestion.py::_aviso_html`."""
+    if error:
+        return f'<p class="error">{_e(error)}</p>'
+    if mensaje:
+        return f'<p class="ok">{_e(mensaje)}</p>'
+    return ""
 
 
 def _nav_html(token, activo, *, no_leidos=0):
@@ -36,9 +54,12 @@ def _nav_html(token, activo, *, no_leidos=0):
               ("pedidos", f"{base}/pedidos", f'{_t("portal_emp2.nav_pedidos", "Mis pedidos")}{badge}'),
               ("consignacion", f"{base}/consignacion", _t("portal_emp2.nav_consignacion", "Consignación")),
               ("gestion", f"{base}/gestion", _t("portal_emp2.nav_gestion", "Gestión")),
-              ("colores", f"{base}/colores", _t("portal_emp2.nav_personalizacion", "Personalización")))
+              ("plan", f"{base}/plan", _t("portal_emp2.nav_plan", "Plan")))
+    # Devuelve SOLO los enlaces — "Cerrar sesión"/"Volver a la web oficial"/selector de idioma los
+    # añade `_layout` (grupo inferior único, también presente en páginas SIN sesión — ver su
+    # docstring; antes se construían aquí y nunca aparecían en /registro ni /acceso).
     return "".join(f'<a href="{href}"{" class=\"on\"" if activo == key else ""}>{label}</a>'
-                   for key, href, label in enlaces) + selector_idioma_html(accion="/portal/empresa/idioma")
+                   for key, href, label in enlaces)
 
 
 _FLECHA_SVG = ("data:image/svg+xml;utf8,"
@@ -63,26 +84,38 @@ background:var(--bg);border:2px solid var(--ac);border-radius:10px;max-height:24
 overflow-y:auto;padding:4px}
 .csel-pop.open{display:block}
 .csel-opt{padding:8px 12px;border-radius:6px;color:#E6EDF3;cursor:pointer;font-weight:700;
-font-size:14px}
+font-size:14px;display:flex;align-items:center;gap:8px}
 .csel-opt:hover,.csel-opt.sel{background:var(--ac);color:var(--bg)}
+.csel-trigger span.csel-lbl{display:flex;align-items:center;gap:8px}
+.csel-flag{flex:none;width:18px;height:13px;border-radius:2px;box-shadow:0 0 0 1px rgba(255,255,255,.15)}
 """
 _CSEL_JS = f"""
 document.addEventListener('DOMContentLoaded',function(){{
+ function pintar(destino,opt){{
+  destino.innerHTML='';
+  var bandera=opt.getAttribute('data-flag');
+  if(bandera){{
+   var fl=document.createElement('span');
+   fl.className='fi fi-'+bandera+' csel-flag';
+   destino.appendChild(fl);
+  }}
+  destino.appendChild(document.createTextNode(opt.textContent));
+ }}
  document.querySelectorAll('select').forEach(function(sel){{
   var wrap=document.createElement('div');wrap.className='csel-wrap';
   sel.parentNode.insertBefore(wrap,sel);wrap.appendChild(sel);
   var trig=document.createElement('div');trig.className='csel-trigger';trig.tabIndex=0;
-  var lbl=document.createElement('span');
+  var lbl=document.createElement('span');lbl.className='csel-lbl';
   var arw=document.createElement('span');arw.className='csel-arrow';
   arw.style.backgroundImage=`url("{_FLECHA_SVG}")`;
   trig.appendChild(lbl);trig.appendChild(arw);
   var pop=document.createElement('div');pop.className='csel-pop';
-  function refrescar(){{var o=sel.options[sel.selectedIndex];lbl.textContent=o?o.textContent:'';}}
+  function refrescar(){{var o=sel.options[sel.selectedIndex];if(o)pintar(lbl,o);else lbl.textContent='';}}
   refrescar();
   Array.prototype.forEach.call(sel.options,function(opt,i){{
    var row=document.createElement('div');
    row.className='csel-opt'+(i===sel.selectedIndex?' sel':'');
-   row.textContent=opt.textContent;
+   pintar(row,opt);
    row.addEventListener('click',function(){{
     sel.selectedIndex=i;refrescar();
     pop.querySelectorAll('.csel-opt').forEach(function(r){{r.classList.remove('sel');}});
@@ -347,7 +380,28 @@ document.addEventListener('DOMContentLoaded',function(){
 """
 
 
-def _layout(titulo, contenido, nav="", id_empresa=None):
+def _layout(titulo, contenido, nav="", id_empresa=None, *, token=None, sub_nav=""):
+    """"Cerrar sesión"/"Volver a la web oficial"/selector de idioma (petición explícita, 2026-11-16;
+    reubicados a esquinas fijas 2026-11-22 — ver `portal_theming.CSS_TOPNAV_SHELL`, antes le
+    quitaban sitio a las pestañas de la topbar y las empujaba a una segunda línea): "Cerrar sesión"
+    (si hay `token`) a la esquina inferior DERECHA, "Volver a la web oficial" (SOLO si
+    `portal_i18n.viene_de_web_oficial`) a la esquina inferior IZQUIERDA — visibles en TODAS las
+    pestañas por ser `position:fixed`, no parte del flujo de cada página. El selector de idioma se
+    queda en la topbar (no lo pidió el usuario, y es compacto).
+
+    `sub_nav` (petición explícita, 2026-11-21 — "Gestión" pasa a tener su PROPIA side bar con
+    "+ Alta artículo" por defecto, en vez del índice de tarjetas): si se pasa, el contenido se
+    envuelve en `.gestion-shell` (sub-sidebar + main propios, ver `portal_theming.CSS_TOPNAV_SHELL`)
+    con un botón para replegar/desplegar la sidebar (petición explícita, 2026-11-22, persistido en
+    `localStorage` para que no se olvide al navegar de pestaña) — usado EXCLUSIVAMENTE por
+    `portal_empresa_gestion.py`; el resto de páginas del portal (fuera de Gestión) no lo pasan y
+    siguen con una sola columna bajo la topbar.
+
+    Tema de color: paleta FIJA propia de este portal (`portal_theming.PALETA_EMPRESA_B2B` —
+    petición explícita, 2026-11-21: se retira la personalización por empresa que tenía antes
+    — página "Colores" y sus 3 rutas, retiradas — y en su lugar cada portal usa su propio color
+    de acento fijo, distinto de la web oficial y del Portal Proveedor). `id_empresa` se conserva
+    como parámetro (varios llamadores lo siguen pasando) pero ya NO se usa para el color."""
     from src.backend import portal_theming as _tema
     if id_empresa is None:
         try:
@@ -355,19 +409,52 @@ def _layout(titulo, contenido, nav="", id_empresa=None):
             id_empresa = getattr(g, "id_empresa", None)
         except Exception:
             pass
+    base = f"/portal/empresa/{token}" if token else None
+    logout_fixed = (f'<div class="sm-corner-logout"><form method="post" action="{base}/logout">'
+                    f'<button type="submit" class="nav-logout">'
+                    f'{_t("portal_emp2.cerrar_sesion", "Cerrar sesión")}</button></form></div>'
+                   if token else "")
+    volver_fixed = (
+        f'<div class="sm-corner-volver"><a href="{_e(url_sitio_oficial())}" class="nav-volver-web">'
+        f'{_t("portal_emp2.volver_web_oficial", "← Volver a la web")}</a></div>'
+        if viene_de_web_oficial() else "")
+    idioma_html = selector_idioma_html(accion="/portal/empresa/idioma") if token else ""
+    grupo_wrap = f'<div class="toplinks-grupo">{idioma_html}</div>' if idioma_html else ""
+    cuerpo = (
+        f'<div class="gestion-shell">'
+        f'<aside class="gestion-sidebar" id="gestion-sidebar">'
+        f'<button type="button" class="gestion-sidebar-toggle" id="gestion-toggle" '
+        f'aria-label="{_t("portal_emp2.replegar_desplegar_sidebar", "Replegar/desplegar menú")}">'
+        f'<span>‹</span></button>'
+        f'<nav>{sub_nav}</nav></aside>'
+        f'<div class="gestion-main">{contenido}</div></div>'
+        f"""<script>
+(function(){{
+  var side=document.getElementById('gestion-sidebar'),btn=document.getElementById('gestion-toggle');
+  if(!side||!btn)return;
+  var ico=btn.querySelector('span');
+  var KEY='sm_gestion_sidebar_colapsada';
+  function aplicar(colapsada){{
+    side.classList.toggle('colapsada',colapsada);
+    ico.textContent=colapsada?'›':'‹';
+  }}
+  try{{aplicar(localStorage.getItem(KEY)==='1');}}catch(e){{}}
+  btn.addEventListener('click',function(){{
+    var colapsada=!side.classList.contains('colapsada');
+    aplicar(colapsada);
+    try{{localStorage.setItem(KEY,colapsada?'1':'0');}}catch(e){{}}
+  }});
+}})();
+</script>"""
+        if sub_nav else contenido)
     return f"""<!doctype html><html lang="{_e(idioma_actual())}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{_e(titulo)} · Portal B2B</title><style>
-:root{_tema.bloque_css_variables(id_empresa)}
+<title>{_e(titulo)} · Portal B2B</title>
+{FLAG_ICONS_LINK}
+<style>
+:root{_tema.bloque_css_variables_fijo(_tema.PALETA_EMPRESA_B2B)}
 *{{box-sizing:border-box}}body{{margin:0;font-family:'Segoe UI',system-ui,sans-serif;font-weight:700;
 background:var(--bg);color:var(--text)}}
-header{{display:flex;align-items:center;gap:16px;padding:14px 24px;background:#111418;
-border-bottom:2px solid var(--ac)}}
-.logo{{font-weight:900;font-size:20px;color:var(--ac)}}
-nav{{display:flex;flex-wrap:wrap;gap:8px;padding:12px 24px;background:var(--bg);border-bottom:1px solid #21262D}}
-nav a{{color:var(--text2);text-decoration:none;font-weight:700;font-size:13px;padding:6px 10px;
-border-radius:8px}}nav a.on,nav a:hover{{color:var(--bg);background:var(--ac)}}
-main{{max-width:1000px;margin:0 auto;padding:24px}}
 h1,h2{{color:var(--ac);font-weight:900}}
 .card{{background:var(--bg2);border:1px solid var(--borde);border-radius:12px;padding:18px;margin-bottom:16px}}
 label{{display:block;font-size:14px;color:var(--text2);margin:10px 0 4px;font-weight:700}}
@@ -434,12 +521,18 @@ margin-bottom:10px}}
 {_CSEL_CSS}
 {_CFILE_CSS}
 {_CDATE_CSS}
-.sel-idioma{{margin-left:auto}}.sel-idioma select{{padding:5px 24px 5px 8px;font-size:12px;margin:0}}
 {_tema.CSS_POLISH}
+{_tema.CSS_SHELL_PRO}
+{_tema.CSS_TOPNAV_SHELL}
 </style></head><body>
-<header><span class="logo">🏢 {_t("portal_emp2.titulo_marca", "Portal B2B")}</span></header>
-<nav>{nav}</nav>
-<main>{contenido}</main>
+<header class="sm-topbar"><div class="wrap">
+<a class="brand" href="{base + '/dashboard' if base else '/portal/empresa/'}">{_t("portal_emp2.titulo_marca", "Portal B2B")}</a>
+<nav class="toplinks">{nav}</nav>
+{grupo_wrap}
+</div></header>
+<main class="sm-contenido">{cuerpo}</main>
+{logout_fixed}
+{volver_fixed}
 <script>{_CSEL_JS}</script>
 <script>{_CFILE_JS}</script>
 <script>{_CDATE_JS}</script>
@@ -448,6 +541,14 @@ margin-bottom:10px}}
 
 def _pagina_error(titulo, mensaje, codigo=200):
     return _layout(titulo, f"<div class='card'><h1>{_e(titulo)}</h1><p class='error'>{_e(mensaje)}</p></div>")
+
+
+def pagina_sesion_cerrada():
+    return _layout(_t("portal_emp2.sesion_cerrada_titulo", "Sesión cerrada"), f"""
+<div class="card"><h1 class="ok">✓ {_t("portal_emp2.sesion_cerrada_h1", "Sesión cerrada")}</h1>
+<p>{_t("portal_emp2.sesion_cerrada_desc", "Has cerrado tu sesión correctamente. Vuelve a entrar desde Smart Manager o desde el enlace de acceso del portal.")}</p>
+<p><a class="enlace" href="/portal/empresa/acceso">{_t("portal_emp2.volver_iniciar_sesion", "Volver a iniciar sesión")}</a></p>
+</div>""")
 
 
 # ── Detección de duplicados antes de un pedido (petición explícita) ────────────────────────────
@@ -481,7 +582,7 @@ def pagina_confirmar_duplicado(token, art, dup, id_catalogo, cantidad):
 <button type="submit" class="btn btn-ghost">{_t("portal_emp2.no_es_distinto_btn", "No, es un artículo distinto — continuar el pedido")}</button>
 </form>
 </div>
-</div>""", nav=_nav_html(token, "catalogo"))
+</div>""", nav=_nav_html(token, "catalogo"), token=token)
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -501,28 +602,187 @@ def _banner_carrito_abandonado_html(token, abandono):
 </div>"""
 
 
-def pagina_dashboard(token, sesion, *, n_carrito=0, limite_actual=None, no_leidos=0, abandono=None):
-    base = f"/portal/empresa/{token}"
-    valor_limite = f'value="{limite_actual}"' if limite_actual is not None else ""
+def _banner_requisito_pago_html(token, sesion):
+    """Requisito OBLIGATORIO del comprador (petición explícita, 2026-11-16 — "no puede existir
+    ninguna asimetría frente a lo que se exige a los proveedores"): sin un método de pago
+    vinculado y verificado con Stripe, no se puede tramitar ningún pedido (ver
+    `b2b_pedidos.tramitar`/`b2b_pago_comprador`). Mismo tratamiento visual que el requisito
+    equivalente del Portal Proveedor (`portal_proveedor.pagina_dashboard`): banner a todo ancho,
+    arriba del todo, imposible de pasar por alto — nunca una tarjeta más entre otras."""
+    from src.services.compras import b2b_pago_comprador as PAGO
+    est = PAGO.estado(sesion.get("id_empresa"))
+    if est["verificado"]:
+        return (f'<div class="card"><h2>{_t("portal_emp2.pago_h2", "Método de pago")}</h2>'
+                f'<p class="ok">✓ {_t("portal_emp2.pago_verificado", "Tu método de pago está verificado — ya puedes tramitar pedidos a los proveedores.")}</p></div>')
+    enlace = f"/portal/empresa/{_e(token)}/pago/vincular"
+    return (
+        f'<div class="card" style="border:2px solid var(--err);background:color-mix(in srgb, var(--err) 10%, var(--bg2))">'
+        f'<h2 style="color:var(--err);font-size:20px">⚠ {_t("portal_emp2.requisito_obligatorio_h2", "REQUISITO OBLIGATORIO: vincula y verifica tu método de pago")}</h2>'
+        f'<p style="font-weight:700">{_t("portal_emp2.requisito_obligatorio_desc", "Sin esto, NO podrás tramitar ningún pedido a los proveedores.")}</p>'
+        f'<p><a class="enlace" href="{enlace}" style="color:var(--err);font-weight:900">{_t("portal_emp2.pago_vincular_cta", "Vincular método de pago →")}</a></p>'
+        f'</div>')
+
+
+def _banner_gancho_comercial_html(sesion):
+    """Gancho comercial hacia la app de escritorio (petición explícita, 2026-11-16, reconvertido
+    2026-11-27 tras retirar la comisión del 2,5% — `comisiones_b2b.PCT_SIN_SUSCRIPCION = 0.0`,
+    ver su docstring). El portal ya no "vende" 0% de comisión (todos pagan 0% ahora): pasa a ser un
+    gancho genérico hacia el ERP para empresas SIN suscripción activa — mismo criterio de embudo
+    de captación que `services/portal_plan.py` (Freemium/plan de pago del portal). Pasa el email
+    (si se conoce) y el origen a la web oficial — mismo patrón `?plan=&ciclo=` ya usado por
+    `/precios` de `sitio_oficial.py`."""
+    import os
+    from urllib.parse import quote
+    from src.services.compras import comisiones_b2b
+    id_empresa = sesion.get("id_empresa")
+    if comisiones_b2b.tiene_suscripcion_desktop_activa(id_empresa):
+        return ""
+    base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
+    email = sesion.get("nombre_usuario") or ""
+    qs = "plan=basic&origen=b2b"
+    if "@" in email:
+        qs += f"&email={quote(email)}"
+    enlace = f"{base_web}/registro?{qs}"
+    return (
+        f'<div class="card" style="border:2px solid var(--ac);background:color-mix(in srgb, var(--ac) 10%, var(--bg2))">'
+        f'<h2 style="color:var(--ac);font-size:18px">★ {_t("portal_emp2.gancho_comercial_h2", "Lleva tu negocio al siguiente nivel")}</h2>'
+        f'<p style="font-weight:700">{_t("portal_emp2.gancho_comercial_desc", "Este portal es gratis y sin comisiones, pero es solo una parte de lo que {marca} puede hacer por tu negocio: TPV, stock multi-almacén, RRHH, fiscalidad real y mucho más, todo integrado.", marca="Smart Manager")}</p>'
+        f'<p><a class="enlace" href="{enlace}" style="color:var(--ac);font-weight:900">{_t("portal_emp2.gancho_comercial_cta", "Contratar {marca} →", marca="Smart Manager")}</a></p>'
+        f'</div>')
+
+
+def _nombre_empresa_actual(id_empresa):
+    """Nombre real de la empresa conectada (petición explícita, 2026-11-21: la pestaña "Inicio"
+    mostraba el id de la tienda en crudo — "tienda conectada" dejó de tener sentido como concepto
+    único desde que una empresa puede tener VARIOS centros; se sustituye por el nombre real de la
+    propia empresa, siempre único con independencia de cuántos centros tenga)."""
+    try:
+        from src.db.empresa import obtener_empresa
+        emp = obtener_empresa(id_empresa) or {}
+        return emp.get("nombre_empresa") or f"#{id_empresa}"
+    except Exception:
+        return f"#{id_empresa}"
+
+
+def _nombre_sector(sector_id):
+    """Nombre real del sector (petición explícita, 2026-11-21: se mostraba el id numérico en
+    crudo)."""
+    if not sector_id:
+        return "—"
+    try:
+        from src.services.compras import sectores as SEC
+        for s in SEC.listar(solo_activos=False):
+            if str(s.get("id")) == str(sector_id):
+                return s.get("nombre") or f"#{sector_id}"
+    except Exception:
+        pass
+    return f"#{sector_id}"
+
+
+def _banner_limite_portal_html(sesion):
+    """Aviso preventivo de límite Freemium (petición explícita, 2026-11-27 — ver
+    `services/portal_plan.py`): discreto, solo cuando de verdad se acerca/alcanza un límite — con
+    ERP o Plan de Pago del Portal esta función ni siquiera consulta nada (sin límite, sin aviso)."""
+    import os
+    from urllib.parse import quote
+    from src.services import portal_plan as PP
+    id_empresa = sesion.get("id_empresa")
+    pedidos = PP.limite("b2b", "pedidos_mes", "empresa", id_empresa)
+    if pedidos["tier"] != "freemium":
+        return ""
+    proveedores = PP.limite("b2b", "proveedores_activos", "empresa", id_empresa)
+    avisos = []
+    if not pedidos["ok"]:
+        avisos.append(_t("portal_emp2.limite_pedidos_agotado",
+                         "Has agotado tus {n} pedidos/mes del plan Freemium.", n=pedidos["limite"]))
+    elif pedidos["aviso"]:
+        avisos.append(_t("portal_emp2.limite_pedidos_cerca",
+                         "Vas por {u} de {n} pedidos este mes en tu plan Freemium.",
+                         u=pedidos["usado"], n=pedidos["limite"]))
+    if not proveedores["ok"]:
+        avisos.append(_t("portal_emp2.limite_proveedores_agotado",
+                         "Has agotado tus {n} proveedores activos del plan Freemium.",
+                         n=proveedores["limite"]))
+    elif proveedores["aviso"]:
+        avisos.append(_t("portal_emp2.limite_proveedores_cerca",
+                         "Vas por {u} de {n} proveedores activos en tu plan Freemium.",
+                         u=proveedores["usado"], n=proveedores["limite"]))
+    if not avisos:
+        return ""
+    base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
+    email = sesion.get("nombre_usuario") or ""
+    qs = f"email={quote(email)}" if "@" in email else ""
+    return (
+        f'<div class="card" style="border:2px solid var(--warn, #E3B341);background:color-mix(in srgb, #E3B341 10%, var(--bg2))">'
+        f'<p style="font-weight:700;margin:0 0 8px 0">⏳ {"<br>".join(_e(a) for a in avisos)}</p>'
+        f'<p style="margin:0"><a class="enlace" href="/portal/empresa/{sesion.get("_token", "")}/plan" '
+        f'style="font-weight:900">{_t("portal_emp2.mejorar_plan_cta", "Mejorar plan →")}</a> · '
+        f'<a class="enlace" href="{base_web}/registro?plan=basic&origen=b2b&{qs}">'
+        f'{_t("portal_emp2.gancho_comercial_cta", "Contratar {marca} →", marca="Smart Manager")}</a></p>'
+        f'</div>')
+
+
+def pagina_plan(token, sesion, *, mensaje=None, error=None, no_leidos=0):
+    """Plan Freemium / de Pago del Portal (petición explícita, 2026-11-27 — ver
+    `services/portal_plan.py`). Muestra el nivel actual, el uso Freemium (si aplica) y el precio
+    calculado del Plan de Pago — nunca un precio fijo inventado en la plantilla, siempre el
+    devuelto por `portal_plan.precio_mensual_portal`/`precio_anual_portal`."""
+    from src.services import portal_plan as PP
+    id_empresa = sesion.get("id_empresa")
+    tier = PP.tier_efectivo("empresa", id_empresa)
+    base = f"/portal/empresa/{token}/plan"
+    if tier == "erp":
+        cuerpo_tier = (
+            f'<div class="card"><h2>★ {_t("portal_emp2.plan_ya_erp_h2", "Ya tienes acceso completo")}</h2>'
+            f'<p>{_t("portal_emp2.plan_ya_erp_desc", "Tu empresa tiene una suscripción activa a Smart Manager ERP: acceso completo al portal, sin límites ni coste adicional.")}</p></div>')
+    elif tier == "pago":
+        cuerpo_tier = (
+            f'<div class="card"><h2>★ {_t("portal_emp2.plan_ya_pago_h2", "Plan de Pago del Portal activo")}</h2>'
+            f'<p>{_t("portal_emp2.plan_ya_pago_desc", "Tienes acceso sin límites al Portal B2B. ¿Quieres todavía más? Smart Manager ERP añade TPV, stock, RRHH, facturación y mucho más.")}</p></div>')
+    else:
+        pedidos = PP.limite("b2b", "pedidos_mes", "empresa", id_empresa)
+        proveedores = PP.limite("b2b", "proveedores_activos", "empresa", id_empresa)
+        cuerpo_tier = (
+            f'<div class="card"><h2>{_t("portal_emp2.plan_freemium_h2", "Tu plan actual: Freemium")}</h2>'
+            f'<p>{_t("portal_emp2.plan_freemium_pedidos", "Pedidos este mes:")} '
+            f'<b>{pedidos["usado"]}/{pedidos["limite"]}</b> · '
+            f'{_t("portal_emp2.plan_freemium_proveedores", "Proveedores activos:")} '
+            f'<b>{proveedores["usado"]}/{proveedores["limite"]}</b></p></div>')
+    mensual, anual, cuota = PP.precio_mensual_portal(), PP.precio_anual_portal(), PP.cuota_4_pagos()
+    oferta_html = "" if tier != "freemium" else f"""
+<div class="card">
+<h2>{_t("portal_emp2.plan_pago_h2", "Plan de Pago del Portal")}</h2>
+<p>{_t("portal_emp2.plan_pago_desc", "Sin límites de pedidos ni de proveedores vinculados.")}</p>
+<div style="display:flex;gap:16px;flex-wrap:wrap">
+<form method="post" action="{base}/checkout"><input type="hidden" name="ciclo" value="mensual">
+<button type="submit" class="btn btn-primary">{_t("portal_emp2.plan_mensual_btn", "{p} €/mes", p=mensual)}</button></form>
+<form method="post" action="{base}/checkout"><input type="hidden" name="ciclo" value="anual">
+<button type="submit" class="btn btn-ghost">{_t("portal_emp2.plan_anual_btn", "{p} €/año (ahorra 16,7%)", p=anual)}</button></form>
+<form method="post" action="{base}/checkout-financiado">
+<button type="submit" class="btn btn-ghost">{_t("portal_emp2.plan_financiado_btn", "4 cuotas de {c} €/trimestre", c=cuota)}</button></form>
+</div>
+</div>"""
+    return _layout(_t("portal_emp2.nav_plan", "Plan"), f"""
+{_aviso_html(mensaje, error)}
+{cuerpo_tier}
+{oferta_html}
+""", nav=_nav_html(token, "plan", no_leidos=no_leidos), token=token)
+
+
+def pagina_dashboard(token, sesion, *, n_carrito=0, no_leidos=0, abandono=None):
     banner = _banner_carrito_abandonado_html(token, abandono)
+    gancho = _banner_gancho_comercial_html(sesion)
+    limite_aviso = _banner_limite_portal_html({**sesion, "_token": token})
     return _layout(_t("portal_emp2.nav_inicio", "Inicio"), f"""
+{limite_aviso}
+{gancho}
 {banner}
 <div class="card">
 <h1>{_t("portal_emp2.bienvenido_h1", "Bienvenido, {n}", n=_e(sesion.get('nombre_usuario') or _t("portal_emp2.usuario_generico", "usuario")))}</h1>
-<p>{_t("portal_emp2.tienda_conectada_lbl", "Tienda conectada:")} <span class="badge">#{_e(sesion.get('id_tienda'))}</span>
-· {_t("portal_emp2.sector_lbl", "Sector:")} <span class="badge">{_e(sesion.get('sector_id'))}</span></p>
-<p>{_t("portal_emp2.reponer_otra_tienda_desc", "Para reponer una tienda distinta, vuelve a Smart Manager, conéctate remotamente a ella y entra de nuevo al portal.")}</p>
+<p>{_t("portal_emp2.empresa_conectada_lbl", "Empresa conectada:")} <span class="badge">{_e(_nombre_empresa_actual(sesion.get('id_empresa')))}</span>
+· {_t("portal_emp2.sector_lbl", "Sector:")} <span class="badge">{_e(_nombre_sector(sesion.get('sector_id')))}</span></p>
 <p>{_t("portal_emp2.articulos_carrito_lbl", "Artículos en tu carrito:")} <span class="badge">{n_carrito}</span></p>
-</div>
-<div class="card"><h2>{_t("portal_emp2.limite_gasto_h2", "Límite de gasto mensual (B2B)")}</h2>
-<p>{_t("portal_emp2.limite_gasto_desc",
-      "Aviso visual (no bloqueante) en el carrito cuando el gasto validado del mes más el "
-      "carrito actual supere este límite. Déjalo vacío para desactivarlo.")}</p>
-<form class="inline" method="post" action="{base}/dashboard/limite-gasto">
-<input type="number" name="limite" step="0.01" min="0" placeholder="{_t("portal_emp2.sin_limite_ph", "Sin límite")}" style="min-width:120px" {valor_limite}>
-<span>{_t("portal_emp2.eur_mes", "€ / mes")}</span>
-<button type="submit">{_t("portal_emp2.guardar_btn", "Guardar")}</button>
-</form></div>""", nav=_nav_html(token, "dashboard", no_leidos=no_leidos))
+</div>""", nav=_nav_html(token, "dashboard", no_leidos=no_leidos), token=token)
 
 
 # ── Consignación (Fase C — Stock en Consignación) ────────────────────────────
@@ -556,7 +816,7 @@ def pagina_consignacion_empresa(token, bloques, *, no_leidos=0):
       '(vendes/usas): al consumirse se liquida y factura automáticamente, sola. "Disponible" es '
       "lo que aún puedes usar o devolver sin ningún coste.")}</p>
 </div>
-{contenido}""", nav=_nav_html(token, "consignacion", no_leidos=no_leidos))
+{contenido}""", nav=_nav_html(token, "consignacion", no_leidos=no_leidos), token=token)
 
 
 # ── Catálogo B2B ───────────────────────────────────────────────────────────────
@@ -588,7 +848,7 @@ def pagina_catalogo(token, articulos, *, texto="", mensaje=None, no_leidos=0):
 <button type="submit" name="actualizar" value="1">🔄 {_t("portal_emp2.actualizar_ofertas_btn", "Actualizar Ofertas B2B")}</button>
 </form>
 {aviso}{tabla}
-</div>""", nav=_nav_html(token, "catalogo", no_leidos=no_leidos))
+</div>""", nav=_nav_html(token, "catalogo", no_leidos=no_leidos), token=token)
 
 
 # ── Ficha de producto (cross-sell + bundles) ─────────────────────────────────
@@ -636,7 +896,7 @@ def pagina_producto_detalle(token, articulo, *, relacionados=None, reglas_bundle
 {_bloque_bundles_html(reglas_bundle)}
 {_bloque_relacionados_html(base, relacionados)}
 <p><a href="{base}/catalogo" style="color:var(--ac);font-weight:700">{_t("portal_emp2.volver_catalogo", "← Volver al catálogo")}</a></p>
-""", nav=_nav_html(token, "catalogo", no_leidos=no_leidos))
+""", nav=_nav_html(token, "catalogo", no_leidos=no_leidos), token=token)
 
 
 # ── Desde reposición ─────────────────────────────────────────────────────────
@@ -668,7 +928,7 @@ def pagina_reposicion(token, propuestas, *, mensaje=None, no_leidos=0):
       "desaparecen hasta que tramites el pedido.")}</p>
 {aviso}
 {tabla}
-</div>""", nav=_nav_html(token, "reposicion", no_leidos=no_leidos))
+</div>""", nav=_nav_html(token, "reposicion", no_leidos=no_leidos), token=token)
 
 
 _ORIGEN_ETIQUETA = {"reposicion": "Desde reposición", "plantilla": "Plantilla"}
@@ -708,7 +968,7 @@ def _barra_presupuesto_html(resumen):
 # ── Carrito ────────────────────────────────────────────────────────────────────
 def pagina_carrito(token, lineas, total, *, mensaje=None, error=None, resumen_presupuesto=None,
                    no_leidos=0, consignacion_disponible=False, progreso_descuento=None,
-                   bundles_ganados=None):
+                   bundles_ganados=None, centros=None):
     base = f"/portal/empresa/{token}"
     aviso = f'<p class="ok">{_e(mensaje)}</p>' if mensaje else (f'<p class="error">{_e(error)}</p>' if error else "")
     quitar_btn = _t("portal_emp2.quitar_btn", "Quitar")
@@ -736,8 +996,19 @@ def pagina_carrito(token, lineas, total, *, mensaje=None, error=None, resumen_pr
 <input type="checkbox" name="es_consignacion" value="1">
 {_t("portal_emp2.tramitar_consignacion_lbl", "Tramitar como stock en consignación (sin coste inmediato — se liquida al consumirse)")}</label>"""
                           if consignacion_disponible else "")
-        acciones = f"""<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
-<form method="post" action="{base}/carrito/tramitar">{casilla_consig}
+        # Selector de centro de destino (petición explícita, 2026-11-21): obligatorio — una empresa
+        # con varios centros debe decidir a cuál enviar la mercancía ANTES de tramitar; ya no se
+        # asume un único "centro conectado" por sesión (ver `pagina_dashboard`/`b2b_pedidos.tramitar`).
+        opciones_centro = "".join(
+            f'<option value="{c["id_tienda"]}">{_e(c.get("nombre_centro"))}</option>'
+            for c in (centros or []))
+        selector_centro = (
+            f'<label style="margin:0 10px 0 0">{_t("portal_emp2.enviar_a_centro_lbl", "Enviar a:")}</label>'
+            f'<select name="id_tienda_destino" required style="margin:0 10px 0 0">{opciones_centro}</select>'
+            if centros else "")
+        acciones = f"""<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px">
+<form method="post" action="{base}/carrito/tramitar" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+{selector_centro}{casilla_consig}
 <button type="submit">{_t("portal_emp2.tramitar_pedidos_btn", "Tramitar pedido(s)")}</button></form>
 <form class="inline" method="post" action="{base}/carrito/guardar-plantilla">
 <input type="text" name="nombre" placeholder="{_t("portal_emp2.nombre_plantilla_ph", "Nombre de la plantilla")}" required>
@@ -757,23 +1028,212 @@ def pagina_carrito(token, lineas, total, *, mensaje=None, error=None, resumen_pr
 </div>
 {bloque_ganados}
 {bloque_progreso}
-{barra}""", nav=_nav_html(token, "carrito", no_leidos=no_leidos))
+{barra}""", nav=_nav_html(token, "carrito", no_leidos=no_leidos), token=token)
 
 
-def pagina_pedido_confirmado(token, pedidos, *, no_leidos=0):
+def pagina_pedido_confirmado(token, pedidos, *, no_leidos=0, proveedores_sin_verificar=None,
+                             proveedores_sin_pasarela_compatible=None):
     def _fila_pedido_confirmado(p):
         id_html = f"<code>{_e(p['id_tx'])}</code>"
-        return _t("portal_emp2.pedido_proveedor_item", "Pedido {id} — proveedor #{s} ({e})",
+        texto = _t("portal_emp2.pedido_proveedor_item", "Pedido {id} — proveedor #{s} ({e})",
                   id=id_html, s=_e(p['id_suministrador']), e=p['transicion'].get('hasta', '?'))
+        # Botón de pago (petición explícita, 2026-11-16): un pedido CONFIRMADA no se cobra solo —
+        # hasta ahora no existía ningún punto desde el que el comprador pudiera pagar de verdad.
+        boton_pagar = (
+            f' <a href="/portal/empresa/{_e(token)}/pedido/{_e(p["id_tx"])}/pagar" '
+            f'style="color:var(--bg);background:var(--ac);padding:4px 12px;border-radius:8px;'
+            f'font-weight:900;text-decoration:none;margin-left:8px">'
+            f'{_t("portal_emp2.pagar_ahora_btn", "Pagar ahora →")}</a>')
+        return texto + boton_pagar
     filas = "".join(f"<li>{_fila_pedido_confirmado(p)}</li>" for p in pedidos)
+    # Aviso parcial (petición explícita, 2026-11-15): si algún proveedor del carrito no tiene
+    # Stripe Connect verificado, sus líneas NUNCA se tramitan — se quedan en el carrito en vez de
+    # perderse en silencio (ver `b2b_pedidos.tramitar`). El comprador debe saberlo explícitamente.
+    aviso_sin_verificar = (
+        f'<p class="error">{_t("portal_emp2.proveedores_sin_verificar", "Algunos artículos de tu carrito pertenecen a proveedores que aún no han activado su cobro — se han quedado en el carrito, sin tramitar, hasta que lo completen.")}</p>'
+        if proveedores_sin_verificar else "")
+    # Aviso parcial PayPal/Stripe (petición explícita, 2026-11-22): esta empresa no tiene
+    # verificada la MISMA pasarela que ese proveedor concreto en particular (ver `b2b_pedidos.
+    # tramitar`) — sus líneas tampoco se tramitan, por el mismo criterio de "nunca perder líneas en
+    # silencio" que el aviso de arriba.
+    aviso_sin_pasarela = (
+        f'<p class="error">{_t("portal_emp2.proveedores_sin_pasarela_compatible", "Algunos artículos de tu carrito pertenecen a proveedores que cobran por una pasarela ({s} o {p}) que todavía no has verificado — se han quedado en el carrito, sin tramitar, hasta que la verifiques desde tu Panel.", s="Stripe", p="PayPal")}</p>'
+        if proveedores_sin_pasarela_compatible else "")
     return _layout(_t("portal_emp2.pedido_tramitado_titulo", "Pedido tramitado"), f"""
 <div class="card"><h1 class="ok">✓ {_t("portal_emp2.pedidos_tramitados_h1", "Pedido(s) tramitado(s)")}</h1>
 <p>{_t("portal_emp2.pedido_por_proveedor_desc", "Se ha generado un pedido por cada proveedor de tu carrito:")}</p>
+{aviso_sin_verificar}
+{aviso_sin_pasarela}
 <ul>{filas}</ul>
 <p><a href="/portal/empresa/{_e(token)}/catalogo" style="color:var(--ac);font-weight:700">
 {_t("portal_emp2.seguir_comprando", "Seguir comprando →")}</a> · <a href="/portal/empresa/{_e(token)}/pedidos" style="color:var(--ac);font-weight:700">
 {_t("portal_emp2.ver_mis_pedidos", "Ver mis pedidos →")}</a></p>
-</div>""", nav=_nav_html(token, "carrito", no_leidos=no_leidos))
+</div>""", nav=_nav_html(token, "carrito", no_leidos=no_leidos), token=token)
+
+
+# ── Pago real de un pedido B2B (petición explícita, 2026-11-16) ──────────────────────────────────
+# Hallazgo real que motivó esto: `b2b_escrow.iniciar_retencion` existía desde la Fase C pero NUNCA
+# se invocaba desde ningún sitio de la app, y el checkout nunca pedía una tarjeta — un pedido
+# CONFIRMADA se quedaba así para siempre. Stripe Payment Element (embebido, gestiona 3D Secure
+# automáticamente) es el único punto de la app que necesita Stripe.js del lado del navegador — por
+# eso es también el único sitio que usa `STRIPE_PUBLISHABLE_KEY` (la clave pública, nunca secreta).
+def pagina_pago(token, tx, *, client_secret, publishable_key, no_leidos=0):
+    base = f"/portal/empresa/{token}"
+    # Stripe exige una URL ABSOLUTA en `return_url` (la usa para redirigir de vuelta tras un
+    # desafío 3D Secure, que puede salir de nuestro dominio) — bug real encontrado probando en
+    # producción: una ruta relativa fallaba en el propio navegador con "Not a valid URL" antes de
+    # siquiera intentar el cargo. Mismo env var que ya usa el botón "Entrar al portal B2B" del
+    # escritorio (`main.py`) para construir el enlace real al portal.
+    base_absoluta = os.environ.get("PORTAL_EMPRESA_URL", "http://localhost:8090/portal/empresa")
+    return_url = f"{base_absoluta}/{_e(token)}/pedido/{_e(tx['id_tx'])}/pago-retorno"
+    return _layout(_t("portal_emp2.pagar_pedido_titulo", "Pagar pedido"), f"""
+<div class="card">
+<h1>{_t("portal_emp2.pagar_pedido_h1", "Pagar pedido")} <code>{_e(tx['id_tx'])}</code></h1>
+<p>{_t("portal_emp2.importe_a_pagar", "Importe a pagar:")} <b>{tx['total']} €</b></p>
+<div id="payment-element" style="margin:18px 0"></div>
+<p id="payment-message" class="error" hidden></p>
+<button id="btn-pagar" type="button">{_t("portal_emp2.confirmar_pago_btn", "Confirmar pago")}</button>
+</div>
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+(function() {{
+  var stripe = Stripe("{_e(publishable_key)}");
+  var elements = stripe.elements({{clientSecret: "{_e(client_secret)}"}});
+  var paymentElement = elements.create("payment");
+  paymentElement.mount("#payment-element");
+  var btn = document.getElementById("btn-pagar");
+  var msg = document.getElementById("payment-message");
+  btn.addEventListener("click", function() {{
+    btn.disabled = true;
+    btn.textContent = "{_t("portal_emp2.procesando", "Procesando…")}";
+    stripe.confirmPayment({{
+      elements: elements,
+      confirmParams: {{return_url: "{return_url}"}},
+    }}).then(function(result) {{
+      if (result.error) {{
+        msg.textContent = result.error.message;
+        msg.hidden = false;
+        btn.disabled = false;
+        btn.textContent = "{_t("portal_emp2.confirmar_pago_btn", "Confirmar pago")}";
+      }}
+    }});
+  }});
+}})();
+</script>""", nav=_nav_html(token, "pedidos", no_leidos=no_leidos), token=token)
+
+
+def pagina_pago_no_disponible(token, *, motivo=None, no_leidos=0):
+    return _layout(_t("portal_emp2.pago_no_disponible_titulo", "Pago no disponible"), f"""
+<div class="card"><h1>{_t("portal_emp2.pago_no_disponible_h1", "Pago no disponible todavía")}</h1>
+<p>{_e(motivo) if motivo else _t("portal_emp2.pago_no_disponible_desc", "Estamos terminando de activar el cobro de pedidos B2B. Vuelve a intentarlo más tarde o contacta con nosotros.")}</p>
+</div>""", nav=_nav_html(token, "pedidos", no_leidos=no_leidos), token=token)
+
+
+def pagina_pago_retorno(token, *, exito, mensaje=None, id_tx=None, no_leidos=0):
+    accent = "ok" if exito else "error"
+    icono = "✓" if exito else "✗"
+    titulo = (_t("portal_emp2.pago_confirmado_h1", "Pago confirmado")
+             if exito else _t("portal_emp2.pago_no_completado_h1", "Pago no completado"))
+    cuerpo_extra = (
+        f'<p><a href="/portal/empresa/{_e(token)}/pedido/{_e(id_tx)}/pagar" style="color:var(--ac);font-weight:700">{_t("portal_emp2.reintentar_pago", "Reintentar el pago →")}</a></p>'
+        if not exito and id_tx else "")
+    return _layout(titulo, f"""
+<div class="card"><h1 class="{accent}">{icono} {titulo}</h1>
+<p>{_e(mensaje) if mensaje else ""}</p>
+{cuerpo_extra}
+<p><a href="/portal/empresa/{_e(token)}/pedidos" style="color:var(--ac);font-weight:700">{_t("portal_emp2.ver_mis_pedidos", "Ver mis pedidos →")}</a></p>
+</div>""", nav=_nav_html(token, "pedidos", no_leidos=no_leidos), token=token)
+
+
+# ── Vinculación del método de pago (requisito obligatorio del comprador) ────────
+def pagina_elegir_metodo_pago(token, *, estado, no_leidos=0):
+    """Página de elección (petición explícita, 2026-11-22 — PayPal como alternativa a Stripe): a
+    diferencia del proveedor (que elige UNA sola pasarela para cobrar), la empresa compradora
+    puede verificar las DOS si lo necesita, porque puede comprar a proveedores que cobran por
+    vías distintas (ver `b2b_pago_comprador.esta_verificado_para`)."""
+    def _bloque(nombre, verificado, url):
+        if verificado:
+            return (f'<div class="card"><h2>{_e(nombre)}</h2>'
+                    f'<p class="ok">✓ {_t("portal_emp2.metodo_pago_verificado_ok", "Verificado — puedes tramitar pedidos a proveedores que cobren por aquí.")}</p></div>')
+        return (f'<div class="card"><h2>{_e(nombre)}</h2>'
+                f'<p>{_t("portal_emp2.metodo_pago_sin_verificar", "Todavía no verificado.")}</p>'
+                f'<p><a class="enlace" href="{url}" style="color:var(--ac);font-weight:900">{_t("portal_emp2.vincular_verificar_btn", "Vincular y verificar →")}</a></p></div>')
+    base = f"/portal/empresa/{token}"
+    cuerpo = (
+        f'<div class="card"><h1>{_t("portal_emp2.metodo_pago_h1", "Método de pago")}</h1>'
+        f'<p>{_t("portal_emp2.metodo_pago_desc", "Verifica {s}, {p}, o ambos — necesitas tener verificada la misma pasarela que use cada proveedor al que quieras comprar.", s="Stripe", p="PayPal")}</p></div>'
+        + _bloque("Stripe", estado.get("verificado"), f"{base}/pago/vincular/stripe")
+        + _bloque("PayPal", estado.get("paypal_verificado"), f"{base}/pago/vincular/paypal"))
+    return _layout(_t("portal_emp2.metodo_pago_titulo", "Método de pago"), cuerpo,
+                  nav=_nav_html(token, "dashboard", no_leidos=no_leidos), token=token)
+
+
+def pagina_vincular_pago(token, *, client_secret, publishable_key, no_leidos=0):
+    base_absoluta = os.environ.get("PORTAL_EMPRESA_URL", "http://localhost:8090/portal/empresa")
+    return_url = f"{base_absoluta}/{_e(token)}/pago/vincular/stripe/retorno"
+    return _layout(_t("portal_emp2.vincular_pago_titulo", "Vincular método de pago"), f"""
+<div class="card">
+<h1>{_t("portal_emp2.vincular_pago_h1", "Vincular método de pago")}</h1>
+<p>{_t("portal_emp2.vincular_pago_desc",
+      "Tu tarjeta se verifica ahora con tu banco, sin ningún cargo. Quedará guardada de forma "
+      "segura para pagar tus pedidos a los proveedores.")}</p>
+<div id="payment-element" style="margin:18px 0"></div>
+<p id="payment-message" class="error" hidden></p>
+<button id="btn-vincular" type="button">{_t("portal_emp2.confirmar_vinculacion_btn", "Verificar y vincular")}</button>
+</div>
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+(function() {{
+  var stripe = Stripe("{_e(publishable_key)}");
+  var elements = stripe.elements({{clientSecret: "{_e(client_secret)}"}});
+  var paymentElement = elements.create("payment");
+  paymentElement.mount("#payment-element");
+  var btn = document.getElementById("btn-vincular");
+  var msg = document.getElementById("payment-message");
+  btn.addEventListener("click", function() {{
+    btn.disabled = true;
+    btn.textContent = "{_t("portal_emp2.procesando", "Procesando…")}";
+    stripe.confirmSetup({{
+      elements: elements,
+      confirmParams: {{return_url: "{return_url}"}},
+    }}).then(function(result) {{
+      if (result.error) {{
+        msg.textContent = result.error.message;
+        msg.hidden = false;
+        btn.disabled = false;
+        btn.textContent = "{_t("portal_emp2.confirmar_vinculacion_btn", "Verificar y vincular")}";
+      }}
+    }});
+  }});
+}})();
+</script>""", nav=_nav_html(token, "dashboard", no_leidos=no_leidos), token=token)
+
+
+def pagina_vincular_pago_no_disponible(token, *, motivo=None, no_leidos=0):
+    return _layout(_t("portal_emp2.vincular_pago_no_disponible_titulo", "No disponible todavía"), f"""
+<div class="card"><h1>{_t("portal_emp2.vincular_pago_no_disponible_h1", "Vinculación de pago no disponible todavía")}</h1>
+<p>{_e(motivo) if motivo else _t("portal_emp2.vincular_pago_no_disponible_desc", "Estamos terminando de activar esta función. Vuelve a intentarlo más tarde o contacta con nosotros.")}</p>
+</div>""", nav=_nav_html(token, "dashboard", no_leidos=no_leidos), token=token)
+
+
+def pagina_vincular_pago_retorno(token, *, exito, mensaje=None, no_leidos=0,
+                                 siguiente_paso_url=None, siguiente_paso_texto=None):
+    accent = "ok" if exito else "error"
+    icono = "✓" if exito else "✗"
+    titulo = (_t("portal_emp2.vinculacion_confirmada_h1", "Método de pago vinculado")
+             if exito else _t("portal_emp2.vinculacion_no_completada_h1", "Vinculación no completada"))
+    cuerpo_extra = (
+        f'<p><a href="/portal/empresa/{_e(token)}/pago/vincular" style="color:var(--ac);font-weight:700">{_t("portal_emp2.reintentar_vinculacion", "Reintentar →")}</a></p>'
+        if not exito else "")
+    if siguiente_paso_url:
+        cuerpo_extra += (f'<p><a href="{_e(siguiente_paso_url)}" style="color:var(--ac);font-weight:900">'
+                        f'{_e(siguiente_paso_texto)}</a></p>')
+    return _layout(titulo, f"""
+<div class="card"><h1 class="{accent}">{icono} {titulo}</h1>
+<p>{_e(mensaje) if mensaje else ""}</p>
+{cuerpo_extra}
+<p><a href="/portal/empresa/{_e(token)}/dashboard" style="color:var(--ac);font-weight:700">{_t("portal_emp2.volver_inicio", "Volver al inicio →")}</a></p>
+</div>""", nav=_nav_html(token, "dashboard", no_leidos=no_leidos), token=token)
 
 
 # ── Plantillas de aprovisionamiento ───────────────────────────────────────────
@@ -798,7 +1258,7 @@ def pagina_plantillas(token, plantillas, *, mensaje=None, no_leidos=0):
             "recurrentes con un nombre para reutilizarlas con un clic.")}</p>')
     return _layout(_t("portal_emp2.nav_plantillas", "Plantillas"), f"""
 <div class="card"><h1>{_t("portal_emp2.plantillas_aprovisionamiento_h1", "Plantillas de aprovisionamiento")}</h1>{aviso}{tabla}</div>""",
-        nav=_nav_html(token, "plantillas", no_leidos=no_leidos))
+        nav=_nav_html(token, "plantillas", no_leidos=no_leidos), token=token)
 
 
 # ── Mis pedidos + detalle (chat) ───────────────────────────────────────────────
@@ -812,21 +1272,44 @@ def _etiqueta_estado_t(estado):
     return _t(f"portal_emp2.estado_{estado}", _ETIQUETA_ESTADO.get(estado, estado))
 
 
-def pagina_mis_pedidos(token, pedidos, *, no_leidos=0):
+def pagina_mis_pedidos(token, pedidos, *, id_empresa=None, no_leidos=0):
     base = f"/portal/empresa/{token}"
     ver_chat = _t("portal_emp2.ver_chat", "Ver / chat")
-    filas = "".join(f"""<tr><td><code>{_e(p['id_tx'])}</code></td>
+    def _fila(p):
+        # CONFIRMADA = aún sin pagar (petición explícita, 2026-11-16): botón directo para no
+        # obligar a entrar al detalle solo para encontrar dónde pagar.
+        boton_pagar = (f'<a class="btn" style="background:var(--ac);color:var(--bg);margin-left:6px" '
+                      f'href="{base}/pedido/{p["id_tx"]}/pagar">{_t("portal_emp2.pagar_ahora_btn", "Pagar ahora →")}</a>'
+                      if p["estado"] == "CONFIRMADA" else "")
+        return f"""<tr><td><code>{_e(p['id_tx'])}</code></td>
 <td>{_e(_etiqueta_estado_t(p['estado']))}</td>
 <td>{p['total']} €</td><td>{p['creada']}</td>
-<td><a class="btn" href="{base}/pedido/{p['id_tx']}">{ver_chat}</a></td></tr>""" for p in pedidos)
+<td><a class="btn" href="{base}/pedido/{p['id_tx']}">{ver_chat}</a>{boton_pagar}</td></tr>"""
+    filas = "".join(_fila(p) for p in pedidos)
     tabla = (f'<table><tr><th>{_t("portal_emp2.col_pedido", "Pedido")}</th>'
             f'<th>{_t("portal_emp2.col_estado", "Estado")}</th>'
             f'<th>{_t("portal_emp2.col_total", "Total")}</th>'
             f'<th>{_t("portal_emp2.col_fecha", "Fecha")}</th>'
             f"<th></th></tr>{filas}</table>") if pedidos else f'<p>{_t("portal_emp2.sin_pedidos_b2b", "Aún no has tramitado ningún pedido B2B.")}</p>'
+    # Nota de recargo (petición explícita, 2026-11-16; corregida 2026-11-21 — la exención es
+    # TOTALMENTE INDEPENDIENTE de la del proveedor: esta empresa paga su propio recargo del 2.5%
+    # salvo que ELLA MISMA tenga una suscripción activa a Smart Manager, sin que la suscripción del
+    # proveedor influya nunca en ello (ver `comisiones_b2b`). Este portal SOLO habla de la situación
+    # de la empresa compradora — nunca se menciona ni se hace depender nada del proveedor.
+    from src.services.compras import comisiones_b2b
+    pct = comisiones_b2b.porcentaje_comprador(id_empresa)
+    # Resaltado reforzado (petición explícita, 2026-11-16): tarjeta propia a todo ancho, con
+    # contorno de color de acento y texto grande — antes era un párrafo gris diminuto, fácil de
+    # pasar por alto, dentro de la propia tarjeta de la tabla.
+    nota_pct = (
+        f'<div class="card" style="border:2px solid var(--ac);background:color-mix(in srgb, var(--ac) 10%, var(--bg2))">'
+        f'<p style="font-size:15px;font-weight:900;color:var(--ac);margin:0">'
+        f'💳 {_t("portal_emp2.comision_nota_lista", "Tus pedidos sin que tu empresa tenga una suscripción activa a {marca} llevan un recargo de plataforma del {pct}%, añadido a tu total.", pct=pct, marca="Smart Manager")}'
+        f'</p></div>'
+        if pct else "")
     return _layout(_t("portal_emp2.mis_pedidos_titulo", "Mis pedidos"),
-                   f'<div class="card"><h1>{_t("portal_emp2.mis_pedidos_h1", "Mis pedidos")}</h1>{tabla}</div>',
-        nav=_nav_html(token, "pedidos", no_leidos=no_leidos))
+                   f'{nota_pct}<div class="card"><h1>{_t("portal_emp2.mis_pedidos_h1", "Mis pedidos")}</h1>{tabla}</div>',
+        nav=_nav_html(token, "pedidos", no_leidos=no_leidos), token=token)
 
 
 def _burbujas_chat_html(mensajes, lado):
@@ -913,10 +1396,30 @@ def pagina_pedido_detalle(token, tx, lineas, mensajes, *, lado="empresa", no_lei
         else:
             recepcion_html = (f'<p>📦 {_t("portal_emp2.pendiente_recepcion_almacen", "Pendiente de recepción en almacén (se recibe desde Logística, no desde este portal).")}</p>'
                               f'<p><a href="{_base_gestion}">{costes_extra_lbl}</a></p>')
+    # Recargo de plataforma (petición explícita, 2026-11-16; corregido 2026-11-21 — la empresa
+    # compradora paga su PROPIO recargo del 2.5% salvo que ELLA MISMA tenga una suscripción activa,
+    # totalmente independiente de la suscripción del proveedor (ver `comisiones_b2b`). Este portal
+    # SOLO calcula y muestra el lado de la empresa compradora — nunca el del proveedor, ni depende
+    # de su estado (pago real combinando ambos lados en `b2b_escrow.preparar_pago`).
+    from src.services.compras import comisiones_b2b
+    desc = comisiones_b2b.desglose_comprador(tx.get("id_empresa"), tx.get("total"))
+    recargo = desc["recargo"]
+    total_a_pagar = round(float(tx.get("total") or 0) + recargo, 2)
+    if recargo:
+        nota_comision = (
+            f'<p style="font-size:14px;font-weight:900;color:var(--ac)">'
+            f'💳 {_t("portal_emp2.recargo_nota", "Recargo de plataforma aplicable ({pct}%, por no tener tu empresa una suscripción activa a {marca}): {x} €.", pct=desc["porcentaje"], marca="Smart Manager", x=recargo)}</p>')
+        total_lbl = (f'{_t("portal_emp2.total_lbl2", "Total:")} {tx["total"]} € + '
+                    f'{_t("portal_emp2.recargo_corto", "recargo")} {recargo} € = '
+                    f'<b>{total_a_pagar} €</b>')
+    else:
+        nota_comision = ""
+        total_lbl = f'{_t("portal_emp2.total_lbl2", "Total:")} <b>{tx["total"]} €</b>'
     return _layout(_t("portal_emp2.pedido_titulo", "Pedido {ref}", ref=tx['id_tx'][:8]), f"""
 <div class="card"><h1>{_t("portal_emp2.pedido_h1", "Pedido")} <code>{_e(tx['id_tx'])}</code></h1>
 <p>{_t("portal_emp2.estado_lbl", "Estado:")} <span class="badge">{_e(_etiqueta_estado_t(tx['estado']))}</span> ·
-{_t("portal_emp2.total_lbl2", "Total:")} <b>{tx['total']} €</b> · {_t("portal_emp2.fecha_lbl", "Fecha:")} {tx['creada']}</p>
+{total_lbl} · {_t("portal_emp2.fecha_lbl", "Fecha:")} {tx['creada']}</p>
+{nota_comision}
 {albaran_html}
 {recepcion_html}
 <table><tr><th>{_t("portal_emp2.col_articulo", "Artículo")}</th><th>{_t("portal_emp2.col_cantidad", "Cantidad")}</th><th>{_t("portal_emp2.col_precio", "Precio")}</th><th>{_t("portal_emp2.col_lote", "Lote")}</th>
@@ -928,18 +1431,268 @@ def pagina_pedido_detalle(token, tx, lineas, mensajes, *, lado="empresa", no_lei
 <form method="post" action="{base}/pedido/{tx['id_tx']}/mensaje" style="margin-top:12px">
 <textarea name="cuerpo" rows="3" placeholder="{_t("portal_emp2.escribe_mensaje_ph", "Escribe un mensaje…")}" required></textarea>
 <button type="submit" style="margin-top:8px">{_t("portal_emp2.enviar_btn", "Enviar")}</button>
-</form></div>""", nav=_nav_html(token, "pedidos", no_leidos=no_leidos))
+</form></div>""", nav=_nav_html(token, "pedidos", no_leidos=no_leidos), token=token)
+
+
+# ── Registro público + acceso (petición explícita, 2026-11-16) ───────────────────────────────────
+# Hasta ahora este portal solo nacía desde una sesión YA autenticada del escritorio
+# (`b2b_sesion_empresa.crear_sesion`, botón "Entrar al portal B2B"). Estas 2 páginas abren un
+# segundo camino, público, para cualquier empresa sin necesidad de invitación — a diferencia del
+# Portal Proveedor, donde el registro público COEXISTE con las invitaciones existentes, aquí no
+# había ningún flujo previo que preservar: es enteramente nuevo.
+_ICONO_PORTAL_EMPRESA = "🏢"
+# Nombre de marca del portal — PLANO, sin pasar por `_t()` (mismo criterio que `sitio_oficial.py`,
+# que tampoco traduce "Smart Manager": `_frase()` normaliza TODO texto traducido a frase —
+# primera letra mayúscula, resto minúscula, salvo SIGLAS de `utils.texto.SIGLAS` — y un nombre
+# propio de marca no es un texto "traducible" al uso, debe conservar su capitalización exacta).
+_MARCA_PORTAL_EMPRESA = "Portal Empresa B2B"
+
+
+def _marca_portal_empresa():
+    return _MARCA_PORTAL_EMPRESA
+
+
+def pagina_home_empresa():
+    """Página de inicio PÚBLICA del Portal Empresa B2B (petición explícita, 2026-11-21): antes, el
+    enlace "Portal B2B" de la web oficial llevaba DIRECTAMENTE al formulario de registro — sin
+    presentación ni opción de iniciar sesión primero. Mismo lenguaje visual que la web oficial
+    (`layout_publico`): titular + CTA de "Iniciar sesión"/"Registrarme", franja de confianza y
+    tarjetas de beneficios con animación de entrada al hacer scroll.
+
+    "Smart Manager"/"B2B"/"ERP" se pasan como PARÁMETROS de formato (`{marca}`/`{b2b}`/`{erp}`),
+    nunca incrustados en el texto por defecto: `_frase()` (ver `utils.i18n`) normaliza a frase
+    CUALQUIER texto que pase por `_t()`, excepto el contenido de los marcadores `{...}` — y, para
+    siglas de MÁS de una letra con dígitos en medio (p. ej. "B2B"), ni siquiera la propia excepción
+    de siglas de `_frase()` las reconoce bien (solo compara palabras de letras seguidas) — sin
+    esto, el titular se mostraba como "el portal b2b para" (todo en minúsculas)."""
+    tarjetas = [
+        ("🛍️", _t("portal_emp2.home_card1_t", "Compra al por mayor"),
+         _t("portal_emp2.home_card1_d",
+            "Accede al catálogo {b2b} de proveedores verificados de la plataforma, con precios por "
+            "volumen y packs.", b2b="B2B")),
+        ("💳", _t("portal_emp2.home_card2_t", "0% de recargo, siempre"),
+         _t("portal_emp2.home_card2_d",
+            "Sin ningún recargo de plataforma en tu factura — tenga o no tu empresa una "
+            "suscripción activa a {marca}.",
+            marca="Smart Manager")),
+        ("📦", _t("portal_emp2.home_card3_t", "Pedidos y comunicación en un solo sitio"),
+         _t("portal_emp2.home_card3_d",
+            "Haz seguimiento de tus pedidos, albaranes y devoluciones, y habla directamente con "
+            "cada proveedor desde el mismo panel.")),
+    ]
+    tarjetas_html = "".join(
+        f'<div class="card reveal" style="transition-delay:{i * 70}ms"><h3>{ico} {_e(tit)}</h3><p>{_e(desc)}</p></div>'
+        for i, (ico, tit, desc) in enumerate(tarjetas)
+    )
+    cuerpo = f"""
+<div class="wrap hero-glow">
+  <h1>{_t("portal_emp2.home_h1_1", "El portal {b2b} para", b2b="B2B")}<br>
+  <span>{_t("portal_emp2.home_h1_2", "empresas de {marca}", marca="Smart Manager")}</span></h1>
+  <p class="sub">{_t("portal_emp2.home_sub",
+      "Compra a proveedores verificados, haz seguimiento de tus pedidos y gestiona tus compras "
+      "{b2b} — conectado en tiempo real con el resto de tu {erp}.", b2b="B2B", erp="ERP")}</p>
+  <div class="trust-strip">
+    <span>🔒 {_t("portal_emp2.home_trust1", "Pagos vía")} <b>Stripe</b></span>
+    <span>📦 <b>{_t("portal_emp2.home_trust2", "Sin permanencia")}</b></span>
+    <span>🌍 {_t("portal_emp2.home_trust3", "Disponible en varios idiomas")}</span>
+  </div>
+  <div class="grid3">{tarjetas_html}</div>
+</div>"""
+    return layout_publico(_marca_portal_empresa(), cuerpo, marca=_marca_portal_empresa(),
+                          icono=_ICONO_PORTAL_EMPRESA, url_home="/portal/empresa/", paleta=_PALETA_EMP)
+
+
+_TIPOS_CENTRO = ("tienda", "almacen", "fabrica", "oficina", "otro")
+_ETIQUETA_TIPO_CENTRO = {"tienda": "Tienda", "almacen": "Almacén", "fabrica": "Fábrica",
+                         "oficina": "Oficina", "otro": "Otro"}
+
+
+def _campos_centro_html(n, *, requerido=False):
+    """Un bloque "centro #n" del formulario de registro (petición explícita, 2026-11-21): nombre +
+    tipo + teléfono + dirección — los MISMOS campos que `gui/configuracion.py::_CAMPOS_CT`
+    (desplegable "Tipo de centro" con las mismas opciones), reducidos a los relevantes para un alta
+    rápida (sin los campos fiscales/laborales de la ficha completa — esos se completan después,
+    desde "Gestión → Centros"). Solo el primero (`n==1`) es obligatorio."""
+    opciones_tipo = "".join(f'<option value="{t}">{_e(_ETIQUETA_TIPO_CENTRO[t])}</option>'
+                           for t in _TIPOS_CENTRO)
+    req = " required" if requerido else ""
+    return f"""<div class="centro-bloque" style="border:1px solid var(--borde);border-radius:10px;padding:14px;margin:10px 0">
+<label>{_t("portal_emp2.nombre_centro_n_lbl", "Nombre del centro {n}{req}", n=n, req=" *" if requerido else "")}</label>
+<input name="centro_nombre_{n}"{req}>
+<label>{_t("portal_emp2.tipo_centro_lbl", "Tipo de centro")}</label>
+<select name="centro_tipo_{n}">{opciones_tipo}</select>
+<label>{_t("portal_emp2.telefono_lbl", "Teléfono")}</label><input name="centro_telefono_{n}">
+<label>{_t("portal_emp2.direccion_lbl", "Dirección")}</label><input name="centro_direccion_{n}">
+</div>"""
+
+
+def pagina_registro_publico_empresa(*, sectores, error=None):
+    opciones = "".join(f'<option value="{s["id"]}">{_e(s["nombre"])}</option>' for s in sectores)
+    aviso = f'<div class="msg-error">{_e(error)}</div>' if error else ""
+    cuerpo = f"""
+<div class="wrap">
+  <h2>{_t("portal_emp2.registro_h1", "Date de alta como empresa compradora")}</h2>
+  <p class="sub" style="text-align:center;margin-left:auto;margin-right:auto">
+  {_t("portal_emp2.registro_desc",
+      "Regístrate libremente, sin necesidad de invitación, para comprar en el catálogo {b2b} de "
+      "proveedores de la plataforma. El sector es obligatorio: determina qué proveedores podrás ver.",
+      b2b="B2B")}</p>
+  <form class="panel" method="post" action="/portal/empresa/registro" id="form-registro-empresa">
+    {aviso}
+    <label>{_t("portal_emp2.tiene_suscripcion_lbl", "¿Tu empresa tiene ya contratada una suscripción de {marca}?", marca="Smart Manager")}</label>
+    <select name="modo" id="sel-modo-registro">
+      <option value="sin_suscripcion">{_t("portal_emp2.modo_sin_suscripcion_opt", "No, registrar una empresa nueva")}</option>
+      <option value="con_suscripcion">{_t("portal_emp2.modo_con_suscripcion_opt", "Sí, ya tengo un código de activación")}</option>
+    </select>
+    <div id="bloque-con-suscripcion" hidden>
+      <label>{_t("portal_emp2.codigo_activacion_lbl", "Código de activación *")}</label>
+      <input name="codigo" placeholder="{_t("portal_emp2.codigo_activacion_ph", "El mismo código que usaste para emparejar tu ordenador")}">
+      <p class="sub">{_t("portal_emp2.codigo_activacion_desc",
+          "Identificaremos tu empresa con este código y, según tu plan contratado, sabremos cuántos centros puedes dar de alta.")}</p>
+    </div>
+    <div id="bloque-sin-suscripcion">
+      <label>{_t("portal_emp2.nombre_empresa_lbl", "Nombre de la empresa *")}</label><input name="nombre_empresa">
+      <label>{_t("portal_emp2.cif_lbl", "CIF")}</label><input name="cif_nif">
+      <label>{_t("portal_emp2.sector_lbl", "Sector comercial *")}</label><select name="sector_id">
+      <option value="">{_t("portal_emp2.selecciona_sector_ph", "Selecciona un sector…")}</option>{opciones}</select>
+      <label>{_t("portal_emp2.email_acceso_lbl", "Email de acceso *")}</label><input name="email_login" type="email">
+      <label>{_t("portal_emp2.password_lbl", "Contraseña *")}</label><input name="password" type="password" minlength="8">
+      <label>{_t("portal_emp2.confirmar_password_lbl", "Confirmar contraseña *")}</label><input name="confirmar_password" type="password" minlength="8">
+      {_campos_centro_html(1, requerido=True)}
+    </div>
+    <button type="submit">{_t("portal_emp2.registrarme_btn", "Registrarme")}</button>
+  </form>
+  <script>
+  (function(){{
+    var sel = document.getElementById('sel-modo-registro');
+    var con = document.getElementById('bloque-con-suscripcion');
+    var sin = document.getElementById('bloque-sin-suscripcion');
+    function act(){{
+      var c = sel.value === 'con_suscripcion';
+      con.hidden = !c; sin.hidden = c;
+    }}
+    sel.addEventListener('change', act); act();
+  }})();
+  </script>
+  <p class="vinculo-sec">{_t("portal_emp2.ya_tienes_cuenta", "¿Ya tienes cuenta?")}
+  <a href="/portal/empresa/acceso">{_t("portal_emp2.inicia_sesion", "Inicia sesión")}</a>.</p>
+</div>"""
+    return layout_publico(_t("portal_emp2.registro_titulo", "Registro de empresa"), cuerpo,
+                          marca=_marca_portal_empresa(), icono=_ICONO_PORTAL_EMPRESA,
+                          url_home="/portal/empresa/", paleta=_PALETA_EMP)
+
+
+def pagina_registro_completar_con_codigo(*, codigo, n_centros_opcionales, mostrar_add_ilimitado,
+                                         error=None):
+    """Segundo paso del alta "ya tengo suscripción" (petición explícita, 2026-11-21): el código ya
+    se validó y se resolvió el plan contratado — `n_centros_opcionales` es cuántos huecos de centro
+    OPCIONALES mostrar además del primero (0 si la empresa ya tiene algún centro: no tiene sentido
+    pedir más aquí, se gestionan luego desde "Gestión → Centros"). `mostrar_add_ilimitado` (plan
+    PRO, límite efectivamente ilimitado): añade un botón para clonar bloques de centro sin límite —
+    la cuota REAL se re-valida siempre en el servidor al completar (nunca se confía en cuántos
+    bloques haya en el formulario)."""
+    aviso = f'<div class="msg-error">{_e(error)}</div>' if error else ""
+    bloques_centro = "".join(_campos_centro_html(i, requerido=(i == 1 and n_centros_opcionales > 0))
+                             for i in range(1, n_centros_opcionales + 1))
+    boton_add = (f"""<button type="button" id="btn-add-centro">
+{_t("portal_emp2.anadir_otro_centro_btn", "+ Añadir otro centro")}</button>"""
+                if mostrar_add_ilimitado else "")
+    cuerpo = f"""
+<div class="wrap">
+  <h2>{_t("portal_emp2.completa_tu_registro_h1", "Completa tu registro")}</h2>
+  <p class="sub" style="text-align:center;margin-left:auto;margin-right:auto">
+  {_t("portal_emp2.codigo_identificado_desc", "Hemos identificado tu empresa — crea tus credenciales de acceso a este portal.")}</p>
+  <form class="panel" method="post" action="/portal/empresa/registro/completar" id="form-completar-registro">
+    {aviso}
+    <input type="hidden" name="codigo" value="{_e(codigo)}">
+    <label>{_t("portal_emp2.email_acceso_lbl", "Email de acceso *")}</label><input name="email_login" type="email" required>
+    <label>{_t("portal_emp2.password_lbl", "Contraseña *")}</label><input name="password" type="password" minlength="8" required>
+    <label>{_t("portal_emp2.confirmar_password_lbl", "Confirmar contraseña *")}</label><input name="confirmar_password" type="password" minlength="8" required>
+    <div id="centros-wrap">{bloques_centro}</div>
+    {boton_add}
+    <button type="submit">{_t("portal_emp2.completar_registro_btn", "Completar registro")}</button>
+  </form>
+  <script>
+  (function(){{
+    var btn = document.getElementById('btn-add-centro');
+    if (!btn) return;
+    var wrap = document.getElementById('centros-wrap');
+    var n = {n_centros_opcionales};
+    btn.addEventListener('click', function(){{
+      n += 1;
+      var div = document.createElement('div');
+      div.innerHTML = {json.dumps(_campos_centro_html("__N__"))}.replace(/__N__/g, n);
+      wrap.appendChild(div.firstElementChild);
+    }});
+  }})();
+  </script>
+</div>"""
+    return layout_publico(_t("portal_emp2.registro_titulo", "Registro de empresa"), cuerpo,
+                          marca=_marca_portal_empresa(), icono=_ICONO_PORTAL_EMPRESA,
+                          url_home="/portal/empresa/", paleta=_PALETA_EMP)
+
+
+def pagina_verificar_email_empresa(*, email, error=None):
+    """Paso OBLIGATORIO antes de completar CUALQUIER alta del portal (petición explícita,
+    2026-11-22 — con o sin código de activación): se envía un código de 6 dígitos al email
+    introducido y hay que confirmarlo aquí. Los datos ya validados (y la contraseña YA hasheada,
+    nunca en claro) viajan en la cookie de sesión firmada de Flask (`session["pendiente_b2b_
+    registro"]`) hasta que se confirme — mismo patrón ya usado por `sitio_oficial.py` para
+    `pendiente_checkout`/`pendiente_registro`."""
+    aviso = f'<div class="msg-error">{_e(error)}</div>' if error else ""
+    cuerpo = f"""
+<div class="wrap">
+  <h2>{_t("portal_emp2.verifica_tu_email_h1", "Verifica tu email")}</h2>
+  <p class="sub" style="text-align:center;margin-left:auto;margin-right:auto">
+  {_t("portal_emp2.verifica_tu_email_desc", "Te hemos enviado un código de 6 dígitos a {email}. Introdúcelo para completar tu registro.", email=f"<b>{_e(email)}</b>")}</p>
+  <form class="panel" method="post" action="/portal/empresa/registro/verificar-email">
+    {aviso}
+    <label>{_t("portal_emp2.codigo_verificacion_lbl", "Código de verificación")}</label>
+    <input name="codigo" required maxlength="6" minlength="6" inputmode="numeric" pattern="[0-9]{{6}}"
+      autocomplete="one-time-code" placeholder="123456" autofocus>
+    <button type="submit">{_t("portal_emp2.verificar_y_continuar_btn", "Verificar y continuar")}</button>
+  </form>
+  <form method="post" action="/portal/empresa/registro/reenviar-codigo" style="text-align:center;margin-top:14px">
+    <button type="submit" class="btn btn-ghost" style="padding:8px 18px;font-size:13px">{_t("portal_emp2.reenviar_codigo_btn", "Reenviar código")}</button>
+  </form>
+</div>"""
+    return layout_publico(_t("portal_emp2.verifica_tu_email_titulo", "Verifica tu email"), cuerpo,
+                          marca=_marca_portal_empresa(), icono=_ICONO_PORTAL_EMPRESA,
+                          url_home="/portal/empresa/", paleta=_PALETA_EMP)
+
+
+def pagina_acceso_empresa(*, error=None):
+    aviso = f'<div class="msg-error">{_e(error)}</div>' if error else ""
+    cuerpo = f"""
+<div class="wrap">
+  <h2>{_t("portal_emp2.acceder_panel_h1", "Acceder a tu panel")}</h2>
+  <form class="panel" method="post" action="/portal/empresa/acceso">
+    {aviso}
+    <label>{_t("portal_emp2.email_acceso_lbl2", "Email de acceso")}</label><input name="email" type="email" required>
+    <label>{_t("portal_emp2.password_lbl2", "Contraseña")}</label><input name="password" type="password" required>
+    <button type="submit">{_t("portal_emp2.entrar_btn", "Entrar")}</button>
+  </form>
+  <p class="vinculo-sec">{_t("portal_emp2.aun_no_registrado", "¿Aún no te has registrado?")}
+  <a href="/portal/empresa/registro">{_t("portal_emp2.registrate_aqui", "Regístrate aquí")}</a>.</p>
+</div>"""
+    return layout_publico(_t("portal_emp2.acceso_titulo", "Acceso empresa"), cuerpo,
+                          marca=_marca_portal_empresa(), icono=_ICONO_PORTAL_EMPRESA,
+                          url_home="/portal/empresa/", paleta=_PALETA_EMP)
 
 
 # ── Blueprint Flask (import perezoso) ────────────────────────────────────────
 def crear_blueprint():
-    from flask import Blueprint, redirect, request
+    from flask import Blueprint, redirect, request, session
 
     bp = Blueprint("portal_empresa_b2b", __name__, url_prefix="/portal/empresa")
     # Registrado SOLO aquí (no también en `portal_empresa_gestion.py`, que comparte el mismo
     # `url_prefix` y SIEMPRE se registra junto a este blueprint): evita una colisión de ruta por
     # registrar el mismo "/portal/empresa/idioma" dos veces en la misma app Flask.
     registrar_selector_idioma(bp, "")
+
+    @bp.after_request
+    def _tras_peticion(response):
+        return marcar_origen_web(response)
 
     def _sesion_o_error(token):
         from src.services.compras import b2b_sesion_empresa as SES
@@ -965,18 +1718,287 @@ def crear_blueprint():
         except Exception:
             return 0
 
+    @bp.post("/<token>/logout")
+    def logout(token):
+        """Cierre EXPLÍCITO de sesión (botón "Cerrar sesión", petición explícita 2026-11-16 — el
+        portal no tenía ninguno antes, a diferencia del Portal Proveedor)."""
+        from src.services.compras import b2b_sesion_empresa as SES
+        SES.cerrar_sesion(token)
+        return pagina_sesion_cerrada()
+
+    # Página de inicio PÚBLICA (petición explícita, 2026-11-21): antes, visitar el portal llevaba
+    # directo a `/registro` — ahora se ve primero esta página (mismo lenguaje visual que la web
+    # oficial), con "Iniciar sesión"/"Registrarme" como las dos puertas de entrada reales.
+    @bp.get("/")
+    def home():
+        return pagina_home_empresa()
+
+    @bp.get("/registro")
+    def registro_publico():
+        from src.services.compras import sectores
+        return pagina_registro_publico_empresa(sectores=sectores.listar())
+
+    @bp.post("/registro")
+    def registro_publico_post():
+        """Petición explícita, 2026-11-21: dos caminos según "¿tienes ya una suscripción?"
+        (`modo`, ver `pagina_registro_publico_empresa`):
+          - `sin_suscripcion` (o ausente, compatibilidad): alta de cero + 1 centro, tratado como
+            plan BASIC — comportamiento de siempre, ahora con datos de centro reales.
+          - `con_suscripcion`: solo valida el código (SIN consumirlo, ver `provisioning.
+            verificar_codigo_sin_consumir`) y muestra el SEGUNDO paso (`/registro/completar`) con
+            el nº de centros que su plan permite — nada se crea todavía en este paso (tampoco hay
+            verificación de email aquí: el email de acceso aún no se ha pedido en este paso).
+
+        Verificación de email OBLIGATORIA (petición explícita, 2026-11-22): antes de crear nada
+        (camino `sin_suscripcion`), se valida la contraseña y se hashea YA (nunca se guarda en
+        claro en la cookie de sesión) y se envía un código de 6 dígitos — los datos pendientes
+        viajan en `session["pendiente_b2b_registro"]` hasta confirmarse."""
+        from src.services.compras import b2b_sesion_empresa as SES
+        from src.services.compras import sectores
+        d = request.form
+        if d.get("modo") == "con_suscripcion":
+            from src.services import provisioning
+            res = provisioning.verificar_codigo_sin_consumir(d.get("codigo", ""))
+            if not res.get("ok"):
+                return pagina_registro_publico_empresa(
+                    sectores=sectores.listar(),
+                    error=_t("portal_emp2.codigo_no_valido", "Código de activación no válido.")), 400
+            id_empresa = res["id_empresa"]
+            lim = SES.limite_centros(id_empresa)
+            from src.db import centros as CT
+            ya_tiene_centros = bool(CT.listar_centros(id_empresa))
+            n_opcionales = 0 if ya_tiene_centros else min(lim.get("limite") or 1, 10)
+            mostrar_add = (not ya_tiene_centros) and (lim.get("limite") or 0) > 10
+            return pagina_registro_completar_con_codigo(
+                codigo=d.get("codigo", ""), n_centros_opcionales=n_opcionales,
+                mostrar_add_ilimitado=mostrar_add)
+
+        nombre_empresa = (d.get("nombre_empresa") or "").strip()
+        sector_id = d.get("sector_id") or None
+        email_login = (d.get("email_login") or "").strip().lower()
+        if not nombre_empresa or not sector_id:
+            return pagina_registro_publico_empresa(
+                sectores=sectores.listar(), error="nombre_empresa_y_sector_son_obligatorios"), 400
+        if not email_login or "@" not in email_login:
+            return pagina_registro_publico_empresa(
+                sectores=sectores.listar(), error="el_email_de_acceso_es_obligatorio"), 400
+        r_pass = SES.validar_password(d.get("password", ""), d.get("confirmar_password", ""))
+        if not r_pass.get("ok"):
+            return pagina_registro_publico_empresa(
+                sectores=sectores.listar(), error=r_pass.get("error")), 400
+
+        from src.seguridad.passwords import hash_password
+        from src.services import verificacion_email as VE
+        r_envio = VE.generar_y_enviar(email_login)
+        if not r_envio.get("ok"):
+            return pagina_registro_publico_empresa(
+                sectores=sectores.listar(),
+                error=_t("portal_emp2.error_envio_codigo", "No se pudo enviar el código de "
+                                                           "verificación. Inténtalo de nuevo en "
+                                                           "unos minutos.")), 502
+        session["pendiente_b2b_registro"] = {
+            "modo": "sin_suscripcion", "nombre_empresa": nombre_empresa,
+            "cif_nif": d.get("cif_nif") or None, "sector_id": sector_id,
+            "email_login": email_login, "password_hash": hash_password(d.get("password", "")),
+            "centro_nombre": d.get("centro_nombre_1"), "centro_tipo": d.get("centro_tipo_1"),
+            "centro_telefono": d.get("centro_telefono_1"), "centro_direccion": d.get("centro_direccion_1"),
+        }
+        return pagina_verificar_email_empresa(email=email_login)
+
+    @bp.post("/registro/completar")
+    def registro_completar_post():
+        """Paso final del alta "ya tengo suscripción" (petición explícita, 2026-11-21): re-valida el
+        código AQUÍ TAMBIÉN (nunca se confía en el `id_empresa` — ni lo hay como campo oculto; el
+        código sigue siendo la ÚNICA fuente de verdad). Verificación de email OBLIGATORIA (petición
+        explícita, 2026-11-22), igual que el camino sin suscripción: valida+hashea la contraseña y
+        envía el código ANTES de crear ninguna credencial — los datos pendientes (código + email +
+        hash + centros) viajan en `session["pendiente_b2b_registro"]`."""
+        from src.services.compras import b2b_sesion_empresa as SES
+        d = request.form
+        email_login = (d.get("email_login") or "").strip().lower()
+        if not email_login or "@" not in email_login:
+            return pagina_registro_completar_con_codigo(
+                codigo=d.get("codigo", ""), n_centros_opcionales=1, mostrar_add_ilimitado=False,
+                error="el_email_de_acceso_es_obligatorio"), 400
+        r_pass = SES.validar_password(d.get("password", ""), d.get("confirmar_password", ""))
+        if not r_pass.get("ok"):
+            return pagina_registro_completar_con_codigo(
+                codigo=d.get("codigo", ""), n_centros_opcionales=1, mostrar_add_ilimitado=False,
+                error=r_pass.get("error")), 400
+        centros = []
+        i = 1
+        while d.get(f"centro_nombre_{i}") is not None:
+            if (d.get(f"centro_nombre_{i}") or "").strip():
+                centros.append({
+                    "nombre_centro": d.get(f"centro_nombre_{i}"), "tipo_centro": d.get(f"centro_tipo_{i}"),
+                    "telefono": d.get(f"centro_telefono_{i}") or None,
+                    "direccion": d.get(f"centro_direccion_{i}") or None})
+            i += 1
+
+        from src.seguridad.passwords import hash_password
+        from src.services import verificacion_email as VE
+        r_envio = VE.generar_y_enviar(email_login)
+        if not r_envio.get("ok"):
+            return pagina_registro_completar_con_codigo(
+                codigo=d.get("codigo", ""), n_centros_opcionales=len(centros) or 1,
+                mostrar_add_ilimitado=False,
+                error=_t("portal_emp2.error_envio_codigo", "No se pudo enviar el código de "
+                                                           "verificación. Inténtalo de nuevo en "
+                                                           "unos minutos.")), 502
+        session["pendiente_b2b_registro"] = {
+            "modo": "con_suscripcion", "codigo": d.get("codigo", ""), "email_login": email_login,
+            "password_hash": hash_password(d.get("password", "")), "centros": centros,
+        }
+        return pagina_verificar_email_empresa(email=email_login)
+
+    @bp.post("/registro/verificar-email")
+    def registro_verificar_email_post():
+        from src.services.compras import b2b_sesion_empresa as SES
+        pendiente = session.get("pendiente_b2b_registro")
+        if not pendiente:
+            return redirect("/portal/empresa/registro")
+        from src.services import verificacion_email as VE
+        codigo = (request.form.get("codigo") or "").strip()
+        r = VE.verificar(pendiente["email_login"], codigo)
+        if not r.get("ok"):
+            mensajes = {
+                "codigo_incorrecto": _t("portal_emp2.codigo_incorrecto_err", "Código incorrecto. Revísalo e inténtalo de nuevo."),
+                "codigo_caducado": _t("portal_emp2.codigo_caducado_err", "El código ha caducado — pulsa \"Reenviar código\"."),
+                "demasiados_intentos": _t("portal_emp2.demasiados_intentos_err", "Demasiados intentos — pulsa \"Reenviar código\" para pedir uno nuevo."),
+                "sin_codigo_pendiente": _t("portal_emp2.sin_codigo_pendiente_err", "No hay ningún código pendiente — pulsa \"Reenviar código\"."),
+            }
+            return pagina_verificar_email_empresa(
+                email=pendiente["email_login"],
+                error=mensajes.get(r.get("error"), "No se pudo verificar el código.")), 400
+
+        if pendiente["modo"] == "con_suscripcion":
+            r_reg = SES.completar_registro_con_codigo(
+                codigo=pendiente["codigo"], email_login=pendiente["email_login"],
+                password_hash=pendiente["password_hash"], centros=pendiente.get("centros") or [])
+        else:
+            r_reg = SES.registrar_publico(
+                nombre_empresa=pendiente["nombre_empresa"], cif_nif=pendiente.get("cif_nif"),
+                sector_id=pendiente["sector_id"], email_login=pendiente["email_login"],
+                password_hash=pendiente["password_hash"], centro_nombre=pendiente.get("centro_nombre"),
+                centro_tipo=pendiente.get("centro_tipo"), centro_telefono=pendiente.get("centro_telefono"),
+                centro_direccion=pendiente.get("centro_direccion"))
+        if not r_reg.get("ok"):
+            session.pop("pendiente_b2b_registro", None)
+            from src.services.compras import sectores
+            return pagina_registro_publico_empresa(sectores=sectores.listar(),
+                                                   error=r_reg.get("error")), 400
+        session.pop("pendiente_b2b_registro", None)
+        ses = SES.crear_sesion(r_reg["id_empresa"], None, r_reg["id_tienda"],
+                               nombre_usuario=pendiente["email_login"])
+        if not ses.get("ok"):
+            return redirect("/portal/empresa/acceso?info=registrado")
+        # Requisito obligatorio como parte del propio registro (petición explícita, 2026-11-23):
+        # antes se aterrizaba directo en el dashboard y la elección de Stripe/PayPal quedaba como
+        # un ajuste posterior, opcional en la práctica — ahora es el último paso del alta.
+        return redirect(f"/portal/empresa/{ses['token']}/pago/vincular")
+
+    @bp.post("/registro/reenviar-codigo")
+    def registro_reenviar_codigo_post():
+        pendiente = session.get("pendiente_b2b_registro")
+        if not pendiente:
+            return redirect("/portal/empresa/registro")
+        from src.services import verificacion_email as VE
+        r = VE.generar_y_enviar(pendiente["email_login"])
+        if not r.get("ok"):
+            return pagina_verificar_email_empresa(
+                email=pendiente["email_login"],
+                error=_t("portal_emp2.error_reenvio_codigo", "No se pudo reenviar el código. "
+                                                             "Inténtalo de nuevo en unos minutos.")), 502
+        return pagina_verificar_email_empresa(email=pendiente["email_login"])
+
+    @bp.get("/acceso")
+    def acceso_empresa():
+        return pagina_acceso_empresa()
+
+    @bp.post("/acceso")
+    def acceso_empresa_post():
+        from src.services.compras import b2b_sesion_empresa as SES
+        d = request.form
+        r = SES.verificar_login_empresa(d.get("email", ""), d.get("password", ""))
+        if not r.get("ok"):
+            return pagina_acceso_empresa(
+                error=_t("portal_emp2.email_password_incorrectos", "Email o contraseña incorrectos.")), 401
+        if not r.get("id_tienda"):
+            return pagina_acceso_empresa(
+                error=_t("portal_emp2.sin_tienda", "Tu empresa no tiene ninguna tienda activa.")), 400
+        ses = SES.crear_sesion(r["id_empresa"], None, r["id_tienda"], nombre_usuario=r.get("email_login"))
+        if not ses.get("ok"):
+            return pagina_acceso_empresa(
+                error=_t("portal_emp2.error_generico", "No se pudo abrir el portal B2B.")), 500
+        return redirect(f"/portal/empresa/{ses['token']}/dashboard")
+
     @bp.get("/<token>/dashboard")
     def dashboard(token):
         ses, err = _sesion_o_error(token)
         if err:
             return err
-        from src.services.compras import b2b_carrito as CART, b2b_presupuesto as PRES, \
-            b2b_carrito_abandono as ABANDONO
+        from src.services.compras import b2b_carrito as CART, b2b_carrito_abandono as ABANDONO
         abandonos = ABANDONO.listar_para_empresa(ses["id_empresa"])
         return pagina_dashboard(token, ses, n_carrito=len(CART.listar(token)),
-                               limite_actual=PRES.obtener_limite(ses["id_empresa"]),
                                no_leidos=_no_leidos(ses),
                                abandono=abandonos[0] if abandonos else None)
+
+    @bp.get("/<token>/plan")
+    def plan(token):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        return pagina_plan(token, ses, no_leidos=_no_leidos(ses),
+                           mensaje=request.args.get("mensaje"), error=request.args.get("error"))
+
+    @bp.post("/<token>/plan/checkout")
+    def plan_checkout(token):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.services import portal_plan as PP
+        ciclo = request.form.get("ciclo")
+        base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
+        r = PP.crear_checkout_session(
+            "empresa", ses["id_empresa"], ciclo=ciclo, email=ses.get("nombre_usuario") or "",
+            success_url=f"{base_web}/portal/empresa/{token}/plan/exito",
+            cancel_url=f"{base_web}/portal/empresa/{token}/plan")
+        if not r.get("ok"):
+            from urllib.parse import quote
+            return redirect(f"/portal/empresa/{token}/plan?error={quote(r.get('error', ''))}")
+        return redirect(r["url"], code=303)
+
+    @bp.post("/<token>/plan/checkout-financiado")
+    def plan_checkout_financiado(token):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.services import portal_plan as PP
+        base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
+        r = PP.crear_checkout_session_financiada(
+            "empresa", ses["id_empresa"], email=ses.get("nombre_usuario") or "",
+            success_url=f"{base_web}/portal/empresa/{token}/plan/exito",
+            cancel_url=f"{base_web}/portal/empresa/{token}/plan")
+        if not r.get("ok"):
+            from urllib.parse import quote
+            return redirect(f"/portal/empresa/{token}/plan?error={quote(r.get('error', ''))}")
+        return redirect(r["url"], code=303)
+
+    @bp.get("/<token>/plan/exito")
+    def plan_exito(token):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        session_id = request.args.get("session_id")
+        if not session_id:
+            return redirect(f"/portal/empresa/{token}/plan")
+        from src.services import portal_plan as PP
+        r = PP.confirmar_checkout_generico(session_id)
+        from urllib.parse import quote
+        if not r.get("ok"):
+            return redirect(f"/portal/empresa/{token}/plan?error={quote(r.get('error', ''))}")
+        return redirect(f"/portal/empresa/{token}/plan?mensaje="
+                        f"{quote('¡Plan de Pago del Portal activado! Ya no tienes ningún límite.')}")
 
     @bp.get("/<token>/consignacion")
     def consignacion(token):
@@ -1166,9 +2188,12 @@ def crear_blueprint():
             reglas = BUN.listar_reglas(id_sum, solo_activas=True)
             bundles_ganados = BUN.calcular_descuento_bundle(lineas, reglas)
             progreso = BUN.progreso_mas_cercano(ses["id_empresa"], lineas)
+        from src.db import centros as CT
+        centros = [c for c in CT.listar_centros(ses["id_empresa"]) if c.get("id_tienda")]
         return pagina_carrito(token, lineas, total, resumen_presupuesto=resumen,
                               no_leidos=_no_leidos(ses), consignacion_disponible=consig_disp,
-                              progreso_descuento=progreso, bundles_ganados=bundles_ganados)
+                              progreso_descuento=progreso, bundles_ganados=bundles_ganados,
+                              centros=centros)
 
     @bp.post("/<token>/carrito/quitar/<int:id_linea>")
     def carrito_quitar(token, id_linea):
@@ -1202,13 +2227,62 @@ def crear_blueprint():
             return err
         from src.services.compras import b2b_carrito as CART, b2b_catalogo as CAT, b2b_pedidos as PED, \
             b2b_presupuesto as PRES
+        # Límite Freemium de pedidos/mes (petición explícita, 2026-11-27 — ver
+        # `services/portal_plan.py`): empresas sin ERP ni Plan de Pago del Portal tienen un tope
+        # mensual de pedidos tramitados; con cualquiera de los dos, sin límite. Se comprueba AQUÍ
+        # (el punto único real de creación de un pedido B2B), nunca en la UI del carrito sola.
+        from src.services import portal_plan as PP
+        info_limite = PP.limite("b2b", "pedidos_mes", "empresa", ses["id_empresa"])
+        if not info_limite["ok"]:
+            from src.db import centros as CT
+            lineas = CART.listar(token)
+            total = CART.total(token)
+            resumen = PRES.resumen_presupuesto(ses["id_empresa"], total_carrito=total)
+            centros = [c for c in CT.listar_centros(ses["id_empresa"]) if c.get("id_tienda")]
+            consig_disp = False
+            if lineas:
+                codigos = {l["codigo"] for l in lineas}
+                consig_disp = codigos.issubset(
+                    CAT.articulos_disponibles_consignacion(lineas[0]["id_suministrador"], list(codigos)))
+            return pagina_carrito(
+                token, lineas, total, no_leidos=_no_leidos(ses), resumen_presupuesto=resumen,
+                centros=centros, consignacion_disponible=consig_disp,
+                error=_t("portal_emp2.limite_pedidos_mes_error",
+                        "Has alcanzado el límite de {n} pedidos/mes de tu plan Freemium. Mejora al "
+                        "Plan de Pago del Portal o contrata Smart Manager ERP para tramitar sin "
+                        "límite.", n=info_limite["limite"])), 400
         # Casilla de consignación (Fase 1 — antes "plumbing" muerto desde la UI, ver `pagina_carrito`):
         # se lee el campo del formulario tal cual, pero NUNCA se confía en él por sí solo — `PED.
         # tramitar` revalida contra `b2b_catalogo.disponible_consignacion` antes de aplicar el flag
         # (un cliente API o un formulario manipulado no puede consignar un artículo no flageado).
         es_consignacion = request.form.get("es_consignacion") in ("1", "true", "on")
-        r = PED.tramitar(token, es_consignacion=es_consignacion)
+        # Centro de destino (petición explícita, 2026-11-21): obligatorio en cuanto la empresa tiene
+        # algún centro con tienda real vinculada — `PED.tramitar` revalida que el id recibido
+        # pertenezca de verdad a un centro de ESTA empresa (nunca se confía en el valor del formulario).
+        id_tienda_destino = request.form.get("id_tienda_destino") or None
+        r = PED.tramitar(token, es_consignacion=es_consignacion, id_tienda=id_tienda_destino)
         if not r.get("ok"):
+            if r.get("error") == "proveedores_sin_pasarela_verificada":
+                error_mostrado = _t("portal_emp2.proveedores_sin_verificar_error",
+                                    "Ninguno de los proveedores de tu carrito ha activado todavía "
+                                    "su cobro — vuelve a intentarlo más tarde.")
+            elif r.get("error") == "empresa_sin_metodo_pago_verificado":
+                error_mostrado = _t("portal_emp2.empresa_sin_metodo_pago_error",
+                                    "Antes de tramitar pedidos tienes que vincular y verificar tu "
+                                    "método de pago — hazlo desde tu Panel.")
+            elif r.get("error") == "empresa_sin_metodo_pago_verificado_para_esta_pasarela":
+                pasarelas = {d.get("pasarela") for d in r.get("proveedores_sin_pasarela_compatible", [])}
+                nombre_pasarela = "PayPal" if pasarelas == {"paypal"} else (
+                    "Stripe" if pasarelas == {"stripe"} else "Stripe/PayPal")
+                error_mostrado = _t("portal_emp2.empresa_sin_metodo_pago_pasarela_error",
+                                    "Para comprar a ese proveedor necesitas verificar también tu "
+                                    "método de pago de {pasarela} — hazlo desde tu Panel.",
+                                    pasarela=nombre_pasarela)
+            elif r.get("error") == "centro_destino_invalido":
+                error_mostrado = _t("portal_emp2.centro_destino_invalido_error",
+                                    "Selecciona a qué centro de tu empresa quieres enviar la mercancía.")
+            else:
+                error_mostrado = r.get("error")
             lineas = CART.listar(token)
             total = CART.total(token)
             resumen = PRES.resumen_presupuesto(ses["id_empresa"], total_carrito=total)
@@ -1218,10 +2292,15 @@ def crear_blueprint():
                 codigos = {l["codigo"] for l in lineas}
                 consig_disp = codigos.issubset(
                     CAT.articulos_disponibles_consignacion(id_sum, list(codigos)))
-            return pagina_carrito(token, lineas, total, error=r.get("error"),
+            from src.db import centros as CT
+            centros = [c for c in CT.listar_centros(ses["id_empresa"]) if c.get("id_tienda")]
+            return pagina_carrito(token, lineas, total, error=error_mostrado,
                                   resumen_presupuesto=resumen, no_leidos=_no_leidos(ses),
-                                  consignacion_disponible=consig_disp), 400
-        return pagina_pedido_confirmado(token, r["pedidos"], no_leidos=_no_leidos(ses))
+                                  consignacion_disponible=consig_disp, centros=centros), 400
+        return pagina_pedido_confirmado(
+            token, r["pedidos"], no_leidos=_no_leidos(ses),
+            proveedores_sin_verificar=r.get("proveedores_sin_verificar"),
+            proveedores_sin_pasarela_compatible=r.get("proveedores_sin_pasarela_compatible"))
 
     @bp.get("/<token>/plantillas")
     def plantillas(token):
@@ -1261,7 +2340,7 @@ def crear_blueprint():
             return err
         from src.services.comercio_digital import transacciones as TX
         peds = TX.listar(id_empresa=ses["id_empresa"], id_tienda=None, origen="b2b")
-        return pagina_mis_pedidos(token, peds, no_leidos=_no_leidos(ses))
+        return pagina_mis_pedidos(token, peds, id_empresa=ses["id_empresa"], no_leidos=_no_leidos(ses))
 
     @bp.get("/<token>/pedido/<id_tx>")
     def pedido_detalle(token, id_tx):
@@ -1282,6 +2361,174 @@ def crear_blueprint():
         return pagina_pedido_detalle(token, tx, tx["lineas"], CHAT.listar_mensajes(id_tx),
                                      lado="empresa", no_leidos=_no_leidos(ses),
                                      tiene_albaran=bool(doc), rmas=rmas)
+
+    @bp.get("/<token>/pedido/<id_tx>/pagar")
+    def pedido_pagar(token, id_tx):
+        """Primer paso del cobro real (ver `b2b_escrow.preparar_pago`): crea el PaymentIntent y
+        embebe el Payment Element de Stripe. Sin `STRIPE_PUBLISHABLE_KEY` configurada, degrada
+        honestamente — nunca se muestra un formulario de pago roto."""
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.services.comercio_digital import transacciones as TX
+        tx = TX.obtener(id_tx, id_empresa=ses["id_empresa"])
+        if not tx:
+            return _pagina_error(_t("portal_emp2.pedido_no_encontrado_titulo", "Pedido no encontrado"),
+                                 _t("portal_emp2.pedido_no_tuyo", "Ese pedido no existe o no es tuyo.")), 404
+        if tx["estado"] == "PAGADA":
+            return redirect(f"/portal/empresa/{token}/pedido/{id_tx}")
+        if tx["estado"] != "CONFIRMADA":
+            return pagina_pago_no_disponible(
+                token, motivo=_t("portal_emp2.pedido_no_pagable",
+                                 "Este pedido no está en un estado que permita pagarlo todavía."),
+                no_leidos=_no_leidos(ses))
+
+        publishable_key = os.environ.get("STRIPE_PUBLISHABLE_KEY")
+        if not publishable_key:
+            logger.warning("Pago B2B bloqueado: falta STRIPE_PUBLISHABLE_KEY en el entorno.")
+            return pagina_pago_no_disponible(token, no_leidos=_no_leidos(ses))
+
+        from src.services.compras import b2b_escrow as ESC
+        r = ESC.preparar_pago(id_tx, actor=ses.get("nombre_usuario"))
+        if not r.get("ok"):
+            return pagina_pago_no_disponible(
+                token, motivo=r.get("error"), no_leidos=_no_leidos(ses))
+        if not r.get("requiere_pago"):
+            # Pasarela simulada: `preparar_pago` ya lo marcó PAGADA directamente, sin tarjeta que pedir.
+            return pagina_pago_retorno(token, exito=True,
+                                       mensaje=_t("portal_emp2.pago_simulado_ok",
+                                                 "Pago simulado confirmado (modo de pruebas)."),
+                                       id_tx=id_tx, no_leidos=_no_leidos(ses))
+        return pagina_pago(token, tx, client_secret=r["client_secret"],
+                          publishable_key=publishable_key, no_leidos=_no_leidos(ses))
+
+    @bp.get("/<token>/pedido/<id_tx>/pago-retorno")
+    def pedido_pago_retorno(token, id_tx):
+        """`return_url` de Stripe tras `confirmPayment` (éxito, fallo O 3D Secure abandonado) — ver
+        `b2b_escrow.confirmar_pago_tras_retorno`: NUNCA se confía en que la redirección en sí
+        signifique éxito, se re-consulta el estado real del PaymentIntent en Stripe."""
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_escrow as ESC
+        r = ESC.confirmar_pago_tras_retorno(id_tx, actor=ses.get("nombre_usuario"))
+        if r.get("ok"):
+            return pagina_pago_retorno(
+                token, exito=True,
+                mensaje=_t("portal_emp2.pago_confirmado_desc",
+                          "Tu pago se ha confirmado correctamente. El proveedor ya puede preparar tu pedido."),
+                id_tx=id_tx, no_leidos=_no_leidos(ses))
+        return pagina_pago_retorno(
+            token, exito=False,
+            mensaje=_t("portal_emp2.pago_no_completado_desc",
+                      "El pago no se completó (puede que lo cancelaras o que tu banco lo rechazara). "
+                      "No se te ha cobrado nada todavía."),
+            id_tx=id_tx, no_leidos=_no_leidos(ses))
+
+    @bp.get("/<token>/pago/vincular")
+    def pago_vincular(token):
+        """Página de elección Stripe/PayPal (petición explícita, 2026-11-22) — antes iba
+        directamente al formulario de Stripe; ahora la empresa puede verificar cualquiera de las
+        dos, o las dos."""
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_pago_comprador as PAGO
+        return pagina_elegir_metodo_pago(token, estado=PAGO.estado(ses["id_empresa"]),
+                                         no_leidos=_no_leidos(ses))
+
+    @bp.get("/<token>/pago/vincular/stripe")
+    def pago_vincular_stripe(token):
+        """Requisito obligatorio del comprador (ver `b2b_pago_comprador`): crea el Customer +
+        SetupIntent y embebe el Payment Element de Stripe en modo verificación (sin cobrar nada).
+        Sin `STRIPE_PUBLISHABLE_KEY`, degrada honestamente — nunca un formulario roto."""
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        publishable_key = os.environ.get("STRIPE_PUBLISHABLE_KEY")
+        if not publishable_key:
+            logger.warning("Vinculación de pago B2B bloqueada: falta STRIPE_PUBLISHABLE_KEY.")
+            return pagina_vincular_pago_no_disponible(token, no_leidos=_no_leidos(ses))
+        from src.services.compras import b2b_pago_comprador as PAGO
+        r = PAGO.iniciar_vinculacion(ses["id_empresa"], email=ses.get("nombre_usuario"))
+        if not r.get("ok"):
+            return pagina_vincular_pago_no_disponible(
+                token, motivo=r.get("error"), no_leidos=_no_leidos(ses))
+        return pagina_vincular_pago(token, client_secret=r["client_secret"],
+                                    publishable_key=publishable_key, no_leidos=_no_leidos(ses))
+
+    @bp.get("/<token>/pago/vincular/stripe/retorno")
+    def pago_vincular_stripe_retorno(token):
+        """`return_url` de Stripe tras `confirmSetup` — NUNCA se confía en la redirección por sí
+        sola: `b2b_pago_comprador.confirmar_vinculacion` re-consulta el SetupIntent real."""
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        setup_intent_id = request.args.get("setup_intent")
+        from src.services.compras import b2b_pago_comprador as PAGO
+        r = PAGO.confirmar_vinculacion(ses["id_empresa"], setup_intent_id)
+        if r.get("ok"):
+            return pagina_vincular_pago_retorno(
+                token, exito=True,
+                mensaje=_t("portal_emp2.vinculacion_confirmada_desc",
+                          "Tu método de pago ha quedado verificado — ya puedes tramitar pedidos."),
+                no_leidos=_no_leidos(ses))
+        return pagina_vincular_pago_retorno(
+            token, exito=False,
+            mensaje=_t("portal_emp2.vinculacion_no_completada_desc",
+                      "La verificación no se completó (puede que la cancelaras o que tu banco la "
+                      "rechazara). No se te ha cobrado nada."),
+            no_leidos=_no_leidos(ses))
+
+    @bp.get("/<token>/pago/vincular/paypal")
+    def pago_vincular_paypal(token):
+        """Alternativa a Stripe (petición explícita, 2026-11-22): Vault API v3 de PayPal — el
+        `setup_token_id` viaja en la cookie de sesión de Flask (NUNCA en la query string del
+        retorno, cuyo formato exacto no está garantizado) hasta confirmarse."""
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_pago_comprador as PAGO
+        base_absoluta = os.environ.get("PORTAL_EMPRESA_URL", "http://localhost:8090/portal/empresa")
+        return_url = f"{base_absoluta}/{token}/pago/vincular/paypal/retorno"
+        r = PAGO.iniciar_vinculacion_paypal(ses["id_empresa"], return_url=return_url)
+        if not r.get("ok"):
+            return pagina_vincular_pago_no_disponible(
+                token, motivo=r.get("error"), no_leidos=_no_leidos(ses))
+        session["pendiente_paypal_vault"] = {"id_empresa": ses["id_empresa"],
+                                            "setup_token_id": r["setup_token_id"]}
+        return redirect(r["approve_url"])
+
+    @bp.get("/<token>/pago/vincular/paypal/retorno")
+    def pago_vincular_paypal_retorno(token):
+        """`return_url` de PayPal — NUNCA se confía en la redirección por sí sola:
+        `b2b_pago_comprador.confirmar_vinculacion_paypal` crea el PAYMENT_TOKEN real a partir del
+        SETUP_TOKEN (lo que de verdad demuestra que el comprador aprobó)."""
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        pendiente = session.pop("pendiente_paypal_vault", None)
+        if not pendiente or pendiente.get("id_empresa") != ses["id_empresa"]:
+            return pagina_vincular_pago_retorno(
+                token, exito=False,
+                mensaje=_t("portal_emp2.vinculacion_no_completada_desc",
+                          "La verificación no se completó (puede que la cancelaras o que tu banco "
+                          "la rechazara). No se te ha cobrado nada."),
+                no_leidos=_no_leidos(ses))
+        from src.services.compras import b2b_pago_comprador as PAGO
+        r = PAGO.confirmar_vinculacion_paypal(ses["id_empresa"], pendiente["setup_token_id"])
+        if r.get("ok"):
+            return pagina_vincular_pago_retorno(
+                token, exito=True,
+                mensaje=_t("portal_emp2.vinculacion_confirmada_desc",
+                          "Tu método de pago ha quedado verificado — ya puedes tramitar pedidos."),
+                no_leidos=_no_leidos(ses))
+        return pagina_vincular_pago_retorno(
+            token, exito=False,
+            mensaje=_t("portal_emp2.vinculacion_no_completada_desc",
+                      "La verificación no se completó (puede que la cancelaras o que tu banco la "
+                      "rechazara). No se te ha cobrado nada."),
+            no_leidos=_no_leidos(ses))
 
     @bp.post("/<token>/pedido/<id_tx>/rma")
     def pedido_rma_solicitar(token, id_tx):
@@ -1379,48 +2626,9 @@ def crear_blueprint():
         CHAT.enviar_mensaje(id_tx, "empresa", ses.get("nombre_usuario"), request.form.get("cuerpo", ""))
         return redirect(f"/portal/empresa/{token}/pedido/{id_tx}")
 
-    @bp.get("/<token>/colores")
-    def colores(token):
-        ses, err = _sesion_o_error(token)
-        if err:
-            return err
-        from src.backend import portal_theming as _tema
-        contenido = _tema.pagina_colores_html(
-            titulo="Colores del portal", accion_guardar=f"/portal/empresa/{token}/colores/guardar",
-            accion_volver=f"/portal/empresa/{token}/dashboard",
-            accion_restablecer=f"/portal/empresa/{token}/colores/restablecer",
-            id_empresa=ses["id_empresa"], mensaje=request.args.get("mensaje"),
-            error=request.args.get("error"))
-        return _layout("Personalización", contenido, nav=_nav_html(token, "colores"), id_empresa=ses["id_empresa"])
-
-    @bp.post("/<token>/colores/guardar")
-    def colores_guardar(token):
-        ses, err = _sesion_o_error(token)
-        if err:
-            return err
-        from urllib.parse import quote
-        from src.backend import portal_theming as _tema
-        res = _tema.guardar_tema(ses["id_empresa"],
-                                 color_primario=request.form.get("color_primario"),
-                                 color_secundario=request.form.get("color_secundario"),
-                                 color_terciario=request.form.get("color_terciario"))
-        url = f"/portal/empresa/{token}/colores"
-        if res["ok"]:
-            url += f"?mensaje={quote('Colores guardados.')}"
-        else:
-            url += f"?error={quote('No se pudieron guardar los colores.')}"
-        return redirect(url)
-
-    @bp.post("/<token>/colores/restablecer")
-    def colores_restablecer(token):
-        ses, err = _sesion_o_error(token)
-        if err:
-            return err
-        from urllib.parse import quote
-        from src.backend import portal_theming as _tema
-        ok = _tema.restablecer_tema(ses["id_empresa"])
-        url = f"/portal/empresa/{token}/colores"
-        url += f"?mensaje={quote('Colores restablecidos.')}" if ok else f"?error={quote('No se pudo restablecer.')}"
-        return redirect(url)
+    # "Colores" (personalización por empresa) RETIRADA (petición explícita, 2026-11-21): este
+    # portal usa ahora una paleta FIJA propia (`portal_theming.PALETA_EMPRESA_B2B`, ver `_layout`)
+    # — las 3 rutas de antes (`/colores`, `/colores/guardar`, `/colores/restablecer`) y el enlace
+    # "Personalización" de la sidebar se eliminan con ella.
 
     return bp

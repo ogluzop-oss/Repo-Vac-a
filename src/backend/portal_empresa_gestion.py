@@ -47,11 +47,11 @@ def _aviso_html(mensaje=None, error=None):
 
 
 def _volver_gestion(token):
-    """Enlace "Volver a Gestión" en la esquina superior derecha, compartido por TODAS las sub-páginas
-    de Gestión — un único helper reutilizado, en vez de duplicar el HTML en cada página."""
-    return (f'<div style="text-align:right;margin-bottom:10px">'
-           f'<a href="/portal/empresa/{_e(token)}/gestion" class="btn btn-ghost" '
-           f'style="font-size:12px;padding:6px 12px">◀ {_t("portal_gest.volver_gestion", "Volver a Gestión")}</a></div>')
+    """Petición explícita, 2026-11-22: retirado — la side bar propia de "Gestión" (siempre visible,
+    ver `portal_empresa_b2b._layout(sub_nav=...)`) ya cumple esa misma función de navegación, así
+    que este botón duplicaba un camino que ya existe. Se conserva la función (devuelve "") en vez
+    de tocar cada una de sus ~15 llamadas en este fichero."""
+    return ""
 
 
 # ── Alta artículo (migrada desde "Info artículo" del escritorio, petición explícita) ────────────
@@ -186,7 +186,7 @@ def pagina_alta_articulo(token, *, mensaje=None, error=None, resultado=None, pro
 <input type="hidden" name="referencia_proveedor" value="{_e(vincular.get('referencia_proveedor'))}">
 <button type="submit" class="btn btn-primary">{_t("portal_gest.confirmar_vinculacion_btn", "Confirmar vinculación")}</button>
 </form>
-</div>""", nav=_nav_html(token, "gestion"))
+</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "alta_articulo"), token=token)
     bloque_resultado = ""
     if resultado:
         bloque_resultado = f"""<div class="card" style="border:2px solid var(--ac)">
@@ -240,7 +240,7 @@ style="width:auto;padding:0;margin:0 6px 0 0;vertical-align:middle">
 <input type="text" name="referencia_proveedor" placeholder="{_t("portal_gest.ref_proveedor_ph", "Código/SKU que usa el proveedor")}">
 <button type="submit" class="btn btn-primary" style="margin-top:14px">{_t("portal_gest.crear_articulo_btn", "Crear artículo")}</button>
 </form>
-</div>""", nav=_nav_html(token, "gestion"))
+</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "alta_articulo"), token=token)
 
 def pagina_equivalencias_articulo(token, codigo_articulo, nombre_articulo, equivalencias, *,
                                   mensaje=None, error=None):
@@ -266,11 +266,13 @@ def pagina_equivalencias_articulo(token, codigo_articulo, nombre_articulo, equiv
         estilo_fila = "" if activa else ' style="opacity:.55"'
         filas += (f'<tr{estilo_fila}>'
                  f'<td>{_e(e.get("referencia_proveedor"))}</td>'
+                 f'<td>{_e(e.get("talla") or "—")}</td>'
                  f'<td>{_e(e.get("nombre_proveedor") or "—")}</td>'
                  f'<td>{_e(e.get("origen_proveedor"))}</td>'
                  f'<td><span class="badge{" badge-ok" if activa else ""}">{_e(e.get("estado"))}</span></td>'
                  f'<td>{_e(e.get("fecha_creacion") or "—")}</td><td>{accion}</td></tr>')
     tabla = (f'<table><tr><th>{_t("portal_gest.col_ref_proveedor", "Referencia proveedor")}</th>'
+            f'<th>{_t("portal_gest.col_talla", "Talla")}</th>'
             f'<th>{_t("portal_gest.col_proveedor", "Proveedor")}</th>'
             f'<th>{_t("portal_gest.col_origen", "Origen")}</th>'
             f'<th>{_t("portal_gest.col_estado", "Estado")}</th>'
@@ -289,7 +291,7 @@ def pagina_equivalencias_articulo(token, codigo_articulo, nombre_articulo, equiv
 </div>
 <p><a class="btn btn-ghost" href="/portal/empresa/{_e(token)}/gestion/alta_articulo">
 ◀ {_t("portal_gest.volver_alta_articulo", "Volver a Alta artículo")}</a></p>""",
-                  nav=_nav_html(token, "gestion"))
+                  nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "alta_articulo"), token=token)
 
 
 # ── Índice de Gestión ────────────────────────────────────────────────────────
@@ -312,7 +314,48 @@ _SECCIONES = (
     ("rappels", "💰", "Rappels", "Tramos de rebate acumulado por proveedor y liquidación."),
     ("licitaciones", "🏆", "Licitaciones", "Subastas inversas (RFQ): pide precio a tus proveedores y "
      "adjudica la mejor oferta."),
+    ("centros", "🏭", "Centros",
+     "Añadir, editar o eliminar los centros de la empresa (según el límite de tu plan)."),
+    ("gasto_mensual", "💶", "Gasto mensual",
+     "Límite de gasto mensual (B2B): aviso visual en el carrito al superarlo."),
+    ("metodo_pago", "💳", "Método de pago",
+     "Vincula y verifica Stripe, PayPal, o ambos — necesario para tramitar pedidos."),
 )
+
+
+def secciones_visibles(id_empresa=None):
+    """`_SECCIONES` filtrada para esta empresa — "Alta artículo" es EXCLUSIVA de empresas con
+    suscripción activa/en prueba a la app de escritorio (petición explícita, 2026-11-24; ver
+    `_requiere_suscripcion_desktop`). Resuelve `id_empresa` de `flask.g` si no se indica (mismo
+    valor que `_sesion_o_error` ya deja en `g.id_empresa`)."""
+    if id_empresa is None:
+        try:
+            from flask import g
+            id_empresa = getattr(g, "id_empresa", None)
+        except Exception:
+            id_empresa = None
+    try:
+        from src.services.compras import comisiones_b2b as CB
+        tiene_sub = CB.tiene_suscripcion_desktop_activa(id_empresa)
+    except Exception:
+        tiene_sub = False
+    if tiene_sub:
+        return _SECCIONES
+    return tuple(s for s in _SECCIONES if s[0] != "alta_articulo")
+
+
+def _gestion_sidebar_html(token, activo):
+    """Side bar PROPIA de "Gestión" (petición explícita, 2026-11-21: sus botones pasan a ser
+    pestañas de una side bar, con "+ Alta artículo" mostrado por defecto en vez del índice de
+    tarjetas — ver `_SECCIONES`/`pagina_gestion_index`, que se conserva intacta pero deja de ser
+    la página de aterrizaje). Reutiliza la MISMA `_SECCIONES` (filtrada por `secciones_visibles`)
+    que el índice de tarjetas (ahora legado) para no duplicar la lista de secciones."""
+    base = f"/portal/empresa/{token}/gestion"
+    enlaces = "".join(
+        f'<a href="{base}/{sid}"{" class=\"on\"" if activo == sid else ""}>'
+        f'{_e(_t(f"portal_gest.sec_{sid}_titulo", titulo))}</a>'
+        for sid, ic, titulo, desc in secciones_visibles())
+    return enlaces
 
 
 def pagina_gestion_index(token):
@@ -323,14 +366,14 @@ def pagina_gestion_index(token):
     tarjetas = "".join(f"""<a href="{base}/{sid}" class="gestion-card">
 <b>{ic}  {_e(_t(f"portal_gest.sec_{sid}_titulo", titulo))}</b><br>
 <span>{_e(_t(f"portal_gest.sec_{sid}_desc", desc))}</span></a>"""
-                        for sid, ic, titulo, desc in _SECCIONES)
+                        for sid, ic, titulo, desc in secciones_visibles())
     return _layout(_t("portal_gest.gestion_titulo", "Gestión"), f"""
 <div class="card"><h1>{_t("portal_gest.gestion_compras_h1", "Gestión de Compras")}</h1>
 <p>{_t("portal_gest.gestion_compras_desc",
       "Back-office de proveedores: homologación, incidencias, devoluciones, recepciones, "
       "facturas, contratos, informes y el resumen de Calidad.")}</p>
 {tarjetas}
-</div>""", nav=_nav_html(token, "gestion"))
+</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "index"), token=token)
 
 
 # ── Homologar Proveedor ──────────────────────────────────────────────────────
@@ -338,9 +381,9 @@ _ESTADOS_HOMOLOG = ("pendiente", "aprobado", "suspendido", "bloqueado")
 _ESTADOS_KYB = ("pendiente", "en_revision", "verificado", "rechazado")
 
 
-def pagina_homologacion(token, proveedores, *, estados_kyb=None, mensaje=None, id_proveedor=None,
-                        contactos=None, direcciones=None, certificaciones=None, acuerdos=None,
-                        tarifas=None):
+def pagina_homologacion(token, proveedores, *, estados_kyb=None, mensaje=None, error=None,
+                        id_proveedor=None, contactos=None, direcciones=None, certificaciones=None,
+                        acuerdos=None, tarifas=None):
     """`estados_kyb`: {id_suministrador: estado_kyb} — la verificación de identidad del proveedor en
     la PLATAFORMA (`suministradores.estado_kyb`, compartida entre todas las empresas que trabajan con
     él), distinta de `homologacion_estado` (la aprobación comercial de ESTA empresa en concreto). Solo
@@ -480,13 +523,13 @@ def pagina_homologacion(token, proveedores, *, estados_kyb=None, mensaje=None, i
       'El "estado comercial" es tu aprobación como empresa (descuentos/condiciones/bloqueo). La '
       '"verificación de identidad (KYB)" es la comprobación de la razón social/CIF del proveedor '
       "en la plataforma — se comparte con el resto de empresas que trabajen con él.")}</p>
-{_aviso_html(mensaje)}{tabla}
+{_aviso_html(mensaje, error)}{tabla}
 </div>
 <div class="card"><h2>{_t("portal_gest.ficha_proveedor_h2", "Ficha del proveedor (contactos y direcciones)")}</h2>
 <form method="get" action="{base_ficha}">
 {_select('id_proveedor', _opts_proveedores(proveedores), seleccionado=id_proveedor, vacio=_t('portal_gest.selecciona_ph', 'Selecciona…'))}
 <button type="submit">{_t("portal_gest.ver_ficha_btn", "Ver ficha")}</button></form></div>
-{ficha}""", nav=_nav_html(token, "gestion"))
+{ficha}""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "homologacion"), token=token)
 
 
 # ── Devoluciones ─────────────────────────────────────────────────────────────
@@ -512,7 +555,7 @@ def pagina_devoluciones(token, devoluciones, proveedores, *, mensaje=None, error
 <p><button type="submit">{_t("portal_gest.registrar_devolucion_btn", "Registrar devolución")}</button></p>
 </form>{_aviso_html(mensaje, error)}
 </div>
-<div class="card"><h2>{_t("portal_gest.historial_h2", "Historial")}</h2>{tabla}</div>""", nav=_nav_html(token, "gestion"))
+<div class="card"><h2>{_t("portal_gest.historial_h2", "Historial")}</h2>{tabla}</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "devoluciones"), token=token)
 
 
 # ── Incidencias ──────────────────────────────────────────────────────────────
@@ -553,7 +596,7 @@ def pagina_incidencias(token, incidencias, proveedores, *, mensaje=None):
 <p><button type="submit">{_t("portal_gest.registrar_incidencia_btn", "Registrar incidencia")}</button></p>
 </form>{_aviso_html(mensaje)}
 </div>
-<div class="card"><h2>{_t("portal_gest.historial_h2", "Historial")}</h2>{tabla}</div>""", nav=_nav_html(token, "gestion"))
+<div class="card"><h2>{_t("portal_gest.historial_h2", "Historial")}</h2>{tabla}</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "incidencias"), token=token)
 
 
 # ── Evaluación ───────────────────────────────────────────────────────────────
@@ -590,7 +633,7 @@ def pagina_evaluacion(token, proveedores, *, id_proveedor=None, kpis=None, histo
 {_select('id_proveedor', _opts_proveedores(proveedores), seleccionado=id_proveedor, vacio=_t('portal_gest.selecciona_ph', 'Selecciona…'))}
 <button type="submit">{_t("portal_gest.ver_kpis_btn", "Ver KPIs")}</button>
 </form>
-</div>{resultado}""", nav=_nav_html(token, "gestion"))
+</div>{resultado}""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "evaluacion"), token=token)
 
 
 # ── Recepciones ──────────────────────────────────────────────────────────────
@@ -611,7 +654,7 @@ def pagina_recepciones(token, pedidos, nombres_proveedor):
     return _layout(_t("portal_gest.recepciones_pendientes_titulo", "Recepciones pendientes"), f"""
 {_volver_gestion(token)}
 <div class="card"><h1>{_t("portal_gest.pedidos_pendientes_recepcion_h1", "Pedidos pendientes de recepción")}</h1>{tabla}</div>""",
-                  nav=_nav_html(token, "gestion"))
+                  nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "recepciones"), token=token)
 
 
 def _tabla_landed_html(landed):
@@ -688,7 +731,7 @@ def pagina_recepcion_detalle(token, pedido, nombre_proveedor, *, mensaje=None, e
 {_aviso_html(mensaje, error)}{tabla}
 <p><a href="/portal/empresa/{_e(token)}/gestion/recepciones" style="color:var(--ac);font-weight:700">
 {_t("portal_gest.volver_recepciones", "← Volver a recepciones")}</a></p>
-</div>{costes}""", nav=_nav_html(token, "gestion"))
+</div>{costes}""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "recepciones"), token=token)
 
 
 def _opts_tipo_coste_extra():
@@ -745,7 +788,7 @@ def pagina_costes_extra_b2b(token, tx, nombre_proveedor, landed, *, mensaje=None
 <button type="submit">{_t("portal_gest.prorratear_costes_btn", "Prorratear costes pendientes")}</button></form>
 </div>
 <div class="card"><h2>{_t("portal_gest.desglose_landed_h2", "Desglose landed")}</h2>{_tabla_landed_html(landed)}</div>""",
-                  nav=_nav_html(token, "gestion"))
+                  nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "recepciones"), token=token)
 
 
 # ── Facturas ─────────────────────────────────────────────────────────────────
@@ -824,7 +867,7 @@ def pagina_facturas(token, facturas, nombres_proveedor, proveedores, pedidos, *,
 <label>{_t("portal_gest.id_recepcion_lbl", "ID de recepción")}</label><input type="number" name="id_recepcion" required>
 <label>{_t("portal_gest.importe_eur_lbl", "Importe (€)")}</label><input type="number" step="0.01" name="importe" required>
 <p><button type="submit">{_t("portal_gest.asociar_btn", "Asociar")}</button></p>
-</form></div>""", nav=_nav_html(token, "gestion"))
+</form></div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "facturas"), token=token)
 
 
 # ── Contratos ────────────────────────────────────────────────────────────────
@@ -861,7 +904,7 @@ def pagina_contratos(token, contratos, vencimientos, tipos):
 <label>{_t("portal_gest.valor_eur_lbl", "Valor (€)")}</label><input type="number" step="0.01" name="valor" value="0">
 <p><button type="submit">{_t("portal_gest.crear_contrato_btn", "Crear contrato")}</button></p>
 </form></div>
-<div class="card"><h2>{_t("portal_gest.contratos_titulo", "Contratos")}</h2>{aviso_venc}{tabla}</div>""", nav=_nav_html(token, "gestion"))
+<div class="card"><h2>{_t("portal_gest.contratos_titulo", "Contratos")}</h2>{aviso_venc}{tabla}</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "contratos"), token=token)
 
 
 # ── Informes ─────────────────────────────────────────────────────────────────
@@ -895,7 +938,7 @@ def pagina_informes(token, *, por_proveedor, por_periodo, por_articulo, top_prov
 </div>
 <div class="card"><h2>{_t("portal_gest.proveedores_mas_usados_h2", "Proveedores más utilizados")}</h2>
 {f'<table><tr><th>{_t("portal_gest.col_proveedor", "Proveedor")}</th><th>{_t("portal_gest.col_pedidos", "Pedidos")}</th><th>{_t("portal_gest.col_total", "Total")}</th></tr>{f_top}</table>' if top_proveedores else sin_datos}
-</div>""", nav=_nav_html(token, "gestion"))
+</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "informes"), token=token)
 
 
 # ── Calidad (resumen) ────────────────────────────────────────────────────────
@@ -914,7 +957,7 @@ def pagina_calidad(token, kpis):
 · {_t("portal_gest.capa_abiertas_lbl", "CAPA abiertas:")} <span class="badge">{kpis['capa_abiertas']}</span>
 · {_t("portal_gest.capa_cerradas_lbl", "CAPA cerradas:")} <span class="badge">{kpis['capa_cerradas']}</span></p>
 <p>{_t("portal_gest.unidades_merma_calidad_lbl", "Unidades de merma asociadas a calidad:")} <span class="badge">{kpis['unidades_merma']}</span></p>
-</div>""", nav=_nav_html(token, "gestion"))
+</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "calidad"), token=token)
 
 
 # ── Compras Pro (recurrentes, órdenes abiertas, comparativa, aprobación) ──────
@@ -1010,7 +1053,7 @@ def pagina_compras_pro(token, proveedores, recurrentes, ordenes, pedidos, *, com
 <input type="hidden" name="ver" value="aprobacion">
 {_select('id_pedido', opts_ped, vacio=_t('portal_gest.selecciona_pedido_opt', 'Selecciona un pedido…'))}
 <button type="submit">{_t("portal_gest.ver_estado_btn", "Ver estado")}</button></form></div>
-{aprob_html}""", nav=_nav_html(token, "gestion"))
+{aprob_html}""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "compras_pro"), token=token)
 
 
 # ── Rappels acumulados (Smart Suppliers B2B · Punto 1) ────────────────────────
@@ -1098,7 +1141,7 @@ data-cdate-tipo="date" placeholder="dd/mm/aaaa">
 </form></div>
 <div class="card"><h2>{_t("portal_gest.progreso_por_proveedor_h2", "Progreso por proveedor")}</h2>{progreso_html}</div>
 <div class="card"><h2>{_t("portal_gest.tramos_configurados_h2", "Tramos configurados")}</h2>{tabla_tramos}</div>
-<div class="card"><h2>{_t("portal_gest.liquidaciones_h2", "Liquidaciones")}</h2>{tabla_liq}</div>""", nav=_nav_html(token, "gestion"))
+<div class="card"><h2>{_t("portal_gest.liquidaciones_h2", "Liquidaciones")}</h2>{tabla_liq}</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "rappels"), token=token)
 
 
 def _etiqueta_rfq_t(estado):
@@ -1152,7 +1195,7 @@ data-cdate-tipo="date" placeholder="dd/mm/aaaa">
 placeholder="dd/mm/aaaa --:--">
 <p><button type="submit">{_t("portal_gest.crear_licitacion_btn", "Crear licitación")}</button></p>
 </form></div>
-<div class="card"><h2>{_t("portal_gest.tus_licitaciones_h2", "Tus licitaciones")}</h2>{tabla}</div>""", nav=_nav_html(token, "gestion"))
+<div class="card"><h2>{_t("portal_gest.tus_licitaciones_h2", "Tus licitaciones")}</h2>{tabla}</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "licitaciones"), token=token)
 
 
 def pagina_licitacion_detalle(token, rfq, ofertas, *, mensaje=None, error=None):
@@ -1204,7 +1247,114 @@ def pagina_licitacion_detalle(token, rfq, ofertas, *, mensaje=None, error=None):
  }}
  tick();
 }})();
-</script>""", nav=_nav_html(token, "gestion"))
+</script>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "licitaciones"), token=token)
+
+
+# ── Gasto mensual (petición explícita, 2026-11-21: se traslada desde "Inicio" — su sitio es
+# Gestión, no el panel de bienvenida) ─────────────────────────────────────────
+def pagina_gasto_mensual(token, *, limite_actual=None):
+    base = f"/portal/empresa/{token}/gestion/gasto_mensual"
+    valor_limite = f'value="{limite_actual}"' if limite_actual is not None else ""
+    return _layout(_t("portal_gest.gasto_mensual_titulo", "Gasto mensual"), f"""
+<div class="card"><h1>{_t("portal_gest.limite_gasto_h2", "Límite de gasto mensual (B2B)")}</h1>
+<p>{_t("portal_gest.limite_gasto_desc",
+      "Aviso visual (no bloqueante) en el carrito cuando el gasto validado del mes más el "
+      "carrito actual supere este límite. Déjalo vacío para desactivarlo.")}</p>
+<form class="inline" method="post" action="{base}">
+<input type="number" name="limite" step="0.01" min="0" placeholder="{_t("portal_gest.sin_limite_ph", "Sin límite")}" style="min-width:120px" {valor_limite}>
+<span>{_t("portal_gest.eur_mes", "€ / mes")}</span>
+<button type="submit">{_t("portal_gest.guardar_btn", "Guardar")}</button>
+</form></div>""", nav=_nav_html(token, "gestion"),
+                  sub_nav=_gestion_sidebar_html(token, "gasto_mensual"), token=token)
+
+
+# ── Centros (petición explícita, 2026-11-21: añadir/editar/eliminar los centros de la empresa,
+# limitado por el nº de centros del plan contratado) ─────────────────────────
+_TIPOS_CENTRO = ("tienda", "almacen", "fabrica", "oficina", "otro")
+_ETIQUETA_TIPO_CENTRO = {"tienda": "Tienda", "almacen": "Almacén", "fabrica": "Fábrica",
+                         "oficina": "Oficina", "otro": "Otro"}
+
+
+def _limite_centros(id_empresa) -> dict:
+    """{limite, usado, disponible} — misma cuota que el alta con código de activación (ver
+    `services.compras.b2b_sesion_empresa.limite_centros`, fuente única: un solo criterio de cuota
+    de centros en todo el portal, no dos implementaciones distintas)."""
+    from src.services.compras import b2b_sesion_empresa as SES
+    return SES.limite_centros(id_empresa)
+
+
+def pagina_centros(token, centros_lista, *, limite=None, mensaje=None, error=None):
+    base = f"/portal/empresa/{token}/gestion/centros"
+    aviso = _aviso_html(mensaje, error)
+    filas = ""
+    for c in centros_lista:
+        principal = (f' <span class="badge badge-ok">{_t("portal_gest.principal_badge", "Principal")}</span>'
+                    if c.get("es_principal") else "")
+        filas += (f"""<tr><td>{_e(c.get('nombre_centro'))}{principal}</td>
+<td>{_e(_ETIQUETA_TIPO_CENTRO.get(c.get('tipo_centro'), c.get('tipo_centro')))}</td>
+<td>{_e(c.get('direccion') or '—')}</td><td>{_e(c.get('telefono') or '—')}</td>
+<td><a class="btn btn-ghost" style="font-size:11px;padding:4px 8px" href="{base}/{c['id_centro']}/editar">{_t("portal_gest.editar_btn", "Editar")}</a>
+{'' if c.get('es_principal') else f'''<form method="post" action="{base}/{c["id_centro"]}/eliminar" class="inline" onclick="return confirm('{_t("portal_gest.confirmar_eliminar_centro_js", "¿Eliminar este centro?")}')">
+<button type="submit" class="btn-danger" style="font-size:11px;padding:4px 8px">{_t("portal_gest.eliminar_btn", "Eliminar")}</button></form>'''}</td></tr>""")
+    tabla = (f'<table><tr><th>{_t("portal_gest.col_nombre2", "Nombre")}</th><th>{_t("portal_gest.col_tipo", "Tipo")}</th>'
+            f'<th>{_t("portal_gest.col_direccion", "Dirección")}</th><th>{_t("portal_gest.col_telefono", "Teléfono")}</th><th></th></tr>{filas}</table>'
+            if centros_lista else f'<p>{_t("portal_gest.sin_centros", "Esta empresa todavía no tiene ningún centro.")}</p>')
+    lim = limite or {}
+    disponible = lim.get("disponible")
+    nota_limite = (f'<p class="sub">{_t("portal_gest.centros_usados_de_limite", "Usas {u} de {l} centros permitidos por tu plan.", u=lim.get("usado", 0), l=lim.get("limite", "—"))}</p>')
+    opciones_tipo = "".join(f'<option value="{t}">{_e(_ETIQUETA_TIPO_CENTRO[t])}</option>' for t in _TIPOS_CENTRO)
+    form_nuevo = (f"""<div class="card"><h2>{_t("portal_gest.nuevo_centro_h2", "Nuevo centro")}</h2>
+{nota_limite}
+<form method="post" action="{base}/nuevo">
+<label>{_t("portal_gest.nombre_centro_req_lbl", "Nombre del centro *")}</label><input name="nombre_centro" required>
+<label>{_t("portal_gest.tipo_centro_lbl", "Tipo de centro")}</label><select name="tipo_centro">{opciones_tipo}</select>
+<label>{_t("portal_gest.direccion_lbl", "Dirección")}</label><input name="direccion">
+<label>{_t("portal_gest.codigo_postal_lbl", "Código postal")}</label><input name="codigo_postal">
+<label>{_t("portal_gest.municipio_lbl", "Municipio")}</label><input name="municipio">
+<label>{_t("portal_gest.provincia_lbl", "Provincia")}</label><input name="provincia">
+<label>{_t("portal_gest.telefono_lbl2", "Teléfono")}</label><input name="telefono">
+<label>{_t("portal_gest.email_lbl", "Email")}</label><input name="email" type="email">
+<button type="submit" class="btn btn-primary" style="margin-top:14px"{' disabled' if disponible is not None and disponible <= 0 else ''}>{_t("portal_gest.anadir_centro_btn", "Añadir centro")}</button>
+</form></div>"""
+                 if (disponible is None or disponible > 0) else
+                 f"""<div class="card"><h2>{_t("portal_gest.nuevo_centro_h2", "Nuevo centro")}</h2>
+{nota_limite}
+<p class="error">{_t("portal_gest.limite_centros_alcanzado", "Has alcanzado el número de centros que permite tu plan — amplía tu plan contratado para añadir más.")}</p>
+</div>""")
+    return _layout(_t("portal_gest.centros_titulo", "Centros"), f"""
+{aviso}
+<div class="card"><h1>{_t("portal_gest.centros_h1", "Centros de la empresa")}</h1>
+<p>{_t("portal_gest.centros_desc", "Añade, edita o elimina los centros (tiendas/almacenes/fábricas/oficinas) desde los que tramitas tus pedidos B2B.")}</p>
+{tabla}
+</div>
+{form_nuevo}""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "centros"),
+                  token=token)
+
+
+def pagina_centro_editar(token, centro, *, error=None):
+    base = f"/portal/empresa/{token}/gestion/centros/{centro['id_centro']}/editar"
+    opciones_tipo = "".join(
+        f'<option value="{t}"{" selected" if centro.get("tipo_centro") == t else ""}>'
+        f'{_e(_ETIQUETA_TIPO_CENTRO[t])}</option>' for t in _TIPOS_CENTRO)
+    aviso = _aviso_html(None, error)
+    return _layout(_t("portal_gest.editar_centro_titulo", "Editar centro"), f"""
+{aviso}
+<div class="card"><h1>{_t("portal_gest.editar_centro_h1", "Editar centro")}</h1>
+<form method="post" action="{base}">
+<label>{_t("portal_gest.nombre_centro_req_lbl", "Nombre del centro *")}</label>
+<input name="nombre_centro" value="{_e(centro.get('nombre_centro'))}" required>
+<label>{_t("portal_gest.tipo_centro_lbl", "Tipo de centro")}</label><select name="tipo_centro">{opciones_tipo}</select>
+<label>{_t("portal_gest.direccion_lbl", "Dirección")}</label><input name="direccion" value="{_e(centro.get('direccion'))}">
+<label>{_t("portal_gest.codigo_postal_lbl", "Código postal")}</label><input name="codigo_postal" value="{_e(centro.get('codigo_postal'))}">
+<label>{_t("portal_gest.municipio_lbl", "Municipio")}</label><input name="municipio" value="{_e(centro.get('municipio'))}">
+<label>{_t("portal_gest.provincia_lbl", "Provincia")}</label><input name="provincia" value="{_e(centro.get('provincia'))}">
+<label>{_t("portal_gest.telefono_lbl2", "Teléfono")}</label><input name="telefono" value="{_e(centro.get('telefono'))}">
+<label>{_t("portal_gest.email_lbl", "Email")}</label><input name="email" type="email" value="{_e(centro.get('email'))}">
+<button type="submit" class="btn btn-primary" style="margin-top:14px">{_t("portal_gest.guardar_btn2", "Guardar")}</button>
+</form>
+<p><a class="btn btn-ghost" href="/portal/empresa/{_e(token)}/gestion/centros">◀ {_t("portal_gest.volver_centros", "Volver a Centros")}</a></p>
+</div>""", nav=_nav_html(token, "gestion"), sub_nav=_gestion_sidebar_html(token, "centros"),
+                  token=token)
 
 
 # ── Blueprint Flask (import perezoso) ────────────────────────────────────────
@@ -1212,6 +1362,11 @@ def crear_blueprint():
     from flask import Blueprint, redirect, request
 
     bp = Blueprint("portal_empresa_gestion", __name__, url_prefix="/portal/empresa")
+
+    @bp.after_request
+    def _tras_peticion(response):
+        from src.backend.portal_i18n import marcar_origen_web
+        return marcar_origen_web(response)
 
     def _sesion_o_error(token):
         from src.services.compras import b2b_sesion_empresa as SES
@@ -1228,6 +1383,22 @@ def crear_blueprint():
             pass
         return ses, None
 
+    def _requiere_suscripcion_desktop(ses):
+        """Gate de "Alta artículo" (petición explícita, 2026-11-24): función EXCLUSIVA de empresas
+        con suscripción activa/en prueba a la app de escritorio — una empresa que solo usa el
+        Portal B2B sin ninguna licencia no debe poder VER ni ACCEDER (ni por URL directa) a estas
+        rutas. Reutiliza `comisiones_b2b.tiene_suscripcion_desktop_activa` (misma resolución ya
+        usada para la exención del 2.5%), sin duplicar la lógica. Devuelve una respuesta de error
+        si no tiene suscripción, o None si puede continuar."""
+        from src.services.compras import comisiones_b2b as CB
+        if CB.tiene_suscripcion_desktop_activa(ses.get("id_empresa")):
+            return None
+        return _pagina_error(
+            _t("portal_gest.alta_articulo_sin_suscripcion_titulo", "Función no disponible"),
+            _t("portal_gest.alta_articulo_sin_suscripcion_msg",
+               "«Alta artículo» es una función exclusiva para empresas con una suscripción "
+               "activa a la app de escritorio Smart Manager.")), 403
+
     def _proveedores(ses):
         from src.db import proveedores as P
         return P.listar_proveedores(id_empresa=ses["id_empresa"])
@@ -1237,13 +1408,26 @@ def crear_blueprint():
 
     @bp.get("/<token>/gestion")
     def gestion_index(token):
+        """Petición explícita, 2026-11-21: "Gestión" muestra directamente "+ Alta artículo" (en
+        vez del índice de tarjetas) — `pagina_gestion_index`/`/gestion` (índice legado) se
+        conservan intactas, solo dejan de ser el destino por defecto. Petición explícita,
+        2026-11-24: si la empresa no tiene suscripción de escritorio (Alta artículo oculta, ver
+        `secciones_visibles`), el destino por defecto pasa a ser la PRIMERA sección sí accesible,
+        en vez de una pared de "función no disponible"."""
         ses, err = _sesion_o_error(token)
-        return err or pagina_gestion_index(token)
+        if err:
+            return err
+        visibles = secciones_visibles(ses.get("id_empresa"))
+        destino = visibles[0][0] if visibles else "alta_articulo"
+        return redirect(f"/portal/empresa/{token}/gestion/{destino}")
 
     # ── Alta artículo ──
     @bp.get("/<token>/gestion/alta_articulo")
     def alta_articulo(token):
         ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        err = _requiere_suscripcion_desktop(ses)
         if err:
             return err
         resultado = None
@@ -1287,6 +1471,9 @@ def crear_blueprint():
         ses, err = _sesion_o_error(token)
         if err:
             return err
+        err = _requiere_suscripcion_desktop(ses)
+        if err:
+            return err
         base = f"/portal/empresa/{token}/gestion/alta_articulo"
         codigo_existente = (request.form.get("codigo_existente") or "").strip()
         referencia_proveedor = (request.form.get("referencia_proveedor") or "").strip()
@@ -1319,6 +1506,9 @@ def crear_blueprint():
     @bp.post("/<token>/gestion/alta_articulo/crear")
     def alta_articulo_crear(token):
         ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        err = _requiere_suscripcion_desktop(ses)
         if err:
             return err
         base = f"/portal/empresa/{token}/gestion/alta_articulo"
@@ -1378,7 +1568,7 @@ def crear_blueprint():
             res_eq = EQ.crear_equivalencia(
                 referencia_proveedor, codigo, id_proveedor=int(id_proveedor), origen_proveedor="clasico",
                 nombre_proveedor=nombres_prov.get(int(id_proveedor)), creado_por=ses.get("usuario"),
-                id_empresa=id_empresa)
+                talla=talla, id_empresa=id_empresa)
             equivalencia_creada = bool(res_eq.get("ok"))
 
         # Reetiquetado automático (ref. interna + PVP + sección) — petición explícita: "el ERP debe
@@ -1403,6 +1593,9 @@ def crear_blueprint():
         ses, err = _sesion_o_error(token)
         if err:
             return err
+        err = _requiere_suscripcion_desktop(ses)
+        if err:
+            return err
         base = f"/portal/empresa/{token}/gestion/alta_articulo"
         from src.services.etiquetas import impresion as IMPR
         IMPR.configurar_impresora_etiquetas(request.form.get("nombre_impresora"))
@@ -1416,6 +1609,9 @@ def crear_blueprint():
         «Buscar artículo» — sin crear ninguna pantalla nueva, reutiliza `db.articulos.
         actualizar_articulo` (whitelist ya ampliada con estas dos columnas)."""
         ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        err = _requiere_suscripcion_desktop(ses)
         if err:
             return err
         base = f"/portal/empresa/{token}/gestion/alta_articulo"
@@ -1437,6 +1633,9 @@ def crear_blueprint():
         ses, err = _sesion_o_error(token)
         if err:
             return err
+        err = _requiere_suscripcion_desktop(ses)
+        if err:
+            return err
         from src.db.conexion import obtener_articulo
         from src.db import articulos as A
         from src.db import equivalencias_proveedor as EQ
@@ -1456,6 +1655,9 @@ def crear_blueprint():
         ses, err = _sesion_o_error(token)
         if err:
             return err
+        err = _requiere_suscripcion_desktop(ses)
+        if err:
+            return err
         from src.db import equivalencias_proveedor as EQ
         from urllib.parse import quote
         base = f"/portal/empresa/{token}/gestion/alta_articulo/equivalencias/{codigo}"
@@ -1466,6 +1668,9 @@ def crear_blueprint():
     @bp.post("/<token>/gestion/alta_articulo/equivalencias/<codigo>/<int:id_equiv>/reactivar")
     def alta_articulo_equivalencia_reactivar(token, codigo, id_equiv):
         ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        err = _requiere_suscripcion_desktop(ses)
         if err:
             return err
         from src.db import equivalencias_proveedor as EQ
@@ -1502,7 +1707,8 @@ def crear_blueprint():
             tarifas = PP.listar_tarifas_proveedor(id_proveedor, id_empresa=ses["id_empresa"])
         return pagina_homologacion(token, provs, estados_kyb=estados_kyb, id_proveedor=id_proveedor,
                                    contactos=contactos, direcciones=direcciones,
-                                   certificaciones=certificaciones, acuerdos=acuerdos, tarifas=tarifas)
+                                   certificaciones=certificaciones, acuerdos=acuerdos, tarifas=tarifas,
+                                   error=request.args.get("error"))
 
     @bp.post("/<token>/gestion/homologacion/<int:id_proveedor>/contactos/agregar")
     def homologacion_contacto_agregar(token, id_proveedor):
@@ -1619,6 +1825,21 @@ def crear_blueprint():
             return err
         if estado not in _ESTADOS_HOMOLOG:
             return redirect(f"/portal/empresa/{token}/gestion/homologacion")
+        if estado == "aprobado":
+            # Límite Freemium de proveedores activos (petición explícita, 2026-11-27 — ver
+            # `services/portal_plan.py`): se comprueba al APROBAR (el momento real en que un
+            # proveedor pasa a contar como "activo", ver `db.compras.set_homologacion_estado`),
+            # nunca al simple vinculado/pendiente.
+            from src.services import portal_plan as PPLAN
+            from urllib.parse import quote
+            info_limite = PPLAN.limite("b2b", "proveedores_activos", "empresa", ses["id_empresa"])
+            if not info_limite["ok"]:
+                msg = quote(
+                    f"Has alcanzado el límite de {info_limite['limite']} proveedores activos de tu "
+                    "plan Freemium. Mejora al Plan de Pago del Portal o contrata Smart Manager ERP "
+                    "para vincular sin límite.")
+                return redirect(
+                    f"/portal/empresa/{token}/gestion/homologacion?id_proveedor={id_proveedor}&error={msg}")
         from src.db import compras as C
         C.set_homologacion_estado(id_proveedor, estado, ses["id_empresa"])
         return redirect(f"/portal/empresa/{token}/gestion/homologacion")
@@ -2249,5 +2470,113 @@ def crear_blueprint():
         else:
             qs = f"error={r.get('error') or 'error_desconocido'}"
         return redirect(f"/portal/empresa/{token}/gestion/licitaciones/{id_rfq}?{qs}")
+
+    # ── Gasto mensual ──
+    @bp.get("/<token>/gestion/gasto_mensual")
+    def gasto_mensual(token):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_presupuesto as PRES
+        return pagina_gasto_mensual(token, limite_actual=PRES.obtener_limite(ses["id_empresa"]))
+
+    @bp.post("/<token>/gestion/gasto_mensual")
+    def gasto_mensual_guardar(token):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.services.compras import b2b_presupuesto as PRES
+        PRES.guardar_limite(ses["id_empresa"], request.form.get("limite", ""))
+        return redirect(f"/portal/empresa/{token}/gestion/gasto_mensual")
+
+    # ── Centros ──
+    @bp.get("/<token>/gestion/metodo_pago")
+    def metodo_pago_index(token):
+        """Petición explícita, 2026-11-22 — PayPal como alternativa a Stripe: reutiliza la página
+        YA EXISTENTE de `portal_empresa_b2b.py` (`/pago/vincular`) en vez de duplicarla; esta
+        entrada solo la hace alcanzable desde la side bar de Gestión."""
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        return redirect(f"/portal/empresa/{token}/pago/vincular")
+
+    @bp.get("/<token>/gestion/centros")
+    def centros_index(token):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.db import centros as CT
+        return pagina_centros(token, CT.listar_centros(ses["id_empresa"]),
+                              limite=_limite_centros(ses["id_empresa"]),
+                              mensaje=request.args.get("mensaje"), error=request.args.get("error"))
+
+    @bp.post("/<token>/gestion/centros/nuevo")
+    def centros_nuevo(token):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        d = request.form
+        from src.services.compras import b2b_sesion_empresa as SES
+        r = SES.crear_centro_respetando_limite(
+            ses["id_empresa"], nombre_centro=d.get("nombre_centro") or "",
+            tipo_centro=d.get("tipo_centro"), telefono=d.get("telefono") or None,
+            direccion=d.get("direccion") or None, codigo_postal=d.get("codigo_postal") or None,
+            municipio=d.get("municipio") or None, provincia=d.get("provincia") or None,
+            email=d.get("email") or None)
+        if not r.get("ok"):
+            mensajes = {"nombre_obligatorio": "El nombre es obligatorio",
+                       "limite_alcanzado": "Has alcanzado el limite de centros de tu plan"}
+            return redirect(f"/portal/empresa/{token}/gestion/centros?"
+                            f"error={mensajes.get(r.get('error'), 'No se pudo crear el centro')}")
+        return redirect(f"/portal/empresa/{token}/gestion/centros?mensaje=Centro+creado")
+
+    @bp.get("/<token>/gestion/centros/<id_centro>/editar")
+    def centro_editar(token, id_centro):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.db import centros as CT
+        centro = CT.obtener_centro(id_centro)
+        if not centro or centro.get("id_empresa") != ses["id_empresa"]:
+            return _pagina_error("Centro no encontrado", "Ese centro no existe o no es tuyo."), 404
+        return pagina_centro_editar(token, centro)
+
+    @bp.post("/<token>/gestion/centros/<id_centro>/editar")
+    def centro_editar_guardar(token, id_centro):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.db import centros as CT
+        centro = CT.obtener_centro(id_centro)
+        if not centro or centro.get("id_empresa") != ses["id_empresa"]:
+            return _pagina_error("Centro no encontrado", "Ese centro no existe o no es tuyo."), 404
+        d = request.form
+        nombre = (d.get("nombre_centro") or "").strip()
+        if not nombre:
+            return pagina_centro_editar(token, {**centro, **d}, error="El nombre es obligatorio")
+        tipo_centro = d.get("tipo_centro") if d.get("tipo_centro") in _TIPOS_CENTRO else centro.get("tipo_centro")
+        CT.actualizar_centro(
+            id_centro, tipo_centro=tipo_centro, nombre_centro=nombre,
+            direccion=d.get("direccion") or None, codigo_postal=d.get("codigo_postal") or None,
+            municipio=d.get("municipio") or None, provincia=d.get("provincia") or None,
+            telefono=d.get("telefono") or None, email=d.get("email") or None)
+        return redirect(f"/portal/empresa/{token}/gestion/centros?mensaje=Centro+actualizado")
+
+    @bp.post("/<token>/gestion/centros/<id_centro>/eliminar")
+    def centro_eliminar(token, id_centro):
+        ses, err = _sesion_o_error(token)
+        if err:
+            return err
+        from src.db import centros as CT
+        centro = CT.obtener_centro(id_centro)
+        if not centro or centro.get("id_empresa") != ses["id_empresa"]:
+            return _pagina_error("Centro no encontrado", "Ese centro no existe o no es tuyo."), 404
+        if centro.get("es_principal"):
+            return redirect(f"/portal/empresa/{token}/gestion/centros?"
+                            f"error=No+puedes+eliminar+el+centro+principal")
+        # Baja lógica (nunca se borra físicamente — mismo criterio que el resto de la app):
+        # `estado` SÍ está en `_PERMITIDOS` de `db.centros`, así que `actualizar_centro` basta.
+        CT.actualizar_centro(id_centro, estado="inactivo")
+        return redirect(f"/portal/empresa/{token}/gestion/centros?mensaje=Centro+eliminado")
 
     return bp
