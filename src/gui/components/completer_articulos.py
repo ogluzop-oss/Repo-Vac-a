@@ -243,10 +243,9 @@ class FiltrosArticuloDialog(QDialog):
 
         from src.db import familias as F
         try:
-            tallas = F.tallas_disponibles()
             colores = F.colores_disponibles()
         except Exception:
-            tallas, colores = [], []
+            colores = []
 
         # Los títulos de cada campo (+2pt, 12→14) son el texto que se pidió agrandar; el contenido
         # de los propios desplegables/barras (combos/spinboxes) vuelve a su tamaño original (13px).
@@ -255,13 +254,55 @@ class FiltrosArticuloDialog(QDialog):
             f"QComboBox{{background:{COLOR_FONDO_WIDGET};color:white;border:2px solid {COLOR_CIAN};"
             "border-radius:8px;padding:6px 10px;font-size:13px;}}")
         _ss_spin = _ss_combo.replace("QComboBox", "QDoubleSpinBox")
+        self._ss_combo = _ss_combo
 
-        v.addWidget(QLabel("Talla", styleSheet=_ss_lbl))
+        # Filtro por talla (petición explícita, 2026-11-27): mismo criterio que la cascada del
+        # Alta artículo del Portal B2B (`services.tallas`) — solo se activa si el usuario elige un
+        # Tipo de artículo; mientras no lo haga, "Talla" no filtra nada (igual que antes).
+        v.addWidget(QLabel("Talla — tipo de artículo", styleSheet=_ss_lbl))
+        self.cmb_tipo_talla = QComboBox(); self.cmb_tipo_talla.setStyleSheet(_ss_combo)
+        self.cmb_tipo_talla.addItem("(No filtrar por talla)", None)
+        from src.services import tallas as TALLASV
+        self._TALLASV = TALLASV
+        for cod, lbl in TALLASV.tipos():
+            self.cmb_tipo_talla.addItem(lbl, cod)
+        v.addWidget(self.cmb_tipo_talla)
+
+        self.widget_cascada_talla = QWidget()
+        lyt_casc = QVBoxLayout(self.widget_cascada_talla)
+        lyt_casc.setContentsMargins(0, 0, 0, 0)
+        lyt_casc.setSpacing(8)
+
+        lyt_casc.addWidget(QLabel("Familia", styleSheet=_ss_lbl))
+        self.cmb_familia_talla = QComboBox(); self.cmb_familia_talla.setStyleSheet(_ss_combo)
+        lyt_casc.addWidget(self.cmb_familia_talla)
+
+        lyt_casc.addWidget(QLabel("Subfamilia", styleSheet=_ss_lbl))
+        self.cmb_subfamilia_talla = QComboBox(); self.cmb_subfamilia_talla.setStyleSheet(_ss_combo)
+        lyt_casc.addWidget(self.cmb_subfamilia_talla)
+
+        lyt_casc.addWidget(QLabel("Género", styleSheet=_ss_lbl))
+        self.cmb_genero_talla = QComboBox(); self.cmb_genero_talla.setStyleSheet(_ss_combo)
+        lyt_casc.addWidget(self.cmb_genero_talla)
+
+        lyt_casc.addWidget(QLabel("Sistema de talla", styleSheet=_ss_lbl))
+        self.cmb_sistema_talla = QComboBox(); self.cmb_sistema_talla.setStyleSheet(_ss_combo)
+        for cod, lbl in TALLASV.sistemas():
+            self.cmb_sistema_talla.addItem(lbl, cod)
+        lyt_casc.addWidget(self.cmb_sistema_talla)
+
+        lyt_casc.addWidget(QLabel("Talla", styleSheet=_ss_lbl))
         self.cmb_talla = QComboBox(); self.cmb_talla.setStyleSheet(_ss_combo)
-        self.cmb_talla.addItem("(Todas)", None)
-        for t in tallas:
-            self.cmb_talla.addItem(str(t), t)
-        v.addWidget(self.cmb_talla)
+        lyt_casc.addWidget(self.cmb_talla)
+
+        v.addWidget(self.widget_cascada_talla)
+        self.widget_cascada_talla.setVisible(False)
+
+        self.cmb_tipo_talla.currentIndexChanged.connect(self._on_tipo_talla_cambiado)
+        self.cmb_familia_talla.currentIndexChanged.connect(self._on_familia_talla_cambiada)
+        self.cmb_subfamilia_talla.currentIndexChanged.connect(self._llenar_tallas_filtro)
+        self.cmb_genero_talla.currentIndexChanged.connect(self._llenar_tallas_filtro)
+        self.cmb_sistema_talla.currentIndexChanged.connect(self._llenar_tallas_filtro)
 
         v.addWidget(QLabel("Color", styleSheet=_ss_lbl))
         self.cmb_color = QComboBox(); self.cmb_color.setStyleSheet(_ss_combo)
@@ -305,6 +346,64 @@ class FiltrosArticuloDialog(QDialog):
         botones.addWidget(btn_aplicar)
         v.addLayout(botones)
 
+    def _on_tipo_talla_cambiado(self):
+        tipo = self.cmb_tipo_talla.currentData()
+        self.widget_cascada_talla.setVisible(bool(tipo))
+        if not tipo:
+            return
+        self.cmb_familia_talla.blockSignals(True)
+        self.cmb_familia_talla.clear()
+        for cod, lbl in self._TALLASV.familias():
+            self.cmb_familia_talla.addItem(lbl, cod)
+        self.cmb_familia_talla.blockSignals(False)
+        self._on_familia_talla_cambiada()
+
+    def _on_familia_talla_cambiada(self):
+        tipo = self.cmb_tipo_talla.currentData()
+        familia = self.cmb_familia_talla.currentData()
+        self.cmb_subfamilia_talla.blockSignals(True)
+        self.cmb_subfamilia_talla.clear()
+        for cod, lbl in self._TALLASV.subfamilias(tipo, familia):
+            self.cmb_subfamilia_talla.addItem(lbl, cod)
+        self.cmb_subfamilia_talla.blockSignals(False)
+        self.cmb_genero_talla.blockSignals(True)
+        self.cmb_genero_talla.clear()
+        for cod, lbl in self._TALLASV.generos(familia):
+            self.cmb_genero_talla.addItem(lbl, cod)
+        self.cmb_genero_talla.blockSignals(False)
+        self._llenar_tallas_filtro()
+
+    def _llenar_tallas_filtro(self):
+        """Tallas del combo final, SIEMPRE ordenadas de menor a mayor (orden ya garantizado por
+        `services.tallas`, que las guarda en ese orden)."""
+        tipo = self.cmb_tipo_talla.currentData()
+        familia = self.cmb_familia_talla.currentData()
+        subfamilia = self.cmb_subfamilia_talla.currentData()
+        genero = self.cmb_genero_talla.currentData()
+        sistema = self.cmb_sistema_talla.currentData() or "EU"
+        self.cmb_talla.blockSignals(True)
+        self.cmb_talla.clear()
+        if tipo and familia and subfamilia and genero:
+            for i, etiqueta in enumerate(self._TALLASV.tallas(tipo, familia, subfamilia, genero, sistema)):
+                self.cmb_talla.addItem(etiqueta, i)
+        self.cmb_talla.blockSignals(False)
+
+    def _talla_filtro_eu(self):
+        """Etiqueta EU canónica de la talla elegida en el combo final (el sistema EU es el ancla
+        con el que se guarda `producto_variantes.talla` — ver `services.tallas`), o None si el
+        usuario no activó el filtro por talla."""
+        tipo = self.cmb_tipo_talla.currentData()
+        if not tipo:
+            return None
+        familia = self.cmb_familia_talla.currentData()
+        subfamilia = self.cmb_subfamilia_talla.currentData()
+        genero = self.cmb_genero_talla.currentData()
+        idx = self.cmb_talla.currentData()
+        if familia is None or subfamilia is None or genero is None or idx is None:
+            return None
+        lista_eu = self._TALLASV.tallas(tipo, familia, subfamilia, genero, "EU")
+        return lista_eu[idx] if 0 <= idx < len(lista_eu) else None
+
     def _aplicar(self):
         precio_min = self.spin_precio_min.value()
         precio_max = self.spin_precio_max.value()
@@ -314,7 +413,7 @@ class FiltrosArticuloDialog(QDialog):
         try:
             from src.db import familias as F
             resultados = F.buscar_articulos_con_filtros(
-                self._texto_actual, talla=self.cmb_talla.currentData(),
+                self._texto_actual, talla=self._talla_filtro_eu(),
                 color=self.cmb_color.currentData(),
                 precio_min=precio_min or None,
                 precio_max=precio_max if precio_max < 999999 else None,

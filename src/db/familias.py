@@ -188,6 +188,23 @@ def articulos_filtrados(query="", id_familia=None, id_empresa=None, limite=200):
 
 GENEROS_ARTICULO = ("HOMBRE", "MUJER", "NINO", "NINA", "UNISEX")
 
+FAMILIAS_TALLAS = ("Ropa", "Calzado", "Accesorios")
+
+
+def asegurar_familias_tallas(id_empresa=None) -> list:
+    """Get-or-create de las 3 familias que necesita la estructura de tallas (`services.tallas`:
+    tipo de artículo Calzado/Ropa/Accesorio) para esta empresa (petición explícita, 2026-11-27:
+    "asegura que existan... añadiéndolas si todavía no existen en el catálogo/seed de familias").
+    Idempotente — no duplica si ya existen (comparación por nombre, insensible a mayúsculas);
+    nunca toca las demás familias propias de la empresa. Devuelve el listado actualizado completo
+    (mismo formato que `listar_familias`), para alimentar el desplegable del Portal B2B."""
+    id_empresa = _empresa(id_empresa)
+    existentes = {f["nombre"].strip().lower() for f in listar_familias(id_empresa, solo_activas=False)}
+    for nombre in FAMILIAS_TALLAS:
+        if nombre.lower() not in existentes:
+            crear_familia(nombre, id_empresa=id_empresa)
+    return listar_familias(id_empresa)
+
 
 def tallas_disponibles(id_empresa=None) -> list:
     """Tallas distintas ya usadas en `producto_variantes` de la empresa (para rellenar el combo
@@ -290,7 +307,7 @@ def listar_articulos_con_familia(id_empresa=None, limite=2000):
         return []
 
 
-def cambiar_precio_masivo(id_familia, modo, valor, id_empresa=None):
+def cambiar_precio_masivo(id_familia, modo, valor, id_empresa=None, *, usuario=None):
     """Operación MASIVA sobre los artículos de una familia. Devuelve el nº de artículos afectados.
 
     modo:
@@ -298,7 +315,11 @@ def cambiar_precio_masivo(id_familia, modo, valor, id_empresa=None):
       · 'fijo' → precio = valor                       (mismo P.V.P. para toda la familia)
       · 'iva'  → iva    = valor                       (mismo tipo de IVA para toda la familia)
     Reutiliza la tabla base `articulos` (fuente única); NO crea motor de precios paralelo.
-    """
+
+    `usuario` (opcional, ADITIVO): si se indica y es SUPERADMIN, dispara la circular de aviso a
+    los administradores de sus centros (`services.notificaciones_precio`), identificando esto
+    como un cambio de LOTE COMPLETO (el nombre de la família), no artículos sueltos. Omitido para
+    los llamadores que no lo pasen — comportamiento idéntico al de siempre."""
     id_empresa = _empresa(id_empresa)
     if id_familia is None:
         return 0
@@ -317,7 +338,28 @@ def cambiar_precio_masivo(id_familia, modo, valor, id_empresa=None):
             else:
                 return 0
             cur.execute(sql + " WHERE id_familia=%s AND id_empresa=%s", (valor, id_familia, id_empresa))
-            return cur.rowcount
+            n = cur.rowcount
+        if n and usuario is not None and modo in ("pct", "fijo"):
+            try:
+                from src.services import notificaciones_precio as _NP
+                with obtener_conexion() as conn3, conn3.cursor() as cur3:
+                    cur3.execute("SELECT nombre FROM familias_producto WHERE id=%s AND id_empresa=%s",
+                                (id_familia, id_empresa))
+                    r = cur3.fetchone()
+                    nombre_familia = (r[0] if not isinstance(r, dict) else r.get("nombre")) if r else None
+                    cur3.execute("SELECT codigo, nombre FROM articulos WHERE id_familia=%s "
+                                "AND id_empresa=%s LIMIT 50", (id_familia, id_empresa))
+                    arts = _filas_a_dicts(cur3, cur3.fetchall())
+                detalle_modo = (f"{valor:+.1f}%" if modo == "pct" else f"nuevo precio fijo: {valor}")
+                _NP.notificar_cambio_precio(
+                    [{"codigo": a["codigo"], "nombre": a["nombre"], "detalle": detalle_modo}
+                     for a in arts] or [{"codigo": "-", "nombre": nombre_familia or "lote",
+                                         "detalle": detalle_modo}],
+                    tipo="precio", lote=nombre_familia or f"familia #{id_familia}",
+                    usuario=usuario, id_empresa=id_empresa)
+            except Exception as e:
+                logger.debug("cambiar_precio_masivo: notificacion no enviada: %s", e)
+        return n
     except Exception as e:
         logger.error("cambiar_precio_masivo: %s", e)
         return 0

@@ -197,7 +197,7 @@ _FAMILIAS_DEFECTO = {
     "SUPERMARKET": ["Alimentación", "Bebidas", "Frescos", "Congelados", "Limpieza", "Droguería"],
     "RETAIL": ["General", "Electrónica", "Hogar", "Papelería", "Regalos"],
     "PHARMACY": ["Medicamentos", "Parafarmacia", "Higiene", "Dermocosmética", "Ortopedia"],
-    "TEXTIL": ["Ropa", "Calzado", "Complementos", "Ropa interior", "Deporte"],
+    "TEXTIL": ["Ropa", "Calzado", "Accesorios", "Complementos", "Ropa interior", "Deporte"],
     "BAKERY": ["Dulce", "Salado", "Bebidas"],
 }
 

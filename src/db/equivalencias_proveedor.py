@@ -35,12 +35,25 @@ def _emp(id_empresa=None):
 
 def crear_equivalencia(referencia_proveedor, codigo_articulo, *, id_proveedor=None,
                        origen_proveedor="clasico", nombre_proveedor=None, creado_por=None,
-                       id_empresa=None) -> dict:
+                       talla=None, contexto_talla=None, id_empresa=None) -> dict:
     """Crea (o REACTIVA si existía y estaba deshecha) la equivalencia referencia->código interno.
-    Si la MISMA referencia de proveedor ya apuntaba a OTRO artículo, se actualiza para apuntar al
-    nuevo (nunca queda una referencia apuntando a dos sitios a la vez)."""
+    Si la MISMA referencia de proveedor + MISMA talla ya apuntaba a OTRO artículo, se actualiza
+    para apuntar al nuevo (nunca queda una referencia+talla apuntando a dos sitios a la vez).
+
+    `talla` (petición explícita, 2026-11-24 — migración 0363): cuando un mismo artículo de un
+    proveedor tiene varias tallas que comparten la MISMA referencia, cada (referencia, talla) es
+    una equivalencia INDEPENDIENTE — antes, registrar una talla nueva para una referencia ya
+    existente SOBRESCRIBÍA la anterior (perdiendo la talla previa sin aviso); ahora crea una fila
+    nueva. `talla=None` (artículo sin talla) se comporta exactamente igual que antes.
+
+    `contexto_talla` (petición explícita, 2026-11-27 — migración 0365, `services.tallas.
+    contexto()`): identifica de qué tabla EU/US/UK viene `talla`, para poder convertirla después
+    sin ambigüedad. Opcional — artículos sin la estructura de tallas nueva siguen guardando
+    `talla` igual que siempre, solo sin este dato adicional."""
     referencia_proveedor = str(referencia_proveedor or "").strip()
     codigo_articulo = str(codigo_articulo or "").strip().upper()
+    talla = (str(talla).strip() or None) if talla is not None else None
+    contexto_talla = (str(contexto_talla).strip() or None) if contexto_talla is not None else None
     if not referencia_proveedor or not codigo_articulo:
         return {"ok": False, "error": "datos_incompletos"}
     id_empresa = _emp(id_empresa)
@@ -50,25 +63,27 @@ def crear_equivalencia(referencia_proveedor, codigo_articulo, *, id_proveedor=No
             cur.execute(
                 "SELECT id FROM equivalencias_referencia_proveedor "
                 "WHERE id_empresa=%s AND referencia_proveedor=%s AND "
-                "(id_proveedor=%s OR (id_proveedor IS NULL AND %s IS NULL))",
-                (id_empresa, referencia_proveedor, id_proveedor, id_proveedor))
+                "(id_proveedor=%s OR (id_proveedor IS NULL AND %s IS NULL)) AND "
+                "(talla=%s OR (talla IS NULL AND %s IS NULL))",
+                (id_empresa, referencia_proveedor, id_proveedor, id_proveedor, talla, talla))
             fila = cur.fetchone()
             if fila:
                 id_fila = fila[0] if not isinstance(fila, dict) else fila["id"]
                 cur.execute(
                     "UPDATE equivalencias_referencia_proveedor SET codigo_articulo=%s, "
                     "estado='activa', nombre_proveedor=COALESCE(%s, nombre_proveedor), "
-                    "creado_por=COALESCE(%s, creado_por) WHERE id=%s",
-                    (codigo_articulo, nombre_proveedor, creado_por, id_fila))
+                    "creado_por=COALESCE(%s, creado_por), "
+                    "contexto_talla=COALESCE(%s, contexto_talla) WHERE id=%s",
+                    (codigo_articulo, nombre_proveedor, creado_por, contexto_talla, id_fila))
                 conn.commit()
                 return {"ok": True, "id": id_fila, "reactivada": True}
             cur.execute(
                 "INSERT INTO equivalencias_referencia_proveedor "
                 "(id_empresa, id_proveedor, origen_proveedor, nombre_proveedor, "
-                " referencia_proveedor, codigo_articulo, estado, creado_por) "
-                "VALUES (%s,%s,%s,%s,%s,%s,'activa',%s)",
+                " referencia_proveedor, talla, contexto_talla, codigo_articulo, estado, creado_por) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'activa',%s)",
                 (id_empresa, id_proveedor, origen_proveedor, nombre_proveedor,
-                 referencia_proveedor, codigo_articulo, creado_por))
+                 referencia_proveedor, talla, contexto_talla, codigo_articulo, creado_por))
             conn.commit()
             return {"ok": True, "id": cur.lastrowid, "reactivada": False}
     except Exception as e:
@@ -76,33 +91,52 @@ def crear_equivalencia(referencia_proveedor, codigo_articulo, *, id_proveedor=No
         return {"ok": False, "error": "error_interno"}
 
 
-def resolver_por_referencia(referencia_proveedor, *, id_proveedor=None, id_empresa=None) -> str | None:
+def resolver_por_referencia(referencia_proveedor, *, id_proveedor=None, talla=None,
+                            id_empresa=None):
     """Devuelve el código interno equivalente a `referencia_proveedor`, o None si no hay ninguna
     equivalencia ACTIVA registrada. Si se indica `id_proveedor`, se prioriza la equivalencia de
     ESE proveedor; si no se indica, se busca entre cualquier proveedor (una referencia puede
-    coincidir por casualidad entre proveedores distintos, así que se prioriza la más reciente)."""
+    coincidir por casualidad entre proveedores distintos, así que se prioriza la más reciente).
+
+    `talla` (petición explícita, 2026-11-24 — resolución automática salvo ambigüedad real):
+    - Si se indica `talla`, filtra EXACTO por esa talla (resolución inmediata, sin preguntar).
+    - Si NO se indica y la referencia tiene registrada una ÚNICA talla (o ninguna), se resuelve
+      sola — comportamiento IDÉNTICO al de antes de esta migración, sin romper nada.
+    - Si NO se indica y la referencia tiene MÁS de una talla registrada, es ambiguo: devuelve
+      ``{"ambiguo": True, "tallas": [...]}`` en vez de un código, para que el llamador (p. ej. la
+      recepción logística) pregunte la talla UNA vez — nunca asume una al azar."""
     referencia_proveedor = str(referencia_proveedor or "").strip()
     if not referencia_proveedor:
         return None
     id_empresa = _emp(id_empresa)
+    talla_norm = (str(talla).strip() or None) if talla is not None else None
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
-            if id_proveedor is not None:
+            filtros_prov = "(id_proveedor=%s)" if id_proveedor is not None else "1=1"
+            params_prov = (id_proveedor,) if id_proveedor is not None else ()
+            if talla_norm is not None:
                 cur.execute(
                     "SELECT codigo_articulo FROM equivalencias_referencia_proveedor "
-                    "WHERE id_empresa=%s AND referencia_proveedor=%s AND id_proveedor=%s "
-                    "AND estado='activa' LIMIT 1",
-                    (id_empresa, referencia_proveedor, id_proveedor))
+                    f"WHERE id_empresa=%s AND referencia_proveedor=%s AND {filtros_prov} AND "
+                    "talla=%s AND estado='activa' ORDER BY fecha_actualizacion DESC LIMIT 1",
+                    (id_empresa, referencia_proveedor, *params_prov, talla_norm))
                 fila = cur.fetchone()
-                if fila:
-                    return fila[0] if not isinstance(fila, dict) else fila["codigo_articulo"]
+                return (fila[0] if not isinstance(fila, dict) else fila["codigo_articulo"]) if fila else None
+
+            # Sin talla indicada: ¿cuántas tallas distintas hay registradas para esta referencia?
             cur.execute(
-                "SELECT codigo_articulo FROM equivalencias_referencia_proveedor "
-                "WHERE id_empresa=%s AND referencia_proveedor=%s AND estado='activa' "
-                "ORDER BY fecha_actualizacion DESC LIMIT 1",
-                (id_empresa, referencia_proveedor))
-            fila = cur.fetchone()
-            return (fila[0] if not isinstance(fila, dict) else fila["codigo_articulo"]) if fila else None
+                "SELECT DISTINCT talla, codigo_articulo FROM equivalencias_referencia_proveedor "
+                f"WHERE id_empresa=%s AND referencia_proveedor=%s AND {filtros_prov} AND "
+                "estado='activa' ORDER BY fecha_actualizacion DESC",
+                (id_empresa, referencia_proveedor, *params_prov))
+            filas = cur.fetchall()
+            filas = [dict(zip(("talla", "codigo_articulo"), f)) if not isinstance(f, dict) else f
+                    for f in filas]
+            tallas_distintas = {f["talla"] for f in filas}
+            if len(tallas_distintas) <= 1:
+                return filas[0]["codigo_articulo"] if filas else None
+            return {"ambiguo": True,
+                   "tallas": sorted(t for t in tallas_distintas if t is not None)}
     except Exception as e:
         logger.error("resolver_por_referencia(%s): %s", referencia_proveedor, e)
         return None
@@ -115,7 +149,7 @@ def listar_equivalencias_de_articulo(codigo_articulo, *, id_empresa=None, inclui
     try:
         with obtener_conexion() as conn, conn.cursor() as cur:
             query = ("SELECT id, id_proveedor, origen_proveedor, nombre_proveedor, "
-                     "referencia_proveedor, estado, fecha_creacion FROM "
+                     "referencia_proveedor, talla, contexto_talla, estado, fecha_creacion FROM "
                      "equivalencias_referencia_proveedor WHERE id_empresa=%s AND codigo_articulo=%s")
             params = [id_empresa, str(codigo_articulo or "").strip().upper()]
             if not incluir_deshechas:

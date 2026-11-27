@@ -444,6 +444,43 @@ class _BuscarArticuloPage(QWidget):
         row_fam.addWidget(self.cmb_familia, 1)
         self.info_lyt.addLayout(row_fam)
 
+        # ── TALLAS del artículo buscado (petición explícita, 2026-11-27) ──
+        # Solo visible cuando el artículo tiene MÁS DE UNA talla registrada (hermanos en
+        # `producto_variantes`, ver `services.variantes.listar_variantes`): lista cada talla con
+        # su stock, y un botón-switch que cicla EU→US→UK→EU (nunca las 3 a la vez) reetiquetando
+        # las tallas mostradas vía `services.tallas` — nunca adivina una conversión ambigua, si no
+        # puede convertir con seguridad deja la etiqueta EU tal cual.
+        self._sistema_talla_actual = "EU"
+        self._tallas_siblings = []
+        self._genero_art_actual = None
+        self.info_lyt.addSpacing(8)
+        self._bloque_tallas = QWidget()
+        lyt_tallas = QVBoxLayout(self._bloque_tallas)
+        lyt_tallas.setContentsMargins(0, 0, 0, 0)
+        lyt_tallas.setSpacing(6)
+        row_tallas_tit = QHBoxLayout()
+        lbl_tallas_tit = QLabel(tr("info.f_tallas", default="TALLAS:"))
+        lbl_tallas_tit.setStyleSheet(
+            "color:#8B949E;font-family:'Segoe UI';font-size:13px;font-weight:bold;border:none;")
+        lbl_tallas_tit.setFixedWidth(140)
+        self.btn_switch_sistema_talla = QPushButton("EU")
+        self.btn_switch_sistema_talla.setStyleSheet(_ss_boton(_CIAN))
+        self.btn_switch_sistema_talla.setFixedWidth(70)
+        self.btn_switch_sistema_talla.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_switch_sistema_talla.setToolTip(
+            tr("info.switch_talla_tip", default="Cambiar sistema de talla (EU / US / UK)"))
+        self.btn_switch_sistema_talla.clicked.connect(self._ciclar_sistema_talla)
+        row_tallas_tit.addWidget(lbl_tallas_tit)
+        row_tallas_tit.addWidget(self.btn_switch_sistema_talla)
+        row_tallas_tit.addStretch(1)
+        lyt_tallas.addLayout(row_tallas_tit)
+        self.lbl_tallas_stock = QLabel("-")
+        self.lbl_tallas_stock.setStyleSheet("color:#FFFFFF;font-size:13px;font-weight:700;border:none;")
+        self.lbl_tallas_stock.setWordWrap(True)
+        lyt_tallas.addWidget(self.lbl_tallas_stock)
+        self.info_lyt.addWidget(self._bloque_tallas)
+        self._bloque_tallas.setVisible(False)
+
         # ── PRECIO DE REFERENCIA (editable; alimenta el Desvío % de la bolsa de Pedidos) ──
         # Manual (prioritario) o automático (media ponderada 30 días / precio de alta). Editable aquí y
         # también desde Pedidos (doble clic en la celda «Precio ref.»).
@@ -721,6 +758,8 @@ class _BuscarArticuloPage(QWidget):
 
             # Física de seguridad (autocobro): peso esperado + tolerancia del artículo.
             self._art_codigo = art.get("codigo")
+            self._genero_art_actual = art.get("genero")
+            self._cargar_tallas_articulo(self._art_codigo)
             # Familia actual del artículo (vínculo global).
             try:
                 from src.db.familias import familia_de_articulo
@@ -759,6 +798,76 @@ class _BuscarArticuloPage(QWidget):
 
         except Exception as e:
             print(f"Error búsqueda: {e}")
+
+    def _cargar_tallas_articulo(self, codigo):
+        """Petición explícita, 2026-11-27: el switch EU/US/UK y el desglose de stock por talla
+        SOLO aparecen cuando el artículo buscado tiene más de una talla registrada (hermanos en
+        `producto_variantes` — `services.variantes.listar_variantes`, YA usado por la matriz de
+        Textil, reutilizado tal cual, sin motor paralelo)."""
+        self._tallas_siblings = []
+        try:
+            from src.services import variantes as VAR
+            padre = VAR.resolver_padre(codigo) or codigo
+            hermanos = [v for v in VAR.listar_variantes(padre) if v.get("talla")]
+        except Exception:
+            hermanos = []
+        if len(hermanos) <= 1:
+            self._bloque_tallas.setVisible(False)
+            return
+        # Contexto (tipo|familia|subfamilia|género) de cada talla — necesario para poder
+        # convertir EU->US/UK sin ambigüedad (ver `services.tallas`). Vive en
+        # `producto_variantes.contexto_talla` (migr. 0365); si una fila antigua no lo tiene,
+        # `_repintar_tallas` recurre a la búsqueda best-effort en vez de adivinar.
+        try:
+            from src.db.conexion import obtener_conexion as _oc
+            from src.db.empresa import empresa_actual_id
+            with _oc() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT codigo_variante, contexto_talla FROM producto_variantes WHERE "
+                    "id_empresa=%s AND codigo_padre=%s", (empresa_actual_id(), padre))
+                ctx_por_codigo = {}
+                for r in cur.fetchall():
+                    r = r if not isinstance(r, dict) else (r["codigo_variante"], r["contexto_talla"])
+                    ctx_por_codigo[r[0]] = r[1]
+        except Exception:
+            ctx_por_codigo = {}
+        for h in hermanos:
+            h["contexto_talla"] = ctx_por_codigo.get(h.get("codigo_variante"))
+        self._tallas_siblings = hermanos
+        self._sistema_talla_actual = "EU"
+        self.btn_switch_sistema_talla.setText("EU")
+        self._bloque_tallas.setVisible(True)
+        self._repintar_tallas()
+
+    def _ciclar_sistema_talla(self):
+        orden = ("EU", "US", "UK")
+        i = orden.index(self._sistema_talla_actual)
+        self._sistema_talla_actual = orden[(i + 1) % len(orden)]
+        self.btn_switch_sistema_talla.setText(self._sistema_talla_actual)
+        self._repintar_tallas()
+
+    def _repintar_tallas(self):
+        """Repinta el desglose talla:stock en el sistema activo (EU/US/UK). Nunca adivina: si una
+        talla antigua (sin `contexto_talla`) resulta ambigua al convertir, se deja su etiqueta EU
+        tal cual en vez de arriesgar una conversión equivocada."""
+        from src.services import tallas as TALLASV
+        sistema = self._sistema_talla_actual
+        lineas = []
+        for v in self._tallas_siblings:
+            talla_eu = v.get("talla")
+            etiqueta = talla_eu
+            if sistema != "EU" and talla_eu:
+                ctx = v.get("contexto_talla")
+                eq = TALLASV.equivalencia_por_contexto(ctx, "EU", talla_eu) if ctx else None
+                if not eq:
+                    encontrados = TALLASV.localizar_sin_contexto(
+                        "EU", talla_eu, genero=self._genero_art_actual)
+                    if len(encontrados) == 1:
+                        eq = encontrados[0]["equivalencias"]
+                if eq and eq.get(sistema):
+                    etiqueta = eq[sistema]
+            lineas.append(f"{etiqueta}: {v.get('stock', 0)} uds")
+        self.lbl_tallas_stock.setText("\n".join(lineas) if lineas else "-")
 
     def _pintar_precio_ref(self, codigo):
         """Muestra el Precio ref. actual del artículo y si es manual (prioritario) o automático."""
@@ -1460,6 +1569,7 @@ class _FamiliasPage(QWidget):
 
     def _precio_masivo(self):
         from src.db.familias import cambiar_precio_masivo
+        from src.db.usuario import sesion_global
         fid = self._sel_familia_id()
         if fid is None:
             if mostrar_mensaje:
@@ -1473,7 +1583,7 @@ class _FamiliasPage(QWidget):
         modo, valor = dlg.datos()
         if not valor:
             return
-        n = cambiar_precio_masivo(fid, modo, valor)
+        n = cambiar_precio_masivo(fid, modo, valor, usuario=sesion_global.usuario_actual)
         if mostrar_mensaje:
             mostrar_mensaje(self, tr("info.pm_title", default="PRECIO / IVA MASIVO"),
                             tr("info.pm_ok", default="Operación aplicada a {n} artículo(s).", n=n),

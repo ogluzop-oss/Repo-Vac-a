@@ -153,8 +153,125 @@ placeholder="{_t("portal_gest.nombre_impresora_ph", "Nombre exacto de la impreso
 </div>"""
 
 
+def _bloque_talla_html():
+    """Cascada Tipo de artículo -> Familia demográfica -> Subfamilia -> Género -> subpestañas
+    EU/US/UK -> Talla (petición explícita, 2026-11-27 — `services.tallas`, ver su docstring).
+    Sustituye el antiguo input libre "Talla (si aplica)". Toda la taxonomía se inyecta como JSON
+    una sola vez (sin llamadas de red por cada cambio); el valor que de verdad se envía al servidor
+    es `talla_idx` (posición dentro de la lista EU, el sistema ancla) — el servidor recalcula la
+    etiqueta EU exacta a partir de él, nunca se fía de un texto libre tecleado por JS."""
+    import json as _json
+    from src.services import tallas as _T
+    datos_js = _json.dumps(_T.estructura_js())
+    opts_tipo = "".join(f'<option value="{c}">{_e(l)}</option>' for c, l in _T.tipos())
+    return f"""
+<style>
+.ta-tabs{{display:flex;gap:6px;margin:6px 0 10px}}
+.ta-tab{{padding:6px 14px;border-radius:8px;border:2px solid var(--borde);background:transparent;
+color:var(--text2);font-weight:900;cursor:pointer}}
+.ta-tab-activa{{border-color:var(--ac);color:var(--ac)}}
+</style>
+<div class="card" style="border-style:dashed">
+<p><b>{_t("portal_gest.talla_h3", "Talla (opcional)")}</b> — {_t("portal_gest.talla_desc",
+  "si este artículo tiene talla, elige primero el tipo de artículo.")}</p>
+<label>{_t("portal_gest.tipo_articulo_lbl", "Tipo de artículo")}</label>
+<select id="ta_tipo" name="tipo_articulo" onchange="TA.onTipo()">
+<option value="">{_t("portal_gest.sin_talla_opt", "— Sin talla —")}</option>
+{opts_tipo}
+</select>
+<div id="ta_resto" hidden>
+<label>{_t("portal_gest.familia_demografica_lbl", "Familia")}</label>
+<select id="ta_familia" name="familia_talla" onchange="TA.onFamilia()"></select>
+<label>{_t("portal_gest.subfamilia_lbl", "Subfamilia")}</label>
+<select id="ta_subfamilia" name="subfamilia_talla" onchange="TA.onSubfamilia()"></select>
+<label>{_t("portal_gest.genero_lbl", "Género")}</label>
+<select id="ta_genero" name="genero_talla" onchange="TA.onGenero()"></select>
+<label>{_t("portal_gest.sistema_talla_lbl", "Sistema de talla")}</label>
+<div class="ta-tabs">
+<button type="button" class="ta-tab ta-tab-activa" data-sis="EU" onclick="TA.onSistema('EU')">EU</button>
+<button type="button" class="ta-tab" data-sis="US" onclick="TA.onSistema('US')">US</button>
+<button type="button" class="ta-tab" data-sis="UK" onclick="TA.onSistema('UK')">UK</button>
+</div>
+<label>{_t("portal_gest.talla_lbl", "Talla")}</label>
+<select id="ta_talla" name="talla_idx"></select>
+</div>
+</div>
+<script>
+var TALLAS_DATA = {datos_js};
+var TA = {{
+  sistema: "EU",
+  onTipo: function(){{
+    var tipo = document.getElementById("ta_tipo").value;
+    var resto = document.getElementById("ta_resto");
+    if(!tipo){{ resto.hidden = true; return; }}
+    resto.hidden = false;
+    this.llenarFamilias(tipo);
+  }},
+  llenarFamilias: function(tipo){{
+    var sel = document.getElementById("ta_familia");
+    sel.innerHTML = "";
+    (TALLAS_DATA.familias||[]).forEach(function(f){{
+      var o = document.createElement("option"); o.value = f.codigo; o.textContent = f.etiqueta;
+      sel.appendChild(o);
+    }});
+    this.onFamilia();
+  }},
+  onFamilia: function(){{
+    var familia = document.getElementById("ta_familia").value;
+    this.llenarSubfamilias(familia);
+    this.llenarGeneros(familia);
+  }},
+  llenarSubfamilias: function(familia){{
+    var sel = document.getElementById("ta_subfamilia");
+    sel.innerHTML = "";
+    (TALLAS_DATA.subfamilias_por_familia[familia]||[]).forEach(function(s){{
+      var o = document.createElement("option"); o.value = s.codigo; o.textContent = s.etiqueta;
+      sel.appendChild(o);
+    }});
+    this.onSubfamilia();
+  }},
+  llenarGeneros: function(familia){{
+    var sel = document.getElementById("ta_genero");
+    sel.innerHTML = "";
+    (TALLAS_DATA.generos_por_familia[familia]||[]).forEach(function(g){{
+      var o = document.createElement("option"); o.value = g.codigo; o.textContent = g.etiqueta;
+      sel.appendChild(o);
+    }});
+    this.onGenero();
+  }},
+  onSubfamilia: function(){{ this.llenarTallas(); }},
+  onGenero: function(){{ this.llenarTallas(); }},
+  onSistema: function(sis){{
+    this.sistema = sis;
+    document.querySelectorAll(".ta-tab").forEach(function(b){{
+      b.classList.toggle("ta-tab-activa", b.getAttribute("data-sis") === sis);
+    }});
+    this.llenarTallas();
+  }},
+  llenarTallas: function(){{
+    var tipo = document.getElementById("ta_tipo").value;
+    var familia = document.getElementById("ta_familia").value;
+    var subfamilia = document.getElementById("ta_subfamilia").value;
+    var genero = document.getElementById("ta_genero").value;
+    var sel = document.getElementById("ta_talla");
+    var prev = sel.selectedIndex;
+    sel.innerHTML = "";
+    var t = (((TALLAS_DATA.tallas[tipo]||{{}})[familia]||{{}})[subfamilia]||{{}})[genero]||{{}};
+    var lista = t[this.sistema] || [];
+    lista.forEach(function(etq, i){{
+      var o = document.createElement("option"); o.value = i; o.textContent = etq;
+      sel.appendChild(o);
+    }});
+    if(prev >= 0 && prev < lista.length) sel.selectedIndex = prev;
+  }}
+}};
+document.addEventListener("DOMContentLoaded", function(){{ TA.onTipo(); }});
+</script>
+"""
+
+
 def pagina_alta_articulo(token, *, mensaje=None, error=None, resultado=None, proveedores=None,
-                         vincular=None, busqueda=None, resultados_busqueda=None):
+                         vincular=None, busqueda=None, resultados_busqueda=None, familias=None):
     """`resultado` (tras crear con éxito): dict con codigo/nombre/etiqueta_generada/equivalencia
     para mostrar el EAN generado y, si aplica, la confirmación de la etiqueta impresa.
 
@@ -166,6 +283,8 @@ def pagina_alta_articulo(token, *, mensaje=None, error=None, resultado=None, pro
     base = f"/portal/empresa/{token}/gestion/alta_articulo"
     opts_prov = "".join(f'<option value="{p["id_proveedor"]}">{_e(p["razon_social"])}</option>'
                         for p in (proveedores or []))
+    opts_familias = "".join(f'<option value="{f["id"]}">{_e(f["nombre"])}</option>'
+                            for f in (familias or []))
     titulo_alta = _t("portal_gest.alta_articulo_titulo", "Alta artículo")
     if vincular:
         return _layout(titulo_alta, f"""
@@ -216,14 +335,13 @@ def pagina_alta_articulo(token, *, mensaje=None, error=None, resultado=None, pro
 <input type="text" name="nombre" required>
 <label>{_t("portal_gest.precio_ref_lbl", "Precio de referencia (€) *")}</label>
 <input type="text" name="precio" required placeholder="0,00">
-<label>{_t("portal_gest.seccion_lbl", "Sección")}</label>
-<input type="text" name="seccion" placeholder="{_t("portal_gest.seccion_ph", "p. ej. TEXTIL, ALIMENTACIÓN...")}">
+<label>{_t("portal_gest.familia_lbl", "Familia")}</label>
+<select name="id_familia"><option value="">{_t("portal_gest.sin_familia_opt", "— Sin familia —")}</option>{opts_familias}</select>
 <label>{_t("portal_gest.marca_equiv_lbl", "Marca (o equivalente del sector: variedad, calibre…)")}</label>
 <input type="text" name="marca">
-<label>{_t("portal_gest.talla_si_aplica_lbl", "Talla (si aplica)")}</label>
-<input type="text" name="talla">
 <label>{_t("portal_gest.color_si_aplica_lbl", "Color (si aplica)")}</label>
 <input type="text" name="color">
+{_bloque_talla_html()}
 <label style="font-weight:400"><input type="checkbox" name="es_complementario"
 style="width:auto;padding:0;margin:0 6px 0 0;vertical-align:middle">
 {_t("portal_gest.es_complementario_lbl", "Artículo complementario (cuenta como «venta cruzada» al venderse por TPV)")}</label>
@@ -1461,10 +1579,13 @@ def crear_blueprint():
         if busqueda:
             from src.db import equivalencias_proveedor as EQB
             resultados_busqueda = EQB.buscar_unificado(busqueda, id_empresa=ses["id_empresa"])
+        from src.db import familias as FAM
+        familias_empresa = FAM.asegurar_familias_tallas(ses["id_empresa"])
         return pagina_alta_articulo(token, mensaje=request.args.get("mensaje"),
                                     error=request.args.get("error"), resultado=resultado,
                                     proveedores=_proveedores(ses), vincular=vincular,
-                                    busqueda=busqueda, resultados_busqueda=resultados_busqueda)
+                                    busqueda=busqueda, resultados_busqueda=resultados_busqueda,
+                                    familias=familias_empresa)
 
     @bp.post("/<token>/gestion/alta_articulo/vincular")
     def alta_articulo_vincular(token):
@@ -1524,9 +1645,8 @@ def crear_blueprint():
             precio = float((request.form.get("precio") or "0").replace(",", "."))
         except ValueError:
             return _volver_error("El precio no es válido.")
-        seccion = (request.form.get("seccion") or "").strip() or None
+        id_familia = request.form.get("id_familia") or None
         marca = (request.form.get("marca") or "").strip() or None
-        talla = (request.form.get("talla") or "").strip() or None
         color = (request.form.get("color") or "").strip() or None
         id_proveedor = request.form.get("id_proveedor") or None
         referencia_proveedor = (request.form.get("referencia_proveedor") or "").strip() or None
@@ -1534,8 +1654,39 @@ def crear_blueprint():
         es_promocional = request.form.get("es_promocional") == "on"
 
         from src.db import articulos as A
+        from src.db import familias as FAM
+        from src.services import tallas as TALLASV
         from src.utils import ean
         id_empresa = ses["id_empresa"]
+
+        # Familia (sustituye la antigua "Sección" de texto libre, petición explícita, 2026-11-27:
+        # desplegable sincronizado con la pestaña Familias de Info Artículo/SMART INFO) — su
+        # nombre se sigue usando como `seccion`/`categoria` (reetiquetado, detección de
+        # duplicados) para no romper esos consumidores ya existentes.
+        seccion = None
+        if id_familia:
+            fam = FAM.obtener_familia(int(id_familia), id_empresa=id_empresa)
+            seccion = fam["nombre"] if fam else None
+
+        # Talla (cascada tipo/familia demográfica/subfamilia/género/EU-US-UK, petición explícita,
+        # 2026-11-27 — `services.tallas`) — el servidor SIEMPRE recalcula la etiqueta EU canónica
+        # a partir de `talla_idx` (posición), nunca confía en texto libre enviado por el navegador.
+        tipo_articulo = (request.form.get("tipo_articulo") or "").strip().upper() or None
+        familia_talla = (request.form.get("familia_talla") or "").strip().upper() or None
+        subfamilia_talla = (request.form.get("subfamilia_talla") or "").strip().upper() or None
+        genero_talla = (request.form.get("genero_talla") or "").strip().upper() or None
+        talla_idx_raw = request.form.get("talla_idx")
+        talla = None
+        contexto_talla = None
+        if tipo_articulo and familia_talla and subfamilia_talla and genero_talla and talla_idx_raw:
+            lista_eu = TALLASV.tallas(tipo_articulo, familia_talla, subfamilia_talla, genero_talla, "EU")
+            try:
+                idx = int(talla_idx_raw)
+            except ValueError:
+                idx = -1
+            if 0 <= idx < len(lista_eu):
+                talla = lista_eu[idx]
+                contexto_talla = TALLASV.contexto(tipo_articulo, familia_talla, subfamilia_talla, genero_talla)
 
         # Generador de EAN-13 ÚNICO reutilizado tal cual (petición explícita: "sin crear motores
         # paralelos") — el MISMO motor que usaba la antigua pestaña "Alta artículo" del escritorio.
@@ -1544,19 +1695,41 @@ def crear_blueprint():
             return _volver_error("No se pudo generar un código EAN-13 único. Inténtalo de nuevo.")
 
         ok = A.crear_articulo(codigo, nombre, precio=precio, categoria=seccion, unidad="unidad",
-                              marca=marca, seccion=seccion, es_complementario=es_complementario,
+                              marca=marca, seccion=seccion, id_familia=int(id_familia) if id_familia else None,
+                              es_complementario=es_complementario,
                               es_promocional=es_promocional, id_empresa=id_empresa)
         if not ok:
             return _volver_error("No se pudo crear el artículo.")
 
+        if genero_talla in FAM.GENEROS_ARTICULO:
+            FAM.set_genero_articulo(codigo, genero_talla, id_empresa=id_empresa)
+
         if talla or color:
+            # Vincula como VARIANTE hermana (misma `producto_variantes.codigo_padre`) de un
+            # artículo ya existente con el mismo nombre+marca (petición explícita, 2026-11-27:
+            # "sincronización completa... incluyendo variantes/tallas" con el escritorio) — así el
+            # escritorio las reconoce como UN modelo con varias tallas (`services.variantes.
+            # listar_variantes`) en vez de artículos sueltos sin relación entre sí.
+            codigo_padre = codigo
             try:
                 from src.db.conexion import obtener_conexion as _oc
                 with _oc() as conn, conn.cursor() as cur:
                     cur.execute(
+                        "SELECT codigo FROM articulos WHERE id_empresa=%s AND LOWER(nombre)=LOWER(%s) "
+                        "AND COALESCE(marca,'')=COALESCE(%s,'') AND codigo<>%s ORDER BY codigo LIMIT 1",
+                        (id_empresa, nombre, marca, codigo))
+                    r = cur.fetchone()
+                    if r:
+                        existente = r[0] if not isinstance(r, dict) else r["codigo"]
+                        cur.execute(
+                            "SELECT codigo_padre FROM producto_variantes WHERE id_empresa=%s AND "
+                            "codigo_variante=%s LIMIT 1", (id_empresa, existente))
+                        rp = cur.fetchone()
+                        codigo_padre = (rp[0] if not isinstance(rp, dict) else rp["codigo_padre"]) if rp else existente
+                    cur.execute(
                         "INSERT INTO producto_variantes (id_empresa, codigo_padre, codigo_variante, "
-                        "talla, color) VALUES (%s,%s,%s,%s,%s)",
-                        (id_empresa, codigo, codigo, talla, color))
+                        "talla, contexto_talla, color) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (id_empresa, codigo_padre, codigo, talla, contexto_talla, color))
                     conn.commit()
             except Exception as e:
                 logger.warning(f"alta_articulo_crear: no se pudo registrar talla/color ({codigo}): {e}")
@@ -1568,7 +1741,7 @@ def crear_blueprint():
             res_eq = EQ.crear_equivalencia(
                 referencia_proveedor, codigo, id_proveedor=int(id_proveedor), origen_proveedor="clasico",
                 nombre_proveedor=nombres_prov.get(int(id_proveedor)), creado_por=ses.get("usuario"),
-                talla=talla, id_empresa=id_empresa)
+                talla=talla, contexto_talla=contexto_talla, id_empresa=id_empresa)
             equivalencia_creada = bool(res_eq.get("ok"))
 
         # Reetiquetado automático (ref. interna + PVP + sección) — petición explícita: "el ERP debe
