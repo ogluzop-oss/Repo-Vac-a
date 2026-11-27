@@ -10,8 +10,10 @@ portales sin coste ni límites (reutiliza `comisiones_b2b.tiene_suscripcion_desk
 local o vía email). Para quien NO la tiene, hay 2 niveles:
   - **Freemium**: límites de uso claros (ver `LIMITES_FREEMIUM`).
   - **Plan de Pago del Portal** (mensual/anual): un escalón económico por debajo del ERP (Basic,
-    29€/mes), con el MISMO criterio de descuento anual (16,7%, "2 meses gratis") y financiación a
-    4 cuotas sin interés que ya usa `services.saas.planes`/`alta_comercial.confirmar_financiacion`.
+    29€/mes), con el MISMO criterio que `services.saas.planes`/`alta_comercial.
+    confirmar_financiacion`: pago anual ÍNTEGRO con 16,7% de descuento ("2 meses gratis"), o
+    financiación sin interés en 4 cuotas trimestrales con un descuento MENOR (1 mes gratis en vez
+    de 2 — petición explícita, 2026-11-27: financiar cuesta un poco más que pagar de golpe).
 
 Tabla propia `portal_suscripciones` (migración 0364) — PARALELA a `suscripciones`/`planes_saas`
 (que son 1:1 con `empresas.id_empresa`, el ERP) porque un `suministrador` no tiene `id_empresa`
@@ -50,7 +52,12 @@ PRECIO_MAXIMO_EUR = 15.0            # tope duro: siempre un escalón por debajo 
 PRECIO_MINIMO_EUR = 5.0             # piso: nunca un precio ridículo que no cubra nada
 
 # ── Mismo criterio que `services.saas.planes` para el ERP ────────────────────────────────────
-DESCUENTO_ANUAL_PCT = 16.7          # "2 meses gratis" — idéntico al ERP
+DESCUENTO_ANUAL_PCT = 16.7          # "2 meses gratis" — idéntico al ERP (pago anual ÍNTEGRO)
+# Financiar en 4 cuotas ya NO lleva el mismo descuento que pagar de golpe (petición explícita,
+# 2026-11-27, mismo cambio aplicado en `services.saas.planes.PLANES[*]["precio_anual_financiado"]`
+# para el ERP): pasa de 2 meses gratis a solo 1 — "precio_mensual * 11" en vez de "* 12 * (1-0.167)"
+# ("* 10" exacto), para que financiar tenga un coste ligeramente mayor que pagar el año de golpe.
+MESES_PAGADOS_ANUAL_FINANCIADO = 11  # 1 mes gratis (vs. los 2 meses gratis del anual íntegro)
 NUM_CUOTAS_ANUAL = 4                # financiación sin interés, mismo patrón que alta_comercial.py
 
 CODIGO_PLAN_PORTAL = "PORTAL"
@@ -78,11 +85,21 @@ def precio_anual_portal() -> float:
     return round(precio_mensual_portal() * 12 * (1 - DESCUENTO_ANUAL_PCT / 100.0), 2)
 
 
+def precio_anual_financiado_portal() -> float:
+    """Importe TOTAL del plan anual cuando se paga financiado en 4 cuotas (petición explícita,
+    2026-11-27) — mismo criterio exacto que `services.saas.planes.PLANES[*][
+    "precio_anual_financiado"]` para el ERP: 1 mes gratis en vez de los 2 del pago íntegro
+    (`precio_anual_portal`), así que el total financiado es ligeramente MAYOR — el coste de
+    fraccionar el pago."""
+    return round(precio_mensual_portal() * MESES_PAGADOS_ANUAL_FINANCIADO, 2)
+
+
 def cuota_4_pagos() -> float:
-    """Importe de cada una de las 4 cuotas trimestrales SIN interés del plan anual — mismo
-    criterio exacto que `alta_comercial.confirmar_financiacion`/`sitio_oficial.py` para el ERP
-    (cuota = precio_anual / 4, sin recargo por financiar)."""
-    return round(precio_anual_portal() / NUM_CUOTAS_ANUAL, 2)
+    """Importe de cada una de las 4 cuotas trimestrales SIN interés del plan anual financiado —
+    mismo criterio exacto que `alta_comercial.confirmar_financiacion`/`sitio_oficial.py` para el
+    ERP (cuota = precio_anual_financiado / 4): usa el total CON el descuento reducido (1 mes
+    gratis), nunca el del pago íntegro (`precio_anual_portal`, 2 meses gratis)."""
+    return round(precio_anual_financiado_portal() / NUM_CUOTAS_ANUAL, 2)
 
 
 # ── Límites Freemium (sin ERP, sin Plan de Pago del Portal) ──────────────────────────────────

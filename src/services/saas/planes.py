@@ -31,24 +31,45 @@ _PLUS = _BASE + ["rrhh", "tesoreria", "contabilidad", "workflow", "scheduler", "
 # PRO añade lo Enterprise: comparativas multiempresa, branding, api, conectores, etc.
 _PRO = list(MODULOS.keys())
 
+
+# `precio_anual`: 2 meses gratis frente al mensual (equivale a pagar 10 meses por 12, ~16,7% de
+# descuento) — decisión de negocio explícita (2026-11-15), mismo criterio para los 3 planes. Vive
+# aquí (no en `planes_saas`/BD) porque solo se usa para mostrar precio/ahorro en la web y para
+# calcular el importe de la factura al activar (`alta_comercial._activar_plan_pagado`); el ciclo
+# en sí (duración real de la suscripción) ya lo resuelve `suscripciones.CICLOS`.
+#
+# `precio_anual_financiado` (petición explícita, 2026-11-27): el pago anual EN 4 CUOTAS (primer
+# año) ya NO lleva el mismo descuento que el pago íntegro — pasa de 2 meses gratis (`precio_anual`
+# = `precio*10`) a solo 1 mes gratis (`precio*11`), para que financiar tenga un coste ligeramente
+# mayor que pagar de una vez (un incentivo real a pagar el anual íntegro). Se usa SOLO para
+# calcular la cuota trimestral del año 1 (`alta_comercial.confirmar_financiacion`/`sitio_oficial.
+# _paypal_crear_plan_financiacion`) — el pago anual íntegro (`precio_anual`) y el ciclo normal a
+# partir del año 2 de la financiación por Stripe NO cambian, siguen con los 2 meses gratis de
+# siempre.
 PLANES = {
-    "BASIC": {"nombre": "Smart Manager", "precio": 29.0,
+    "BASIC": {"nombre": "Smart Manager", "precio": 29.0, "precio_anual": 290.0,
+              "precio_anual_financiado": 319.0,
               "limites": {"max_empresas": 1, "max_tiendas": 1, "max_usuarios": 3,
                           "max_almacenes": 1, "max_correos": 3}, "modulos": _BASE},
-    "PLUS": {"nombre": "Smart Manager Plus", "precio": 49.0,
+    "PLUS": {"nombre": "Smart Manager Plus", "precio": 49.0, "precio_anual": 490.0,
+             "precio_anual_financiado": 539.0,
              "limites": {"max_empresas": 1, "max_tiendas": 10, "max_usuarios": 50,
                          "max_almacenes": 20, "max_correos": 25}, "modulos": _PLUS},
-    "PRO": {"nombre": "Smart Manager Pro", "precio": 149.0,
+    "PRO": {"nombre": "Smart Manager Pro", "precio": 149.0, "precio_anual": 1490.0,
+            "precio_anual_financiado": 1639.0,
             "limites": {"max_empresas": 9999, "max_tiendas": 9999, "max_usuarios": 9999,
                         "max_almacenes": 9999, "max_correos": 9999}, "modulos": _PRO},
 }
 
 
-def sincronizar_planes() -> int:
-    """Inserta (idempotente) planes, módulos y su relación. Devuelve nº de planes."""
-    ensure_schema()
+def sincronizar_planes(config=None) -> int:
+    """Inserta (idempotente) planes, módulos y su relación. Devuelve nº de planes.
+
+    `config` opcional (mismo dict que `obtener_conexion`): sincroniza en OTRA base de datos (SaaS,
+    ver `services.provisioning.aprovisionar_tenant_nuevo`)."""
+    ensure_schema(config=config)
     try:
-        with obtener_conexion() as conn, conn.cursor() as cur:
+        with obtener_conexion(config) as conn, conn.cursor() as cur:
             for cod, nom in MODULOS.items():
                 cur.execute("INSERT IGNORE INTO modulos_saas (codigo, nombre) VALUES (%s,%s)", (cod, nom))
             for codigo, cfg in PLANES.items():
