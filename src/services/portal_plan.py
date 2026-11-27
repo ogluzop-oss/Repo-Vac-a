@@ -523,10 +523,20 @@ def _paypal_crear_plan_simple(token, *, ciclo: str, unit_amount: float) -> str |
         return None
 
 
-def _paypal_crear_plan_financiado(token, *, cuota: float, precio_anual: float) -> str | None:
-    """Mismo patrón EXACTO que `sitio_oficial._paypal_crear_plan_financiacion` para el ERP: 4
-    cuotas trimestrales → el precio anual normal, para siempre. Sin fase de prueba (el Plan de Pago
-    del Portal no tiene periodo de prueba, a diferencia del ERP)."""
+def _paypal_crear_plan_financiado(token, *, cuota: float) -> str | None:
+    """Hallazgo real (2026-11-27, probado contra la API real de PayPal antes de desplegar): el
+    patrón de `sitio_oficial._paypal_crear_plan_financiacion` para el ERP (2 `billing_cycles`
+    REGULAR — 4 cuotas, luego el anual para siempre) NO es válido en PayPal — la API lo rechaza con
+    422 `MULTIPLE_REGULAR_BILLING_CYCLE_NOT_SUPPORTED` ("Only one regular billing cycle is
+    allowed"). Esto afecta también al ERP (nunca se había probado en vivo) — pendiente de
+    corregir allí igual que aquí.
+
+    Por eso el Plan de PayPal financiado usa un ÚNICO ciclo REGULAR: `cuota` cada 3 meses, PARA
+    SIEMPRE (`total_cycles=0`) — en vez de "4 cuotas y luego cambia a anual" (como sí puede hacer
+    Stripe con un `SubscriptionSchedule` de 2 fases, que no tiene esta limitación). El coste total
+    por año es idéntico (`cuota*4 = precio_anual`): la diferencia real es que, pagando por PayPal,
+    la financiación trimestral continúa cada año en vez de volver a un único pago anual a partir
+    del segundo año."""
     import requests
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     try:
@@ -539,12 +549,9 @@ def _paypal_crear_plan_financiado(token, *, cuota: float, precio_anual: float) -
             return None
         product_id = rp.json().get("id")
         billing_cycles = [
-            {"tenure_type": "REGULAR", "sequence": 1, "total_cycles": 4,
+            {"tenure_type": "REGULAR", "sequence": 1, "total_cycles": 0,
              "frequency": {"interval_unit": "MONTH", "interval_count": 3},
              "pricing_scheme": {"fixed_price": {"value": f"{cuota:.2f}", "currency_code": "EUR"}}},
-            {"tenure_type": "REGULAR", "sequence": 2, "total_cycles": 0,
-             "frequency": {"interval_unit": "YEAR", "interval_count": 1},
-             "pricing_scheme": {"fixed_price": {"value": f"{precio_anual:.2f}", "currency_code": "EUR"}}},
         ]
         r = requests.post(f"{_paypal_base()}/v1/billing/plans", headers=headers, timeout=25, json={
             "product_id": product_id, "name": f"{NOMBRE_PLAN_PORTAL} — financiado en 4 cuotas",
@@ -626,14 +633,15 @@ def crear_checkout_session_paypal(tipo_sujeto: str, id_sujeto, *, ciclo: str, em
 def crear_checkout_session_financiada_paypal(tipo_sujeto: str, id_sujeto, *, email: str,
                                              success_url: str, cancel_url: str) -> dict:
     """Equivalente PayPal de `crear_checkout_session_financiada` — a diferencia de Stripe, aquí NO
-    hace falta un segundo paso: el Plan de 2 fases (4 cuotas + anual) se crea de una vez y la
-    Suscripción ya lo incluye todo desde el principio."""
+    hace falta un segundo paso: el Plan se crea de una vez y la Suscripción ya lo incluye desde el
+    principio. Ver el docstring de `_paypal_crear_plan_financiado` para el porqué NO es un plan de
+    2 fases (4 cuotas → anual) como en Stripe: PayPal factura la cuota trimestral para siempre, en
+    vez de pasar a un único cobro anual a partir del segundo año — mismo coste total por año."""
     import json as _json
     token = _paypal_token()
     if not token:
         return {"ok": False, "error": "El pago no está disponible ahora mismo (PayPal no configurado)."}
-    plan_id = _paypal_crear_plan_financiado(token, cuota=cuota_4_pagos(),
-                                            precio_anual=precio_anual_portal())
+    plan_id = _paypal_crear_plan_financiado(token, cuota=cuota_4_pagos())
     if not plan_id:
         return {"ok": False, "error": "No se pudo iniciar el pago. Inténtalo de nuevo en unos minutos."}
     custom_id = _json.dumps({"s": tipo_sujeto, "i": str(id_sujeto), "c": "anual", "f": True})
