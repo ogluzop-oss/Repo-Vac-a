@@ -332,10 +332,11 @@ def pagina_verificar_email_proveedor(*, email, error=None):
 # ── Elección de pasarela de cobro — paso OBLIGATORIO del propio registro ───────────────────────
 # (petición explícita, 2026-11-23: antes esta elección quedaba como un aviso dentro del panel,
 # alcanzable después de registrarse — ahora es el último paso del alta, antes de poder entrar al
-# panel de verdad. PayPal ya NO pasa por un onboarding tipo Partner Referral (ver
-# `suministradores.fijar_paypal_email`/el docstring de `tpv.pagos.paypal_connect`): solo hace falta
-# el email de PayPal del proveedor + una tarjeta Stripe normal para que Smart Manager le cobre su
-# comisión aparte (nunca por PayPal).
+# panel de verdad. PayPal pasa a ser pago DIRECTO sin custodia de Smart Manager (petición explícita,
+# 2026-11-27, ver `suministradores.fijar_paypal_credenciales`/el docstring de `tpv.pagos.
+# paypal_connect`): el proveedor da su propia app de PayPal (Client ID + Secret, gratis e inmediata
+# en developer.paypal.com) para que el cobro se haga directamente en SU cuenta — nunca en la de
+# Smart Manager.
 def pagina_elegir_pasarela(token):
     cuerpo = f"""
 <div class="wrap">
@@ -350,29 +351,35 @@ def pagina_elegir_pasarela(token):
     </div>
     <div class="card">
       <h3>PayPal</h3>
-      <p>{_t("portal_prov.opcion_paypal_desc", "Cobra en tu cuenta de PayPal — solo necesitas darnos tu email de PayPal, nada más.")}</p>
-      <p><a class="enlace" href="/portal/proveedor/{_e(token)}/paypal/email" style="font-weight:900">{_t("portal_prov.elegir_paypal_btn", "Elegir {marca} →", marca="PayPal")}</a></p>
+      <p>{_t("portal_prov.opcion_paypal_desc", "Cobra directo en tu propia cuenta de {m} — necesitas el Client ID y Secret de tu propia app de {m} (gratis, la creas tú mismo en developer.paypal.com).", m="PayPal")}</p>
+      <p><a class="enlace" href="/portal/proveedor/{_e(token)}/paypal/credenciales" style="font-weight:900">{_t("portal_prov.elegir_paypal_btn", "Elegir {marca} →", marca="PayPal")}</a></p>
     </div>
   </div>
 </div>"""
     return _layout(_t("portal_prov.elige_pasarela_titulo", "Elige cómo cobrar"), cuerpo, token=token)
 
 
-def pagina_paypal_email(token, *, error=None):
+def pagina_paypal_credenciales(token, *, error=None):
     aviso = f'<div class="msg-error">{_e(error)}</div>' if error else ""
     cuerpo = f"""
 <div class="wrap">
-  <h2>{_t("portal_prov.paypal_email_h1", "Tu email de PayPal")}</h2>
+  <h2>{_t("portal_prov.paypal_cred_h1", "Tu propia app de {m}", m="PayPal")}</h2>
   <p class="sub" style="text-align:center;margin-left:auto;margin-right:auto">
-  {_t("portal_prov.paypal_email_desc", "El email de la cuenta de PayPal donde quieres recibir el pago de tus ventas.")}</p>
-  <form class="panel" method="post" action="/portal/proveedor/{_e(token)}/paypal/email">
+  {_t("portal_prov.paypal_cred_desc",
+     "Para que el pago llegue directo a tu cuenta (nunca a través de {sm}), necesitamos "
+     "el Client ID y Secret de tu propia app de {pp}. La creas gratis e inmediatamente en "
+     "developer.paypal.com → Apps & Credentials → Create App, con tu cuenta {pp} Business. "
+     "Guardamos tu Secret cifrado, nunca en texto plano.", sm="Smart Manager", pp="PayPal")}</p>
+  <form class="panel" method="post" action="/portal/proveedor/{_e(token)}/paypal/credenciales">
     {aviso}
-    <label>{_t("portal_prov.paypal_email_lbl", "Email de PayPal")}</label>
-    <input type="email" name="email" required placeholder="tu@email.com" autofocus>
+    <label>{_t("portal_prov.paypal_client_id_lbl", "Client {m}", m="ID")}</label>
+    <input type="text" name="client_id" required autofocus>
+    <label>{_t("portal_prov.paypal_client_secret_lbl", "Secret")}</label>
+    <input type="password" name="client_secret" required>
     <button type="submit">{_t("portal_prov.continuar_btn", "Continuar →")}</button>
   </form>
 </div>"""
-    return _layout(_t("portal_prov.paypal_email_titulo", "Tu email de PayPal"), cuerpo, token=token)
+    return _layout(_t("portal_prov.paypal_cred_titulo", "Tu propia app de {m}", m="PayPal"), cuerpo, token=token)
 
 
 # ── Acceso (login email + contraseña) ─────────────────────────────────────────
@@ -468,16 +475,28 @@ def pagina_plan(token, suministrador, *, mensaje=None, error=None, no_leidos=0):
             f'<p>{_t("portal_prov.plan_freemium_catalogo", "Referencias activas en catálogo:")} '
             f'<b>{catalogo["usado"]}/{catalogo["limite"]}</b></p></div>')
     mensual, anual, cuota = PP.precio_mensual_portal(), PP.precio_anual_portal(), PP.cuota_4_pagos()
+
+    def _par_botones(action, etiqueta, extra_inputs=""):
+        return f"""<div style="margin-bottom:10px">
+<p style="margin:0 0 6px;font-weight:700">{etiqueta}</p>
+<form method="post" action="{action}" style="display:inline-block;margin-right:8px">
+{extra_inputs}<input type="hidden" name="metodo_pago" value="stripe">
+<button type="submit">{_t("portal_prov.pagar_con_stripe_btn", "Pagar con {m}", m="Stripe")}</button></form>
+<form method="post" action="{action}" style="display:inline-block">
+{extra_inputs}<input type="hidden" name="metodo_pago" value="paypal">
+<button type="submit">{_t("portal_prov.pagar_con_paypal_btn", "Pagar con {m}", m="PayPal")}</button></form>
+</div>"""
+
     oferta_html = "" if tier != "freemium" else f"""
 <div class="card">
 <h2>{_t("portal_prov.plan_pago_h2", "Plan de Pago del Portal")}</h2>
 <p>{_t("portal_prov.plan_pago_desc", "Sin límite de referencias en catálogo, más importación masiva.")}</p>
-<form method="post" action="{base}/checkout"><input type="hidden" name="ciclo" value="mensual">
-<button type="submit">{_t("portal_prov.plan_mensual_btn", "{p} €/mes", p=mensual)}</button></form>
-<form method="post" action="{base}/checkout"><input type="hidden" name="ciclo" value="anual">
-<button type="submit">{_t("portal_prov.plan_anual_btn", "{p} €/año (ahorra 16,7%)", p=anual)}</button></form>
-<form method="post" action="{base}/checkout-financiado">
-<button type="submit">{_t("portal_prov.plan_financiado_btn", "4 cuotas de {c} €/trimestre", c=cuota)}</button></form>
+{_par_botones(f"{base}/checkout", _t("portal_prov.plan_mensual_btn", "{p} €/mes", p=mensual),
+             '<input type="hidden" name="ciclo" value="mensual">')}
+{_par_botones(f"{base}/checkout", _t("portal_prov.plan_anual_btn", "{p} €/año (ahorra 16,7%)", p=anual),
+             '<input type="hidden" name="ciclo" value="anual">')}
+{_par_botones(f"{base}/checkout-financiado",
+             _t("portal_prov.plan_financiado_btn", "4 cuotas de {c} €/trimestre", c=cuota))}
 </div>"""
     return _layout(_t("portal_prov.nav_plan", "Plan"), f"""
 {aviso}
@@ -496,7 +515,7 @@ def pagina_dashboard(token, suministrador, *, metricas=None, no_leidos=0, stripe
     # 2026-11-22) no se puede publicar catálogo ni recibir pedidos (ver `b2b_catalogo.
     # crear_articulo`/`b2b_pedidos.tramitar`). Mientras no haya ninguna, se muestra como un BANNER
     # de alerta a todo ancho con AMBAS opciones ("elige una, nunca las dos a la vez" — ver
-    # `suministradores.iniciar_onboarding_stripe`/`fijar_paypal_email`); en cuanto se elige
+    # `suministradores.iniciar_onboarding_stripe`/`fijar_paypal_credenciales`); en cuanto se elige
     # una, esta tarjeta deja de mencionar la otra (`pasarela_cobro` ya fijado). Ahora es el propio
     # registro el que obliga a elegir (petición explícita, 2026-11-23, ver `/elegir-pasarela`) —
     # este banner solo se ve si el proveedor abandonó ese paso antes de terminarlo.
@@ -1346,11 +1365,10 @@ def crear_blueprint():
         from src.services.compras import suministradores as S
         pasarela_cobro = sup.get("pasarela_cobro")
         stripe = S.estado_stripe(sup["id"]) if pasarela_cobro != "paypal" else {}
-        # PayPal sin Partner Program (petición explícita, 2026-11-23, simplificado el mismo día):
-        # ya no hay un estado "en vivo" que consultar (no hay cuenta conectada que verificar en
-        # PayPal, ni una segunda pieza en Stripe) — `paypal_verificado` se fija en el momento de
-        # guardar el email (`suministradores.fijar_paypal_email`).
-        paypal = ({"conectada": bool(sup.get("paypal_email")),
+        # PayPal pago directo sin custodia (petición explícita, 2026-11-27): no hay un estado "en
+        # vivo" que consultar — `paypal_verificado` se fija en el momento de verificar SUS propias
+        # credenciales contra PayPal (`suministradores.fijar_paypal_credenciales`).
+        paypal = ({"conectada": bool(sup.get("paypal_client_id")),
                   "verificada": bool(sup.get("paypal_verificado"))}
                  if pasarela_cobro == "paypal" else {})
         mostrar_aviso = False
@@ -1380,11 +1398,18 @@ def crear_blueprint():
         import os
         from src.services import portal_plan as PP
         ciclo = request.form.get("ciclo")
+        metodo_pago = request.form.get("metodo_pago") or "stripe"
         base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
-        r = PP.crear_checkout_session(
-            "proveedor", sup["id"], ciclo=ciclo, email=sup.get("email_login") or "",
-            success_url=f"{base_web}/portal/proveedor/{token}/plan/exito",
-            cancel_url=f"{base_web}/portal/proveedor/{token}/plan")
+        success_url = f"{base_web}/portal/proveedor/{token}/plan/exito"
+        cancel_url = f"{base_web}/portal/proveedor/{token}/plan"
+        if metodo_pago == "paypal":
+            r = PP.crear_checkout_session_paypal(
+                "proveedor", sup["id"], ciclo=ciclo, email=sup.get("email_login") or "",
+                success_url=success_url, cancel_url=cancel_url)
+        else:
+            r = PP.crear_checkout_session(
+                "proveedor", sup["id"], ciclo=ciclo, email=sup.get("email_login") or "",
+                success_url=success_url, cancel_url=cancel_url)
         if not r.get("ok"):
             from urllib.parse import quote
             return redirect(f"/portal/proveedor/{token}/plan?error={quote(r.get('error', ''))}")
@@ -1397,11 +1422,18 @@ def crear_blueprint():
             return err
         import os
         from src.services import portal_plan as PP
+        metodo_pago = request.form.get("metodo_pago") or "stripe"
         base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
-        r = PP.crear_checkout_session_financiada(
-            "proveedor", sup["id"], email=sup.get("email_login") or "",
-            success_url=f"{base_web}/portal/proveedor/{token}/plan/exito",
-            cancel_url=f"{base_web}/portal/proveedor/{token}/plan")
+        success_url = f"{base_web}/portal/proveedor/{token}/plan/exito"
+        cancel_url = f"{base_web}/portal/proveedor/{token}/plan"
+        if metodo_pago == "paypal":
+            r = PP.crear_checkout_session_financiada_paypal(
+                "proveedor", sup["id"], email=sup.get("email_login") or "",
+                success_url=success_url, cancel_url=cancel_url)
+        else:
+            r = PP.crear_checkout_session_financiada(
+                "proveedor", sup["id"], email=sup.get("email_login") or "",
+                success_url=success_url, cancel_url=cancel_url)
         if not r.get("ok"):
             from urllib.parse import quote
             return redirect(f"/portal/proveedor/{token}/plan?error={quote(r.get('error', ''))}")
@@ -1412,12 +1444,16 @@ def crear_blueprint():
         sup, err = _suministrador_o_error(token)
         if err:
             return err
-        session_id = request.args.get("session_id")
-        if not session_id:
-            return redirect(f"/portal/proveedor/{token}/plan")
         from src.services import portal_plan as PP
-        r = PP.confirmar_checkout_generico(session_id)
         from urllib.parse import quote
+        subscription_id = request.args.get("subscription_id")
+        if subscription_id:
+            r = PP.confirmar_checkout_paypal(subscription_id)
+        else:
+            session_id = request.args.get("session_id")
+            if not session_id:
+                return redirect(f"/portal/proveedor/{token}/plan")
+            r = PP.confirmar_checkout_generico(session_id)
         if not r.get("ok"):
             return redirect(f"/portal/proveedor/{token}/plan?error={quote(r.get('error', ''))}")
         return redirect(f"/portal/proveedor/{token}/plan?mensaje="
@@ -1454,41 +1490,44 @@ def crear_blueprint():
             return err
         pasarela = sup.get("pasarela_cobro")
         if pasarela == "paypal":
-            if not sup.get("paypal_email"):
-                return redirect(f"/portal/proveedor/{token}/paypal/email")
+            if not sup.get("paypal_client_id"):
+                return redirect(f"/portal/proveedor/{token}/paypal/credenciales")
             return redirect(f"/portal/proveedor/{token}/dashboard")
         if pasarela == "stripe":
             return redirect(f"/portal/proveedor/{token}/dashboard")
         return pagina_elegir_pasarela(token)
 
-    @bp.get("/<token>/paypal/email")
-    def paypal_email_form(token):
+    @bp.get("/<token>/paypal/credenciales")
+    def paypal_credenciales_form(token):
         sup, err = _suministrador_o_error(token)
         if err:
             return err
-        return pagina_paypal_email(token)
+        return pagina_paypal_credenciales(token)
 
-    @bp.post("/<token>/paypal/email")
-    def paypal_email_post(token):
-        """Único dato que necesita un proveedor para cobrar por PayPal (petición explícita,
-        2026-11-23, simplificado el mismo día: nunca se le pide una tarjeta de otra pasarela —
-        la comisión se retiene dentro de la propia custodia de PayPal, ver `tpv.pagos.
-        paypal_connect.liberar_fondos`)."""
+    @bp.post("/<token>/paypal/credenciales")
+    def paypal_credenciales_post(token):
+        """Pago directo sin custodia (petición explícita, 2026-11-27): el proveedor da SU PROPIA
+        app de PayPal — se verifica de verdad contra la API de PayPal antes de guardar nada (ver
+        `suministradores.fijar_paypal_credenciales`), nunca se finge un estado verificado."""
         sup, err = _suministrador_o_error(token)
         if err:
             return err
         from src.services.compras import suministradores as S
-        r = S.fijar_paypal_email(sup["id"], request.form.get("email", ""))
+        r = S.fijar_paypal_credenciales(sup["id"], request.form.get("client_id", ""),
+                                        request.form.get("client_secret", ""))
         if not r.get("ok"):
             mensajes = {
-                "email_de_paypal_invalido": _t("portal_prov.paypal_email_invalido",
-                                              "Introduce un email válido."),
+                "credenciales_incompletas": _t("portal_prov.paypal_cred_incompletas",
+                                              "Introduce el Client {id} y el Secret.", id="ID"),
+                "credenciales_rechazadas_por_paypal": _t(
+                    "portal_prov.paypal_cred_rechazadas",
+                    "{m} no reconoce estas credenciales — revisa que sean correctas.", m="PayPal"),
                 "ya_tienes_stripe_como_pasarela_de_cobro": _t(
-                    "portal_prov.ya_tienes_stripe", "Ya tienes Stripe como pasarela de cobro — no "
-                                                    "puedes tener las dos a la vez."),
+                    "portal_prov.ya_tienes_stripe", "Ya tienes {m} como pasarela de cobro — no "
+                                                    "puedes tener las dos a la vez.", m="Stripe"),
             }
-            return pagina_paypal_email(
-                token, error=mensajes.get(r.get("error"), "No se pudo guardar el email.")), 400
+            return pagina_paypal_credenciales(
+                token, error=mensajes.get(r.get("error"), "No se pudieron guardar las credenciales.")), 400
         return redirect(f"/portal/proveedor/{token}/dashboard")
 
     @bp.get("/<token>/catalogo")

@@ -2,8 +2,11 @@
 Custodia de fondos (escrow) para pedidos B2B (Smart Suppliers · Fase C). Orquesta el ciclo de fondos
 retenidos de una Transacción Comercial (`transaccion_comercial`, `origen='b2b'`, ver Fase A/B) usando
 el motor YA EXISTENTE `PasarelaMarketplace` (`src/services/tpv/pagos/base_marketplace.py`) — Smart
-Manager NO custodia fondos: registra el ESTADO y delega la operación real en el PSP (Stripe Connect si
-hay credenciales configuradas; simulado en caso contrario — ver `B2B_PASARELA_PROVEEDOR`).
+Manager NO custodia fondos en ningún momento: registra el ESTADO (retenido/preparando/enviado/
+liberado) y delega la operación real de dinero en el PSP de CADA proveedor (Stripe Connect con su
+cuenta conectada, o PayPal con SUS PROPIAS credenciales de app — petición explícita, 2026-11-27: el
+pago va siempre directo de la empresa compradora a la cuenta del proveedor, nunca a través de la
+cuenta de Smart Manager; simulado si no hay credenciales — ver `B2B_PASARELA_PROVEEDOR`).
 
 Inspirado en el `escrow.py` retirado (commit 408548b), pero sobre `b2b_escrow`/`transaccion_comercial`
 en vez de `lonja_transacciones`: NO hay motor de transacciones paralelo. El ciclo de vida del PEDIDO
@@ -45,16 +48,50 @@ def _fila(cur, r):
     return r if isinstance(r, dict) else dict(zip([d[0] for d in cur.description], r))
 
 
-def _pasarela():
-    """Adaptador de pago a usar. Por defecto SIMULADO (decisión explícita del usuario para esta
-    implementación): construye y prueba todo el flujo sin credenciales reales. Activar Stripe Connect
-    real no requiere tocar código: basta con fijar B2B_PASARELA_PROVEEDOR=stripe_connect y configurar
-    sus credenciales (mismo mecanismo que ya usa el resto de pasarelas, `pagos.pasarela.configurar`,
-    protegido con step-up MFA)."""
+def _pasarela(pasarela_nombre: str = "stripe", id_suministrador=None):
+    """Adaptador de pago a usar — resuelto POR TRANSACCIÓN (petición explícita, 2026-11-22: PayPal
+    como alternativa a Stripe — cada proveedor cobra por UNA pasarela concreta, ver
+    `suministradores.pasarela_cobro_de`/columna `b2b_escrow.pasarela`, migr. 0356). `pasarela_nombre`
+    es 'stripe'|'paypal'.
+
+    PayPal SIN Partner Program NI custodia de Smart Manager (petición explícita, 2026-11-27 —
+    rediseño sobre el de 2026-11-23): se instancia con las credenciales PROPIAS del proveedor
+    (`suministradores.credenciales_paypal_de(id_suministrador)`), nunca con las globales de Smart
+    Manager — así la Orden se crea y captura directamente en SU cuenta (ver el docstring de
+    `tpv.pagos.paypal_connect`). Sin `id_suministrador` o sin credenciales propias configuradas,
+    degrada a simulado (nunca finge un estado real ni usa, por error, la cuenta de Smart Manager
+    para cobrar a un tercero).
+
+    `B2B_PASARELA_PROVEEDOR` sigue siendo el interruptor maestro de siempre (decisión explícita del
+    usuario, 2026-11-16: por defecto SIMULADO para TODA la plataforma, pase lo que pase con las
+    credenciales — activar cobros reales exige fijarlo explícitamente en el entorno del servidor,
+    nunca ocurre solo porque existan credenciales). Con el interruptor en real, cada transacción usa
+    la pasarela de SU proveedor — y esa pasarela en concreto degrada a simulado igualmente si a
+    ELLA le faltan credenciales (nunca finge un estado real).
+
+    Hueco real encontrado y corregido 2026-11-16: antes se instanciaba la clase con un config VACÍO
+    (`clase({})`), así que `PasarelaStripeConnect.configurado()` (que mira `self.config['api_key']`)
+    SIEMPRE devolvía False — activar la pasarela real no habría bastado nunca para que llegara a
+    usarse, aunque las credenciales estuvieran bien puestas."""
     from src.services.tpv.pagos.registry import clase_de
-    proveedor = os.getenv("B2B_PASARELA_PROVEEDOR", "simulado_mkt")
-    clase = clase_de(proveedor) or clase_de("simulado_mkt")
-    return clase({})
+    modo_real = os.getenv("B2B_PASARELA_PROVEEDOR", "simulado_mkt") != "simulado_mkt"
+    if modo_real and pasarela_nombre == "paypal":
+        creds = None
+        if id_suministrador is not None:
+            from src.services.compras import suministradores as SUP
+            creds = SUP.credenciales_paypal_de(id_suministrador)
+        if creds:
+            clase = clase_de("paypal_connect")
+            if clase:
+                return clase({"api_key": creds["client_id"], "api_secret": creds["client_secret"],
+                             "modo": os.getenv("PAYPAL_MODO", "test")})
+    elif modo_real:
+        api_key = os.getenv("STRIPE_SECRET_KEY")
+        if api_key:
+            clase = clase_de("stripe_connect")
+            if clase:
+                return clase({"api_key": api_key})
+    return clase_de("simulado_mkt")({})
 
 
 def _leer_escrow(cur, id_tx):
@@ -130,9 +167,188 @@ def verificar_ledger(id_tx) -> bool:
 
 
 # ── Ciclo de vida ──────────────────────────────────────────────────────────────
+def _marcar_pagada(id_tx, tx, *, payment_ref, importe, comision, recargo_comprador=0.0,
+                   actor=None, pasarela="stripe") -> dict:
+    """Tail compartido CONFIRMADA → PAGADA (pedido) / FUNDS_HELD (escrow) — extraído de la antigua
+    `iniciar_retencion` monolítica (2026-11-16) para que lo compartan 3 caminos: el modo simulado
+    (confirma al instante, sin tarjeta real que esperar), `confirmar_pago_tras_retorno` (Stripe real,
+    tras verificar que la tarjeta autorizó de verdad) y la propia `iniciar_retencion` (legada).
+    `comision` = comisión del PROVEEDOR (significado de siempre); `recargo_comprador` (columna nueva,
+    migr. 0352, 2026-11-21) = recargo propio de la empresa compradora — las dos son INDEPENDIENTES
+    entre sí (ver `comisiones_b2b`), ya no se asume que valgan lo mismo. `pasarela` ('stripe'|
+    'paypal', migr. 0356, 2026-11-22) — con qué PSP se retuvieron estos fondos, reutilizado por
+    las operaciones posteriores de este mismo pedido."""
+    with transaccion() as conn, conn.cursor() as cur:
+        esc = _leer_escrow(cur, id_tx)
+        if esc and esc["estado_pago"] not in ("PAYMENT_PENDING",):
+            return {"ok": True, "idempotente": True, "estado_pago": esc["estado_pago"]}
+        if esc is None:
+            cur.execute("INSERT INTO b2b_escrow (id_tx, estado_pago, psp_payment_ref, "
+                       "importe_retenido, comision, recargo_comprador, divisa, pasarela, retenido_en) "
+                       "VALUES (%s,'FUNDS_HELD',%s,%s,%s,%s,%s,%s,NOW())",
+                       (id_tx, payment_ref, importe, comision, recargo_comprador,
+                        tx.get("moneda") or "EUR", pasarela))
+        else:
+            cur.execute("UPDATE b2b_escrow SET estado_pago='FUNDS_HELD', psp_payment_ref=%s, "
+                       "importe_retenido=%s, comision=%s, recargo_comprador=%s, pasarela=%s, "
+                       "retenido_en=NOW() WHERE id_tx=%s",
+                       (payment_ref, importe, comision, recargo_comprador, pasarela, id_tx))
+        actualizadas = cur.execute(
+            "UPDATE transaccion_comercial SET estado='PAGADA' WHERE id_tx=%s AND estado='CONFIRMADA'",
+            (id_tx,))
+        if not actualizadas:
+            raise RuntimeError("estado_de_pedido_cambio_concurrentemente")  # provoca ROLLBACK real
+        _registrar_evento_tx(cur, id_tx, tx["id_empresa"], "CONFIRMADA", "PAGADA", actor)
+        _ledger_anotar(cur, id_tx, "RETENCION", importe, actor or "sistema", payment_ref)
+    return {"ok": True, "estado": "PAGADA", "estado_pago": "FUNDS_HELD"}
+
+
+def preparar_pago(id_tx, *, actor=None) -> dict:
+    """Primer paso del cobro real de un pedido B2B (petición explícita, 2026-11-16 — antes no
+    existía NINGÚN punto que iniciara esto: ver el hallazgo en `portal_empresa_b2b.pagina_pago`).
+    Crea (o reutiliza, si el comprador recargó la página sin completar el pago) el PaymentIntent en
+    Stripe Connect y devuelve su `client_secret` para que el checkout embeba el Payment Element de
+    Stripe — el pedido/escrow NO pasan a PAGADA/FUNDS_HELD aquí todavía (eso solo ocurre cuando
+    Stripe confirma que la tarjeta autorizó de verdad, ver `confirmar_pago_tras_retorno`).
+
+    Con la pasarela SIMULADA (sin credenciales reales / desarrollo), no hay `client_secret` que
+    confirmar — se marca PAGADA de inmediato, igual que el comportamiento siempre tenido en este
+    modo (mismo criterio ya usado en el resto de pasarelas simuladas de la app)."""
+    tx = _leer_tx(id_tx)
+    if not tx:
+        return {"ok": False, "error": "transaccion_no_encontrada"}
+    if tx["estado"] == "PAGADA":
+        return {"ok": True, "idempotente": True, "estado": "PAGADA"}
+    if tx["estado"] != "CONFIRMADA":
+        return {"ok": False, "error": f"estado_invalido_para_pagar ({tx['estado']})"}
+    id_suministrador = tx.get("id_suministrador")
+    if not id_suministrador:
+        return {"ok": False, "error": "pedido_sin_proveedor_asignado"}
+
+    from src.services.compras import suministradores as SUP
+    # Pasarela resuelta POR ESTE PROVEEDOR EN CONCRETO (petición explícita, 2026-11-22 — PayPal
+    # como alternativa a Stripe): se fija aquí, una sola vez, y el resto de operaciones de este
+    # pedido (liberar/cancelar/reembolsar) reutilizan la MISMA — nunca se vuelve a derivar del
+    # proveedor más adelante (que podría haber cambiado de pasarela mientras tanto).
+    pasarela_nombre = SUP.pasarela_cobro_de(id_suministrador) or "stripe"
+
+    with obtener_conexion() as conn, conn.cursor() as cur:
+        esc_previo = _leer_escrow(cur, id_tx)
+    if esc_previo and esc_previo.get("estado_pago") == "PAYMENT_PENDING" and esc_previo.get("psp_payment_ref"):
+        # Ya se había creado un PaymentIntent antes (el comprador volvió a la página de pago sin
+        # completarla) — se recupera su client_secret en vez de crear un cargo nuevo por duplicado.
+        # Reutiliza la pasarela YA fijada en esa fila (nunca la recién resuelta), por si el
+        # proveedor cambiara de pasarela entre medias.
+        estado_psp = _pasarela(esc_previo.get("pasarela") or pasarela_nombre,
+                               id_suministrador=id_suministrador).obtener_payment_intent(
+            esc_previo["psp_payment_ref"])
+        if estado_psp.get("ok") and estado_psp.get("client_secret"):
+            return {"ok": True, "client_secret": estado_psp["client_secret"],
+                   "payment_ref": esc_previo["psp_payment_ref"], "requiere_pago": True}
+
+    sup = SUP.obtener(id_suministrador) or {}
+    importe = float(tx.get("total") or 0)
+    # Comisión de plataforma (petición explícita, 2026-11-16; corregida 2026-11-21 para que las dos
+    # exenciones sean TOTALMENTE INDEPENDIENTES: la empresa compradora paga su PROPIO recargo salvo
+    # que ELLA MISMA tenga suscripción activa — el estado del proveedor es irrelevante para ella, y
+    # viceversa. Confirmado con el usuario: no hay ningún modo de "eximir" a una parte por la
+    # suscripción de la otra; cada una se ahorra su 2,5% ÚNICAMENTE con su propia suscripción —
+    # nunca se revela al uno que el otro también paga/no paga el suyo).
+    # Mecánica (petición explícita, 2026-11-27 — pago directo sin custodia: "el pago debe
+    # efectuarse directamente entre las cuentas de la empresa compradora y la empresa proveedora,
+    # sin intermediarios"): hoy `comision_proveedor` es SIEMPRE 0 (comisión eliminada por completo,
+    # ver `comisiones_b2b.py` — la nueva fuente de ingresos de los portales es el Plan de Pago,
+    # `services/portal_plan.py`, totalmente independiente de esta transacción). `recargo_comprador`
+    # (si lo hubiera) se sigue cobrando aparte por Stripe directo a la empresa compradora, nunca
+    # mezclado con el pago al proveedor. Con Stripe Connect, `comision_plataforma` viajaría como
+    # Application Fee de una "destination charge" (mecanismo de Stripe, sigue existiendo por si se
+    # reactivara una comisión); con PayPal NO hay ningún mecanismo de reparto dentro de la Orden —
+    # el proveedor cobra con SU PROPIA app, así que Smart Manager no puede tomar nada de esta
+    # transacción en concreto (coherente con que hoy sea siempre 0 para PayPal).
+    from src.services.compras import comisiones_b2b
+    comision = comisiones_b2b.calcular_proveedor(id_suministrador, importe)
+    recargo_comprador = comisiones_b2b.calcular_comprador(tx.get("id_empresa"), importe)
+    importe_cobro = round(importe + recargo_comprador, 2)
+    comision_plataforma = round(recargo_comprador + comision, 2)
+    vault_id = None
+    if pasarela_nombre == "paypal":
+        from src.services.compras import b2b_pago_comprador as PAGO
+        vault_id = PAGO.vault_id_paypal_proveedor(tx["id_empresa"], id_suministrador)
+    idem = f"b2b-preparar-{id_tx}"
+    res = _pasarela(pasarela_nombre, id_suministrador=id_suministrador).retener_fondos(
+        importe=importe_cobro, divisa=tx.get("moneda") or "EUR",
+        vendedor_account=sup.get("cuenta_conectada_id"),
+        comision=comision_plataforma, referencia=f"b2b_tx_{id_tx}", idem_key=idem,
+        id_empresa=tx["id_empresa"], vault_id=vault_id)
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("mensaje", "psp_error")}
+
+    client_secret = res.get("client_secret")
+    if not client_secret:
+        # Pasarela simulada (o PayPal, que nunca devuelve client_secret — autoriza directamente
+        # vía el vault_id, sin Payment Element que embeber): `retener_fondos` ya devuelve el pago
+        # como retenido de inmediato. `importe`/`comision`/`recargo_comprador` (NO los de cobro/
+        # combinados) son los que se guardan en `b2b_escrow` — representan el pedido/el recargo de
+        # CADA lado por separado, no el importe bruto cobrado a la tarjeta.
+        return _marcar_pagada(id_tx, tx, payment_ref=res.get("payment_ref"), importe=importe,
+                              comision=comision, recargo_comprador=recargo_comprador, actor=actor,
+                              pasarela=pasarela_nombre)
+
+    with obtener_conexion() as conn, conn.cursor() as cur:
+        esc = _leer_escrow(cur, id_tx)
+        if esc is None:
+            cur.execute("INSERT INTO b2b_escrow (id_tx, estado_pago, psp_payment_ref, "
+                       "importe_retenido, comision, recargo_comprador, divisa, pasarela) "
+                       "VALUES (%s,'PAYMENT_PENDING',%s,%s,%s,%s,%s,%s)",
+                       (id_tx, res.get("payment_ref"), importe, comision, recargo_comprador,
+                        tx.get("moneda") or "EUR", pasarela_nombre))
+        else:
+            cur.execute("UPDATE b2b_escrow SET estado_pago='PAYMENT_PENDING', psp_payment_ref=%s, "
+                       "importe_retenido=%s, comision=%s, recargo_comprador=%s, pasarela=%s "
+                       "WHERE id_tx=%s",
+                       (res.get("payment_ref"), importe, comision, recargo_comprador,
+                        pasarela_nombre, id_tx))
+        conn.commit()
+    return {"ok": True, "client_secret": client_secret, "payment_ref": res.get("payment_ref"),
+           "requiere_pago": True}
+
+
+def confirmar_pago_tras_retorno(id_tx, *, actor=None) -> dict:
+    """Segundo paso: se llama cuando Stripe redirige al comprador de vuelta tras completar (o
+    abandonar) el formulario de pago (`return_url` del Payment Element). NUNCA se confía en que la
+    redirección en sí signifique éxito — se consulta el estado REAL del PaymentIntent en Stripe, y
+    solo si quedó de verdad autorizado (`requires_capture`: la tarjeta retuvo el importe) se
+    transiciona el pedido a PAGADA / el escrow a FUNDS_HELD."""
+    tx = _leer_tx(id_tx)
+    if not tx:
+        return {"ok": False, "error": "transaccion_no_encontrada"}
+    if tx["estado"] == "PAGADA":
+        return {"ok": True, "idempotente": True, "estado": "PAGADA"}
+    with obtener_conexion() as conn, conn.cursor() as cur:
+        esc = _leer_escrow(cur, id_tx)
+    if not esc or not esc.get("psp_payment_ref"):
+        return {"ok": False, "error": "pago_no_iniciado"}
+    estado_psp = _pasarela(esc.get("pasarela") or "stripe",
+                           id_suministrador=tx.get("id_suministrador")).obtener_payment_intent(
+        esc["psp_payment_ref"])
+    if not estado_psp.get("ok"):
+        return {"ok": False, "error": estado_psp.get("mensaje", "psp_error")}
+    if estado_psp.get("status") not in ("requires_capture", "succeeded"):
+        return {"ok": False, "error": "pago_no_completado", "status_psp": estado_psp.get("status")}
+    return _marcar_pagada(id_tx, tx, payment_ref=esc["psp_payment_ref"],
+                          importe=float(esc.get("importe_retenido") or tx.get("total") or 0),
+                          comision=float(esc.get("comision") or 0),
+                          recargo_comprador=float(esc.get("recargo_comprador") or 0), actor=actor,
+                          pasarela=esc.get("pasarela") or "stripe")
+
+
 def iniciar_retencion(id_tx, *, actor=None) -> dict:
-    """CONFIRMADA → PAGADA (pedido) / FUNDS_HELD (escrow). La llamada al PSP se hace ANTES de tomar
-    el bloqueo de fila (nunca red dentro de una transacción de BD)."""
+    """@deprecated (2026-11-16, Strangler): conservada tal cual (mismo comportamiento de siempre:
+    retiene y confirma en UNA sola llamada, sin dar oportunidad a que el comprador confirme una
+    tarjeta real) para cualquier llamador directo que pudiera existir — pero el checkout real del
+    Portal Empresa usa el flujo de 2 pasos `preparar_pago` + `confirmar_pago_tras_retorno`, el único
+    que de verdad puede recoger una tarjeta con Stripe real (3D Secure incluido). Nunca se llegó a
+    invocar desde ningún punto de la UI antes de este cambio (hallazgo real, ver el checkout nuevo)."""
     tx = _leer_tx(id_tx)
     if not tx:
         return {"ok": False, "error": "transaccion_no_encontrada"}
@@ -146,35 +362,30 @@ def iniciar_retencion(id_tx, *, actor=None) -> dict:
 
     from src.services.compras import suministradores as SUP
     sup = SUP.obtener(id_suministrador) or {}
+    pasarela_nombre = SUP.pasarela_cobro_de(id_suministrador) or "stripe"
     importe = float(tx.get("total") or 0)
+    # Mismos dos recargos independientes que `preparar_pago` (ver su comentario completo) —
+    # mantenido aquí por si algún llamador directo de este método @deprecated sigue existiendo.
+    from src.services.compras import comisiones_b2b
+    comision = comisiones_b2b.calcular_proveedor(id_suministrador, importe)
+    recargo_comprador = comisiones_b2b.calcular_comprador(tx.get("id_empresa"), importe)
+    importe_cobro = round(importe + recargo_comprador, 2)
+    comision_plataforma = round(recargo_comprador + comision, 2)
+    vault_id = None
+    if pasarela_nombre == "paypal":
+        from src.services.compras import b2b_pago_comprador as PAGO
+        vault_id = PAGO.vault_id_paypal_proveedor(tx["id_empresa"], id_suministrador)
     idem = f"b2b-retener-{id_tx}"
-    res = _pasarela().retener_fondos(
-        importe=importe, divisa=tx.get("moneda") or "EUR",
-        vendedor_account=sup.get("cuenta_conectada_id"), comision=0,
-        referencia=f"b2b_tx_{id_tx}", idem_key=idem, id_empresa=tx["id_empresa"])
+    res = _pasarela(pasarela_nombre, id_suministrador=id_suministrador).retener_fondos(
+        importe=importe_cobro, divisa=tx.get("moneda") or "EUR",
+        vendedor_account=sup.get("cuenta_conectada_id"),
+        comision=comision_plataforma, referencia=f"b2b_tx_{id_tx}", idem_key=idem,
+        id_empresa=tx["id_empresa"], vault_id=vault_id)
     if not res.get("ok"):
         return {"ok": False, "error": res.get("mensaje", "psp_error")}
-
-    with transaccion() as conn, conn.cursor() as cur:
-        esc = _leer_escrow(cur, id_tx)
-        if esc and esc["estado_pago"] != "PAYMENT_PENDING":
-            return {"ok": True, "idempotente": True, "estado_pago": esc["estado_pago"]}
-        if esc is None:
-            cur.execute("INSERT INTO b2b_escrow (id_tx, estado_pago, psp_payment_ref, "
-                       "importe_retenido, divisa, retenido_en) VALUES (%s,'FUNDS_HELD',%s,%s,%s,NOW())",
-                       (id_tx, res.get("payment_ref"), importe, tx.get("moneda") or "EUR"))
-        else:
-            cur.execute("UPDATE b2b_escrow SET estado_pago='FUNDS_HELD', psp_payment_ref=%s, "
-                       "importe_retenido=%s, retenido_en=NOW() WHERE id_tx=%s",
-                       (res.get("payment_ref"), importe, id_tx))
-        actualizadas = cur.execute(
-            "UPDATE transaccion_comercial SET estado='PAGADA' WHERE id_tx=%s AND estado='CONFIRMADA'",
-            (id_tx,))
-        if not actualizadas:
-            raise RuntimeError("estado_de_pedido_cambio_concurrentemente")  # provoca ROLLBACK real
-        _registrar_evento_tx(cur, id_tx, tx["id_empresa"], "CONFIRMADA", "PAGADA", actor)
-        _ledger_anotar(cur, id_tx, "RETENCION", importe, actor or "sistema", res.get("payment_ref"))
-    return {"ok": True, "estado": "PAGADA", "estado_pago": "FUNDS_HELD"}
+    return _marcar_pagada(id_tx, tx, payment_ref=res.get("payment_ref"), importe=importe,
+                          comision=comision, recargo_comprador=recargo_comprador, actor=actor,
+                          pasarela=pasarela_nombre)
 
 
 def marcar_en_preparacion(id_tx, *, actor=None) -> dict:
@@ -198,7 +409,7 @@ def confirmar_entrega(id_tx, *, actor=None, motivo="confirmacion_comprador") -> 
     if tx["estado"] != "ENVIADA":
         return {"ok": False, "error": f"estado_invalido_para_confirmar_entrega ({tx['estado']})"}
     with obtener_conexion() as conn, conn.cursor() as cur:
-        cur.execute("SELECT estado_pago, psp_payment_ref FROM b2b_escrow WHERE id_tx=%s", (id_tx,))
+        cur.execute("SELECT * FROM b2b_escrow WHERE id_tx=%s", (id_tx,))
         row = cur.fetchone()
         esc = _fila(cur, row) if row else None
     if not esc:
@@ -206,7 +417,13 @@ def confirmar_entrega(id_tx, *, actor=None, motivo="confirmacion_comprador") -> 
     if esc["estado_pago"] == "IN_DISPUTE":
         return {"ok": False, "error": "disputa_abierta_no_se_puede_liberar"}
 
-    res = _pasarela().liberar_fondos(payment_ref=esc["psp_payment_ref"], idem_key=f"b2b-liberar-{id_tx}")
+    pasarela_nombre = esc.get("pasarela") or "stripe"
+    # Pago directo sin custodia (petición explícita, 2026-11-27): con PayPal, la Orden ya se creó y
+    # autorizó con las credenciales PROPIAS del proveedor (ver `_pasarela`), así que el dinero YA
+    # está en su cuenta — `liberar_fondos` solo captura, nunca hace falta un Payout posterior (a
+    # diferencia del modelo de custodia anterior, retirado).
+    res = _pasarela(pasarela_nombre, id_suministrador=tx.get("id_suministrador")).liberar_fondos(
+        payment_ref=esc["psp_payment_ref"], idem_key=f"b2b-liberar-{id_tx}")
     if not res.get("ok"):
         return {"ok": False, "error": res.get("mensaje", "psp_error")}
 
@@ -287,8 +504,8 @@ def cancelar_y_reembolsar(id_tx, *, motivo, actor=None, recargo_pct: float = 0) 
         return {"ok": False, "error": f"estado_invalido_para_cancelar ({tx['estado']})"}
 
     with obtener_conexion() as conn, conn.cursor() as cur:
-        cur.execute("SELECT estado_pago, psp_payment_ref, importe_retenido FROM b2b_escrow "
-                   "WHERE id_tx=%s", (id_tx,))
+        cur.execute("SELECT estado_pago, psp_payment_ref, importe_retenido, comision, "
+                   "recargo_comprador, pasarela FROM b2b_escrow WHERE id_tx=%s", (id_tx,))
         row = cur.fetchone()
         esc = _fila(cur, row) if row else None
 
@@ -296,12 +513,24 @@ def cancelar_y_reembolsar(id_tx, *, motivo, actor=None, recargo_pct: float = 0) 
     importe_recargo = 0.0
     importe_reembolso = 0.0
     if esc and esc["estado_pago"] in ("FUNDS_HELD", "IN_FULFILLMENT"):
-        importe_total = float(esc["importe_retenido"] or 0)
+        # `importe_total` para el LEDGER = lo realmente autorizado/anulado en Stripe (pedido + el
+        # recargo PROPIO del comprador, si aplica — ver `preparar_pago`; el recargo del proveedor
+        # NUNCA se cobra a la tarjeta del comprador, así que no entra aquí), no solo el pedido — sin
+        # esto, el ledger subestimaría el importe anulado cuando la empresa compradora no tenía
+        # suscripción activa.
+        importe_total = round(float(esc["importe_retenido"] or 0) +
+                              float(esc.get("recargo_comprador") or 0), 2)
         pct = max(0.0, min(100.0, float(recargo_pct or 0)))
         importe_recargo = round(importe_total * pct / 100.0, 2)
         importe_reembolso = round(importe_total - importe_recargo, 2)
-        res = _pasarela().reembolsar(payment_ref=esc["psp_payment_ref"], importe=importe_reembolso,
-                                     idem_key=f"b2b-reembolso-{id_tx}")
+        # FUNDS_HELD/IN_FULFILLMENT son SIEMPRE una autorización sin capturar (capture_method=manual;
+        # la única captura real ocurre en confirmar_entrega → liberar_fondos). Stripe rechaza un
+        # reembolso sobre un PaymentIntent no capturado — hay que ANULARLO (cancelar), no reembolsarlo.
+        # Si hay recargo de cancelación tardía, no hay cobro real que ajustar: no se puede cancelar
+        # "parcialmente" una autorización, así que el recargo no tiene nada que retener de verdad.
+        res = _pasarela(esc.get("pasarela") or "stripe",
+                        id_suministrador=tx.get("id_suministrador")).cancelar(
+            payment_ref=esc["psp_payment_ref"], idem_key=f"b2b-cancelar-{id_tx}")
         if not res.get("ok"):
             return {"ok": False, "error": res.get("mensaje", "psp_error")}
         referencia_reembolso = res.get("refund_ref")
@@ -336,16 +565,22 @@ def resolver_disputa_con_reembolso(id_tx, *, motivo, actor=None) -> dict:
         return {"ok": True, "idempotente": True}
 
     with obtener_conexion() as conn, conn.cursor() as cur:
-        cur.execute("SELECT estado_pago, psp_payment_ref, importe_retenido FROM b2b_escrow "
-                   "WHERE id_tx=%s", (id_tx,))
+        cur.execute("SELECT estado_pago, psp_payment_ref, importe_retenido, comision, "
+                   "recargo_comprador, pasarela FROM b2b_escrow WHERE id_tx=%s", (id_tx,))
         row = cur.fetchone()
         esc = _fila(cur, row) if row else None
     if not esc or esc["estado_pago"] != "IN_DISPUTE":
         return {"ok": False, "error": f"disputa_no_abierta (estado_pago={esc['estado_pago'] if esc else None})"}
 
-    importe_reembolso = round(float(esc["importe_retenido"] or 0), 2)
-    res = _pasarela().reembolsar(payment_ref=esc["psp_payment_ref"], importe=importe_reembolso,
-                                 idem_key=f"b2b-disputa-reembolso-{id_tx}")
+    # Reembolso ÍNTEGRO de lo realmente cobrado a la tarjeta del comprador (pedido + su PROPIO
+    # recargo, si aplica — ver `preparar_pago`; el recargo del proveedor nunca se le cobró a él, así
+    # que no entra aquí), no solo el pedido.
+    importe_reembolso = round(float(esc["importe_retenido"] or 0) +
+                              float(esc.get("recargo_comprador") or 0), 2)
+    res = _pasarela(esc.get("pasarela") or "stripe",
+                    id_suministrador=tx.get("id_suministrador")).reembolsar(
+        payment_ref=esc["psp_payment_ref"], importe=importe_reembolso,
+        idem_key=f"b2b-disputa-reembolso-{id_tx}")
     if not res.get("ok"):
         return {"ok": False, "error": res.get("mensaje", "psp_error")}
 

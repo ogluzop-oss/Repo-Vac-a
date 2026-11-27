@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger("compras.b2b_pedidos")
 
 
-def tramitar(token_sesion, es_consignacion: bool = False) -> dict:
+def tramitar(token_sesion, es_consignacion: bool = False, id_tienda=None) -> dict:
     """`es_consignacion` (Fase C — Stock en Consignación): marca TODOS los pedidos generados por esta
     tramitación (uno por proveedor, ver arriba) como consignación — es un flag POR TX, no por línea (un
     mismo carrito no mezcla consignación con compra firme; si en el futuro se necesitara mezclar, el
@@ -29,7 +29,13 @@ def tramitar(token_sesion, es_consignacion: bool = False) -> dict:
     proveedor tiene realmente marcado `disponible_consignacion=1` en `b2b_catalogo`
     (`b2b_catalogo.articulos_disponibles_consignacion`). Si no es así para alguna línea, el flag se
     IGNORA para TODA la tramitación (degrada a compra firme, nunca falla el pedido completo por esto) —
-    mismo criterio de "silenciosamente ignorar en vez de bloquear" que ya usa el resto del checkout."""
+    mismo criterio de "silenciosamente ignorar en vez de bloquear" que ya usa el resto del checkout.
+
+    `id_tienda` (petición explícita, 2026-11-21 — una empresa con VARIOS centros debe elegir a cuál
+    enviar la mercancía en cada pedido, en vez de asumir el único "centro conectado" de la sesión):
+    si se pasa, SUSTITUYE a `sesion["id_tienda"]` como destino — pero SOLO si de verdad pertenece a
+    un centro de ESTA empresa (`db.centros.listar_centros`); nunca se confía en el valor recibido del
+    formulario/cliente API. `None` (comportamiento de siempre) usa el de la sesión."""
     from src.services.compras import b2b_carrito
     from src.services.compras import b2b_catalogo as CAT
     from src.services.compras import b2b_sesion_empresa as SES
@@ -38,6 +44,23 @@ def tramitar(token_sesion, es_consignacion: bool = False) -> dict:
     sesion = SES.resolver_sesion(token_sesion)
     if not sesion:
         return {"ok": False, "error": "sesion_invalida"}
+    id_tienda_destino = sesion["id_tienda"]
+    if id_tienda is not None:
+        from src.db import centros as CT
+        pertenece = any(str(c.get("id_tienda")) == str(id_tienda)
+                        for c in CT.listar_centros(sesion["id_empresa"]))
+        if not pertenece:
+            return {"ok": False, "error": "centro_destino_invalido"}
+        id_tienda_destino = id_tienda
+    # Requisito obligatorio del comprador (petición explícita, 2026-11-16 — "no puede existir
+    # ninguna asimetría frente a lo que se exige a los proveedores"): sin un método de pago
+    # vinculado y verificado con Stripe, no se puede tramitar NINGÚN pedido. A diferencia de la
+    # verificación del proveedor (que excluye SOLO a los suministradores sin verificar y deja
+    # pasar al resto), esta es una comprobación de TODO o NADA: es la misma empresa compradora
+    # para cualquier proveedor del carrito, así que no tiene sentido tramitar "a medias".
+    from src.services.compras import b2b_pago_comprador as PAGO
+    if not PAGO.esta_verificado(sesion["id_empresa"]):
+        return {"ok": False, "error": "empresa_sin_metodo_pago_verificado"}
     lineas = b2b_carrito.listar(token_sesion)
     if not lineas:
         return {"ok": False, "error": "carrito_vacio"}
@@ -62,11 +85,40 @@ def tramitar(token_sesion, es_consignacion: bool = False) -> dict:
         por_proveedor.setdefault(ln["id_suministrador"], []).append(ln)
 
     pedidos_creados = []
+    proveedores_sin_verificar = []
+    proveedores_sin_pasarela_compatible = []
+    from src.services.compras import suministradores as SUP
     for id_suministrador, lns in por_proveedor.items():
+        # Requisito obligatorio (petición explícita, 2026-11-15): sin ninguna cuenta de cobro
+        # verificada (Stripe o PayPal, petición explícita 2026-11-22), el proveedor no puede
+        # recibir pedidos — defensa en profundidad del mismo requisito ya exigido al publicar
+        # catálogo (`b2b_catalogo.crear_articulo`), por si quedara algún artículo activo de antes
+        # de que existiera este requisito, o el proveedor hubiera dejado de estar verificado
+        # después de publicar. Mismo criterio de "degradar, no reventar todo el carrito" que ya usa
+        # esta función para la consignación: se EXCLUYE solo ese proveedor.
+        if not SUP.esta_verificado(id_suministrador):
+            logger.warning("tramitar: proveedor %s sin ninguna pasarela verificada — se excluye "
+                          "de la tramitación.", id_suministrador)
+            proveedores_sin_verificar.append(id_suministrador)
+            continue
+        # El escrow liquida por la pasarela QUE TENGA EL PROVEEDOR (Stripe o PayPal) — la empresa
+        # compradora tiene que estar verificada en ESA MISMA pasarela para poder pagarle a ESTE
+        # proveedor en concreto (petición explícita, 2026-11-22: PayPal y Stripe no son
+        # intercambiables dentro de una misma transacción). Se excluye solo este proveedor, nunca
+        # se revienta todo el carrito — igual que el resto de exclusiones de esta función.
+        pasarela_proveedor = SUP.pasarela_cobro_de(id_suministrador) or "stripe"
+        if not PAGO.esta_verificado_para(sesion["id_empresa"], pasarela_proveedor,
+                                         id_suministrador=id_suministrador):
+            logger.warning("tramitar: empresa %s sin método de pago verificado en '%s' (la "
+                          "pasarela del proveedor %s) — se excluye de la tramitación.",
+                          sesion["id_empresa"], pasarela_proveedor, id_suministrador)
+            proveedores_sin_pasarela_compatible.append(
+                {"id_suministrador": id_suministrador, "pasarela": pasarela_proveedor})
+            continue
         tx_lineas = [{"codigo": l["codigo"], "nombre": l["nombre"], "cantidad": l["cantidad"],
                      "precio_unitario": float(l["precio_unitario"])} for l in lns]
         id_tx = TX.crear(tipo="pedido", origen="b2b", estado="BORRADOR",
-                         id_empresa=sesion["id_empresa"], id_tienda=sesion["id_tienda"],
+                         id_empresa=sesion["id_empresa"], id_tienda=id_tienda_destino,
                          lineas=tx_lineas,
                          metadata={"id_suministrador": id_suministrador,
                                   "usuario": sesion.get("nombre_usuario"),
@@ -74,7 +126,7 @@ def tramitar(token_sesion, es_consignacion: bool = False) -> dict:
         if not id_tx:
             logger.error("tramitar: no se pudo crear transacción para suministrador %s", id_suministrador)
             continue
-        _fijar_suministrador_y_unidades(id_tx, id_suministrador, sesion["id_tienda"], lns,
+        _fijar_suministrador_y_unidades(id_tx, id_suministrador, id_tienda_destino, lns,
                                         es_consignacion=es_consignacion)
         r = TX.transicionar(id_tx, "CONFIRMADA", actor=sesion.get("nombre_usuario"),
                             id_empresa=sesion["id_empresa"], motivo="Pedido B2B tramitado")
@@ -89,12 +141,32 @@ def tramitar(token_sesion, es_consignacion: bool = False) -> dict:
         pedidos_creados.append({"id_tx": id_tx, "id_suministrador": id_suministrador,
                                 "transicion": r})
 
+    ids_sin_pasarela_compatible = [d["id_suministrador"] for d in proveedores_sin_pasarela_compatible]
     if not pedidos_creados:
+        if proveedores_sin_pasarela_compatible:
+            return {"ok": False, "error": "empresa_sin_metodo_pago_verificado_para_esta_pasarela",
+                   "proveedores_sin_pasarela_compatible": proveedores_sin_pasarela_compatible}
+        if proveedores_sin_verificar:
+            return {"ok": False, "error": "proveedores_sin_pasarela_verificada",
+                   "proveedores_sin_verificar": proveedores_sin_verificar}
         return {"ok": False, "error": "no_se_pudo_crear_ningun_pedido"}
 
-    _marcar_reposicion_tramitada(lineas)
-    b2b_carrito.vaciar(token_sesion)
-    return {"ok": True, "pedidos": pedidos_creados}
+    # El carrito solo se vacía de lo REALMENTE tramitado: si algún proveedor quedó excluido (sin
+    # verificar, o sin que la empresa tenga verificada SU MISMA pasarela), sus líneas siguen en el
+    # carrito (nunca se pierden silenciosamente) para que el comprador pueda quitarlas o completar
+    # lo que haga falta.
+    ids_excluidos = set(proveedores_sin_verificar) | set(ids_sin_pasarela_compatible)
+    lineas_tramitadas = [l for l in lineas if l["id_suministrador"] not in ids_excluidos]
+    _marcar_reposicion_tramitada(lineas_tramitadas)
+    if ids_excluidos:
+        from src.services.compras import b2b_carrito as _CART
+        for l in lineas_tramitadas:
+            _CART.quitar_linea(token_sesion, l["id"])
+    else:
+        b2b_carrito.vaciar(token_sesion)
+    return {"ok": True, "pedidos": pedidos_creados,
+           "proveedores_sin_verificar": proveedores_sin_verificar,
+           "proveedores_sin_pasarela_compatible": proveedores_sin_pasarela_compatible}
 
 
 def _fila(cur, r):

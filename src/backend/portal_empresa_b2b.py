@@ -749,18 +749,28 @@ def pagina_plan(token, sesion, *, mensaje=None, error=None, no_leidos=0):
             f'{_t("portal_emp2.plan_freemium_proveedores", "Proveedores activos:")} '
             f'<b>{proveedores["usado"]}/{proveedores["limite"]}</b></p></div>')
     mensual, anual, cuota = PP.precio_mensual_portal(), PP.precio_anual_portal(), PP.cuota_4_pagos()
+
+    def _par_botones(action, etiqueta, extra_inputs=""):
+        return f"""<div style="margin-bottom:10px">
+<p style="margin:0 0 6px;font-weight:700">{etiqueta}</p>
+<form method="post" action="{action}" style="display:inline-block;margin-right:8px">
+{extra_inputs}<input type="hidden" name="metodo_pago" value="stripe">
+<button type="submit" class="btn btn-primary">{_t("portal_emp2.pagar_con_stripe_btn", "Pagar con {m}", m="Stripe")}</button></form>
+<form method="post" action="{action}" style="display:inline-block">
+{extra_inputs}<input type="hidden" name="metodo_pago" value="paypal">
+<button type="submit" class="btn btn-ghost">{_t("portal_emp2.pagar_con_paypal_btn", "Pagar con {m}", m="PayPal")}</button></form>
+</div>"""
+
     oferta_html = "" if tier != "freemium" else f"""
 <div class="card">
 <h2>{_t("portal_emp2.plan_pago_h2", "Plan de Pago del Portal")}</h2>
 <p>{_t("portal_emp2.plan_pago_desc", "Sin límites de pedidos ni de proveedores vinculados.")}</p>
-<div style="display:flex;gap:16px;flex-wrap:wrap">
-<form method="post" action="{base}/checkout"><input type="hidden" name="ciclo" value="mensual">
-<button type="submit" class="btn btn-primary">{_t("portal_emp2.plan_mensual_btn", "{p} €/mes", p=mensual)}</button></form>
-<form method="post" action="{base}/checkout"><input type="hidden" name="ciclo" value="anual">
-<button type="submit" class="btn btn-ghost">{_t("portal_emp2.plan_anual_btn", "{p} €/año (ahorra 16,7%)", p=anual)}</button></form>
-<form method="post" action="{base}/checkout-financiado">
-<button type="submit" class="btn btn-ghost">{_t("portal_emp2.plan_financiado_btn", "4 cuotas de {c} €/trimestre", c=cuota)}</button></form>
-</div>
+{_par_botones(f"{base}/checkout", _t("portal_emp2.plan_mensual_btn", "{p} €/mes", p=mensual),
+             '<input type="hidden" name="ciclo" value="mensual">')}
+{_par_botones(f"{base}/checkout", _t("portal_emp2.plan_anual_btn", "{p} €/año (ahorra 16,7%)", p=anual),
+             '<input type="hidden" name="ciclo" value="anual">')}
+{_par_botones(f"{base}/checkout-financiado",
+             _t("portal_emp2.plan_financiado_btn", "4 cuotas de {c} €/trimestre", c=cuota))}
 </div>"""
     return _layout(_t("portal_emp2.nav_plan", "Plan"), f"""
 {_aviso_html(mensaje, error)}
@@ -968,9 +978,12 @@ def _barra_presupuesto_html(resumen):
 # ── Carrito ────────────────────────────────────────────────────────────────────
 def pagina_carrito(token, lineas, total, *, mensaje=None, error=None, resumen_presupuesto=None,
                    no_leidos=0, consignacion_disponible=False, progreso_descuento=None,
-                   bundles_ganados=None, centros=None):
+                   bundles_ganados=None, centros=None, accion_url=None, accion_texto=None):
     base = f"/portal/empresa/{token}"
     aviso = f'<p class="ok">{_e(mensaje)}</p>' if mensaje else (f'<p class="error">{_e(error)}</p>' if error else "")
+    if error and accion_url:
+        aviso += (f'<p><a href="{_e(accion_url)}" style="color:var(--ac);font-weight:900">'
+                 f'{_e(accion_texto or "Continuar →")}</a></p>')
     quitar_btn = _t("portal_emp2.quitar_btn", "Quitar")
     filas = "".join(f"""<tr><td>{_e(l['nombre'])}
 <br><span class="badge">{_badge_origen(l['origen'])}</span></td>
@@ -1056,9 +1069,24 @@ def pagina_pedido_confirmado(token, pedidos, *, no_leidos=0, proveedores_sin_ver
     # verificada la MISMA pasarela que ese proveedor concreto en particular (ver `b2b_pedidos.
     # tramitar`) — sus líneas tampoco se tramitan, por el mismo criterio de "nunca perder líneas en
     # silencio" que el aviso de arriba.
-    aviso_sin_pasarela = (
-        f'<p class="error">{_t("portal_emp2.proveedores_sin_pasarela_compatible", "Algunos artículos de tu carrito pertenecen a proveedores que cobran por una pasarela ({s} o {p}) que todavía no has verificado — se han quedado en el carrito, sin tramitar, hasta que la verifiques desde tu Panel.", s="Stripe", p="PayPal")}</p>'
-        if proveedores_sin_pasarela_compatible else "")
+    aviso_sin_pasarela = ""
+    if proveedores_sin_pasarela_compatible:
+        aviso_sin_pasarela = (
+            f'<p class="error">{_t("portal_emp2.proveedores_sin_pasarela_compatible", "Algunos artículos de tu carrito pertenecen a proveedores que cobran por una pasarela ({s} o {p}) que todavía no has verificado — se han quedado en el carrito, sin tramitar.", s="Stripe", p="PayPal")}</p>')
+        # Pago directo sin custodia (petición explícita, 2026-11-27): PayPal se verifica POR
+        # PROVEEDOR — enlace directo a la aprobación de cada uno (nunca un genérico "tu Panel").
+        enlaces_paypal = "".join(
+            f'<a href="/portal/empresa/{_e(token)}/pago/vincular/paypal/{_e(d["id_suministrador"])}" '
+            f'style="color:var(--ac);font-weight:900">'
+            f'{_t("portal_emp2.verificar_paypal_proveedor_btn", "Verificar {m} con el proveedor #{s} →", m="PayPal", s=_e(d["id_suministrador"]))}</a><br>'
+            for d in proveedores_sin_pasarela_compatible if d.get("pasarela") == "paypal")
+        if enlaces_paypal:
+            aviso_sin_pasarela += f'<p>{enlaces_paypal}</p>'
+        if any(d.get("pasarela") == "stripe" for d in proveedores_sin_pasarela_compatible):
+            aviso_sin_pasarela += (
+                f'<p><a href="/portal/empresa/{_e(token)}/pago/vincular/stripe" '
+                f'style="color:var(--ac);font-weight:900">'
+                f'{_t("portal_emp2.verificar_stripe_btn", "Verificar {m} →", m="Stripe")}</a></p>')
     return _layout(_t("portal_emp2.pedido_tramitado_titulo", "Pedido tramitado"), f"""
 <div class="card"><h1 class="ok">✓ {_t("portal_emp2.pedidos_tramitados_h1", "Pedido(s) tramitado(s)")}</h1>
 <p>{_t("portal_emp2.pedido_por_proveedor_desc", "Se ha generado un pedido por cada proveedor de tu carrito:")}</p>
@@ -1147,23 +1175,36 @@ def pagina_pago_retorno(token, *, exito, mensaje=None, id_tx=None, no_leidos=0):
 
 # ── Vinculación del método de pago (requisito obligatorio del comprador) ────────
 def pagina_elegir_metodo_pago(token, *, estado, no_leidos=0):
-    """Página de elección (petición explícita, 2026-11-22 — PayPal como alternativa a Stripe): a
-    diferencia del proveedor (que elige UNA sola pasarela para cobrar), la empresa compradora
-    puede verificar las DOS si lo necesita, porque puede comprar a proveedores que cobran por
-    vías distintas (ver `b2b_pago_comprador.esta_verificado_para`)."""
-    def _bloque(nombre, verificado, url):
-        if verificado:
-            return (f'<div class="card"><h2>{_e(nombre)}</h2>'
-                    f'<p class="ok">✓ {_t("portal_emp2.metodo_pago_verificado_ok", "Verificado — puedes tramitar pedidos a proveedores que cobren por aquí.")}</p></div>')
-        return (f'<div class="card"><h2>{_e(nombre)}</h2>'
-                f'<p>{_t("portal_emp2.metodo_pago_sin_verificar", "Todavía no verificado.")}</p>'
-                f'<p><a class="enlace" href="{url}" style="color:var(--ac);font-weight:900">{_t("portal_emp2.vincular_verificar_btn", "Vincular y verificar →")}</a></p></div>')
+    """Página de elección — a diferencia del proveedor (que elige UNA sola pasarela para cobrar),
+    la empresa compradora puede verificar las DOS si lo necesita, porque puede comprar a
+    proveedores que cobran por vías distintas (ver `b2b_pago_comprador.esta_verificado_para`).
+
+    PayPal pago directo sin custodia (petición explícita, 2026-11-27): ya NO hay una verificación
+    GLOBAL — cada proveedor cobra con su propia app de PayPal, así que el Vault se aprueba POR
+    PROVEEDOR, la primera vez que se le compra (ver `pago_vincular_paypal_proveedor`). Aquí solo
+    se informa de ello; el bloque Stripe sigue siendo una verificación global de siempre."""
     base = f"/portal/empresa/{token}"
+    bloque_stripe = (
+        f'<div class="card"><h2>Stripe</h2>'
+        f'<p class="ok">✓ {_t("portal_emp2.metodo_pago_verificado_ok", "Verificado — puedes tramitar pedidos a proveedores que cobren por aquí.")}</p></div>'
+        if estado.get("verificado") else
+        f'<div class="card"><h2>Stripe</h2>'
+        f'<p>{_t("portal_emp2.metodo_pago_sin_verificar", "Todavía no verificado.")}</p>'
+        f'<p><a class="enlace" href="{base}/pago/vincular/stripe" style="color:var(--ac);font-weight:900">{_t("portal_emp2.vincular_verificar_btn", "Vincular y verificar →")}</a></p></div>')
+    bloque_paypal = (
+        f'<div class="card"><h2>PayPal</h2>'
+        f'<p>{_t("portal_emp2.paypal_por_proveedor_desc",
+               "{m} se verifica proveedor por proveedor, no de forma global — la primera vez "
+               "que compres a un proveedor que cobre por {m}, te pediremos que lo apruebes "
+               "con tu cuenta (solo esa vez; las siguientes compras a ESE MISMO proveedor ya no "
+               "lo requieren).", m="PayPal")}</p>'
+        + (f'<p class="ok">✓ {_t("portal_emp2.paypal_ya_verificado_algun_proveedor", "Ya tienes {m} verificado con al menos un proveedor.", m="PayPal")}</p>'
+           if estado.get("paypal_verificado") else "")
+        + '</div>')
     cuerpo = (
         f'<div class="card"><h1>{_t("portal_emp2.metodo_pago_h1", "Método de pago")}</h1>'
         f'<p>{_t("portal_emp2.metodo_pago_desc", "Verifica {s}, {p}, o ambos — necesitas tener verificada la misma pasarela que use cada proveedor al que quieras comprar.", s="Stripe", p="PayPal")}</p></div>'
-        + _bloque("Stripe", estado.get("verificado"), f"{base}/pago/vincular/stripe")
-        + _bloque("PayPal", estado.get("paypal_verificado"), f"{base}/pago/vincular/paypal"))
+        + bloque_stripe + bloque_paypal)
     return _layout(_t("portal_emp2.metodo_pago_titulo", "Método de pago"), cuerpo,
                   nav=_nav_html(token, "dashboard", no_leidos=no_leidos), token=token)
 
@@ -1958,11 +1999,18 @@ def crear_blueprint():
             return err
         from src.services import portal_plan as PP
         ciclo = request.form.get("ciclo")
+        metodo_pago = request.form.get("metodo_pago") or "stripe"
         base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
-        r = PP.crear_checkout_session(
-            "empresa", ses["id_empresa"], ciclo=ciclo, email=ses.get("nombre_usuario") or "",
-            success_url=f"{base_web}/portal/empresa/{token}/plan/exito",
-            cancel_url=f"{base_web}/portal/empresa/{token}/plan")
+        success_url = f"{base_web}/portal/empresa/{token}/plan/exito"
+        cancel_url = f"{base_web}/portal/empresa/{token}/plan"
+        if metodo_pago == "paypal":
+            r = PP.crear_checkout_session_paypal(
+                "empresa", ses["id_empresa"], ciclo=ciclo, email=ses.get("nombre_usuario") or "",
+                success_url=success_url, cancel_url=cancel_url)
+        else:
+            r = PP.crear_checkout_session(
+                "empresa", ses["id_empresa"], ciclo=ciclo, email=ses.get("nombre_usuario") or "",
+                success_url=success_url, cancel_url=cancel_url)
         if not r.get("ok"):
             from urllib.parse import quote
             return redirect(f"/portal/empresa/{token}/plan?error={quote(r.get('error', ''))}")
@@ -1974,11 +2022,18 @@ def crear_blueprint():
         if err:
             return err
         from src.services import portal_plan as PP
+        metodo_pago = request.form.get("metodo_pago") or "stripe"
         base_web = os.getenv("SITIO_OFICIAL_URL", "http://localhost:8000").rstrip("/")
-        r = PP.crear_checkout_session_financiada(
-            "empresa", ses["id_empresa"], email=ses.get("nombre_usuario") or "",
-            success_url=f"{base_web}/portal/empresa/{token}/plan/exito",
-            cancel_url=f"{base_web}/portal/empresa/{token}/plan")
+        success_url = f"{base_web}/portal/empresa/{token}/plan/exito"
+        cancel_url = f"{base_web}/portal/empresa/{token}/plan"
+        if metodo_pago == "paypal":
+            r = PP.crear_checkout_session_financiada_paypal(
+                "empresa", ses["id_empresa"], email=ses.get("nombre_usuario") or "",
+                success_url=success_url, cancel_url=cancel_url)
+        else:
+            r = PP.crear_checkout_session_financiada(
+                "empresa", ses["id_empresa"], email=ses.get("nombre_usuario") or "",
+                success_url=success_url, cancel_url=cancel_url)
         if not r.get("ok"):
             from urllib.parse import quote
             return redirect(f"/portal/empresa/{token}/plan?error={quote(r.get('error', ''))}")
@@ -1989,12 +2044,16 @@ def crear_blueprint():
         ses, err = _sesion_o_error(token)
         if err:
             return err
-        session_id = request.args.get("session_id")
-        if not session_id:
-            return redirect(f"/portal/empresa/{token}/plan")
         from src.services import portal_plan as PP
-        r = PP.confirmar_checkout_generico(session_id)
         from urllib.parse import quote
+        subscription_id = request.args.get("subscription_id")
+        if subscription_id:
+            r = PP.confirmar_checkout_paypal(subscription_id)
+        else:
+            session_id = request.args.get("session_id")
+            if not session_id:
+                return redirect(f"/portal/empresa/{token}/plan")
+            r = PP.confirmar_checkout_generico(session_id)
         if not r.get("ok"):
             return redirect(f"/portal/empresa/{token}/plan?error={quote(r.get('error', ''))}")
         return redirect(f"/portal/empresa/{token}/plan?mensaje="
@@ -2262,6 +2321,7 @@ def crear_blueprint():
         id_tienda_destino = request.form.get("id_tienda_destino") or None
         r = PED.tramitar(token, es_consignacion=es_consignacion, id_tienda=id_tienda_destino)
         if not r.get("ok"):
+            accion_url, accion_texto = None, None
             if r.get("error") == "proveedores_sin_pasarela_verificada":
                 error_mostrado = _t("portal_emp2.proveedores_sin_verificar_error",
                                     "Ninguno de los proveedores de tu carrito ha activado todavía "
@@ -2271,13 +2331,25 @@ def crear_blueprint():
                                     "Antes de tramitar pedidos tienes que vincular y verificar tu "
                                     "método de pago — hazlo desde tu Panel.")
             elif r.get("error") == "empresa_sin_metodo_pago_verificado_para_esta_pasarela":
-                pasarelas = {d.get("pasarela") for d in r.get("proveedores_sin_pasarela_compatible", [])}
+                proveedores_sin = r.get("proveedores_sin_pasarela_compatible", [])
+                pasarelas = {d.get("pasarela") for d in proveedores_sin}
                 nombre_pasarela = "PayPal" if pasarelas == {"paypal"} else (
                     "Stripe" if pasarelas == {"stripe"} else "Stripe/PayPal")
                 error_mostrado = _t("portal_emp2.empresa_sin_metodo_pago_pasarela_error",
                                     "Para comprar a ese proveedor necesitas verificar también tu "
-                                    "método de pago de {pasarela} — hazlo desde tu Panel.",
-                                    pasarela=nombre_pasarela)
+                                    "método de pago de {pasarela}.", pasarela=nombre_pasarela)
+                # Pago directo sin custodia (petición explícita, 2026-11-27): PayPal se verifica
+                # POR PROVEEDOR — si el bloqueo es de un único proveedor por PayPal, se enlaza
+                # directo a SU aprobación en vez de un genérico "hazlo desde tu Panel" (que ya no
+                # tendría sentido: no hay un PayPal global que vincular).
+                if pasarelas == {"paypal"} and len(proveedores_sin) == 1:
+                    accion_url = (f"/portal/empresa/{token}/pago/vincular/paypal/"
+                                 f"{proveedores_sin[0]['id_suministrador']}")
+                    accion_texto = _t("portal_emp2.verificar_paypal_proveedor_btn",
+                                      "Verificar {m} con este proveedor →", m="PayPal")
+                elif pasarelas == {"stripe"}:
+                    accion_url = f"/portal/empresa/{token}/pago/vincular/stripe"
+                    accion_texto = _t("portal_emp2.verificar_stripe_btn", "Verificar {m} →", m="Stripe")
             elif r.get("error") == "centro_destino_invalido":
                 error_mostrado = _t("portal_emp2.centro_destino_invalido_error",
                                     "Selecciona a qué centro de tu empresa quieres enviar la mercancía.")
@@ -2296,7 +2368,8 @@ def crear_blueprint():
             centros = [c for c in CT.listar_centros(ses["id_empresa"]) if c.get("id_tienda")]
             return pagina_carrito(token, lineas, total, error=error_mostrado,
                                   resumen_presupuesto=resumen, no_leidos=_no_leidos(ses),
-                                  consignacion_disponible=consig_disp, centros=centros), 400
+                                  consignacion_disponible=consig_disp, centros=centros,
+                                  accion_url=accion_url, accion_texto=accion_texto), 400
         return pagina_pedido_confirmado(
             token, r["pedidos"], no_leidos=_no_leidos(ses),
             proveedores_sin_verificar=r.get("proveedores_sin_verificar"),
@@ -2480,35 +2553,40 @@ def crear_blueprint():
                       "rechazara). No se te ha cobrado nada."),
             no_leidos=_no_leidos(ses))
 
-    @bp.get("/<token>/pago/vincular/paypal")
-    def pago_vincular_paypal(token):
-        """Alternativa a Stripe (petición explícita, 2026-11-22): Vault API v3 de PayPal — el
-        `setup_token_id` viaja en la cookie de sesión de Flask (NUNCA en la query string del
-        retorno, cuyo formato exacto no está garantizado) hasta confirmarse."""
+    @bp.get("/<token>/pago/vincular/paypal/<int:id_suministrador>")
+    def pago_vincular_paypal_proveedor(token, id_suministrador):
+        """Pago directo sin custodia (petición explícita, 2026-11-27): el Vault de PayPal del
+        comprador se vincula POR PROVEEDOR (cada proveedor cobra con su propia app) — se aprueba
+        la primera vez que se compra a cada proveedor nuevo; las compras siguientes a ESE MISMO
+        proveedor ya no lo requieren. El `setup_token_id` viaja en la cookie de sesión de Flask
+        (NUNCA en la query string del retorno, cuyo formato exacto no está garantizado)."""
         ses, err = _sesion_o_error(token)
         if err:
             return err
         from src.services.compras import b2b_pago_comprador as PAGO
         base_absoluta = os.environ.get("PORTAL_EMPRESA_URL", "http://localhost:8090/portal/empresa")
-        return_url = f"{base_absoluta}/{token}/pago/vincular/paypal/retorno"
-        r = PAGO.iniciar_vinculacion_paypal(ses["id_empresa"], return_url=return_url)
+        return_url = f"{base_absoluta}/{token}/pago/vincular/paypal/{id_suministrador}/retorno"
+        r = PAGO.iniciar_vinculacion_paypal_proveedor(ses["id_empresa"], id_suministrador,
+                                                      return_url=return_url)
         if not r.get("ok"):
             return pagina_vincular_pago_no_disponible(
                 token, motivo=r.get("error"), no_leidos=_no_leidos(ses))
         session["pendiente_paypal_vault"] = {"id_empresa": ses["id_empresa"],
+                                            "id_suministrador": id_suministrador,
                                             "setup_token_id": r["setup_token_id"]}
         return redirect(r["approve_url"])
 
-    @bp.get("/<token>/pago/vincular/paypal/retorno")
-    def pago_vincular_paypal_retorno(token):
+    @bp.get("/<token>/pago/vincular/paypal/<int:id_suministrador>/retorno")
+    def pago_vincular_paypal_proveedor_retorno(token, id_suministrador):
         """`return_url` de PayPal — NUNCA se confía en la redirección por sí sola:
-        `b2b_pago_comprador.confirmar_vinculacion_paypal` crea el PAYMENT_TOKEN real a partir del
-        SETUP_TOKEN (lo que de verdad demuestra que el comprador aprobó)."""
+        `b2b_pago_comprador.confirmar_vinculacion_paypal_proveedor` crea el PAYMENT_TOKEN real a
+        partir del SETUP_TOKEN (lo que de verdad demuestra que el comprador aprobó)."""
         ses, err = _sesion_o_error(token)
         if err:
             return err
         pendiente = session.pop("pendiente_paypal_vault", None)
-        if not pendiente or pendiente.get("id_empresa") != ses["id_empresa"]:
+        if (not pendiente or pendiente.get("id_empresa") != ses["id_empresa"]
+                or pendiente.get("id_suministrador") != id_suministrador):
             return pagina_vincular_pago_retorno(
                 token, exito=False,
                 mensaje=_t("portal_emp2.vinculacion_no_completada_desc",
@@ -2516,12 +2594,16 @@ def crear_blueprint():
                           "la rechazara). No se te ha cobrado nada."),
                 no_leidos=_no_leidos(ses))
         from src.services.compras import b2b_pago_comprador as PAGO
-        r = PAGO.confirmar_vinculacion_paypal(ses["id_empresa"], pendiente["setup_token_id"])
+        r = PAGO.confirmar_vinculacion_paypal_proveedor(ses["id_empresa"], id_suministrador,
+                                                        pendiente["setup_token_id"])
         if r.get("ok"):
             return pagina_vincular_pago_retorno(
                 token, exito=True,
                 mensaje=_t("portal_emp2.vinculacion_confirmada_desc",
-                          "Tu método de pago ha quedado verificado — ya puedes tramitar pedidos."),
+                          "Tu método de pago ha quedado verificado para este proveedor — ya puedes "
+                          "tramitar pedidos a su catálogo."),
+                siguiente_paso_url=f"/portal/empresa/{token}/carrito",
+                siguiente_paso_texto=_t("portal_emp2.volver_al_carrito", "Volver al carrito →"),
                 no_leidos=_no_leidos(ses))
         return pagina_vincular_pago_retorno(
             token, exito=False,

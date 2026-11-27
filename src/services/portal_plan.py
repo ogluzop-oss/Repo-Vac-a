@@ -450,6 +450,274 @@ def procesar_evento_webhook(tipo: str, customer_id: str) -> dict:
         return {"ok": False, "accion": "error"}
 
 
+# ── PayPal como alternativa a Stripe (petición explícita, 2026-11-27) ─────────────────────────
+# Suscripciones reales de PayPal (`/v1/billing/*`), EXACTO mismo patrón que `backend/
+# sitio_oficial.py` usa para las suscripciones ERP — Smart Manager cobra DIRECTAMENTE en su propia
+# cuenta (`PAYPAL_CLIENT_ID`/`PAYPAL_CLIENT_SECRET` globales de siempre), nada de custodia ni
+# reparto: esto NO es el PayPal marketplace de los portales (`tpv.pagos.paypal_connect`, pago
+# directo al PROVEEDOR, credenciales propias de CADA proveedor — ver migr. 0366), es ingreso
+# propio de Smart Manager, igual que el ERP.
+#
+# A diferencia de Stripe (que necesita el baile Checkout→Setup/SubscriptionSchedule porque el
+# precio es dinámico), la Suscripción de PayPal ya define TODAS sus fases desde el principio —
+# un único paso crea el Plan (al vuelo, con el precio YA calculado) + la Suscripción y redirige a
+# aprobar. El contexto (tipo_sujeto/id_sujeto/ciclo/financiado) viaja en `custom_id` de la propia
+# Suscripción — nunca en la sesión de Flask ni en la query string del retorno (que PayPal no
+# garantiza): `confirmar_checkout_paypal` vuelve a consultar la Suscripción real y lee SU
+# `custom_id`, mismo criterio "nunca confiar en la redirección por sí sola" que el resto de la app.
+def _paypal_base() -> str:
+    import os
+    return ("https://api-m.sandbox.paypal.com" if os.environ.get("PAYPAL_MODO", "test") != "live"
+           else "https://api-m.paypal.com")
+
+
+def _paypal_token():
+    import os
+    import requests
+    client_id = os.environ.get("PAYPAL_CLIENT_ID")
+    client_secret = os.environ.get("PAYPAL_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        return None
+    try:
+        r = requests.post(f"{_paypal_base()}/v1/oauth2/token",
+                          data={"grant_type": "client_credentials"},
+                          auth=(client_id, client_secret), timeout=20)
+        if r.status_code == 200:
+            return r.json().get("access_token")
+        logger.warning("_paypal_token (portal_plan) %s: %s", r.status_code, r.text[:200])
+    except Exception as e:
+        logger.error("_paypal_token (portal_plan): %s", e)
+    return None
+
+
+def _paypal_crear_plan_simple(token, *, ciclo: str, unit_amount: float) -> str | None:
+    """Producto + Plan de PayPal AL VUELO con UN solo ciclo REGULAR (pago íntegro mensual/anual,
+    sin prueba — el Plan de Pago del Portal no tiene periodo de prueba). Devuelve el `plan_id` o
+    None si falla (degrada honestamente, nunca finge un plan)."""
+    import requests
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    interval_unit = "MONTH" if ciclo == "mensual" else "YEAR"
+    try:
+        rp = requests.post(f"{_paypal_base()}/v1/catalogs/products", headers=headers, timeout=25,
+                           json={"name": f"{NOMBRE_PLAN_PORTAL} ({ciclo})", "type": "SERVICE",
+                                "category": "SOFTWARE"})
+        if rp.status_code not in (200, 201):
+            logger.warning("PayPal crear producto (portal_plan) %s: %s", rp.status_code, rp.text[:200])
+            return None
+        product_id = rp.json().get("id")
+        r = requests.post(f"{_paypal_base()}/v1/billing/plans", headers=headers, timeout=25, json={
+            "product_id": product_id, "name": f"{NOMBRE_PLAN_PORTAL} ({ciclo})",
+            "billing_cycles": [{
+                "tenure_type": "REGULAR", "sequence": 1, "total_cycles": 0,
+                "frequency": {"interval_unit": interval_unit, "interval_count": 1},
+                "pricing_scheme": {"fixed_price": {"value": f"{unit_amount:.2f}", "currency_code": "EUR"}},
+            }],
+            "payment_preferences": {"auto_bill_outstanding": True, "payment_failure_threshold": 3},
+        })
+        if r.status_code not in (200, 201):
+            logger.warning("PayPal crear plan (portal_plan) %s: %s", r.status_code, r.text[:200])
+            return None
+        return r.json().get("id")
+    except Exception as e:
+        logger.error("_paypal_crear_plan_simple: %s", e)
+        return None
+
+
+def _paypal_crear_plan_financiado(token, *, cuota: float, precio_anual: float) -> str | None:
+    """Mismo patrón EXACTO que `sitio_oficial._paypal_crear_plan_financiacion` para el ERP: 4
+    cuotas trimestrales → el precio anual normal, para siempre. Sin fase de prueba (el Plan de Pago
+    del Portal no tiene periodo de prueba, a diferencia del ERP)."""
+    import requests
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        rp = requests.post(f"{_paypal_base()}/v1/catalogs/products", headers=headers, timeout=25,
+                           json={"name": f"{NOMBRE_PLAN_PORTAL} (financiado)", "type": "SERVICE",
+                                "category": "SOFTWARE"})
+        if rp.status_code not in (200, 201):
+            logger.warning("PayPal crear producto (financiación portal) %s: %s",
+                          rp.status_code, rp.text[:200])
+            return None
+        product_id = rp.json().get("id")
+        billing_cycles = [
+            {"tenure_type": "REGULAR", "sequence": 1, "total_cycles": 4,
+             "frequency": {"interval_unit": "MONTH", "interval_count": 3},
+             "pricing_scheme": {"fixed_price": {"value": f"{cuota:.2f}", "currency_code": "EUR"}}},
+            {"tenure_type": "REGULAR", "sequence": 2, "total_cycles": 0,
+             "frequency": {"interval_unit": "YEAR", "interval_count": 1},
+             "pricing_scheme": {"fixed_price": {"value": f"{precio_anual:.2f}", "currency_code": "EUR"}}},
+        ]
+        r = requests.post(f"{_paypal_base()}/v1/billing/plans", headers=headers, timeout=25, json={
+            "product_id": product_id, "name": f"{NOMBRE_PLAN_PORTAL} — financiado en 4 cuotas",
+            "billing_cycles": billing_cycles,
+            "payment_preferences": {"auto_bill_outstanding": True, "payment_failure_threshold": 3},
+        })
+        if r.status_code not in (200, 201):
+            logger.warning("PayPal crear plan (financiación portal) %s: %s", r.status_code, r.text[:200])
+            return None
+        return r.json().get("id")
+    except Exception as e:
+        logger.error("_paypal_crear_plan_financiado: %s", e)
+        return None
+
+
+def _paypal_crear_suscripcion(token, *, plan_id, email, custom_id, return_url, cancel_url) -> dict:
+    import requests
+    try:
+        r = requests.post(
+            f"{_paypal_base()}/v1/billing/subscriptions",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=25,
+            json={
+                "plan_id": plan_id, "custom_id": custom_id,
+                "subscriber": {"email_address": email} if email else {},
+                "application_context": {
+                    "brand_name": "Smart Manager", "locale": "es-ES",
+                    "shipping_preference": "NO_SHIPPING", "user_action": "SUBSCRIBE_NOW",
+                    "return_url": return_url, "cancel_url": cancel_url,
+                },
+            })
+        if r.status_code not in (200, 201):
+            logger.warning("PayPal crear suscripción (portal_plan) %s: %s", r.status_code, r.text[:200])
+            return {"ok": False}
+        j = r.json()
+        approve_url = next((l.get("href") for l in j.get("links", []) if l.get("rel") == "approve"), None)
+        if not approve_url:
+            return {"ok": False}
+        return {"ok": True, "subscription_id": j.get("id"), "approve_url": approve_url}
+    except Exception as e:
+        logger.error("_paypal_crear_suscripcion (portal_plan): %s", e)
+        return {"ok": False}
+
+
+def _paypal_obtener_suscripcion(token, subscription_id):
+    import requests
+    try:
+        r = requests.get(f"{_paypal_base()}/v1/billing/subscriptions/{subscription_id}",
+                         headers={"Authorization": f"Bearer {token}"}, timeout=25)
+        if r.status_code == 200:
+            return r.json()
+    except Exception as e:
+        logger.error("_paypal_obtener_suscripcion (portal_plan): %s", e)
+    return None
+
+
+def crear_checkout_session_paypal(tipo_sujeto: str, id_sujeto, *, ciclo: str, email: str,
+                                  success_url: str, cancel_url: str) -> dict:
+    """Equivalente PayPal de `crear_checkout_session` — pago íntegro mensual/anual. Devuelve
+    {ok, url} o {ok: False, error}."""
+    import json as _json
+    if ciclo not in CICLOS:
+        return {"ok": False, "error": "Ciclo de facturación no válido."}
+    token = _paypal_token()
+    if not token:
+        return {"ok": False, "error": "El pago no está disponible ahora mismo (PayPal no configurado)."}
+    unit_amount = precio_mensual_portal() if ciclo == "mensual" else precio_anual_portal()
+    plan_id = _paypal_crear_plan_simple(token, ciclo=ciclo, unit_amount=unit_amount)
+    if not plan_id:
+        return {"ok": False, "error": "No se pudo iniciar el pago. Inténtalo de nuevo en unos minutos."}
+    custom_id = _json.dumps({"s": tipo_sujeto, "i": str(id_sujeto), "c": ciclo, "f": False})
+    r = _paypal_crear_suscripcion(token, plan_id=plan_id, email=email, custom_id=custom_id,
+                                  return_url=success_url, cancel_url=cancel_url)
+    if not r.get("ok"):
+        return {"ok": False, "error": "No se pudo iniciar el pago con PayPal. Inténtalo de nuevo en unos minutos."}
+    return {"ok": True, "url": r["approve_url"]}
+
+
+def crear_checkout_session_financiada_paypal(tipo_sujeto: str, id_sujeto, *, email: str,
+                                             success_url: str, cancel_url: str) -> dict:
+    """Equivalente PayPal de `crear_checkout_session_financiada` — a diferencia de Stripe, aquí NO
+    hace falta un segundo paso: el Plan de 2 fases (4 cuotas + anual) se crea de una vez y la
+    Suscripción ya lo incluye todo desde el principio."""
+    import json as _json
+    token = _paypal_token()
+    if not token:
+        return {"ok": False, "error": "El pago no está disponible ahora mismo (PayPal no configurado)."}
+    plan_id = _paypal_crear_plan_financiado(token, cuota=cuota_4_pagos(),
+                                            precio_anual=precio_anual_portal())
+    if not plan_id:
+        return {"ok": False, "error": "No se pudo iniciar el pago. Inténtalo de nuevo en unos minutos."}
+    custom_id = _json.dumps({"s": tipo_sujeto, "i": str(id_sujeto), "c": "anual", "f": True})
+    r = _paypal_crear_suscripcion(token, plan_id=plan_id, email=email, custom_id=custom_id,
+                                  return_url=success_url, cancel_url=cancel_url)
+    if not r.get("ok"):
+        return {"ok": False, "error": "No se pudo iniciar el pago con PayPal. Inténtalo de nuevo en unos minutos."}
+    return {"ok": True, "url": r["approve_url"]}
+
+
+def confirmar_checkout_paypal(subscription_id: str) -> dict:
+    """Confirma una Suscripción de PayPal del Plan de Pago del Portal — NUNCA se confía en la
+    redirección por sí sola: se vuelve a consultar la Suscripción real (y se activa explícitamente
+    si quedó en APPROVED, mismo criterio que `sitio_oficial.checkout_paypal_exito`) antes de
+    activar nada. El contexto viaja en el propio `custom_id` de la Suscripción, fijado al crearla
+    — nunca en la sesión de Flask."""
+    import json as _json
+    if not subscription_id:
+        return {"ok": False, "error": "Falta el identificador de la suscripción."}
+    token = _paypal_token()
+    if not token:
+        return {"ok": False, "error": "PayPal no configurado."}
+    sus = _paypal_obtener_suscripcion(token, subscription_id)
+    if not sus:
+        return {"ok": False, "error": "No se pudo verificar el pago."}
+    estado = sus.get("status")
+    if estado == "APPROVED":
+        import requests
+        try:
+            requests.post(
+                f"{_paypal_base()}/v1/billing/subscriptions/{subscription_id}/activate",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                timeout=25, json={"reason": "Alta del Plan de Pago del Portal"})
+            sus = _paypal_obtener_suscripcion(token, subscription_id) or sus
+            estado = sus.get("status")
+        except Exception as e:
+            logger.error("confirmar_checkout_paypal activar(%s): %s", subscription_id, e)
+    if estado != "ACTIVE":
+        return {"ok": False, "error": "El pago no se ha completado todavía."}
+    try:
+        ctx = _json.loads(sus.get("custom_id") or "{}")
+        tipo_sujeto, id_sujeto, ciclo, financiado = ctx["s"], ctx["i"], ctx["c"], bool(ctx.get("f"))
+    except Exception as e:
+        logger.error("confirmar_checkout_paypal custom_id(%s): %s", subscription_id, e)
+        return {"ok": False, "error": "Sesión de pago inválida."}
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE portal_suscripciones SET estado='cancelada', cancelada_en=NOW() WHERE "
+                "tipo_sujeto=%s AND id_sujeto=%s AND estado='activa'", (tipo_sujeto, id_sujeto))
+            cur.execute(
+                "INSERT INTO portal_suscripciones (tipo_sujeto, id_sujeto, codigo_plan, ciclo, "
+                "estado, financiado_4_cuotas, paypal_subscription_id) "
+                "VALUES (%s,%s,%s,%s,'activa',%s,%s)",
+                (tipo_sujeto, id_sujeto, CODIGO_PLAN_PORTAL, ciclo, int(financiado), subscription_id))
+            conn.commit()
+        return {"ok": True, "tipo_sujeto": tipo_sujeto, "id_sujeto": id_sujeto, "ciclo": ciclo}
+    except Exception as e:
+        logger.error("confirmar_checkout_paypal persistir(%s): %s", subscription_id, e)
+        return {"ok": False, "error": "El pago se completó pero no pudimos activar el plan. "
+                                      "Escríbenos para resolverlo manualmente."}
+
+
+def resolver_sujeto_por_paypal_subscription(subscription_id) -> tuple:
+    """(tipo_sujeto, id_sujeto) dueño de esta Suscripción de PayPal en `portal_suscripciones`, o
+    (None, None) — equivalente PayPal de `resolver_sujeto_por_stripe_customer`. Preparado para
+    cuando exista un receptor de webhooks de PayPal (hueco ya documentado, ver memoria del
+    proyecto: hoy ningún flujo de PayPal de la app tiene webhook, ERP incluido)."""
+    if not subscription_id:
+        return None, None
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT tipo_sujeto, id_sujeto FROM portal_suscripciones WHERE "
+                "paypal_subscription_id=%s ORDER BY id DESC LIMIT 1", (subscription_id,))
+            r = cur.fetchone()
+            if not r:
+                return None, None
+            return (r[0], r[1]) if not isinstance(r, dict) else (r["tipo_sujeto"], r["id_sujeto"])
+    except Exception as e:
+        logger.error("resolver_sujeto_por_paypal_subscription(%s): %s", subscription_id, e)
+        return None, None
+
+
 def confirmar_checkout_generico(session_id: str) -> dict:
     """Punto único de confirmación para la ruta `/plan/exito` de ambos portales: resuelve sola si
     la sesión fue un cobro directo (mensual/anual íntegro, `mode='subscription'`) o el primer
@@ -478,4 +746,6 @@ __all__ = [
     "crear_checkout_session", "confirmar_checkout",
     "crear_checkout_session_financiada", "confirmar_checkout_financiado",
     "confirmar_checkout_generico",
+    "crear_checkout_session_paypal", "crear_checkout_session_financiada_paypal",
+    "confirmar_checkout_paypal", "resolver_sujeto_por_paypal_subscription",
 ]
