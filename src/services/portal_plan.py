@@ -467,6 +467,41 @@ def procesar_evento_webhook(tipo: str, customer_id: str) -> dict:
         return {"ok": False, "accion": "error"}
 
 
+def procesar_evento_webhook_paypal(tipo: str, subscription_id: str) -> dict:
+    """Equivalente de `procesar_evento_webhook` para suscripciones de PayPal del Plan de Pago del
+    Portal (petición explícita, 2026-11-28 — cierra el mismo hueco de webhook que ya tenía Stripe,
+    ahora también para PayPal: "revisar si hace falta configurar algo más con los webhooks de
+    PayPal"). `tipo` ya viene traducido a vocabulario Stripe-like por el llamador
+    (`backend_central/rutas_paypal.py`, que mapea los tipos reales de PayPal — `BILLING.
+    SUBSCRIPTION.CANCELLED`, etc. — a `invoice.paid`/`invoice.payment_failed`/`customer.
+    subscription.deleted` para reutilizar las MISMAS constantes `_EVENTOS_*` de arriba, sin
+    duplicar el mapeo)."""
+    tipo_sujeto, id_sujeto = resolver_sujeto_por_paypal_subscription(subscription_id)
+    if not tipo_sujeto:
+        return {"ok": False, "accion": "sin_sujeto"}
+    if tipo in _EVENTOS_PAGADO:
+        nuevo_estado = "activa"
+    elif tipo in _EVENTOS_FALLIDO:
+        nuevo_estado = "impagada"
+    elif tipo in _EVENTOS_CANCELADO:
+        nuevo_estado = "cancelada"
+    else:
+        return {"ok": False, "accion": "ignorado", "tipo": tipo}
+    try:
+        with obtener_conexion() as conn, conn.cursor() as cur:
+            extra = ", cancelada_en=NOW()" if nuevo_estado == "cancelada" else ""
+            cur.execute(
+                f"UPDATE portal_suscripciones SET estado=%s{extra} WHERE "
+                "paypal_subscription_id=%s AND tipo_sujeto=%s AND id_sujeto=%s "
+                "ORDER BY id DESC LIMIT 1",
+                (nuevo_estado, subscription_id, tipo_sujeto, id_sujeto))
+            conn.commit()
+        return {"ok": True, "accion": nuevo_estado, "tipo_sujeto": tipo_sujeto, "id_sujeto": id_sujeto}
+    except Exception as e:
+        logger.error("procesar_evento_webhook_paypal(%s,%s): %s", tipo, subscription_id, e)
+        return {"ok": False, "accion": "error"}
+
+
 # ── PayPal como alternativa a Stripe (petición explícita, 2026-11-27) ─────────────────────────
 # Suscripciones reales de PayPal (`/v1/billing/*`), EXACTO mismo patrón que `backend/
 # sitio_oficial.py` usa para las suscripciones ERP — Smart Manager cobra DIRECTAMENTE en su propia
@@ -773,4 +808,5 @@ __all__ = [
     "confirmar_checkout_generico",
     "crear_checkout_session_paypal", "crear_checkout_session_financiada_paypal",
     "confirmar_checkout_paypal", "resolver_sujeto_por_paypal_subscription",
+    "procesar_evento_webhook", "procesar_evento_webhook_paypal",
 ]
