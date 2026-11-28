@@ -1,17 +1,17 @@
 """
-Puente INTERNO entre el sitio oficial público (`src.backend.sitio_oficial`, dominio comercial
-`smartmanager-app.com`) y la BD CENTRAL de licencias. Mismo motivo que el resto de
-`backend_central/`: el sitio oficial corre en el contenedor `backend` (conectado a
-`smart_manager_db`, la BD local/multiempresa), nunca a `smart_manager_central` directamente — así
-que necesita cruzar al contenedor `backend_central` por HTTP, dentro de la red privada de Docker
-(nunca expuesto tal cual a Internet: Caddy solo publica `/central/*` en `admin.smartmanager-app.com`,
-y estos endpoints concretos exigen además la cabecera `X-Internal-Secret`, ver `_requiere_secreto`).
+@deprecated (2026-11-14, Strangler — código conservado, YA NO en uso): primer intento de puente
+entre el sitio oficial (`src.backend.sitio_oficial`) y este servidor CENTRAL de licencias. Error de
+diseño: este despliegue es un SaaS multiempresa de verdad (una única `smart_manager_db` para todos
+los clientes, aislada por `id_empresa`), no una colección de instalaciones on-prem independientes
+cada una con su PROPIA base de datos — que es para lo que SÍ sirve `backend_central` (activación de
+licencia on-prem, `/central/activar`). Crear la empresa aquí (en `smart_manager_central`) la dejaba
+en la base de datos EQUIVOCADA: el resto del ERP (`services.saas`/`services.provisioning`/la app de
+escritorio) nunca la habría visto.
 
-Reutiliza TAL CUAL: `db.empresa.crear_empresa` (alta de empresa central), `services.saas.suscripciones`
-(estado/alta de suscripción) y el mismo campo `codigos_activacion` que ya consume `rutas_licencia.py`
-en el otro sentido (canje, no generación). Las contraseñas de `cuentas_web_central` usan PBKDF2
-(`werkzeug.security`), NUNCA el hash SHA-256 sin sal de `db/usuario.py` (sistema de identidad
-distinto: empleados del ERP de un cliente vs. clientes del propio sitio comercial).
+El sitio oficial usa ahora `src.services.alta_comercial`, que opera DIRECTAMENTE sobre
+`smart_manager_db` desde el propio contenedor `backend` — sin cruzar a este servicio por HTTP.
+Este fichero se conserva sin tocar (Strangler) por si algún día hace falta separar bases de datos
+de verdad; no lo usa nada en producción.
 """
 
 import logging

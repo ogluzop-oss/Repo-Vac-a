@@ -4,6 +4,25 @@
 -- CREATE TABLE IF NOT EXISTS  → no toca tablas existentes.
 -- ALTER TABLE … ADD COLUMN IF NOT EXISTS → añade columnas faltantes.
 -- DROP TABLE IF EXISTS (al final) → elimina tablas obsoletas sin datos.
+--
+-- ¡NO EJECUTAR ESTE FICHERO SUELTO EN UN DESPLIEGUE NUEVO! Solo crea el
+-- esquema MÍNIMO (unas pocas tablas base). El esquema COMPLETO (incluidos
+-- `clientes` y las columnas multi-tenant `id_empresa`/`id_tienda` en tablas
+-- como `movimientos_stock`) lo aporta `ensure_schema()` (src/db/conexion.py),
+-- que la migración "0001" invoca AUTOMÁTICAMENTE la primera vez que se corre
+-- `src.db.migrador.aplicar_pendientes()` sobre una BD recién creada.
+--
+-- Despliegue nuevo CORRECTO (un único paso, nada más): ejecutar `scripts/init_db.sh` tras
+-- `docker compose up -d` — ese script ya invoca `db.migrador.aplicar_pendientes()` por su cuenta.
+--
+-- NUNCA llames a `asegurar_base_de_datos()` (que solo ejecuta ESTE fichero)
+-- a mano antes de aplicar migraciones: crea la tabla `usuarios` por sí sola,
+-- y el migrador usa `SHOW TABLES LIKE 'usuarios'` para decidir si la
+-- instalación es nueva o ya existente — si la encuentra, SELLA la migración
+-- "0001" en vez de ejecutarla, y el `ensure_schema()` completo nunca llega a
+-- correr (confirmado en un despliegue real: dejó `clientes` y las columnas
+-- id_empresa/id_tienda de `movimientos_stock` sin crear hasta corregirlo a
+-- mano -- reproducido y verificado sobre una BD aislada antes de documentarlo).
 -- ============================================================
 
 CREATE DATABASE IF NOT EXISTS smart_manager_db

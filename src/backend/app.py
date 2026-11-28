@@ -107,7 +107,47 @@ def crear_app():
         http = int(res.pop("http", 200))
         return jsonify(res), http
 
-    # (El webhook de MARKETPLACE Stripe Connect se retiró con el desmontaje del pagos_marketplace/lonja.)
+    # Webhook de eventos de Stripe CONNECT (petición explícita, 2026-11-16) — restaura, sobre las
+    # tablas NUEVAS (`suministradores`/`b2b_escrow`, no la `lonja` retirada), lo que el comentario
+    # de arriba decía que se había desmontado. Distinto del webhook de facturación SaaS
+    # (`backend_central/rutas_stripe.py`, STRIPE_WEBHOOK_SECRET_SAAS): Stripe exige un endpoint y un
+    # secreto de firma por CADA tipo de eventos que se suscriban por separado.
+    @app.post("/webhooks/stripe/connect")
+    def webhook_stripe_connect():
+        """Mantiene al día la caché local `suministradores.stripe_verificado` (requisito
+        obligatorio para publicar catálogo/recibir pedidos, ver `b2b_catalogo`/`b2b_pedidos`) SIN
+        depender de que el proveedor vuelva a abrir su panel — p. ej. si Stripe pide un documento
+        adicional DESPUÉS del alta, o restringe la cuenta más tarde. Evento `account.updated`."""
+        from src.services.tpv.pagos.webhooks.stripe import verificar_firma_stripe
+        secreto = os.environ.get("STRIPE_WEBHOOK_SECRET_CONNECT")
+        cuerpo = request.get_data() or b""
+        cabeceras = dict(request.headers)
+        ok, ev = verificar_firma_stripe(cabeceras, cuerpo, secreto or "")
+        if not ok:
+            logger.warning("Webhook Stripe Connect rechazado: %s", ev)
+            return jsonify({"ok": False, "error": ev}), 400
+
+        evento_id = ev.get("id")
+        tipo = ev.get("type") or ""
+        obj = (ev.get("data") or {}).get("object") or {}
+        account_id = obj.get("id")
+
+        from src.db.pagos_webhooks import reclamar_evento
+        id_log = reclamar_evento("stripe_connect", evento_id, tipo, account_id, request.remote_addr)
+        if id_log is None:
+            # Duplicado/replay (Stripe reintenta si no respondemos 200 a tiempo): se acepta sin
+            # reprocesar, para que Stripe deje de reintentar.
+            return jsonify({"ok": True, "duplicado": True})
+
+        if tipo != "account.updated" or not account_id:
+            return jsonify({"ok": True, "accion": "ignorado"})
+
+        from src.services.compras import suministradores as SUP
+        payouts_enabled = bool(obj.get("payouts_enabled"))
+        actualizado = SUP.actualizar_verificacion_por_cuenta(account_id, payouts_enabled)
+        logger.info("Webhook Stripe Connect: account.updated %s payouts_enabled=%s actualizado=%s",
+                   account_id, payouts_enabled, actualizado)
+        return jsonify({"ok": True, "accion": "actualizado" if actualizado else "cuenta_no_encontrada"})
 
     # Sitio oficial y comercial (dominio raíz, smartmanager-app.com): presentación del ERP, planes,
     # alta/pago (Stripe Checkout) y descarga de la app — ver docstring del módulo.
@@ -146,6 +186,21 @@ def crear_app():
     except Exception as e:
         logger.warning("Portal empresa Gestión no disponible: %s", e)
 
+    # Tareas periódicas del Portal B2B (onboarding comercial) — disparadas por un cron externo del
+    # VPS vía secreto compartido, ver `rutas_jobs_b2b`.
+    try:
+        from src.backend.rutas_jobs_b2b import crear_blueprint as crear_blueprint_jobs_b2b
+        app.register_blueprint(crear_blueprint_jobs_b2b())
+    except Exception as e:
+        logger.warning("Jobs B2B no disponibles: %s", e)
+
+    # Buzón de sugerencias/incidencias del escritorio hacia Smart Manager (ver rutas_soporte.py).
+    try:
+        from src.backend.rutas_soporte import crear_blueprint as crear_blueprint_soporte
+        app.register_blueprint(crear_blueprint_soporte())
+    except Exception as e:
+        logger.warning("Buzón de soporte no disponible: %s", e)
+
     # Pedidos Online (extranet): gestión de pedidos online (Preparar/Enviar/Entregar) — sustituye
     # al diálogo Qt `gui/portal_web_home.PortalWebHome`, abierto desde "Venta online" del TPV.
     try:
@@ -176,6 +231,38 @@ def crear_app():
         app.register_blueprint(crear_blueprint_mcp())
     except Exception as e:
         logger.warning("Conector MCP no disponible: %s", e)
+
+    # Hosting automático del Canal Web (petición explícita, 2026-11-24): antes, CADA dominio de
+    # tienda nuevo exigía duplicar a mano un bloque en el Caddyfile del VPS apuntando a
+    # `/tienda/<id_empresa>` fijo (confirmado: `tienda.smartmanager-app.com` estaba codificado a
+    # `id_empresa=1`, ninguna otra empresa podía tener su web publicada sin ese paso manual). Este
+    # middleware WSGI resuelve el `id_empresa` dueño del Host ANTES de que Flask enrute (único
+    # punto posible para reescribir el path: el `before_request` de un blueprint ya corre DESPUÉS
+    # del routing, demasiado tarde) contra `cd_canal_dominios` (mismo dato que ya usa el resto del
+    # Canal Web, vía `resolver_id_empresa_por_host` — sin tabla/motor nuevo) y antepone
+    # `/tienda/<id_empresa>` al path real — así CUALQUIER subdominio generado por
+    # `generar_subdominio`/dominio propio asignado queda servido por el storefront existente sin
+    # tocar el Caddyfile ni este backend por cada empresa nueva. Degradable: cualquier fallo deja
+    # la petición intacta (nunca rompe el resto de la app por un error aquí).
+    _wsgi_original = app.wsgi_app
+
+    def _wsgi_dominio_tienda(environ, start_response):
+        try:
+            path = environ.get("PATH_INFO", "") or "/"
+            if not path.startswith(("/tienda/", "/api/", "/central", "/mcp")):
+                host = environ.get("HTTP_HOST", "")
+                from src.services.comercio_digital.canal_web import gestion_dominios as _GD
+                id_empresa = _GD.resolver_id_empresa_por_host(host)
+                if id_empresa:
+                    # La home real está registrada SIN barra final ("/tienda/<id_empresa>", sin
+                    # trailing slash) — anteponer el prefijo a "/" tal cual daría
+                    # "/tienda/<id>/" y un 404 por el strict_slashes de Flask/Werkzeug.
+                    environ["PATH_INFO"] = f"/tienda/{id_empresa}" + ("" if path == "/" else path)
+        except Exception as e:
+            logger.debug("middleware dominio tienda: %s", e)
+        return _wsgi_original(environ, start_response)
+
+    app.wsgi_app = _wsgi_dominio_tienda
 
     return app
 

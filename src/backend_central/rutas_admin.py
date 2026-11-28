@@ -39,7 +39,6 @@ def _cookie_segura() -> bool:
 
 def _layout(titulo, contenido, *, autenticado=False):
     nav = ("""<nav><a href="/central/panel/">Empresas</a>
-<a href="/central/panel/voz">Voz (ElevenLabs)</a>
 <a href="/central/panel/logout">Cerrar sesión</a></nav>""" if autenticado else "")
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -193,67 +192,6 @@ def _pagina_dashboard(mensaje=None, error=None):
 </div>""", autenticado=True)
 
 
-def _fila_empresa_voz(e):
-    return f"""<tr>
-<td>{_e(e.get('id_empresa'))}</td>
-<td>{_e(f"{e.get('caracteres', 0):,}")}</td>
-<td>${_e(f"{e.get('coste_usd', 0):.4f}")}</td>
-<td>${_e(f"{e.get('facturado_usd', 0):.4f}")}</td>
-</tr>"""
-
-
-def _pagina_voz(mensaje=None, error=None):
-    """Panel GLOBAL (cross-empresa) de coste real vs. facturado de voz (ElevenLabs/SOMA) + editor
-    de la tarifa de reventa (coste base + margen). Vive AQUÍ a propósito, nunca en
-    `gui/saas_admin.py`: SUPERADMIN es un rol interno de cada empresa cliente, no una identidad de
-    plataforma (ver `services/saas/voz_plan.py`, que documenta la misma frontera), así que el
-    desglose cruzado entre empresas y el ajuste de la tarifa global solo pueden vivir en esta
-    cuenta única del Fundador, sin relación con ningún tenant."""
-    from src.services.saas import voz_plan
-    from src.services.voz_control_uso import tarifa_actual
-    try:
-        resumen = voz_plan.resumen_global_voz()
-    except Exception as e:
-        logger.error("voz_plan.resumen_global_voz: %s", e)
-        resumen = {"coste_total_usd": 0, "facturado_total_usd": 0, "margen_total_usd": 0, "por_empresa": []}
-    try:
-        coste_actual, margen_actual = tarifa_actual()
-    except Exception as e:
-        logger.error("voz_control_uso.tarifa_actual: %s", e)
-        coste_actual, margen_actual = 0.0, 0.0
-
-    aviso = f'<p class="ok">{_e(mensaje)}</p>' if mensaje else ""
-    if error:
-        aviso += f'<p class="error">{_e(error)}</p>'
-
-    filas = "".join(_fila_empresa_voz(e) for e in resumen.get("por_empresa") or []) or \
-        '<tr><td colspan="4">Todavía no hay uso de voz registrado.</td></tr>'
-
-    return _layout("Voz (ElevenLabs)", f"""
-<h1>Voz (ElevenLabs / SOMA) — coste vs. facturación</h1>
-{aviso}
-<div class="card stats">
-<div class="stat"><b>${_e(f"{resumen.get('coste_total_usd', 0):.4f}")}</b><span>Coste real (proveedor)</span></div>
-<div class="stat"><b>${_e(f"{resumen.get('facturado_total_usd', 0):.4f}")}</b><span>Facturado (con margen)</span></div>
-<div class="stat"><b>${_e(f"{resumen.get('margen_total_usd', 0):.4f}")}</b><span>Margen generado</span></div>
-</div>
-<div class="card">
-<h2>Tarifa de reventa (global)</h2>
-<form method="post" action="/central/panel/voz/tarifa">
-<label>Coste por carácter (USD) — lo que cobra ElevenLabs</label>
-<input type="number" step="0.00000001" min="0" name="cost_basis_per_char_usd" value="{_e(coste_actual)}" required>
-<label>Margen de reventa (%)</label>
-<input type="number" step="0.01" min="0" name="margen_pct" value="{_e(margen_actual)}" required>
-<div style="margin-top:16px"><button type="submit">Actualizar tarifa</button></div>
-</form>
-</div>
-<div class="card">
-<h2>Desglose por empresa (todas, sin filtro)</h2>
-<table><thead><tr><th>Empresa</th><th>Caracteres</th><th>Coste real</th><th>Facturado</th></tr></thead>
-<tbody>{filas}</tbody></table>
-</div>""", autenticado=True)
-
-
 def crear_blueprint():
     from flask import Blueprint, make_response, redirect, request
 
@@ -343,24 +281,5 @@ def crear_blueprint():
         if not r.get("ok"):
             return _pagina_dashboard(error=r.get("error") or "No se pudo generar el backup.")
         return _pagina_dashboard(mensaje="Backup generado.")
-
-    @bp.get("/voz")
-    @_requiere_login
-    def voz_dashboard():
-        return _pagina_voz()
-
-    @bp.post("/voz/tarifa")
-    @_requiere_login
-    def voz_tarifa():
-        from src.services.saas import voz_plan
-        try:
-            voz_plan.actualizar_tarifa_global(
-                request.form.get("cost_basis_per_char_usd"),
-                request.form.get("margen_pct"),
-                actualizado_por=request.fundador_usuario,
-            )
-        except Exception as e:
-            return _pagina_voz(error=f"No se pudo actualizar la tarifa: {e}")
-        return _pagina_voz(mensaje="Tarifa de voz actualizada.")
 
     return bp
